@@ -121,6 +121,98 @@ function anyPass(data: unknown, fns: Array<(value: unknown) => boolean>): boolea
 }
 
 #[test]
+fn array_callback_value_index_paths_do_not_snapshot_source_array() {
+    let source = source_for(
+        r#"
+function offsets(values: number[], factor: number): number[] {
+  return values.map((value, index) => value * factor + index);
+}
+function positive(values: number[]): boolean {
+  return values.some((value, index) => value + index > 2);
+}
+"#,
+    );
+
+    assert!(source.contains("values.iter().enumerate().map"), "{source}");
+    assert!(source.contains("values.iter().enumerate().any"), "{source}");
+    assert!(
+        source.contains("closure_arg_0.clone() * factor.clone()"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("let smelt_array = values.clone();"),
+        "{source}"
+    );
+    assert!(!source.contains(".clone().clone()"), "{source}");
+}
+
+#[test]
+fn array_callback_third_array_parameter_snapshots_once() {
+    let source = source_for(
+        r#"
+function view(values: number[]): number[] {
+  return values.map((value, index, array) => value + array[index]);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("let smelt_array = values.clone();"),
+        "{source}"
+    );
+    assert!(
+        source.contains("smelt_array.iter().enumerate().map"),
+        "{source}"
+    );
+    assert!(source.contains("smelt_array.clone()"), "{source}");
+    assert!(!source.contains("values.clone().clone()"), "{source}");
+}
+
+#[test]
+fn nested_array_callbacks_borrow_each_receiver_without_double_cloning() {
+    let source = source_for(
+        r#"
+function nested(groups: number[][], limit: number): boolean[] {
+  return groups.map((group) => group.filter((value) => value > limit).some((value) => value > 0));
+}
+"#,
+    );
+
+    assert!(source.contains(".iter().enumerate().map"), "{source}");
+    assert!(
+        source.contains(".iter().enumerate().filter_map"),
+        "{source}"
+    );
+    assert!(source.contains(".iter().enumerate().any"), "{source}");
+    assert!(source.contains("limit.clone()"), "{source}");
+    assert!(!source.contains("smelt_array.clone().clone()"), "{source}");
+    assert!(!source.contains(".clone().clone()"), "{source}");
+}
+
+#[test]
+fn spread_rest_callback_closure_clones_captured_callback_once() {
+    let source = source_for(
+        r#"
+type RestCallback = (...args: unknown[]) => unknown;
+function invokeAll(callbacks: RestCallback[], args: unknown[]): unknown[] {
+  return callbacks.map((callback) => callback(...args));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("callbacks.iter().enumerate().map"),
+        "{source}"
+    );
+    assert!(source.contains("args.clone()"), "{source}");
+    assert!(
+        !source.contains("let smelt_array = callbacks.clone();"),
+        "{source}"
+    );
+    assert!(!source.contains("callback.clone().clone()"), "{source}");
+}
+
+#[test]
 fn skips_unused_function_callback_item_bindings_in_literal_false_branch() {
     let source = source_for(
         r#"

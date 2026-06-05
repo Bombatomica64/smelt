@@ -1,233 +1,20 @@
-impl ModuleBuilder<'_> {
+/// Function pointer shape for builtin call lowering registry entries.
+///
+/// The builder lifetime is supplied by the impl block that owns the registry.
+type BuiltinCallHandler<'builder> = fn(
+    &mut ModuleBuilder<'builder>,
+    &oxc::ast::ast::CallExpression<'_>,
+    &mut Body,
+) -> Result<Option<smelt_hir::ExprId>, SmeltError>;
+
+impl<'builder> ModuleBuilder<'builder> {
     /// Lower call expressions, including stdlib shims and direct function/method invokes.
     fn call_expression(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if let Some(expr) = self.type_test_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.typed_test_value_call(call, body) {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.date_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.intl_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.regex_replace_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.object_assign_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.vitest_async_expect_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.vitest_mock_function_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.vitest_spy_on_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.vitest_mock_handle_method_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.vitest_fake_timer_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.date_fns_timezone_context_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.sinon_fake_timers_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.structured_clone_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.crypto_get_random_values_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(error) = self.unsupported_object_collection_call(call) {
-            return Err(error);
-        }
-        if let Some(expr) = self.exact_stdlib_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.promise_continuation_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.timer_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.number_to_string_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.node_process_version_match_call(call, body) {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.node_process_cwd_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.commonjs_require_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.object_metadata_mutation_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.buffer_from_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.lodash_negate_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.lodash_has_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.object_get_own_property_symbols_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.object_projection_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.object_has_own_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.map_has_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.map_get_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.map_mutation_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.map_projection_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.set_projection_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.regexp_test_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.regexp_exec_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_match_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_match_all_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.url_to_string_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_case_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_normalize_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_trim_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_affix_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.lodash_for_each_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.strapi_async_map_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.lodash_fp_curried_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_callback_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_reduce_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_search_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.collection_at_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_entries_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_search_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_replace_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.collection_slice_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_push_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_unshift_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_reverse_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_sort_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.modern_array_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_pop_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_shift_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_repeat_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_pad_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_char_at_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.node_path_static_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_join_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_concat_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_contains_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.set_contains_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.set_mutation_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_contains_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_split_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.namespace_member_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.function_bind_call(call, body)? {
+        if let Some(expr) = self.dispatch_builtin_call(call, body)? {
             return Ok(expr);
         }
         if let Expression::ComputedMemberExpression(member) = &call.callee {
@@ -817,6 +604,163 @@ impl ModuleBuilder<'_> {
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// Lower a call through the ordered builtin/stdlib dispatch registry.
+    ///
+    /// This is the single seam that owns "which builtin lowering, if any, claims
+    /// this callee". Each registry entry re-matches the callee AST and returns
+    /// `Ok(Some(expr))` only when it handles the call. The registry is consulted
+    /// strictly in declaration order, so the first matching handler wins exactly
+    /// as the previous sequential guard chain did. Adding a new builtin means
+    /// adding one entry to [`Self::builtin_call_handlers`] at the right position
+    /// instead of editing the long inline guard chain.
+    ///
+    /// Returns `Ok(None)` when no builtin handler matches, leaving the caller to
+    /// continue with the generic call-lowering paths. The unsupported-collection
+    /// probe keeps its original semantics: a positive match surfaces as an error,
+    /// not as a handled call.
+    fn dispatch_builtin_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        for handler in Self::builtin_call_handlers() {
+            if let Some(expr) = handler(self, call, body)? {
+                return Ok(Some(expr));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Adapter so an infallible `Option`-returning handler fits the registry shape.
+    ///
+    /// Preserves the original guard `if let Some(expr) = self.typed_test_value_call(...)`
+    /// which never produced an error.
+    fn typed_test_value_call_entry(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        Ok(self.typed_test_value_call(call, body))
+    }
+
+    /// Adapter so the type-test handler fits the builtin registry shape.
+    fn type_test_call_entry(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        self.type_test_call(call, body)
+    }
+
+    /// Adapter so the infallible node-process-version handler fits the registry shape.
+    fn node_process_version_match_call_entry(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        Ok(self.node_process_version_match_call(call, body))
+    }
+
+    /// Adapter for the unsupported-object-collection probe.
+    ///
+    /// The original guard turned a positive match into an immediate `Err`, never
+    /// a handled expression, so this surfaces the probe's error and otherwise
+    /// reports "not handled".
+    fn unsupported_object_collection_call_entry(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        _body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        self.unsupported_object_collection_call(call)
+            .map_or(Ok(None), Err)
+    }
+
+    /// Ordered builtin/stdlib call lowering handlers.
+    ///
+    /// The order is load-bearing: earlier handlers win when two could match the
+    /// same callee, exactly as in the former sequential guard chain. Do not
+    /// reorder entries without verifying overlapping callees still resolve to the
+    /// same handler.
+    fn builtin_call_handlers() -> impl IntoIterator<Item = BuiltinCallHandler<'builder>> {
+        [
+            Self::type_test_call_entry,
+            Self::typed_test_value_call_entry,
+            Self::date_call,
+            Self::intl_call,
+            Self::regex_replace_call,
+            Self::object_assign_call,
+            Self::vitest_async_expect_call,
+        Self::vitest_mock_function_call,
+        Self::vitest_spy_on_call,
+        Self::vitest_mock_handle_method_call,
+        Self::vitest_fake_timer_call,
+        Self::date_fns_timezone_context_call,
+        Self::sinon_fake_timers_call,
+        Self::structured_clone_call,
+        Self::crypto_get_random_values_call,
+        Self::unsupported_object_collection_call_entry,
+        Self::exact_stdlib_call,
+        Self::promise_continuation_call,
+        Self::timer_call,
+        Self::number_to_string_call,
+        Self::node_process_version_match_call_entry,
+        Self::node_process_cwd_call,
+        Self::commonjs_require_call,
+        Self::object_metadata_mutation_call,
+        Self::buffer_from_call,
+        Self::lodash_negate_call,
+        Self::lodash_has_call,
+        Self::object_get_own_property_symbols_call,
+        Self::object_projection_call,
+        Self::object_has_own_call,
+        Self::map_has_call,
+        Self::map_get_call,
+        Self::map_mutation_call,
+        Self::map_projection_call,
+        Self::set_projection_call,
+        Self::regexp_test_call,
+        Self::regexp_exec_call,
+        Self::string_match_call,
+        Self::string_match_all_call,
+        Self::url_to_string_call,
+        Self::string_case_call,
+        Self::string_normalize_call,
+        Self::string_trim_call,
+        Self::string_affix_call,
+        Self::lodash_for_each_call,
+        Self::strapi_async_map_call,
+        Self::lodash_fp_curried_call,
+        Self::list_callback_call,
+        Self::list_reduce_call,
+        Self::list_search_call,
+        Self::collection_at_call,
+        Self::list_entries_call,
+        Self::string_search_call,
+        Self::string_replace_call,
+        Self::collection_slice_call,
+        Self::list_push_call,
+        Self::list_unshift_call,
+        Self::list_reverse_call,
+        Self::list_sort_call,
+        Self::modern_array_call,
+        Self::list_pop_call,
+        Self::list_shift_call,
+        Self::string_repeat_call,
+        Self::string_pad_call,
+        Self::string_char_at_call,
+        Self::node_path_static_call,
+        Self::string_join_call,
+        Self::list_concat_call,
+        Self::list_contains_call,
+        Self::set_contains_call,
+        Self::set_mutation_call,
+        Self::string_contains_call,
+        Self::string_split_call,
+        Self::namespace_member_call,
+            Self::function_bind_call,
+        ]
     }
 
     /// Return whether the module source declares a callable with this local name.

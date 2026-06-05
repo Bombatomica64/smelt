@@ -553,6 +553,26 @@ impl<'mir> FunctionEmitter<'mir> {
         })
     }
 
+    /// Returns whether a local is read anywhere in a closure body.
+    pub(super) fn closure_local_has_uses(&self, closure: &MirClosure, local: LocalId) -> bool {
+        closure.blocks.iter().any(|block| {
+            block.phis.iter().any(|phi| {
+                phi.incoming
+                    .iter()
+                    .any(|(_, operand)| operand_uses_local(operand, local))
+            }) || block.statements.iter().any(|statement| match statement {
+                Statement::Assign { value, .. } => rvalue_uses_local(value, local),
+                Statement::AssignPlace { place, value } => {
+                    assignment_place_reads_local(place, local) || rvalue_uses_local(value, local)
+                }
+                Statement::StorageLive(_) | Statement::StorageDead(_) => false,
+            }) || block
+                .terminator
+                .as_ref()
+                .is_some_and(|terminator| terminator_uses_local(terminator, local))
+        })
+    }
+
     /// Returns the source operand for a single-assignment unknown cast local.
     ///
     /// TypeScript type assertions and control-flow narrows do not convert the

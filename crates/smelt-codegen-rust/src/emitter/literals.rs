@@ -177,7 +177,11 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
     locals
 }
 
-/// Adds locals assigned by embedded callback expression trees.
+/// Adds locals assigned by embedded legacy callback expression trees.
+///
+/// This metadata traversal remains for the narrow persisted sort-comparator
+/// path. Normal callback bodies should expose their assignments through closure
+/// CFG statements instead of through `CallbackExpr`.
 fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut HashSet<LocalId>) {
     match &callback.kind {
         smelt_hir::CallbackExprKind::AssignCapture { target, value } => {

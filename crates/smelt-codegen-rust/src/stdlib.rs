@@ -96,7 +96,7 @@ fn rvalue_needs_regex(rvalue: &Rvalue, mir: &Mir) -> bool {
         Rvalue::ListSort {
             comparator: Some(callback),
             ..
-        } if callback_needs_regex(callback, mir)
+        } if sort_comparator_needs_regex(callback, mir)
     )
 }
 
@@ -105,8 +105,11 @@ fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::StringNormalize { .. })
 }
 
-/// Returns true when one callback-expression tree uses Regex APIs.
-fn callback_needs_regex(callback: &CallbackExpr, mir: &Mir) -> bool {
+/// Returns true when one legacy sort-comparator tree uses Regex APIs.
+///
+/// `CallbackExpr` should only reach MIR codegen as an `Array.prototype.sort`
+/// comparator; normal callback bodies are emitted from closure CFGs.
+fn sort_comparator_needs_regex(callback: &CallbackExpr, mir: &Mir) -> bool {
     match &callback.kind {
         CallbackExprKind::MethodCall {
             receiver,
@@ -115,37 +118,43 @@ fn callback_needs_regex(callback: &CallbackExpr, mir: &Mir) -> bool {
         } => {
             mir.symbols.get(*method).is_some_and(|name| {
                 name == "match" || name == "__smelt_replace_first_match_uppercase"
-            }) || callback_needs_regex(receiver, mir)
-                || args.iter().any(|arg| callback_needs_regex(&arg.expr, mir))
+            }) || sort_comparator_needs_regex(receiver, mir)
+                || args
+                    .iter()
+                    .any(|arg| sort_comparator_needs_regex(&arg.expr, mir))
         }
         CallbackExprKind::Call { callee, args } => {
-            callback_needs_regex(callee, mir)
-                || args.iter().any(|arg| callback_needs_regex(&arg.expr, mir))
+            sort_comparator_needs_regex(callee, mir)
+                || args
+                    .iter()
+                    .any(|arg| sort_comparator_needs_regex(&arg.expr, mir))
         }
-        CallbackExprKind::FunctionTableLookup { key, .. } => callback_needs_regex(key, mir),
+        CallbackExprKind::FunctionTableLookup { key, .. } => sort_comparator_needs_regex(key, mir),
         CallbackExprKind::AssignCapture { value, .. }
         | CallbackExprKind::Unary { operand: value, .. }
         | CallbackExprKind::UnknownIs { value, .. }
-        | CallbackExprKind::TypeofValue { value } => callback_needs_regex(value, mir),
-        CallbackExprKind::ListLit(items) => {
-            items.iter().any(|item| callback_needs_regex(item, mir))
-        }
+        | CallbackExprKind::TypeofValue { value } => sort_comparator_needs_regex(value, mir),
+        CallbackExprKind::ListLit(items) => items
+            .iter()
+            .any(|item| sort_comparator_needs_regex(item, mir)),
         CallbackExprKind::Sequence { effects, result } => {
             effects
                 .iter()
-                .any(|effect| callback_needs_regex(effect, mir))
-                || callback_needs_regex(result, mir)
+                .any(|effect| sort_comparator_needs_regex(effect, mir))
+                || sort_comparator_needs_regex(result, mir)
         }
         CallbackExprKind::DictLit(entries) => entries
             .iter()
-            .any(|(_, value)| callback_needs_regex(value, mir)),
+            .any(|(_, value)| sort_comparator_needs_regex(value, mir)),
         CallbackExprKind::Throw { message } => message
             .as_ref()
-            .is_some_and(|panic_message| callback_needs_regex(panic_message, mir)),
+            .is_some_and(|panic_message| sort_comparator_needs_regex(panic_message, mir)),
         CallbackExprKind::Index { receiver, .. }
         | CallbackExprKind::Field { receiver, .. }
         | CallbackExprKind::HasField { receiver, .. }
-        | CallbackExprKind::FieldTruthy { receiver, .. } => callback_needs_regex(receiver, mir),
+        | CallbackExprKind::FieldTruthy { receiver, .. } => {
+            sort_comparator_needs_regex(receiver, mir)
+        }
         CallbackExprKind::DynamicIndex { receiver, index }
         | CallbackExprKind::HasDynamicField {
             receiver,
@@ -155,15 +164,15 @@ fn callback_needs_regex(callback: &CallbackExpr, mir: &Mir) -> bool {
             lhs: receiver,
             rhs: index,
             ..
-        } => callback_needs_regex(receiver, mir) || callback_needs_regex(index, mir),
+        } => sort_comparator_needs_regex(receiver, mir) || sort_comparator_needs_regex(index, mir),
         CallbackExprKind::Conditional {
             cond,
             then_expr,
             else_expr,
         } => {
-            callback_needs_regex(cond, mir)
-                || callback_needs_regex(then_expr, mir)
-                || callback_needs_regex(else_expr, mir)
+            sort_comparator_needs_regex(cond, mir)
+                || sort_comparator_needs_regex(then_expr, mir)
+                || sort_comparator_needs_regex(else_expr, mir)
         }
         CallbackExprKind::Param(_)
         | CallbackExprKind::Capture(_)

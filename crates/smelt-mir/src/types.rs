@@ -1152,7 +1152,10 @@ pub enum Rvalue {
     ListSort {
         /// List value to mutate.
         list: Operand,
-        /// Optional comparator callback for JavaScript-style sort.
+        /// Legacy comparator expression tree for JavaScript-style sort.
+        ///
+        /// Other callback bodies are represented as normal closure CFGs before
+        /// MIR lowering.
         comparator: Option<smelt_hir::CallbackExpr>,
     },
     /// Pop the last item from a list.

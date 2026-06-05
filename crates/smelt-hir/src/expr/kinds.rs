@@ -393,6 +393,9 @@ pub enum ExprKind {
     },
     ListSort {
         list: ExprId,
+        /// Legacy comparator tree for JavaScript `Array.prototype.sort`.
+        ///
+        /// Other callback bodies must be represented as normal closure CFGs.
         comparator: Option<CallbackExpr>,
     },
     ListPop {

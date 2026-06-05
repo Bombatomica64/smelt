@@ -488,6 +488,7 @@ impl FunctionEmitter<'_> {
             if self.mir.types.get(comparator_callback.ty) != Some(&Type::Float) {
                 return Err(EmitError::new("array sort comparator must return a number"));
             }
+            // Sort comparators are the only persisted CallbackExpr users left.
             let callback_text = self.callback_expr_text(comparator_callback, &["left", "right"])?;
             return Ok(format!(
                 "{{ {list_text}.sort_by(|left, right| {{ let left = left.clone(); let right = right.clone(); let ordering = {callback_text}; if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }}); {result_text} }}"

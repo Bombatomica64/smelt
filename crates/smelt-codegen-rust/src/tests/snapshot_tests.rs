@@ -6,6 +6,7 @@ use super::*;
 /// after replacing a large shared runtime prelude with an explicit marker.
 fn assert_emitted_source_snapshot(name: &str, source: &str, case_start: Option<&str>) {
     let emitted = source_for(source);
+    assert_no_legacy_callback_fallbacks(&emitted);
     let emitted = case_start.map_or(emitted.clone(), |case_start| {
         let start = emitted
             .find(case_start)
@@ -21,6 +22,18 @@ fn assert_emitted_source_snapshot(name: &str, source: &str, case_start: Option<&
         "selective emitter snapshot grew beyond 450 lines"
     );
     insta::assert_snapshot!(name, emitted);
+}
+
+/// Assert callback CFG emission does not fall back to legacy placeholder text.
+fn assert_no_legacy_callback_fallbacks(emitted: &str) {
+    assert!(
+        !emitted.contains("callback_body"),
+        "generated Rust contains legacy callback_body fallback text"
+    );
+    assert!(
+        !emitted.contains("callback-body"),
+        "generated Rust contains legacy callback-body fallback text"
+    );
 }
 
 /// Snapshot basic function and direct-call emission.
@@ -169,5 +182,39 @@ function double(values: number[]): number[] {
 }
 "#,
         Some("fn double"),
+    );
+}
+
+/// Snapshot migrated callback CFG shapes that are prone to legacy rendering regressions.
+#[test]
+fn migrated_callback_cfg_emission() {
+    assert_emitted_source_snapshot(
+        "migrated_callback_cfg_emission",
+        r#"
+function plusOne(values: number[]): number[] {
+  return values.map((x) => x + 1);
+}
+
+function lower(values: string[]): string[] {
+  return values.map((value) => value.toLowerCase());
+}
+
+function spread(values: number[], args: number[], func: (...items: number[]) => number): number[] {
+  return values.map((n) => func(...args, n));
+}
+
+function collectIndices(values: number[]): number[] {
+  const indices: number[] = [];
+  values.forEach((_value, index) => {
+    indices.push(index);
+  });
+  return indices;
+}
+
+function iso(values: Date[]): string[] {
+  return values.map((value: unknown) => (value as Date).toISOString());
+}
+"#,
+        Some("fn plus_one"),
     );
 }

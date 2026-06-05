@@ -3,6 +3,16 @@
 use super::*;
 use smelt_hir::FunctionType;
 
+/// Shared Rust fragments for closure-backed list callback iteration.
+struct ListCallbackIterationParts {
+    /// Statements that must run before iterating the callback receiver.
+    prefix: String,
+    /// Rust expression used as the iterable callback receiver.
+    iter_text: String,
+    /// Rendered callback arguments in JavaScript callback ABI order.
+    call_args: Vec<String>,
+}
+
 impl FunctionEmitter<'_> {
     /// Return whether callback field checks should inspect the value at runtime.
     ///
@@ -71,19 +81,23 @@ impl FunctionEmitter<'_> {
             smelt_hir::ListSearchOp::Find => "position",
             smelt_hir::ListSearchOp::RFind => "rposition",
         };
-        let list_text = self.operand_text(list)?;
+        let owned_list_text = self.operand_text(list)?;
+        let borrowed_list_text = match list {
+            Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
+            Operand::Const(_) => owned_list_text,
+        };
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
                 return Ok(format!(
-                    "{{ let smelt_needle = {item_text}; {list_text}.iter().{method_name}(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) }}"
+                    "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) }}"
                 ));
             }
             return Ok(format!(
-                "{{ let smelt_needle = {item_text}; {list_text}.iter().{method_name}(|item| item.same_js_key(&smelt_needle)).map_or(-1.0, |idx| idx as f64) }}"
+                "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| item.same_js_key(&smelt_needle)).map_or(-1.0, |idx| idx as f64) }}"
             ));
         }
         Ok(format!(
-            "{list_text}.iter().{method_name}(|item| item == &{item_text}).map_or(-1.0, |idx| idx as f64)"
+            "{borrowed_list_text}.iter().{method_name}(|item| item == &{item_text}).map_or(-1.0, |idx| idx as f64)"
         ))
     }
 
@@ -131,49 +145,27 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
-        let Some(item_param_ty) = function_ty.params.first().copied() else {
+        if function_ty.params.is_empty() {
             return Ok("Default::default()".to_owned());
-        };
+        }
         if self.mir.types.get(function_ty.return_ty) != Some(&Type::Bool) {
             return Err(EmitError::new(
                 "array predicate callback must return boolean",
             ));
         }
-        let list_text = self.operand_text(list)?;
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
             Err(_) => self.operand_text(callback)?,
         };
-        let item_text = self.value_at_type_text("item.clone()", element_ty, item_param_ty)?;
-        let mut call_args = vec![item_text];
-        if let Some(index_param_ty) = function_ty.params.get(1).copied() {
-            let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
-                self.type_id(Type::Int)?
-            } else {
-                self.type_id(Type::Float)?
-            };
-            let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
-                "index as i64"
-            } else {
-                "index as f64"
-            };
-            call_args.push(self.value_at_type_text(
-                index_value,
-                index_source_ty,
-                index_param_ty,
-            )?);
-        }
-        if let Some(array_param_ty) = function_ty.params.get(2).copied() {
-            call_args.push(self.value_at_type_text(
-                "smelt_array.clone()",
-                list_ty,
-                array_param_ty,
-            )?);
-        }
+        let list_iteration =
+            self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
+        let call_args = list_iteration.call_args;
         let call_text = format!("(smelt_callback)({})", call_args.join(", "));
         let prefix = format!(
-            "let mut smelt_callback = {closure_text}; let smelt_array = {list_text}.clone();"
+            "let mut smelt_callback = {closure_text}; {prefix}",
+            prefix = list_iteration.prefix
         );
+        let iter_text = list_iteration.iter_text;
         match op {
             smelt_hir::ListCallbackOp::Filter => {
                 if dest_ty != list_ty {
@@ -182,7 +174,7 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 Ok(format!(
-                    "{{ {prefix} smelt_array.iter().enumerate().filter_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }}).collect::<Vec<_>>() }}"
+                    "{{ {prefix}{iter_text}.iter().enumerate().filter_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }}).collect::<Vec<_>>() }}"
                 ))
             }
             smelt_hir::ListCallbackOp::Find | smelt_hir::ListCallbackOp::FindLast => {
@@ -197,7 +189,7 @@ impl FunctionEmitter<'_> {
                     ""
                 };
                 Ok(format!(
-                    "{{ {prefix} smelt_array.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }}) }}"
+                    "{{ {prefix}{iter_text}.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }}) }}"
                 ))
             }
             smelt_hir::ListCallbackOp::FindIndex | smelt_hir::ListCallbackOp::FindLastIndex => {
@@ -212,7 +204,7 @@ impl FunctionEmitter<'_> {
                     ""
                 };
                 Ok(format!(
-                    "{{ {prefix} smelt_array.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(index as f64) }} else {{ None }}).unwrap_or(-1.0) }}"
+                    "{{ {prefix}{iter_text}.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(index as f64) }} else {{ None }}).unwrap_or(-1.0) }}"
                 ))
             }
             smelt_hir::ListCallbackOp::Some | smelt_hir::ListCallbackOp::Every => {
@@ -227,7 +219,7 @@ impl FunctionEmitter<'_> {
                     "all"
                 };
                 Ok(format!(
-                    "{{ {prefix} smelt_array.iter().enumerate().{method}(|(index, item)| {call_text}) }}"
+                    "{{ {prefix}{iter_text}.iter().enumerate().{method}(|(index, item)| {call_text}) }}"
                 ))
             }
             smelt_hir::ListCallbackOp::Map
@@ -284,45 +276,22 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
-        let Some(item_param_ty) = function_ty.params.first().copied() else {
+        if function_ty.params.is_empty() {
             return Ok("Default::default()".to_owned());
-        };
-        let list_text = self.operand_text(list)?;
+        }
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
             Err(_) => self.operand_text(callback)?,
         };
-        let item_text = self.value_at_type_text("item.clone()", element_ty, item_param_ty)?;
-        let mut call_args = vec![item_text];
-        if let Some(index_param_ty) = function_ty.params.get(1).copied() {
-            let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
-                self.type_id(Type::Int)?
-            } else {
-                self.type_id(Type::Float)?
-            };
-            let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
-                "index as i64"
-            } else {
-                "index as f64"
-            };
-            call_args.push(self.value_at_type_text(
-                index_value,
-                index_source_ty,
-                index_param_ty,
-            )?);
-        }
-        if let Some(array_param_ty) = function_ty.params.get(2).copied() {
-            call_args.push(self.value_at_type_text(
-                "smelt_array.clone()",
-                list_ty,
-                array_param_ty,
-            )?);
-        }
+        let list_iteration =
+            self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
+        let call_args = list_iteration.call_args;
         let call_text = format!("(smelt_callback)({})", call_args.join(", "));
         let value_text =
             self.value_at_type_text(&call_text, function_ty.return_ty, *dest_item_ty)?;
         Ok(format!(
-            "{{ let mut smelt_callback = {closure_text}; let smelt_array = {list_text}.clone(); smelt_array.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>() }}"
+            "{{ let mut smelt_callback = {closure_text}; {}{}.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>() }}",
+            list_iteration.prefix, list_iteration.iter_text
         ))
     }
 
@@ -342,43 +311,20 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
-        let Some(item_param_ty) = function_ty.params.first().copied() else {
+        if function_ty.params.is_empty() {
             return Ok("Default::default()".to_owned());
-        };
-        let list_text = self.operand_text(list)?;
+        }
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
             Err(_) => self.operand_text(callback)?,
         };
-        let item_text = self.value_at_type_text("item.clone()", element_ty, item_param_ty)?;
-        let mut call_args = vec![item_text];
-        if let Some(index_param_ty) = function_ty.params.get(1).copied() {
-            let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
-                self.type_id(Type::Int)?
-            } else {
-                self.type_id(Type::Float)?
-            };
-            let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
-                "index as i64"
-            } else {
-                "index as f64"
-            };
-            call_args.push(self.value_at_type_text(
-                index_value,
-                index_source_ty,
-                index_param_ty,
-            )?);
-        }
-        if let Some(array_param_ty) = function_ty.params.get(2).copied() {
-            call_args.push(self.value_at_type_text(
-                "smelt_array.clone()",
-                list_ty,
-                array_param_ty,
-            )?);
-        }
+        let list_iteration =
+            self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
+        let call_args = list_iteration.call_args;
         let call_text = format!("(smelt_callback)({})", call_args.join(", "));
         Ok(format!(
-            "{{ let mut smelt_callback = {closure_text}; let smelt_array = {list_text}.clone(); smelt_array.iter().enumerate().for_each(|(index, item)| {{ let _ = {call_text}; }}); () }}"
+            "{{ let mut smelt_callback = {closure_text}; {}{}.iter().enumerate().for_each(|(index, item)| {{ let _ = {call_text}; }}); () }}",
+            list_iteration.prefix, list_iteration.iter_text
         ))
     }
 
@@ -398,40 +344,16 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
-        let Some(item_param_ty) = function_ty.params.first().copied() else {
+        if function_ty.params.is_empty() {
             return Ok("Default::default()".to_owned());
-        };
-        let list_text = self.operand_text(list)?;
+        }
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
             Err(_) => self.operand_text(callback)?,
         };
-        let item_text = self.value_at_type_text("item.clone()", element_ty, item_param_ty)?;
-        let mut call_args = vec![item_text];
-        if let Some(index_param_ty) = function_ty.params.get(1).copied() {
-            let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
-                self.type_id(Type::Int)?
-            } else {
-                self.type_id(Type::Float)?
-            };
-            let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
-                "index as i64"
-            } else {
-                "index as f64"
-            };
-            call_args.push(self.value_at_type_text(
-                index_value,
-                index_source_ty,
-                index_param_ty,
-            )?);
-        }
-        if let Some(array_param_ty) = function_ty.params.get(2).copied() {
-            call_args.push(self.value_at_type_text(
-                "smelt_array.clone()",
-                list_ty,
-                array_param_ty,
-            )?);
-        }
+        let list_iteration =
+            self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
+        let call_args = list_iteration.call_args;
         let call_text = format!("(smelt_callback)({})", call_args.join(", "));
         let flattened_text = match self.mir.types.get(function_ty.return_ty) {
             Some(Type::List(callback_item_ty)) => {
@@ -453,8 +375,118 @@ impl FunctionEmitter<'_> {
             }
         };
         Ok(format!(
-            "{{ let mut smelt_callback = {closure_text}; let smelt_array = {list_text}.clone(); smelt_array.iter().enumerate().flat_map(|(index, item)| {{ let smelt_result = {call_text}; {flattened_text} }}).collect::<Vec<_>>() }}"
+            "{{ let mut smelt_callback = {closure_text}; {}{}.iter().enumerate().flat_map(|(index, item)| {{ let smelt_result = {call_text}; {flattened_text} }}).collect::<Vec<_>>() }}",
+            list_iteration.prefix, list_iteration.iter_text
         ))
+    }
+
+    /// Build shared list-iteration text for closure-backed array callbacks.
+    ///
+    /// Most callbacks only consume `(item)` or `(item, index)`, so the emitter
+    /// can borrow the original receiver and clone each item as it is passed.
+    /// JavaScript's optional third callback argument observes the whole source
+    /// array; only that ABI needs a stable cloned snapshot named
+    /// `smelt_array`.
+    fn list_callback_iteration_parts(
+        &self,
+        list: &Operand,
+        list_ty: TypeId,
+        element_ty: TypeId,
+        callback: &Operand,
+        function_ty: &FunctionType,
+    ) -> Result<ListCallbackIterationParts, EmitError> {
+        let Some(item_param_ty) = function_ty.params.first().copied() else {
+            return Err(EmitError::new("array callback must have an item parameter"));
+        };
+        let owned_list_text = self.operand_text(list)?;
+        let borrowed_list_text = match list {
+            Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
+            Operand::Const(_) => owned_list_text.clone(),
+        };
+        let item_text = self.value_at_type_text("item.clone()", element_ty, item_param_ty)?;
+        let mut call_args = vec![item_text];
+        if let Some(index_param_ty) = function_ty.params.get(1).copied() {
+            let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
+                self.type_id(Type::Int)?
+            } else {
+                self.type_id(Type::Float)?
+            };
+            let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
+                "index as i64"
+            } else {
+                "index as f64"
+            };
+            call_args.push(self.value_at_type_text(
+                index_value,
+                index_source_ty,
+                index_param_ty,
+            )?);
+        }
+        let needs_array_snapshot = function_ty.params.get(2).is_some()
+            && self
+                .list_callback_closure_uses_array_param(callback)
+                .unwrap_or(true);
+        let (prefix, iter_text) = if needs_array_snapshot {
+            let array_param_ty = function_ty.params.get(2).copied().ok_or_else(|| {
+                EmitError::new("array callback snapshot requires an array parameter")
+            })?;
+            call_args.push(self.value_at_type_text(
+                "smelt_array.clone()",
+                list_ty,
+                array_param_ty,
+            )?);
+            (
+                format!("let smelt_array = {owned_list_text}; "),
+                "smelt_array".to_owned(),
+            )
+        } else {
+            (String::new(), borrowed_list_text)
+        };
+        Ok(ListCallbackIterationParts {
+            prefix,
+            iter_text,
+            call_args,
+        })
+    }
+
+    /// Return whether a local closure callback reads the contextual array arg.
+    ///
+    /// Array callback types are widened to include JavaScript's optional third
+    /// array parameter even when source callbacks declared fewer parameters.
+    /// Local closure bodies let us tell those apart; non-local callbacks stay
+    /// conservative because their body is not available to this emitter.
+    fn list_callback_closure_uses_array_param(
+        &self,
+        callback: &Operand,
+    ) -> Result<bool, EmitError> {
+        let local = match callback {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
+            _ => return Ok(true),
+        };
+        let source_local = self.closure_source_local(local);
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                if let Statement::Assign {
+                    dest,
+                    value: Rvalue::Closure { id, .. },
+                } = statement
+                    && *dest == source_local
+                {
+                    let closure = self
+                        .mir
+                        .closures
+                        .get(id_index(id.0, "closure id does not fit usize")?)
+                        .ok_or_else(|| {
+                            EmitError::new("closure rvalue references an unknown closure")
+                        })?;
+                    return Ok(closure
+                        .params
+                        .get(2)
+                        .is_some_and(|param| self.closure_local_has_uses(closure, *param)));
+                }
+            }
+        }
+        Ok(true)
     }
 
     /// Converts `Array.from({ length }, mapper)` into an indexed Rust loop.
@@ -543,7 +575,11 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
-        let list_text = self.operand_text(list)?;
+        let owned_list_text = self.operand_text(list)?;
+        let borrowed_list_text = match list {
+            Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
+            Operand::Const(_) => owned_list_text.clone(),
+        };
         let callback_closure = match self.closure_operand_text_for_declared_type(callback) {
             Ok(callback_closure) => callback_closure,
             Err(_) => return Ok("Default::default()".to_owned()),
@@ -554,11 +590,11 @@ impl FunctionEmitter<'_> {
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_text(initial_operand)?;
             Ok(format!(
-                "{list_text}.iter().enumerate().fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); {callback_text} }})"
+                "{borrowed_list_text}.iter().enumerate().fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {owned_list_text}; {callback_text} }})"
             ))
         } else if dest_ty == element_ty {
             Ok(format!(
-                "{{ let mut reduce_items = {list_text}.iter().enumerate(); let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); {callback_text} }}) }}"
+                "{{ let mut reduce_items = {borrowed_list_text}.iter().enumerate(); let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {owned_list_text}; {callback_text} }}) }}"
             ))
         } else {
             Err(EmitError::new(
@@ -1365,7 +1401,10 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a callback expression tree to Rust source text.
+    /// Converts a legacy sort-comparator expression tree to Rust source text.
+    ///
+    /// This renderer must not be used for normal collection callback bodies;
+    /// those bodies are emitted from closure CFGs.
     pub(super) fn callback_expr_text(
         &self,
         expr: &smelt_hir::CallbackExpr,
@@ -3038,7 +3077,10 @@ impl FunctionEmitter<'_> {
         Ok(format!("{class_name} {{ {} }}", parts.join(", ")))
     }
 
-    /// Converts a callback expression to Rust text expected at a target type.
+    /// Converts a legacy sort-comparator expression to target-typed Rust text.
+    ///
+    /// Keep this paired with `callback_expr_text`; normal callback bodies should
+    /// not route through this expression-tree renderer.
     pub(super) fn callback_expr_as_type_text(
         &self,
         expr: &smelt_hir::CallbackExpr,

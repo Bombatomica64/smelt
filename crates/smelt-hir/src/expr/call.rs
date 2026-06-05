@@ -1,4 +1,8 @@
-//! Callback expression nodes for list-style operations.
+//! Legacy callback-expression nodes for narrow frontend and sort paths.
+//!
+//! Normal callback bodies lower into ordinary closure CFG bodies. `CallbackExpr`
+//! remains as a transient frontend expression tree while those bodies are built
+//! and as the persisted representation for JavaScript sort comparators.
 
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +12,11 @@ use crate::item::Param;
 
 use super::{BinOp, Literal, UnaryOp};
 
-/// A callback expression tree embedded in a list-style operation.
+/// A legacy callback expression tree.
+///
+/// Do not use this as callback-body storage for new HIR features. New callback
+/// bodies should lower into `ClosureExpr` CFG bodies; persisted `CallbackExpr`
+/// values are reserved for sort comparators until that path is migrated too.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallbackExpr {
     /// Callback expression kind.
@@ -18,6 +26,9 @@ pub struct CallbackExpr {
 }
 
 /// One argument passed by a callback-local call expression.
+///
+/// This is part of the legacy expression-tree bridge and should not be used by
+/// normal closure CFG bodies.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallbackCallArg {
     /// Argument expression.
@@ -26,7 +37,10 @@ pub struct CallbackCallArg {
     pub spread: bool,
 }
 
-/// The kind of a callback expression.
+/// The kind of a legacy callback expression.
+///
+/// These nodes model enough expression structure for frontend callback-to-CFG
+/// lowering and the remaining direct sort-comparator renderer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CallbackExprKind {
     /// A callback parameter reference by zero-based position.

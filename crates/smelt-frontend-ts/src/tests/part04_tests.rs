@@ -5477,6 +5477,33 @@ async function run(source: unknown) {
 }
 
 #[test]
+fn lowers_callback_flat_method_into_closure_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(batches: string[][][]) {
+  return batches.map((batch, index) => index > 0 ? batch.flat() : batch.flat(1));
+}
+
+function lazy(value: unknown, depth: number) {
+  return Array.isArray(value) ? value.flat(depth - 1) : value;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ListFlat { .. })),
+        "expected callback Array.flat calls to lower into normal closure-body HIR"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_for_await_of_future_batches_with_record_indexing() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(

@@ -1680,6 +1680,23 @@ impl ModuleBuilder<'_> {
                     span,
                 }))
             }
+            "flat" => {
+                if args.len() > 1 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "callback Array.flat accepts at most one depth argument",
+                    ));
+                }
+                let ty = self.callback_flat_result_type(receiver_ty, ty);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::ListFlat {
+                        list: receiver,
+                        depth: args.first().copied(),
+                    },
+                    ty,
+                    span,
+                }))
+            }
             "map" | "flatMap"
                 if args.is_empty()
                     && (self.callback_method_receiver_is_list_like(receiver_ty)
@@ -1814,6 +1831,50 @@ impl ModuleBuilder<'_> {
                 .get(self.type_param_constraint_or_self(receiver_ty)),
             Some(Type::List(_) | Type::Tuple(_))
         )
+    }
+
+    /// Infer the result type for a callback-body `Array.prototype.flat` call.
+    fn callback_flat_result_type(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+        fallback_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        if matches!(self.ctx.krate.types.get(fallback_ty), Some(Type::List(_))) {
+            return fallback_ty;
+        }
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(receiver_ty))
+            .cloned()
+        {
+            Some(Type::List(item_ty)) => {
+                let item_ty = match self
+                    .ctx
+                    .krate
+                    .types
+                    .get(self.type_param_constraint_or_self(item_ty))
+                    .cloned()
+                {
+                    Some(Type::List(flat_item_ty)) => flat_item_ty,
+                    Some(Type::Tuple(items)) => self.flattened_tuple_item_type(items),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                        self.ctx.krate.types.intern(Type::Unknown)
+                    }
+                    _ => item_ty,
+                };
+                self.ctx.krate.types.intern(Type::List(item_ty))
+            }
+            Some(Type::Tuple(items)) => {
+                let item_ty = self.flattened_tuple_item_type(items);
+                self.ctx.krate.types.intern(Type::List(item_ty))
+            }
+            _ => {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                self.ctx.krate.types.intern(Type::List(item_ty))
+            }
+        }
     }
 
     /// Convert callback string case methods into normal HIR.
