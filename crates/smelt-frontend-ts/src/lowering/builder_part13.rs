@@ -1233,15 +1233,43 @@ impl ModuleBuilder<'_> {
                 }))
             }
             CallbackExprKind::Throw { .. }
-            | CallbackExprKind::HasDynamicField { .. }
             | CallbackExprKind::Function(_)
             | CallbackExprKind::FunctionTableLookup { .. }
-            | CallbackExprKind::HasField { .. }
             | CallbackExprKind::FieldTruthy { .. }
             | CallbackExprKind::TypeofValue { .. } => Err(SmeltError::unsupported(
                 span,
                 "this callback default expression is not lowered at call sites yet",
             )),
+            CallbackExprKind::HasField { receiver, field } => {
+                let dict = self.callback_expr_to_body_expr(receiver, args, body, span)?;
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let key = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(
+                        self.ctx
+                            .krate
+                            .symbols
+                            .get(*field)
+                            .unwrap_or_default()
+                            .to_owned(),
+                    )),
+                    ty: string_ty,
+                    span,
+                });
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::DictContainsKey { dict, key },
+                    ty: callback.ty,
+                    span,
+                }))
+            }
+            CallbackExprKind::HasDynamicField { receiver, field } => {
+                let dict = self.callback_expr_to_body_expr(receiver, args, body, span)?;
+                let key = self.callback_expr_to_body_expr(field, args, body, span)?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::DictContainsKey { dict, key },
+                    ty: callback.ty,
+                    span,
+                }))
+            }
             CallbackExprKind::Sequence { effects, result } => {
                 for effect in effects {
                     let effect = self.callback_expr_to_body_expr(effect, args, body, span)?;
