@@ -1265,7 +1265,6 @@ impl ModuleBuilder<'_> {
                 return_ty: function.return_ty,
                 captures,
                 body: body_id,
-                callback_body: None,
                 span,
             }),
             ty: closure_ty,
@@ -2933,13 +2932,13 @@ impl ModuleBuilder<'_> {
         {
             callee_expr = self.callback_expr_to_closure_with_return_ty(
                 callback.return_ty,
-                callback.callback,
+                &callback.callback,
                 &callback.params,
                 callback.rest.map(|rest| rest.index),
                 callback.required_params,
                 self.span(identifier.span.start, identifier.span.end),
                 body,
-            );
+            )?;
             function_ty = Some(Type::Function(FunctionType {
                 params: callback.params,
                 rest: callback.rest.map(|rest| rest.index),

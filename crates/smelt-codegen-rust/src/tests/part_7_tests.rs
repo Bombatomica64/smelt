@@ -224,7 +224,7 @@ const isoValues = values.map((value) => value.toISOString());
         "{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::String(item.to_iso_string())"),
+        source.contains("to_iso_string()") && source.contains("SmeltUnknown::String(_smelt_tmp_"),
         "{source}"
     );
 }
@@ -975,9 +975,10 @@ export function purryOn(
         "{source}"
     );
     assert!(source.contains("(implementation)("), "{source}");
-    assert!(source.contains("args.clone().get(0).cloned()"), "{source}");
+    assert!(source.contains("args.get("), "{source}");
     assert!(
-        source.contains("args.clone().into_iter().skip(1).collect::<Vec<_>>()"),
+        source.contains("args.clone().iter().skip(")
+            || source.contains("SmeltUnknown::Array(args.clone().into())"),
         "{source}"
     );
     assert!(
@@ -1636,7 +1637,11 @@ function label(values: string[]): string[] {
 "#,
     );
 
-    assert!(source.contains("format!(\"{}{}\""), "{source}");
+    assert!(source.contains("\"\".to_owned() + &match"), "{source}");
+    assert!(
+        source.contains("closure_arg_0.clone().to_lowercase()"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -2627,15 +2632,15 @@ function wrap<T>(
     );
 
     assert!(
-        source.contains("if let SmeltUnknown::Array(values) = arg0.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone()"),
+        source.contains("if let SmeltUnknown::Array(values) = closure_arg_0.get("),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(
-        source.contains("match arg0.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone()"),
+        source.contains("match closure_arg_0.get("),
         "fixed callback spread calls should read the second fixed parameter from the rest vector: {source}"
     );
     assert!(
-        source.contains("}, n.clone().clone())"),
+        source.contains("}, n.clone())"),
         "fixed callback spread calls should keep trailing scalar arguments after spread expansion: {source}"
     );
 }
@@ -2715,11 +2720,11 @@ function indicesSeen(
     );
 
     assert!(
-        source.contains("predicate((arg0.clone()).into_smelt_unknown(), arg1.clone())"),
+        source.contains("predicate(closure_arg_0.clone(), closure_arg_1.clone())"),
         "{source}"
     );
     assert!(
-        source.contains("(*smelt_capture_indices.borrow_mut()).push(arg1.clone())"),
+        source.contains("(*smelt_capture_indices.borrow_mut()).push(closure_arg_1.clone())"),
         "captured push should mutate the outer vector storage: {source}"
     );
     assert!(

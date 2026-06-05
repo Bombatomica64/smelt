@@ -17,20 +17,6 @@ impl FunctionEmitter<'_> {
         ) || self.is_erased_class_type(ty)
     }
 
-    /// Returns a Rust closure return type, wrapping throwing closures in `Result`.
-    fn closure_return_type_text(
-        &self,
-        return_ty: TypeId,
-        can_throw: bool,
-    ) -> Result<String, EmitError> {
-        let inner = self.type_text_with_impl_trait(return_ty, false)?;
-        if can_throw {
-            Ok(format!("Result<{inner}, Box<dyn std::error::Error>>"))
-        } else {
-            Ok(inner)
-        }
-    }
-
     /// Return true when rendered callback argument text is a generated no-op.
     fn callback_arg_text_is_default(arg: &str) -> bool {
         arg.contains("Rc<dyn Fn")
@@ -101,7 +87,7 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts a capture-free callback list operation to Rust iterator text.
+    /// Converts a closure-backed callback list operation to Rust iterator text.
     pub(super) fn list_callback_text(
         &self,
         op: smelt_hir::ListCallbackOp,
@@ -114,271 +100,7 @@ impl FunctionEmitter<'_> {
             return Ok("Default::default()".to_owned());
         };
         let element_ty = *list_element_ty;
-        let callback_body = match self.closure_callback_body(callback) {
-            Ok(callback_body) => callback_body,
-            Err(_) => {
-                return self
-                    .list_callback_closure_text(op, list, list_ty, element_ty, callback, dest_ty);
-            }
-        };
-        let list_text = if matches!(self.mir.types.get(element_ty), Some(Type::Function(_))) {
-            match list {
-                Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
-                Operand::Const(_) => self.operand_text(list)?,
-            }
-        } else {
-            self.operand_text(list)?
-        };
-        let raw_callback_text =
-            self.callback_expr_text(callback_body, &["item", "index", "array"])?;
-        if raw_callback_text == "Default::default()"
-            && matches!(op, smelt_hir::ListCallbackOp::Map)
-            && matches!(
-                self.mir.types.get(self.operand_ty(callback)?),
-                Some(Type::Function(_))
-            )
-        {
-            return self.list_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
-        }
-        if raw_callback_text == "Default::default()"
-            && matches!(op, smelt_hir::ListCallbackOp::ForEach)
-            && matches!(
-                self.mir.types.get(self.operand_ty(callback)?),
-                Some(Type::Function(_))
-            )
-        {
-            return self.list_for_each_closure_text(list, list_ty, element_ty, callback, dest_ty);
-        }
-        if raw_callback_text == "Default::default()"
-            && matches!(op, smelt_hir::ListCallbackOp::FlatMap)
-            && matches!(
-                self.mir.types.get(self.operand_ty(callback)?),
-                Some(Type::Function(_))
-            )
-        {
-            return self.list_flat_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
-        }
-        let callback_text = if raw_callback_text == "Default::default()"
-            && matches!(
-                self.mir.types.get(callback_body.ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) {
-            "SmeltUnknown::Null".to_owned()
-        } else {
-            raw_callback_text
-        };
-        if matches!(
-            callback_text.as_str(),
-            "Default::default()" | "SmeltUnknown::Null"
-        ) && matches!(op, smelt_hir::ListCallbackOp::Map)
-        {
-            return self.list_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
-        }
-        let callback_is_static_default =
-            matches!(callback_text.as_str(), "None" | "Default::default()" | "()");
-        let callback_uses_item =
-            !callback_is_static_default && callback_uses_param(&self.mir.types, callback_body, 0);
-        let callback_uses_index =
-            !callback_is_static_default && callback_uses_param(&self.mir.types, callback_body, 1);
-        let function_element = matches!(self.mir.types.get(element_ty), Some(Type::Function(_)));
-        let callback_uses_array =
-            !callback_is_static_default && callback_uses_param(&self.mir.types, callback_body, 2);
-        let callback_index_ty = match self.mir.types.get(self.operand_ty(callback)?) {
-            Some(Type::Function(function)) => function.params.get(1).copied(),
-            _ => None,
-        };
-        let index_value_text =
-            if callback_index_ty.is_some_and(|ty| self.mir.types.get(ty) == Some(&Type::Int)) {
-                "index as i64"
-            } else {
-                "index as f64"
-            };
-        let ref_index_value_text =
-            if callback_index_ty.is_some_and(|ty| self.mir.types.get(ty) == Some(&Type::Int)) {
-                "*index as i64"
-            } else {
-                "*index as f64"
-            };
-        let function_item_closure = || {
-            let index_binding = if callback_uses_index {
-                format!("let index = {index_value_text}; ")
-            } else {
-                String::new()
-            };
-            let array_binding = if callback_uses_array {
-                format!("let array = {list_text}.clone(); ")
-            } else {
-                String::new()
-            };
-            format!("|(index, item)| {{ {index_binding}{array_binding}{callback_text} }}")
-        };
-        let item_binding = if callback_uses_item {
-            "let item = (*item).clone(); "
-        } else {
-            ""
-        };
-        let ref_item_binding = if callback_uses_item {
-            "let item = (**item).clone(); "
-        } else {
-            ""
-        };
-        let index_binding = if callback_uses_index {
-            format!("let index = {index_value_text}; ")
-        } else {
-            String::new()
-        };
-        let ref_index_binding = if callback_uses_index {
-            format!("let index = {ref_index_value_text}; ")
-        } else {
-            String::new()
-        };
-        let array_binding = if callback_uses_array {
-            format!("let array = {list_text}.clone(); ")
-        } else {
-            String::new()
-        };
-        let closure = format!(
-            "|(index, item)| {{ {item_binding}{index_binding}{array_binding}{callback_text} }}"
-        );
-        let ref_closure = format!(
-            "|(index, item)| {{ {ref_item_binding}{ref_index_binding}{array_binding}{callback_text} }}"
-        );
-        match op {
-            smelt_hir::ListCallbackOp::Map => {
-                let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
-                    return Err(EmitError::new("array map destination must be a list"));
-                };
-                if callback_text.contains("return Err(")
-                    || self.callback_expr_calls_throwing_function(callback_body)
-                {
-                    return self.throwing_list_map_text(
-                        &list_text,
-                        item_binding,
-                        &index_binding,
-                        &array_binding,
-                        &callback_text,
-                        callback_body.ty,
-                        *dest_item_ty,
-                    );
-                }
-                let callback_value = self.callback_expr_as_type_text(
-                    callback_body,
-                    *dest_item_ty,
-                    &["item", "index", "array"],
-                )?;
-                let typed_closure = format!(
-                    "|(index, item)| {{ {item_binding}{index_binding}{array_binding}{callback_value} }}"
-                );
-                Ok(format!(
-                    "{list_text}.iter().enumerate().map({typed_closure}).collect::<Vec<_>>()"
-                ))
-            }
-            smelt_hir::ListCallbackOp::Filter => {
-                self.validate_bool_callback(callback_body, "array filter")?;
-                if dest_ty != list_ty {
-                    return Err(EmitError::new(
-                        "array filter destination must match the receiver list type",
-                    ));
-                }
-                Ok(format!(
-                    "{list_text}.iter().enumerate().filter({ref_closure}).map(|(_, item)| item.clone()).collect::<Vec<_>>()"
-                ))
-            }
-            smelt_hir::ListCallbackOp::Find => {
-                self.validate_bool_callback(callback_body, "array find")?;
-                if self.mir.types.get(dest_ty) != Some(&Type::Optional(element_ty)) {
-                    return Err(EmitError::new(
-                        "array find destination must be optional element type",
-                    ));
-                }
-                Ok(format!(
-                    "{list_text}.iter().enumerate().find({ref_closure}).map(|(_, item)| item.clone())"
-                ))
-            }
-            smelt_hir::ListCallbackOp::FindIndex => {
-                self.validate_bool_callback(callback_body, "array findIndex")?;
-                if self.mir.types.get(dest_ty) != Some(&Type::Float) {
-                    return Err(EmitError::new(
-                        "array findIndex destination must be a number",
-                    ));
-                }
-                Ok(format!(
-                    "{list_text}.iter().enumerate().position({closure}).map_or(-1.0, |idx| idx as f64)"
-                ))
-            }
-            smelt_hir::ListCallbackOp::FindLast => {
-                self.validate_bool_callback(callback_body, "array findLast")?;
-                if self.mir.types.get(dest_ty) != Some(&Type::Optional(element_ty)) {
-                    return Err(EmitError::new(
-                        "array findLast destination must be optional element type",
-                    ));
-                }
-                Ok(format!(
-                    "{list_text}.iter().enumerate().rev().find({ref_closure}).map(|(_, item)| item.clone())"
-                ))
-            }
-            smelt_hir::ListCallbackOp::FindLastIndex => {
-                self.validate_bool_callback(callback_body, "array findLastIndex")?;
-                if self.mir.types.get(dest_ty) != Some(&Type::Float) {
-                    return Err(EmitError::new(
-                        "array findLastIndex destination must be a number",
-                    ));
-                }
-                Ok(format!(
-                    "{list_text}.iter().enumerate().rposition({closure}).map_or(-1.0, |idx| idx as f64)"
-                ))
-            }
-            smelt_hir::ListCallbackOp::Some => {
-                self.validate_bool_callback(callback_body, "array some")?;
-                if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
-                    return Err(EmitError::new("array some destination must be boolean"));
-                }
-                if function_element {
-                    return Ok(format!(
-                        "{list_text}.iter_mut().enumerate().any({})",
-                        function_item_closure()
-                    ));
-                }
-                Ok(format!("{list_text}.iter().enumerate().any({closure})"))
-            }
-            smelt_hir::ListCallbackOp::Every => {
-                self.validate_bool_callback(callback_body, "array every")?;
-                if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
-                    return Err(EmitError::new("array every destination must be boolean"));
-                }
-                if function_element {
-                    return Ok(format!(
-                        "{list_text}.iter_mut().enumerate().all({})",
-                        function_item_closure()
-                    ));
-                }
-                Ok(format!("{list_text}.iter().enumerate().all({closure})"))
-            }
-            smelt_hir::ListCallbackOp::ForEach => {
-                if dest_ty != self.none_ty {
-                    return Err(EmitError::new("array forEach destination must be none"));
-                }
-                Ok(format!(
-                    "{{ {list_text}.iter().enumerate().for_each(|(index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); let _ = {callback_text}; }}); () }}"
-                ))
-            }
-            smelt_hir::ListCallbackOp::FlatMap => {
-                let Some(Type::List(callback_item_ty)) = self.mir.types.get(callback_body.ty)
-                else {
-                    return Err(EmitError::new(
-                        "array flatMap callback must return an array",
-                    ));
-                };
-                if self.mir.types.get(dest_ty) != Some(&Type::List(*callback_item_ty)) {
-                    return Err(EmitError::new(
-                        "array flatMap destination must match callback array item type",
-                    ));
-                }
-                Ok(format!(
-                    "{list_text}.iter().enumerate().flat_map({closure}).collect::<Vec<_>>()"
-                ))
-            }
-        }
+        self.list_callback_closure_text(op, list, list_ty, element_ty, callback, dest_ty)
     }
 
     /// Emits a list callback operation through a normal MIR closure body.
@@ -513,125 +235,6 @@ impl FunctionEmitter<'_> {
             | smelt_hir::ListCallbackOp::FlatMap => Err(EmitError::new(
                 "list callback operation should have been handled before predicate emission",
             )),
-        }
-    }
-
-    /// Emit `Array.map` when the callback can throw.
-    ///
-    /// Callback expression lowering represents source-language `throw` as a
-    /// Rust `return Err(...)`. That only type-checks when the Rust iterator
-    /// closure itself returns `Result<T, _>`, so map collection must transpose
-    /// `Iterator<Item = Result<T, _>>` back into `Result<Vec<T>, _>`.
-    fn throwing_list_map_text(
-        &self,
-        list_text: &str,
-        item_binding: &str,
-        index_binding: &str,
-        array_binding: &str,
-        callback_text: &str,
-        source_item_ty: TypeId,
-        dest_item_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let item_ty_text = self.type_text_with_impl_trait(dest_item_ty, false)?;
-        let throwing_callback_text = callback_text
-            .replace(".expect(\"throwing function table call failed\")", "?")
-            .replace(
-                ".expect(\"throwing call failed inside non-throwing closure\")",
-                "?",
-            );
-        let callback_value =
-            self.value_at_type_text("smelt_map_value", source_item_ty, dest_item_ty)?;
-        let closure = format!(
-            "|(index, item)| -> Result<{item_ty_text}, Box<dyn std::error::Error>> {{ {item_binding}{index_binding}{array_binding}let smelt_map_value = {{ {throwing_callback_text} }}; Ok::<_, Box<dyn std::error::Error>>({callback_value}) }}"
-        );
-        let collected = format!(
-            "{list_text}.iter().enumerate().map({closure}).collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()"
-        );
-        if self.function.can_throw {
-            Ok(format!("{collected}?"))
-        } else {
-            Ok(format!(
-                "{collected}.expect(\"throwing array map callback failed\")"
-            ))
-        }
-    }
-
-    /// Return whether a legacy callback expression calls a generated throwing function.
-    fn callback_expr_calls_throwing_function(&self, expr: &smelt_hir::CallbackExpr) -> bool {
-        use smelt_hir::CallbackExprKind;
-        match &expr.kind {
-            CallbackExprKind::Call { callee, args } => {
-                self.callback_expr_calls_throwing_function(callee)
-                    || args
-                        .iter()
-                        .any(|arg| self.callback_expr_calls_throwing_function(&arg.expr))
-            }
-            CallbackExprKind::MethodCall { receiver, args, .. } => {
-                self.callback_expr_calls_throwing_function(receiver)
-                    || args
-                        .iter()
-                        .any(|arg| self.callback_expr_calls_throwing_function(&arg.expr))
-            }
-            CallbackExprKind::Function(function) => self.callback_function_can_throw(*function),
-            CallbackExprKind::FunctionTableLookup { key, cases } => {
-                self.callback_expr_calls_throwing_function(key)
-                    || cases
-                        .iter()
-                        .any(|(_, function)| self.callback_function_can_throw(*function))
-            }
-            CallbackExprKind::Unary { operand, .. } => {
-                self.callback_expr_calls_throwing_function(operand)
-            }
-            CallbackExprKind::Binary { lhs, rhs, .. } => {
-                self.callback_expr_calls_throwing_function(lhs)
-                    || self.callback_expr_calls_throwing_function(rhs)
-            }
-            CallbackExprKind::Conditional {
-                cond,
-                then_expr,
-                else_expr,
-            } => {
-                self.callback_expr_calls_throwing_function(cond)
-                    || self.callback_expr_calls_throwing_function(then_expr)
-                    || self.callback_expr_calls_throwing_function(else_expr)
-            }
-            CallbackExprKind::ListLit(items) => items
-                .iter()
-                .any(|item| self.callback_expr_calls_throwing_function(item)),
-            CallbackExprKind::DictLit(entries) => entries
-                .iter()
-                .any(|(_, value)| self.callback_expr_calls_throwing_function(value)),
-            CallbackExprKind::Index { receiver, .. }
-            | CallbackExprKind::Field { receiver, .. }
-            | CallbackExprKind::HasField { receiver, .. }
-            | CallbackExprKind::FieldTruthy { receiver, .. }
-            | CallbackExprKind::UnknownIs {
-                value: receiver, ..
-            }
-            | CallbackExprKind::TypeofValue {
-                value: receiver, ..
-            } => self.callback_expr_calls_throwing_function(receiver),
-            CallbackExprKind::DynamicIndex { receiver, index }
-            | CallbackExprKind::HasDynamicField {
-                receiver,
-                field: index,
-            } => {
-                self.callback_expr_calls_throwing_function(receiver)
-                    || self.callback_expr_calls_throwing_function(index)
-            }
-            CallbackExprKind::AssignCapture { value, .. } => {
-                self.callback_expr_calls_throwing_function(value)
-            }
-            CallbackExprKind::Sequence { effects, result } => {
-                effects
-                    .iter()
-                    .any(|effect| self.callback_expr_calls_throwing_function(effect))
-                    || self.callback_expr_calls_throwing_function(result)
-            }
-            CallbackExprKind::Literal(_)
-            | CallbackExprKind::Param(_)
-            | CallbackExprKind::Capture(_)
-            | CallbackExprKind::Throw { .. } => false,
         }
     }
 
@@ -868,17 +471,6 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("Array.from length must be numeric"));
         }
         let length_text = self.operand_text(length)?;
-        if let Ok(callback_body) = self.closure_callback_body(callback) {
-            if self.mir.types.get(dest_ty) != Some(&Type::List(callback_body.ty)) {
-                return Err(EmitError::new(
-                    "Array.from mapper destination must be a list of callback results",
-                ));
-            }
-            let callback_text = self.callback_expr_text(callback_body, &["item", "index"])?;
-            return Ok(format!(
-                "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|index| {{ let item = SmeltUnknown::Null; let index = index as f64; {callback_text} }}).collect::<Vec<_>>() }}"
-            ));
-        }
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
             return Ok("Default::default()".to_owned());
@@ -939,7 +531,6 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let legacy_callback_body = self.closure_callback_body(callback).ok();
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array reduce receiver must be a list"));
@@ -952,37 +543,14 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
-        if let Some(legacy_body) = legacy_callback_body
-            && legacy_body.ty != dest_ty
-        {
-            return Err(EmitError::new(
-                "array reduce initial value and callback result must match the destination type",
-            ));
-        }
         let list_text = self.operand_text(list)?;
-        let callback_text = if let Some(legacy_body) = legacy_callback_body {
-            let legacy_text =
-                self.callback_expr_text(legacy_body, &["acc", "item", "index", "array"])?;
-            if self.callback_text_is_closure_literal(&legacy_text) {
-                let callback_closure = match self.closure_operand_text_for_declared_type(callback) {
-                    Ok(callback_closure) => callback_closure,
-                    Err(_) => return Ok("Default::default()".to_owned()),
-                };
-                format!(
-                    "{{ let smelt_callback = {callback_closure}; (smelt_callback)(acc, item, index, array) }}"
-                )
-            } else {
-                legacy_text
-            }
-        } else {
-            let callback_closure = match self.closure_operand_text_for_declared_type(callback) {
-                Ok(callback_closure) => callback_closure,
-                Err(_) => return Ok("Default::default()".to_owned()),
-            };
-            format!(
-                "{{ let smelt_callback = {callback_closure}; (smelt_callback)(acc, item, index, array) }}"
-            )
+        let callback_closure = match self.closure_operand_text_for_declared_type(callback) {
+            Ok(callback_closure) => callback_closure,
+            Err(_) => return Ok("Default::default()".to_owned()),
         };
+        let callback_text = format!(
+            "{{ let smelt_callback = {callback_closure}; (smelt_callback)(acc, item, index, array) }}"
+        );
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_text(initial_operand)?;
             Ok(format!(
@@ -996,21 +564,6 @@ impl FunctionEmitter<'_> {
             Err(EmitError::new(
                 "array reduce without an initial value must produce the element type",
             ))
-        }
-    }
-
-    /// Validates that a lowered callback expression returns a boolean.
-    pub(super) fn validate_bool_callback(
-        &self,
-        callback: &smelt_hir::CallbackExpr,
-        context: &'static str,
-    ) -> Result<(), EmitError> {
-        if self.mir.types.get(callback.ty) == Some(&Type::Bool) {
-            Ok(())
-        } else {
-            Err(EmitError::new(format!(
-                "{context} callback must return boolean"
-            )))
         }
     }
 
@@ -1265,51 +818,7 @@ impl FunctionEmitter<'_> {
                 self.default_value(return_ty)?
             ));
         }
-        let body = if let Some(callback) = closure.callback_body.as_ref() {
-            let mut param_names = closure
-                .params
-                .iter()
-                .enumerate()
-                .map(|(index, _)| format!("arg{index}"))
-                .collect::<Vec<_>>();
-            param_names.extend((0..extra_params).map(|index| format!("_arg{index}")));
-            let param_refs = param_names.iter().map(String::as_str).collect::<Vec<_>>();
-            let return_ty = return_override.unwrap_or(closure.return_ty);
-            let raw_body_expr =
-                self.callback_expr_as_type_text(callback, return_ty, &param_refs)?;
-            let body_expr = if closure.can_throw {
-                format!("Ok::<_, Box<dyn std::error::Error>>({raw_body_expr})")
-            } else {
-                raw_body_expr
-            };
-            let body = if matches!(self.mir.types.get(return_ty), Some(Type::Future(_))) {
-                format!("Box::pin(async move {{ {body_expr} }})")
-            } else {
-                body_expr
-            };
-            let mut param_decls = closure
-                .params
-                .iter()
-                .enumerate()
-                .map(|(index, param)| {
-                    let local_index = id_index(param.0, "closure param index does not fit usize")?;
-                    let local = closure
-                        .locals
-                        .get(local_index)
-                        .ok_or_else(|| EmitError::new("closure param has no local declaration"))?;
-                    Ok(format!(
-                        "arg{index}: {}",
-                        self.type_text_with_impl_trait(local.ty, false)?
-                    ))
-                })
-                .collect::<Result<Vec<_>, EmitError>>()?;
-            param_decls.extend((0..extra_params).map(|index| format!("_arg{index}: SmeltUnknown")));
-            format!(
-                "|{}| -> {} {{ {body} }}",
-                param_decls.join(", "),
-                self.closure_return_type_text(return_ty, closure.can_throw)?
-            )
-        } else {
+        let body = {
             let mut closure_locals = closure.locals.clone();
             let fallback_span = closure_locals.first().map_or(
                 Span {
@@ -1759,45 +1268,6 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
-    /// Resolve a callback operand to the temporary MIR closure body it was constructed from.
-    fn closure_callback_body(
-        &self,
-        operand: &Operand,
-    ) -> Result<&smelt_hir::CallbackExpr, EmitError> {
-        let local = match operand {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
-            _ => {
-                return Err(EmitError::new(
-                    "list callback must be a non-escaping closure local",
-                ));
-            }
-        };
-        for block in &self.function.blocks {
-            for statement in &block.statements {
-                if let Statement::Assign {
-                    dest,
-                    value: Rvalue::Closure { id, .. },
-                } = statement
-                    && *dest == local
-                {
-                    let closure = self
-                        .mir
-                        .closures
-                        .get(usize::try_from(id.0).unwrap_or(usize::MAX))
-                        .ok_or_else(|| {
-                            EmitError::new("list callback references an unknown closure")
-                        })?;
-                    return closure.callback_body.as_ref().ok_or_else(|| {
-                        EmitError::new("list callback closure has no callback body")
-                    });
-                }
-            }
-        }
-        Err(EmitError::new(
-            "list callback closure construction was not found",
-        ))
-    }
-
     /// Resolve a callback operand to the Rust closure expression that constructed it.
     pub(super) fn closure_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let local = match operand {
@@ -1893,12 +1363,6 @@ impl FunctionEmitter<'_> {
         Err(EmitError::new(
             "list callback closure construction was not found",
         ))
-    }
-
-    /// Return true when legacy callback expression text is really a closure.
-    fn callback_text_is_closure_literal(&self, text: &str) -> bool {
-        let trimmed = text.trim_start();
-        trimmed.starts_with('|') || trimmed.starts_with("move |") || trimmed.starts_with("{\n")
     }
 
     /// Converts a callback expression tree to Rust source text.
@@ -3966,104 +3430,6 @@ impl FunctionEmitter<'_> {
     }
 
     // Sorted-list helpers continue in `list_ordering.rs`.
-}
-
-/// Returns whether a callback expression references a positional callback parameter.
-fn callback_uses_param(
-    types: &smelt_hir::TypeInterner,
-    expr: &smelt_hir::CallbackExpr,
-    needle: usize,
-) -> bool {
-    match &expr.kind {
-        smelt_hir::CallbackExprKind::Param(index) => *index == needle,
-        smelt_hir::CallbackExprKind::HasField { receiver, .. }
-            if !matches!(
-                types.get(receiver.ty),
-                Some(Type::Dict(_, _) | Type::Unknown | Type::Class { .. })
-            ) =>
-        {
-            false
-        }
-        smelt_hir::CallbackExprKind::AssignCapture { value, .. }
-        | smelt_hir::CallbackExprKind::Throw {
-            message: Some(value),
-        }
-        | smelt_hir::CallbackExprKind::Index {
-            receiver: value, ..
-        }
-        | smelt_hir::CallbackExprKind::Field {
-            receiver: value, ..
-        }
-        | smelt_hir::CallbackExprKind::HasField {
-            receiver: value, ..
-        }
-        | smelt_hir::CallbackExprKind::FieldTruthy {
-            receiver: value, ..
-        }
-        | smelt_hir::CallbackExprKind::Unary { operand: value, .. }
-        | smelt_hir::CallbackExprKind::UnknownIs { value, .. }
-        | smelt_hir::CallbackExprKind::TypeofValue { value }
-        | smelt_hir::CallbackExprKind::FunctionTableLookup { key: value, .. } => {
-            callback_uses_param(types, value, needle)
-        }
-        smelt_hir::CallbackExprKind::DynamicIndex { receiver, index }
-        | smelt_hir::CallbackExprKind::HasDynamicField {
-            receiver,
-            field: index,
-        }
-        | smelt_hir::CallbackExprKind::Binary {
-            lhs: receiver,
-            rhs: index,
-            ..
-        } => {
-            callback_uses_param(types, receiver, needle)
-                || callback_uses_param(types, index, needle)
-        }
-        smelt_hir::CallbackExprKind::Sequence { effects, result } => {
-            effects
-                .iter()
-                .any(|item| callback_uses_param(types, item, needle))
-                || callback_uses_param(types, result, needle)
-        }
-        smelt_hir::CallbackExprKind::Conditional {
-            cond,
-            then_expr,
-            else_expr,
-        } => {
-            if let Some(value) = callback_literal_bool(cond) {
-                return callback_uses_param(
-                    types,
-                    if value { then_expr } else { else_expr },
-                    needle,
-                );
-            }
-            callback_uses_param(types, cond, needle)
-                || callback_uses_param(types, then_expr, needle)
-                || callback_uses_param(types, else_expr, needle)
-        }
-        smelt_hir::CallbackExprKind::Call { callee, args } => {
-            callback_uses_param(types, callee, needle)
-                || args
-                    .iter()
-                    .any(|arg| callback_uses_param(types, &arg.expr, needle))
-        }
-        smelt_hir::CallbackExprKind::MethodCall { receiver, args, .. } => {
-            callback_uses_param(types, receiver, needle)
-                || args
-                    .iter()
-                    .any(|arg| callback_uses_param(types, &arg.expr, needle))
-        }
-        smelt_hir::CallbackExprKind::ListLit(items) => items
-            .iter()
-            .any(|item| callback_uses_param(types, item, needle)),
-        smelt_hir::CallbackExprKind::DictLit(entries) => entries
-            .iter()
-            .any(|(_, value)| callback_uses_param(types, value, needle)),
-        smelt_hir::CallbackExprKind::Throw { message: None }
-        | smelt_hir::CallbackExprKind::Capture(_)
-        | smelt_hir::CallbackExprKind::Function(_)
-        | smelt_hir::CallbackExprKind::Literal(_) => false,
-    }
 }
 
 /// Extracts a static boolean value from a callback expression when it is literal.

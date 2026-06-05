@@ -157,16 +157,13 @@ fn callback_has_param(callback: &smelt_hir::CallbackExpr, target: usize) -> bool
     }
 }
 
-/// Return whether a closure expression's callback body references a parameter index.
+/// Return whether a closure expression's normal body CFG references a parameter index.
 fn closure_callback_has_param(
     ctx: &HirCtx,
     body: &smelt_hir::Body,
     callback: smelt_hir::ExprId,
     target: usize,
 ) -> bool {
-    if let Some(callback) = closure_callback_body(body, callback) {
-        return callback_has_param(callback, target);
-    }
     let Some(ExprKind::Closure(closure)) =
         body.exprs.get(callback.0 as usize).map(|expr| &expr.kind)
     else {
@@ -186,16 +183,12 @@ fn closure_callback_has_param(
         })
 }
 
-/// Resolve the temporary callback-expression bridge from a closure expression.
-fn closure_callback_body(
-    body: &smelt_hir::Body,
-    callback: smelt_hir::ExprId,
-) -> Option<&smelt_hir::CallbackExpr> {
-    let expr = body.exprs.get(callback.0 as usize)?;
-    let ExprKind::Closure(closure) = &expr.kind else {
-        return None;
-    };
-    closure.callback_body.as_ref()
+/// Return whether a closure expression points at a populated normal body CFG.
+fn closure_has_cfg_body(ctx: &HirCtx, closure: &smelt_hir::ClosureExpr) -> bool {
+    ctx.krate
+        .bodies
+        .get(closure.body.0 as usize)
+        .is_some_and(|body| !body.blocks.is_empty())
 }
 
 /// Get a function item at the provided module item index.

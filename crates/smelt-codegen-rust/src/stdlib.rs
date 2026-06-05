@@ -19,10 +19,7 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_serde_json) {
         deps.push(BackendDependency::SerdeJson);
     }
-    if any_rvalue_needs(mir, rvalue_needs_regex)
-        || any_callback_needs_regex(mir)
-        || needs_unknown_type(mir)
-    {
+    if any_rvalue_needs(mir, |rvalue| rvalue_needs_regex(rvalue, mir)) || needs_unknown_type(mir) {
         deps.push(BackendDependency::Regex);
     }
     if any_rvalue_needs(mir, rvalue_needs_rand) {
@@ -47,7 +44,7 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
 ///
 /// Dependency detection stays rvalue-based so frontend features can add new
 /// MIR operations without spreading Cargo dependency knowledge through codegen.
-fn any_rvalue_needs(mir: &Mir, needs_dependency: fn(&Rvalue) -> bool) -> bool {
+fn any_rvalue_needs(mir: &Mir, needs_dependency: impl Fn(&Rvalue) -> bool) -> bool {
     rvalues(mir).any(needs_dependency)
 }
 
@@ -83,7 +80,7 @@ fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
 }
 
 /// Returns true when a MIR rvalue uses Regex APIs.
-fn rvalue_needs_regex(rvalue: &Rvalue) -> bool {
+fn rvalue_needs_regex(rvalue: &Rvalue, mir: &Mir) -> bool {
     matches!(
         rvalue,
         Rvalue::RegexIsMatch { .. }
@@ -94,20 +91,18 @@ fn rvalue_needs_regex(rvalue: &Rvalue) -> bool {
             | Rvalue::RegexExec { .. }
             | Rvalue::RegexMatchAll { .. }
             | Rvalue::StringSplit { .. }
+    ) || matches!(
+        rvalue,
+        Rvalue::ListSort {
+            comparator: Some(callback),
+            ..
+        } if callback_needs_regex(callback, mir)
     )
 }
 
 /// Returns true when a MIR rvalue uses Unicode normalization APIs.
 fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::StringNormalize { .. })
-}
-
-/// Returns true when any legacy callback-expression body uses Regex APIs.
-fn any_callback_needs_regex(mir: &Mir) -> bool {
-    mir.closures
-        .iter()
-        .filter_map(|closure| closure.callback_body.as_ref())
-        .any(|callback| callback_needs_regex(callback, mir))
 }
 
 /// Returns true when one callback-expression tree uses Regex APIs.

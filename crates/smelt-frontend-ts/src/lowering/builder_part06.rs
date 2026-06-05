@@ -1904,13 +1904,13 @@ impl ModuleBuilder<'_> {
                 if predeclared_local.is_some() {
                     let value = self.callback_expr_to_closure_with_return_ty(
                         return_ty,
-                        callback.clone(),
+                        &callback,
                         &params,
                         rest.map(|rest| rest.index),
                         Some(required_params),
                         self.span(arrow.span.start, arrow.span.end),
                         body,
-                    );
+                    )?;
                     let pat = body.push_pattern(Pattern::Binding(local));
                     body.push_stmt_to_block(
                         block,
@@ -2196,7 +2196,6 @@ impl ModuleBuilder<'_> {
                     return_ty,
                     captures,
                     body: body_id,
-                    callback_body: None,
                     span: self.span(function.span.start, function.span.end),
                 }),
                 ty: fn_ty,

@@ -136,8 +136,6 @@ pub struct MirClosure {
     pub escapes: bool,
     /// Whether this closure can return through a source-language throw.
     pub can_throw: bool,
-    /// Callback-expression body used while legacy callback lowering is migrated.
-    pub callback_body: Option<smelt_hir::CallbackExpr>,
 }
 
 /// One explicit MIR closure capture.

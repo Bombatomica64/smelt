@@ -83,17 +83,6 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
                 locals.insert(*dest);
             }
             if let Statement::Assign {
-                value: Rvalue::Closure { id, .. },
-                ..
-            } = statement
-                && let Some(callback) = mir
-                    .closures
-                    .get(usize::try_from(id.0).unwrap_or(usize::MAX))
-                    .and_then(|closure| closure.callback_body.as_ref())
-            {
-                assigned_callback_locals(callback, &mut locals);
-            }
-            if let Statement::Assign {
                 value:
                     Rvalue::ListSort {
                         comparator: Some(callback),

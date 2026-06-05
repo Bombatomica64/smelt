@@ -2929,13 +2929,7 @@ function shift(values: number[]): number[] {
             .bodies
             .iter()
             .flat_map(|body| body.exprs.iter())
-            .any(|expr| matches!(
-                expr.kind,
-                ExprKind::Closure(smelt_hir::ClosureExpr {
-                    callback_body: None,
-                    ..
-                })
-            )),
+            .any(|expr| matches!(expr.kind, ExprKind::Closure(smelt_hir::ClosureExpr { .. }))),
         "expected bind to lower to a first-class closure body"
     );
     ensure!(
@@ -4706,7 +4700,7 @@ function range(start: number, length: number, step: number): number[] {
                 };
                 matches!(
                     body.exprs.get(callback.0 as usize).map(|expr| &expr.kind),
-                    Some(ExprKind::Closure(closure)) if closure.callback_body.is_none()
+                    Some(ExprKind::Closure(closure)) if closure_has_cfg_body(&ctx, closure)
                 )
             })
         }),

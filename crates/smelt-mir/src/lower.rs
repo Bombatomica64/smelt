@@ -4025,87 +4025,44 @@ impl<'hir> LoweringCtx<'hir> {
                             })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                if closure.callback_body.is_some() {
-                    let mut locals = Vec::new();
-                    let mut params = Vec::new();
-                    for param in &closure.params {
-                        let local = LocalId(u32_from_usize(
-                            locals.len(),
-                            "MIR closure local index does not fit in u32",
-                        )?);
-                        locals.push(LocalDecl {
-                            ty: param.ty,
-                            kind: LocalKind::Param {
-                                symbol: Some(param.name),
-                            },
-                            span: param.span,
-                        });
-                        params.push(local);
-                    }
-                    self.closures.push(MirClosure {
-                        id: closure_id,
-                        params,
-                        rest: closure.rest,
-                        required_params: closure.required_params,
-                        locals,
-                        captures: mir_captures,
-                        return_ty: closure.return_ty,
-                        blocks: vec![BasicBlock {
-                            id: BlockId(0),
-                            phis: Vec::new(),
-                            statements: Vec::new(),
-                            terminator: None,
-                            span: closure.span,
-                        }],
-                        entry: BlockId(0),
-                        escapes: false,
-                        can_throw: closure
-                            .callback_body
-                            .as_ref()
-                            .is_some_and(callback_expr_can_throw),
-                        callback_body: closure.callback_body.clone(),
-                    });
-                } else {
-                    let closure_body = self
-                        .krate
-                        .bodies
-                        .get(usize_from_u32(
-                            closure.body.0,
-                            "HIR closure body index does not fit in usize",
-                        )?)
-                        .ok_or_else(|| {
-                            self.error("closure references an unknown body", Some(closure.span))
-                        })?;
-                    let closure_ctx = LoweringCtx::new_closure(
-                        self.krate,
-                        self.item_functions,
-                        closure.body,
-                        closure_body,
-                        closure.return_ty,
-                        closure.span,
-                        self.loop_index_ty,
-                        self.loop_bool_ty,
-                        closure_index.checked_add(1).ok_or_else(|| {
-                            self.error("MIR closure index overflowed usize", Some(expr.span))
-                        })?,
-                    )?;
-                    let (function, nested_closures) = closure_ctx.lower()?;
-                    self.closures.push(MirClosure {
-                        id: closure_id,
-                        params: function.params,
-                        rest: closure.rest,
-                        required_params: closure.required_params,
-                        locals: function.locals,
-                        captures: mir_captures,
-                        return_ty: closure.return_ty,
-                        blocks: function.blocks,
-                        entry: function.entry,
-                        escapes: false,
-                        can_throw: function.can_throw,
-                        callback_body: None,
-                    });
-                    self.closures.extend(nested_closures);
-                }
+                let closure_body = self
+                    .krate
+                    .bodies
+                    .get(usize_from_u32(
+                        closure.body.0,
+                        "HIR closure body index does not fit in usize",
+                    )?)
+                    .ok_or_else(|| {
+                        self.error("closure references an unknown body", Some(closure.span))
+                    })?;
+                let closure_ctx = LoweringCtx::new_closure(
+                    self.krate,
+                    self.item_functions,
+                    closure.body,
+                    closure_body,
+                    closure.return_ty,
+                    closure.span,
+                    self.loop_index_ty,
+                    self.loop_bool_ty,
+                    closure_index.checked_add(1).ok_or_else(|| {
+                        self.error("MIR closure index overflowed usize", Some(expr.span))
+                    })?,
+                )?;
+                let (function, nested_closures) = closure_ctx.lower()?;
+                self.closures.push(MirClosure {
+                    id: closure_id,
+                    params: function.params,
+                    rest: closure.rest,
+                    required_params: closure.required_params,
+                    locals: function.locals,
+                    captures: mir_captures,
+                    return_ty: closure.return_ty,
+                    blocks: function.blocks,
+                    entry: function.entry,
+                    escapes: false,
+                    can_throw: function.can_throw,
+                });
+                self.closures.extend(nested_closures);
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
@@ -4816,63 +4773,5 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
         | Terminator::Match { .. }
         | Terminator::Return(_)
         | Terminator::Unreachable => false,
-    }
-}
-
-/// Returns whether a legacy callback expression contains a source throw.
-fn callback_expr_can_throw(expr: &smelt_hir::CallbackExpr) -> bool {
-    use smelt_hir::CallbackExprKind;
-    match &expr.kind {
-        CallbackExprKind::Throw { .. } => true,
-        CallbackExprKind::Unary { operand, .. } => callback_expr_can_throw(operand),
-        CallbackExprKind::Binary { lhs, rhs, .. } => {
-            callback_expr_can_throw(lhs) || callback_expr_can_throw(rhs)
-        }
-        CallbackExprKind::Conditional {
-            cond,
-            then_expr,
-            else_expr,
-        } => {
-            callback_expr_can_throw(cond)
-                || callback_expr_can_throw(then_expr)
-                || callback_expr_can_throw(else_expr)
-        }
-        CallbackExprKind::Call { callee, args } => {
-            callback_expr_can_throw(callee)
-                || args.iter().any(|arg| callback_expr_can_throw(&arg.expr))
-        }
-        CallbackExprKind::MethodCall { receiver, args, .. } => {
-            callback_expr_can_throw(receiver)
-                || args.iter().any(|arg| callback_expr_can_throw(&arg.expr))
-        }
-        CallbackExprKind::ListLit(items) => items.iter().any(callback_expr_can_throw),
-        CallbackExprKind::DictLit(entries) => entries
-            .iter()
-            .any(|(_, value)| callback_expr_can_throw(value)),
-        CallbackExprKind::Index { receiver, .. } => callback_expr_can_throw(receiver),
-        CallbackExprKind::DynamicIndex { receiver, index } => {
-            callback_expr_can_throw(receiver) || callback_expr_can_throw(index)
-        }
-        CallbackExprKind::Field { receiver, .. }
-        | CallbackExprKind::HasField { receiver, .. }
-        | CallbackExprKind::FieldTruthy { receiver, .. }
-        | CallbackExprKind::UnknownIs {
-            value: receiver, ..
-        }
-        | CallbackExprKind::TypeofValue {
-            value: receiver, ..
-        } => callback_expr_can_throw(receiver),
-        CallbackExprKind::FunctionTableLookup { key, .. } => callback_expr_can_throw(key),
-        CallbackExprKind::HasDynamicField { receiver, field } => {
-            callback_expr_can_throw(receiver) || callback_expr_can_throw(field)
-        }
-        CallbackExprKind::AssignCapture { value, .. } => callback_expr_can_throw(value),
-        CallbackExprKind::Sequence { effects, result } => {
-            effects.iter().any(callback_expr_can_throw) || callback_expr_can_throw(result)
-        }
-        CallbackExprKind::Literal(_)
-        | CallbackExprKind::Param(_)
-        | CallbackExprKind::Capture(_)
-        | CallbackExprKind::Function(_) => false,
     }
 }

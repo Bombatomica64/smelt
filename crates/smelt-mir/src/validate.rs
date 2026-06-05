@@ -67,14 +67,6 @@ fn validate_closures(mir: &Mir, errors: &mut Vec<ValidationError>) {
             }
         }
         validate_type(mir, closure.return_ty, errors);
-        if let Some(callback) = &closure.callback_body
-            && callback.ty != closure.return_ty
-        {
-            errors.push(error(format!(
-                "closure {:?} callback return type does not match closure return type",
-                closure.id
-            )));
-        }
     }
 }
 

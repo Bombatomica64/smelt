@@ -421,7 +421,6 @@ impl ModuleBuilder<'_> {
                 return_ty,
                 captures,
                 body: body_id,
-                callback_body: None,
                 span,
             }),
             ty: closure_ty,

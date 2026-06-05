@@ -2644,7 +2644,6 @@ impl ModuleBuilder<'_> {
                 return_ty,
                 captures,
                 body: body_id,
-                callback_body: None,
                 span: self.span(function.span.start, function.span.end),
             }),
             ty: function_ty,

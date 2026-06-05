@@ -114,12 +114,10 @@ function anyPass(data: unknown, fns: Array<(value: unknown) => boolean>): boolea
     );
 
     assert!(source.contains("mut fns:"), "{source}");
-    assert!(
-        source.contains("fns.iter_mut().enumerate().any"),
-        "{source}"
-    );
+    assert!(source.contains(".iter().enumerate().any"), "{source}");
+    assert!(source.contains("(closure_arg_0)(data.clone())"), "{source}");
     assert!(!source.contains("let item = (*item).clone()"), "{source}");
-    assert!(!source.contains("fns.clone()"), "{source}");
+    assert!(!source.contains("smelt_default_callback"), "{source}");
 }
 
 #[test]
@@ -176,7 +174,12 @@ const explicit = bump(4);
 "#,
     );
 
-    assert!(source.contains("impl FnMut(f64) -> f64") || source.contains("|arg0: f64|"));
+    assert!(
+        source.contains("impl FnMut(f64) -> f64")
+            || source.contains("|closure_arg_0: f64|")
+            || source.contains("move |closure_arg_0: f64|"),
+        "{source}"
+    );
     assert!(source.contains("(1.0)"));
     assert!(source.contains("(4.0)"));
 }
@@ -233,9 +236,13 @@ const total = sum(2, 3, 4);
 "#,
     );
 
-    assert!(source.contains("|arg0: Vec<f64>|"));
+    assert!(source.contains("|closure_arg_0: Vec<f64>|"), "{source}");
     assert!(source.contains("vec![2.0, 3.0, 4.0]"));
-    assert!(source.contains("arg0[0].clone() + arg0[1].clone()"));
+    assert!(source.contains("closure_arg_0.get("), "{source}");
+    assert!(
+        source.contains(".cloned().unwrap_or(0.0).clone()"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -399,7 +406,7 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     assert!(source.contains(".collect::<Vec<_>>()"));
     assert!(source.contains(".unwrap_or(-1.0"));
     assert!(source.contains("closure_arg_0.clone() * 2.0"), "{source}");
-    assert!(source.contains("(item + 2.0)"));
+    assert!(source.contains("closure_arg_0.clone() + 2.0"));
     assert!(
         source.contains("(smelt_callback)(SmeltUnknown::Number(item.clone() as f64))"),
         "{source}"

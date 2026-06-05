@@ -90,15 +90,15 @@ impl ModuleBuilder<'_> {
             }));
         }
         if let Some(callback) = self.local_callbacks.get(name).cloned() {
-            return Ok(self.callback_expr_to_closure_with_return_ty(
+            return self.callback_expr_to_closure_with_return_ty(
                 callback.return_ty,
-                callback.callback,
+                &callback.callback,
                 &callback.params,
                 callback.rest.map(|rest| rest.index),
                 callback.required_params,
                 self.span(start, end),
                 body,
-            ));
+            );
         }
         let Some(local) = self.locals.get(name).copied() else {
             if let Some((pattern, flags, ty)) = self.const_regexps.get(name).cloned() {
@@ -310,7 +310,6 @@ return_ty: string_ty,
 return_ty: string_ty,
                 captures: Vec::new(),
                 body,
-                callback_body: None,
                 span,
             }),
             ty: closure_ty,
@@ -388,7 +387,6 @@ return_ty: string_ty,
                 return_ty: function.return_ty,
                 captures: Vec::new(),
                 body: body_id,
-                callback_body: None,
                 span,
             }),
             ty: closure_ty,
@@ -619,7 +617,6 @@ return_ty: item.ty,
 return_ty: function.return_ty,
                 captures: Vec::new(),
                 body: body_id,
-                callback_body: None,
                 span,
             }),
             ty,

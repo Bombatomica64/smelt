@@ -163,9 +163,6 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                             });
                         }
                     }
-                    if let Some(callback) = &closure.callback_body {
-                        validate_callback_expr(body_idx, body, callback, &mut errors);
-                    }
                 }
                 _ => {}
             }

@@ -133,11 +133,10 @@ fn closure_cfg_has_capture(ctx: &HirCtx, body: &Body, callback: smelt_hir::ExprI
     let Some(closure_body) = ctx.krate.bodies.get(body_index) else {
         return false;
     };
-    closure.callback_body.is_none()
-        && closure
-            .captures
-            .iter()
-            .all(|capture| capture.body_local.is_some())
+    closure
+        .captures
+        .iter()
+        .all(|capture| capture.body_local.is_some())
         && !closure.captures.is_empty()
         && closure_body
             .blocks

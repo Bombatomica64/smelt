@@ -179,8 +179,6 @@ pub struct ClosureExpr {
     pub captures: Vec<ClosureCapture>,
     /// HIR body containing the closure implementation.
     pub body: BodyId,
-    /// Callback-expression bridge used while callback APIs migrate to closure bodies.
-    pub callback_body: Option<CallbackExpr>,
     /// Source span covering the closure expression.
     pub span: Span,
 }

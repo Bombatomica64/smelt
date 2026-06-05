@@ -953,7 +953,7 @@ const filtered = values.filter(value => value > minimum);
             matches!(
                 body.exprs.get(callback.0 as usize).map(|expr| &expr.kind),
                 Some(ExprKind::Closure(closure))
-                    if closure.callback_body.is_none()
+                    if closure_has_cfg_body(&ctx, closure)
                         && closure.captures.iter().all(|capture| capture.body_local.is_some())
                         && !closure.captures.is_empty()
             )
@@ -982,7 +982,7 @@ const first = values.map(value => value[0]);
             ExprKind::ListCallback { callback, .. }
                 if matches!(
                     body.exprs.get(callback.0 as usize).map(|expr| &expr.kind),
-                    Some(ExprKind::Closure(closure)) if closure.callback_body.is_none()
+                    Some(ExprKind::Closure(closure)) if closure_has_cfg_body(&ctx, closure)
                 )
         )),
         "missing CFG-backed static-index callback"
@@ -1014,7 +1014,7 @@ const filtered = values.filter(value => value > minimum);
             } if matches!(
                 body.exprs.get(callback.0 as usize).map(|expr| &expr.kind),
                 Some(ExprKind::Closure(closure))
-                    if closure.callback_body.is_none()
+                    if closure_has_cfg_body(&ctx, closure)
                         && closure.captures.iter().all(|capture| capture.body_local.is_some())
                         && !closure.captures.is_empty()
             )
