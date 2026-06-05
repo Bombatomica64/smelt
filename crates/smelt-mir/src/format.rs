@@ -278,6 +278,11 @@ fn rvalue_text(value: &Rvalue) -> String {
         } => {
             format!("unknown_is {kind:?} {}", operand_text(unknown_value))
         }
+        Rvalue::TypeofValue {
+            value: unknown_value,
+        } => {
+            format!("typeof {}", operand_text(unknown_value))
+        }
         Rvalue::UnknownCast {
             value: unknown_value,
             target,

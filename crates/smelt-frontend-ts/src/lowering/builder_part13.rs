@@ -1235,8 +1235,7 @@ impl ModuleBuilder<'_> {
             CallbackExprKind::Throw { .. }
             | CallbackExprKind::Function(_)
             | CallbackExprKind::FunctionTableLookup { .. }
-            | CallbackExprKind::FieldTruthy { .. }
-            | CallbackExprKind::TypeofValue { .. } => Err(SmeltError::unsupported(
+            | CallbackExprKind::FieldTruthy { .. } => Err(SmeltError::unsupported(
                 span,
                 "this callback default expression is not lowered at call sites yet",
             )),
@@ -1318,6 +1317,14 @@ impl ModuleBuilder<'_> {
                 let value = self.callback_expr_to_body_expr(value, args, body, span)?;
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::UnknownIs { value, kind: *kind },
+                    ty: callback.ty,
+                    span,
+                }))
+            }
+            CallbackExprKind::TypeofValue { value } => {
+                let value = self.callback_expr_to_body_expr(value, args, body, span)?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::TypeofValue { value },
                     ty: callback.ty,
                     span,
                 }))

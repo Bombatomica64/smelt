@@ -991,6 +991,7 @@ fn mark_local_escaping_closures(
         | Rvalue::OptionalCoalesce { .. }
         | Rvalue::InstanceOf { .. }
         | Rvalue::UnknownIs { .. }
+        | Rvalue::TypeofValue { .. }
         | Rvalue::UnknownCast { .. }
         | Rvalue::Struct { .. }
         | Rvalue::ExternalClassInstance { .. }
@@ -2056,6 +2057,17 @@ impl<'hir> LoweringCtx<'hir> {
                     value: Rvalue::UnknownIs {
                         value: lowered_value,
                         kind: *kind,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::TypeofValue { value } => {
+                let lowered_value = self.lower_expr(*value)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::TypeofValue {
+                        value: lowered_value,
                     },
                 });
                 Operand::Copy(Place::Local(dest))
@@ -4485,6 +4497,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::Conditional { .. }
             | ExprKind::InstanceOf { .. }
             | ExprKind::UnknownIs { .. }
+            | ExprKind::TypeofValue { .. }
             | ExprKind::Block(_)
             | ExprKind::Lambda { .. }
             | ExprKind::Closure(_)

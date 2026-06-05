@@ -446,6 +446,9 @@ impl FunctionEmitter<'_> {
                 value: unknown_value,
                 kind,
             } => self.tag_check(unknown_value, *kind),
+            Rvalue::TypeofValue {
+                value: unknown_value,
+            } => self.typeof_value_text(unknown_value),
             Rvalue::UnknownCast {
                 value: unknown_value,
                 target,

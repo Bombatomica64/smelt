@@ -516,6 +516,11 @@ pub enum Rvalue {
         /// Runtime tag to check.
         kind: smelt_hir::UnknownKind,
     },
+    /// Return the JavaScript `typeof` string for a runtime-erased value.
+    TypeofValue {
+        /// Value being classified.
+        value: Operand,
+    },
     /// Extract a typed value from a TypeScript `unknown` value.
     UnknownCast {
         /// Value being extracted.

@@ -272,6 +272,11 @@ impl Rvalue {
             } => {
                 visit(unknown_value);
             }
+            Self::TypeofValue {
+                value: unknown_value,
+            } => {
+                visit(unknown_value);
+            }
             Self::UnknownCast {
                 value: unknown_value,
                 ..
@@ -1163,6 +1168,9 @@ fn validate_rvalue(
         Rvalue::UnknownIs {
             value: unknown_value,
             ..
+        }
+        | Rvalue::TypeofValue {
+            value: unknown_value,
         }
         | Rvalue::UnknownCast {
             value: unknown_value,

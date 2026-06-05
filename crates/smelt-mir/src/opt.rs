@@ -258,6 +258,7 @@ fn rewrite_rvalue(
         }
         Rvalue::InstanceOf { value: operand, .. }
         | Rvalue::UnknownIs { value: operand, .. }
+        | Rvalue::TypeofValue { value: operand }
         | Rvalue::UnknownCast { value: operand, .. } => {
             rewrite_operand_except(operand, aliases, dest)
         }

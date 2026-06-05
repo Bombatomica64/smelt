@@ -1081,6 +1081,14 @@ impl FunctionEmitter<'_> {
         self.tag_check_raw(&text, kind)
     }
 
+    /// Emits the JavaScript `typeof` string for a runtime-erased value.
+    pub(super) fn typeof_value_text(&self, value: &Operand) -> Result<String, EmitError> {
+        let text = self.operand_text(value)?;
+        Ok(format!(
+            "match {text}.clone() {{ SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"object\".to_owned() }}"
+        ))
+    }
+
     /// Emits a runtime tag check for already-rendered `SmeltUnknown` text.
     pub(super) fn tag_check_raw(
         &self,

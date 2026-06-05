@@ -758,6 +758,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::UnknownIs { value, kind } => {
             format!("unknown_is {kind:?} {}", expr_ref(*value))
         }
+        ExprKind::TypeofValue { value } => format!("typeof {}", expr_ref(*value)),
         ExprKind::UnknownCast { value, target } => {
             format!(
                 "unknown_cast {} as {}",

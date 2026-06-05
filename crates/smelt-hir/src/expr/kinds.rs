@@ -564,6 +564,9 @@ pub enum ExprKind {
         value: ExprId,
         kind: UnknownKind,
     },
+    TypeofValue {
+        value: ExprId,
+    },
     UnknownCast {
         value: ExprId,
         target: TypeId,
