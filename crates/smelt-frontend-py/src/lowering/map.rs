@@ -279,12 +279,12 @@ impl ModuleBuilder<'_> {
         let span = self.span(range);
 
         if let Some(callback) = self.local_callbacks.get(name).cloned() {
-            return Ok(self.callback_expr_to_closure(
+            return self.callback_expr_to_closure(
                 &callback.callback,
                 &callback.params,
                 span,
                 body,
-            ));
+            );
         }
 
         if let Some(&local) = self.locals.get(name) {

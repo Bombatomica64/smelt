@@ -303,7 +303,7 @@ impl ModuleBuilder<'_> {
                     expected_param_tys,
                     self.span(lambda.range),
                     body,
-                );
+                )?;
                 Ok(ClosureCallback { expr, return_ty })
             }
             Expr::Name(name) => {
@@ -330,7 +330,7 @@ impl ModuleBuilder<'_> {
                     &callback.params,
                     self.span(name.range),
                     body,
-                );
+                )?;
                 Ok(ClosureCallback {
                     expr,
                     return_ty: callback.return_ty,
@@ -350,7 +350,7 @@ impl ModuleBuilder<'_> {
         params: &[TypeId],
         span: Span,
         body: &mut Body,
-    ) -> smelt_hir::ExprId {
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let mut closure_body = Body::new(None, span);
         let closure_params = params
             .iter()
@@ -401,7 +401,7 @@ impl ModuleBuilder<'_> {
             &mut closure_body,
         );
         let return_ty = callback.ty;
-        let tail_expr = tail.expect("Python callback expressions must lower into closure bodies");
+        let tail_expr = tail?;
         closure_body.blocks[0].tail = Some(tail_expr);
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.intern_type(Type::Function(FunctionType {
@@ -413,7 +413,7 @@ impl ModuleBuilder<'_> {
             is_async: false,
             may_throw: false,
         }));
-        body.push_expr(HirExpr {
+        Ok(body.push_expr(HirExpr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: closure_params,
                 rest: None,
@@ -426,7 +426,7 @@ impl ModuleBuilder<'_> {
             }),
             ty: closure_ty,
             span,
-        })
+        }))
     }
 
     /// Convert Python's compact callback subset into a normal closure-body expression.
