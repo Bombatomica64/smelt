@@ -1233,12 +1233,18 @@ impl ModuleBuilder<'_> {
                 }))
             }
             CallbackExprKind::Throw { .. }
-            | CallbackExprKind::Function(_)
-            | CallbackExprKind::FunctionTableLookup { .. }
-            => Err(SmeltError::unsupported(
+            | CallbackExprKind::FunctionTableLookup { .. } => Err(SmeltError::unsupported(
                 span,
                 "this callback default expression is not lowered at call sites yet",
             )),
+            CallbackExprKind::Function(function) => {
+                let item = self.callback_function_item(*function, span)?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Item(item),
+                    ty: callback.ty,
+                    span,
+                }))
+            }
             CallbackExprKind::HasField { receiver, field } => {
                 let dict = self.callback_expr_to_body_expr(receiver, args, body, span)?;
                 let string_ty = self.ctx.krate.types.intern(Type::String);
@@ -1486,6 +1492,32 @@ impl ModuleBuilder<'_> {
                 ))
             }
         }
+    }
+
+    /// Resolve a callback function symbol back to its normal HIR item.
+    fn callback_function_item(
+        &self,
+        function: smelt_hir::Symbol,
+        span: Span,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.ctx
+            .krate
+            .items
+            .iter()
+            .enumerate()
+            .find_map(|(index, item)| {
+                if matches!(item, Item::Function(item_function) if item_function.name == function) {
+                    Some(smelt_hir::ItemId(u32::try_from(index).ok()?))
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    span,
+                    "callback function reference does not resolve to an item",
+                )
+            })
     }
 
     /// Convert stored callback call arguments into normal HIR argument expressions.
