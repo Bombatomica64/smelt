@@ -500,6 +500,32 @@ test("catch assertion", () => {
 }
 
 #[test]
+fn emits_error_constructor_values_with_runtime_error_identity() {
+    let source = source_for(
+        r#"
+function makeError(): unknown {
+  return new Error("bad");
+}
+
+const value = makeError();
+const yes = value instanceof Error;
+"#,
+    );
+
+    assert!(source.contains("\"__smelt_error\".to_owned()"), "{source}");
+    assert!(source.contains("\"message\".to_owned()"), "{source}");
+    assert!(
+        source.contains("value.contains_key(\"__smelt_error\")"),
+        "{source}"
+    );
+    assert!(
+        source.contains("object.contains_key(\"__smelt_error\")")
+            && source.contains("matches!(key, \"__smelt_error\" | \"message\")"),
+        "{source}"
+    );
+}
+
+#[test]
 fn parses_javascript_date_to_string_input() {
     let source = source_for(
         r#"

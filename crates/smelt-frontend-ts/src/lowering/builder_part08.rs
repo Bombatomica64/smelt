@@ -68,8 +68,8 @@ impl ModuleBuilder<'_> {
         if matches!(callee.name.as_str(), "WeakMap" | "WeakSet") {
             return self.opaque_builtin_constructor_expression(new_expr, body, callee.name.as_str());
         }
-        if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError") {
-            return self.opaque_builtin_constructor_expression(new_expr, body, callee.name.as_str());
+        if Self::is_builtin_error_constructor(callee.name.as_str()) {
+            return self.error_object_constructor_expression(new_expr, body);
         }
         if let Some(expr) = self.dynamic_identifier_constructor_expression(new_expr, body)? {
             return Ok(expr);
@@ -371,6 +371,63 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Return true for built-in JavaScript Error constructors with Error identity.
+    fn is_builtin_error_constructor(class_text: &str) -> bool {
+        matches!(
+            class_text,
+            "Error"
+                | "EvalError"
+                | "RangeError"
+                | "ReferenceError"
+                | "SyntaxError"
+                | "TypeError"
+                | "URIError"
+                | "AggregateError"
+        )
+    }
+
+    /// Lower a built-in Error constructor used as a value to an erased Error object.
+    fn error_object_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let message = self.error_constructor_expression(new_expr, body)?;
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_error".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let message_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("message".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (message_key, message)]),
+            ty: dict_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
     /// Lower a thrown expression to the string message carried by HIR throws.
     pub(super) fn throw_message_expression(
         &mut self,
@@ -378,7 +435,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Expression::NewExpression(new_expr) = argument
-            && matches!(&new_expr.callee, Expression::Identifier(callee) if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError"))
+            && matches!(&new_expr.callee, Expression::Identifier(callee) if Self::is_builtin_error_constructor(callee.name.as_str()))
         {
             return self.error_constructor_expression(new_expr, body);
         }

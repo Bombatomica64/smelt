@@ -172,9 +172,9 @@ impl SmeltObject {
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
-fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && !(object.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) }
+fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && !(object.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(object.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
 /// Return whether a record key is visible to JavaScript `for...in` iteration.
-fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && !(record.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) }
+fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && !(record.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(record.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
 impl Eq for SmeltObject {}
