@@ -473,7 +473,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
-                let value = format!("{}.await", self.await_operand_text(future)?);
+                let value = format!("{}.await?", self.await_operand_text(future)?);
                 if matches!(
                     self.mir.types.get(local.ty),
                     Some(Type::Future(_) | Type::Function(_))
@@ -530,7 +530,11 @@ impl FunctionEmitter<'_> {
                     {
                         out.push_str(&format!("    {};\n", self.operand_text(operand)?));
                     }
-                    out.push_str("    return;\n");
+                    if self.function.is_async {
+                        out.push_str("    return Ok(());\n");
+                    } else {
+                        out.push_str("    return;\n");
+                    }
                 } else if self.mir.types.get(self.function.return_ty) == Some(&Type::Unknown)
                     && let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
                         operand
@@ -734,16 +738,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
         let future_text = self.await_operand_text(future)?;
-        let awaited_text = if operand_local(future)
-            .map(|future_local| self.local_is_async_throwing_call_result(future_local))
-            .transpose()?
-            .unwrap_or(false)
-        {
-            format!("{future_text}.await")
-        } else {
-            format!("Ok::<_, Box<dyn std::error::Error>>({future_text}.await)")
-        };
-        out.push_str(&format!("    match {awaited_text} {{\n"));
+        out.push_str(&format!("    match {future_text}.await {{\n"));
         out.push_str("        Ok(__smelt_value) => {\n");
         let name = self.local_name(dest)?;
         let mutability = if self.local_binding_needs_mut(dest) {
@@ -768,12 +763,13 @@ impl FunctionEmitter<'_> {
         self.emit_block(self.block(target)?, out)?;
         out.push_str("        }\n");
         out.push_str("        Err(__smelt_error) => {\n");
+        out.push_str("            let __smelt_error = __smelt_error.to_string();\n");
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
             let value = match self.mir.types.get(exception_decl.ty) {
-                Some(Type::String) => "__smelt_error.to_string()".to_owned(),
-                Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error.to_string()))])))".to_owned(),
+                Some(Type::String) => "__smelt_error".to_owned(),
+                Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])))".to_owned(),
                 _ => self.default_value(exception_decl.ty)?,
             };
             out.push_str(&format!("            let {exception_name} = {value};\n"));

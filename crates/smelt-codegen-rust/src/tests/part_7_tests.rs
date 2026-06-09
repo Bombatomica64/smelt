@@ -344,6 +344,26 @@ const first = bag["0"];
 }
 
 #[test]
+fn emits_javascript_array_property_key_coercion() {
+    let source = source_for(
+        r#"
+const record: Record<string, number> = { short: 5 };
+const key = ["short"];
+const value = record[key];
+"#,
+    );
+
+    assert!(
+        source.contains(".collect::<Vec<_>>().join(\",\")"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("values.get(&\"[object Object]\""),
+        "{source}"
+    );
+}
+
+#[test]
 fn preserves_order_when_casting_unknown_objects_to_records() {
     let source = source_for(
         r#"
@@ -3858,8 +3878,16 @@ setTimeout(() => {}, 10);
 "#,
     );
 
-    let drain = source.find("    smelt_drain_due_timers();").unwrap();
-    let yield_now = source.find("    tokio::task::yield_now().await;").unwrap();
+    let sleep_body = source
+        .split("async fn smelt_sleep_ms(delay_ms: f64) {")
+        .nth(1)
+        .expect("missing smelt_sleep_ms helper");
+    let drain = sleep_body
+        .find("        smelt_drain_due_timers();")
+        .unwrap();
+    let yield_now = sleep_body
+        .find("    tokio::task::yield_now().await;")
+        .unwrap();
     assert!(drain < yield_now, "{source}");
     assert!(
         source.contains("let target_ms = SMELT_TIMER_NOW_MS.with"),

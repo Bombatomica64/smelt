@@ -448,6 +448,19 @@ return_ty,
                 }
                 let assertion_narrowing = self.assertion_call_narrowing(&expr_stmt.expression);
                 let expr = self.expression(&expr_stmt.expression, body)?;
+                let expr = if matches!(self.ctx.krate.types.get(Self::expr_ty(body, expr)), Some(Type::Future(_))) {
+                    let none_ty = self.ctx.krate.types.intern(Type::None);
+                    body.push_expr(Expr {
+                        kind: ExprKind::AsyncOp {
+                            op: AsyncOp::SpawnLocal,
+                            args: vec![expr],
+                        },
+                        ty: none_ty,
+                        span: self.span(expr_stmt.span.start, expr_stmt.span.end),
+                    })
+                } else {
+                    expr
+                };
                 body.push_stmt_to_block(block, Stmt::Expr(expr));
                 if let Some((name, target)) = assertion_narrowing {
                     self.apply_narrowing(name, target);

@@ -453,7 +453,7 @@ impl FunctionEmitter<'_> {
             let awaited =
                 self.value_at_type_text("smelt_future_value", *source_item, *target_item)?;
             return Ok(format!(
-                "Box::pin(async move {{ let smelt_future_value = {value_text}.await; {awaited} }})"
+                "Box::pin(async move {{ let smelt_future_value = {value_text}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }})"
             ));
         }
         if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
@@ -1355,7 +1355,15 @@ impl FunctionEmitter<'_> {
                         "(smelt_function)({args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
                     )
                 };
-                let converted_return_text = if return_ty == "SmeltUnknown" {
+                let converted_return_text = if let Some(Type::Future(item)) =
+                    self.mir.types.get(function.return_ty)
+                {
+                    let item_text = self.type_text_with_impl_trait(*item, false)?;
+                    let converted_item = self.extract_value_text("smelt_result", *item)?;
+                    format!(
+                        "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{item_text}, Box<dyn std::error::Error>>>>>"
+                    )
+                } else if return_ty == "SmeltUnknown" {
                     "smelt_result".to_owned()
                 } else {
                     self.extract_value_text("smelt_result", function.return_ty)?

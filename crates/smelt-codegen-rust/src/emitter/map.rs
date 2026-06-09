@@ -405,12 +405,8 @@ impl FunctionEmitter<'_> {
             let source_ty = self.operand_ty(source)?;
             let source_text = if source_ty == target_ty {
                 self.operand_text(source)?
-            } else if matches!(
-                self.mir.types.get(source_ty),
-                Some(Type::Unknown | Type::TypeParam { .. })
-            ) {
-                let value_text = self.operand_text(source)?;
-                self.value_at_type_text(&value_text, source_ty, target_ty)?
+            } else if !matches!(self.mir.types.get(source_ty), Some(Type::Dict(_, _))) {
+                self.object_spread_unknown_source_text(source, target_ty)?
             } else {
                 continue;
             };
@@ -420,6 +416,39 @@ impl FunctionEmitter<'_> {
         }
         steps.push("assigned".to_owned());
         Ok(format!("{{ {} }}", steps.join(" ")))
+    }
+
+    /// Converts an unknown object-spread source into the typed record target.
+    ///
+    /// JavaScript object spread copies enumerable object fields at runtime even
+    /// when the source is statically opaque. The resulting object can still
+    /// have a narrower static surface from later explicit properties, so each
+    /// copied value is converted to the target record value type as it is
+    /// inserted.
+    fn object_spread_unknown_source_text(
+        &self,
+        source: &Operand,
+        target_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(target_ty) else {
+            return self.value_at_type_text(
+                &self.operand_text(source)?,
+                self.operand_ty(source)?,
+                target_ty,
+            );
+        };
+        if self.mir.types.get(*key_ty) != Some(&Type::String) {
+            return self.value_at_type_text(
+                &self.operand_text(source)?,
+                self.operand_ty(source)?,
+                target_ty,
+            );
+        }
+        let value_text = self.extract_value_text("value", *value_ty)?;
+        let source_text = self.operand_text(source)?;
+        Ok(format!(
+            "match {source_text}.clone() {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter().map(|(key, value)| (key, {value_text}))), _ => SmeltRecord::new() }}"
+        ))
     }
 
     /// Converts a dictionary copy operation to Rust text.

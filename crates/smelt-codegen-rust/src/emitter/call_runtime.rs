@@ -1087,14 +1087,7 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::None) {
                     return self.default_value(dest_ty);
                 }
-                let awaited = format!("{}.await", self.await_operand_text(operand)?);
-                if let Some(local) = operand_local(operand)
-                    && self.local_is_async_throwing_call_result(local)?
-                {
-                    Ok(format!("{awaited}?"))
-                } else {
-                    Ok(awaited)
-                }
+                Ok(format!("{}.await?", self.await_operand_text(operand)?))
             }
             Rvalue::AsyncOp { op, args } => {
                 let text = self.async_op_text(*op, args, dest_ty)?;
@@ -1103,7 +1096,7 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) != Some(&Type::None)
                 {
                     return Ok(format!(
-                        "Box::pin(async move {{ {text}.await; {} }}) as {}",
+                        "Box::pin(async move {{ {text}.await?; Ok::<_, Box<dyn std::error::Error>>({}) }}) as {}",
                         self.default_value(*item)?,
                         self.type_text_with_impl_trait(dest_ty, false)?
                     ));

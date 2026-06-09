@@ -521,6 +521,32 @@ impl FunctionEmitter<'_> {
                 self.operand_text(list)?
             ));
         }
+        if let Some(Type::Tuple(items)) = self.mir.types.get(*nested_ty) {
+            if depth.is_some() {
+                return Err(EmitError::new(
+                    "array flat with explicit depth requires an erased nested list",
+                ));
+            }
+            let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
+                return Err(EmitError::new("array flat destination must be a list"));
+            };
+            let item_texts = items
+                .iter()
+                .enumerate()
+                .map(|(index, item_ty)| {
+                    self.value_at_type_text(
+                        &format!("items.{index}.clone()"),
+                        *item_ty,
+                        *dest_item_ty,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            return Ok(format!(
+                "{}.iter().flat_map(|items| vec![{item_texts}]).collect::<Vec<_>>()",
+                self.operand_text(list)?
+            ));
+        }
         let Some(Type::List(item_ty)) = self.mir.types.get(*nested_ty) else {
             return Ok("Default::default()".to_owned());
         };

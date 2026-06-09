@@ -956,7 +956,10 @@ impl ModuleBuilder<'_> {
             | AsyncOp::HttpGetText
             | AsyncOp::SetTimeout
             | AsyncOp::ClearTimeout
-            | AsyncOp::Promise => Err(SmeltError::unsupported(
+            | AsyncOp::Promise
+            | AsyncOp::Then
+            | AsyncOp::Catch
+            | AsyncOp::SpawnLocal => Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 format!("Promise.{op:?} is not lowered yet"),
             )),

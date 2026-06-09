@@ -19,6 +19,12 @@ pub enum AsyncOp {
     ClearTimeout,
     /// Create a future by executing a JavaScript `Promise` executor.
     Promise,
+    /// Run a Promise success continuation.
+    Then,
+    /// Run a Promise rejection continuation.
+    Catch,
+    /// Schedule an ignored future for cooperative local execution.
+    SpawnLocal,
     /// Create a task from a future.
     CreateTask,
     /// Wait for a future with a timeout.

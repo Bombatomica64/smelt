@@ -69,7 +69,8 @@ export const addLocale = async (params: unknown) => {
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let errors = smelt_hir::validate(&ctx.krate);
+    ensure!(errors.is_empty(), "validation errors: {errors:?}");
     Ok(())
 }
 
@@ -5991,6 +5992,63 @@ function run(routes: Array<{ path: string }>, prefix: string) {
     path: `${prefix}${route.path}`,
   }));
 }
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unknown_object_spread_before_callback_field_with_static_call_shape() -> Result<(), String>
+{
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+declare const base: unknown;
+const merged = {
+  ...base,
+  call: (...params: unknown[]) => params[0],
+};
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let dict_assign = body
+        .exprs
+        .iter()
+        .find_map(|expr| match expr.kind {
+            ExprKind::DictAssign { .. } => Some(expr),
+            _ => None,
+        })
+        .ok_or_else(|| "expected object spread to lower through DictAssign".to_owned())?;
+    let Some(Type::Dict(_, value_ty)) = ctx.krate.types.get(dict_assign.ty) else {
+        return Err("expected spread result to be a dictionary".to_owned());
+    };
+    ensure!(
+        matches!(ctx.krate.types.get(*value_ty), Some(Type::Function(_))),
+        "expected explicit callback field to define the static record value type",
+    );
+    let errors = smelt_hir::validate(&ctx.krate);
+    ensure!(errors.is_empty(), "validation errors: {errors:?}");
+    Ok(())
+}
+
+#[test]
+fn captures_outer_value_used_only_inside_new_promise_executor() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+declare const outer: { call(value: unknown): void };
+
+const api = {
+  call: (value: unknown) =>
+    new Promise<unknown>((resolve) => {
+      outer.call(value);
+      resolve(value);
+    }),
+};
 "#),
         &mut ctx,
     )?;

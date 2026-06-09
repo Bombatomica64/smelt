@@ -675,7 +675,7 @@ impl FunctionEmitter<'_> {
                 }
             }
             Type::Future(item) => Ok(format!(
-                "::std::pin::Pin<Box<dyn ::std::future::Future<Output = {}>>>",
+                "::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{}, Box<dyn std::error::Error>>>>>",
                 self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
         }
@@ -685,7 +685,7 @@ impl FunctionEmitter<'_> {
     /// Converts a function return type to Rust, including uncaught exception wrapping.
     pub(super) fn return_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
         let inner = self.type_text_with_impl_trait(ty, false)?;
-        if self.function.can_throw {
+        if self.function.is_async || self.function.can_throw {
             Ok(format!("Result<{inner}, Box<dyn std::error::Error>>"))
         } else {
             Ok(inner)
@@ -799,7 +799,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Type::Future(item) => Ok(format!(
-                "Box::pin(async move {{ {} }}) as {}",
+                "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({}) }}) as {}",
                 self.default_value(*item)?,
                 self.type_text_with_impl_trait(ty, false)?
             )),

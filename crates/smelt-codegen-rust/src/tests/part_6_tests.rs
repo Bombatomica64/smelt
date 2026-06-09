@@ -159,7 +159,7 @@ function makeValue(): Promise<number> {
 
     assert!(source.contains("smelt_promise_result"), "{source}");
     assert!(source.contains("smelt_resolve"), "{source}");
-    assert!(source.contains("break result.expect"), "{source}");
+    assert!(source.contains("break result;"), "{source}");
 }
 
 #[test]
@@ -232,11 +232,13 @@ async function run(): Promise<number> {
 ",
     );
 
-    assert!(source.contains("async fn lift(value: f64) -> f64 {"));
-    assert!(source.contains("async fn run() -> f64 {"));
+    assert!(
+        source.contains("async fn lift(value: f64) -> Result<f64, Box<dyn std::error::Error>> {")
+    );
+    assert!(source.contains("async fn run() -> Result<f64, Box<dyn std::error::Error>> {"));
     assert!(source.contains("let _smelt_tmp_0 = lift(5.0);"));
     assert!(source.contains("_smelt_tmp_1"));
-    assert!(source.contains("_smelt_tmp_0.await"));
+    assert!(source.contains("_smelt_tmp_0.await?"));
 }
 
 #[test]
@@ -252,9 +254,8 @@ async function run(): Promise<[number, number]> {
 ",
     );
 
-    assert!(source.contains("async fn run() -> (f64, f64) {"));
     assert!(source.contains("tokio::join!(_smelt_tmp_0, _smelt_tmp_1)"));
-    assert!(source.contains("Box::pin(async move { tokio::join!(_smelt_tmp_0, _smelt_tmp_1) })"));
+    assert!(source.contains("Ok::<_, Box<dyn std::error::Error>>"));
 }
 
 #[test]

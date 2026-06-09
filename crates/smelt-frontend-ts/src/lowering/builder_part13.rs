@@ -4380,6 +4380,27 @@ impl ModuleBuilder<'_> {
                     }
                 }
             }
+            Expression::NewExpression(new_expr) => {
+                self.collect_expression_capture_names(&new_expr.callee, param_names, captures);
+                for arg in &new_expr.arguments {
+                    match arg {
+                        Argument::SpreadElement(spread) => self.collect_expression_capture_names(
+                            &spread.argument,
+                            param_names,
+                            captures,
+                        ),
+                        other => {
+                            if let Some(arg_expression) = other.as_expression() {
+                                self.collect_expression_capture_names(
+                                    arg_expression,
+                                    param_names,
+                                    captures,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             Expression::ParenthesizedExpression(parenthesized) => self
                 .collect_expression_capture_names(&parenthesized.expression, param_names, captures),
             Expression::BinaryExpression(binary) => {

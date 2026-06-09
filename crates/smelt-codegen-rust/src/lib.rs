@@ -303,7 +303,10 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
                         op: AsyncOp::Sleep
                             | AsyncOp::SetTimeout
                             | AsyncOp::ClearTimeout
-                            | AsyncOp::Promise,
+                            | AsyncOp::Promise
+                            | AsyncOp::Then
+                            | AsyncOp::Catch
+                            | AsyncOp::SpawnLocal,
                         ..
                     }
                 )
@@ -768,12 +771,50 @@ fn emit_source_with_free_function_router(
             writer.line("    static SMELT_NEXT_TIMER_ID: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };");
             writer.line("    static SMELT_TIMER_NOW_MS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };");
             writer.line("    static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };");
+            writer.line("    static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };");
             writer.line("}");
             writer.blank_line();
             writer.line("fn smelt_reset_timers() {");
             writer.line("    SMELT_NEXT_TIMER_ID.with(|next| next.set(1));");
             writer.line("    SMELT_TIMER_NOW_MS.with(|now| now.set(0));");
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());");
+            writer.line("    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("fn smelt_noop_waker() -> ::std::task::Waker {");
+            writer.line(
+                "    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { smelt_raw_waker() }",
+            );
+            writer.line("    unsafe fn wake(_: *const ()) {}");
+            writer.line("    unsafe fn wake_by_ref(_: *const ()) {}");
+            writer.line("    unsafe fn drop(_: *const ()) {}");
+            writer.line("    fn smelt_raw_waker() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }");
+            writer.line("    unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {");
+            writer.line("    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("async fn smelt_drain_promise_tasks() {");
+            writer.line("    for _ in 0..64 {");
+            writer.line("        let mut tasks = SMELT_PROMISE_TASKS.with(|tasks| ::std::mem::take(&mut *tasks.borrow_mut()));");
+            writer.line("        if tasks.is_empty() { break; }");
+            writer.line("        let waker = smelt_noop_waker();");
+            writer.line("        let mut cx = ::std::task::Context::from_waker(&waker);");
+            writer.line("        let mut pending = Vec::new();");
+            writer.line("        for mut task in tasks.drain(..) {");
+            writer.line(
+                "            if task.as_mut().poll(&mut cx).is_pending() { pending.push(task); }",
+            );
+            writer.line("        }");
+            writer.line("        let had_pending = !pending.is_empty();");
+            writer.line(
+                "        SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().extend(pending));",
+            );
+            writer.line("        if !had_pending { break; }");
+            writer.line("        tokio::task::yield_now().await;");
+            writer.line("    }");
             writer.line("}");
             writer.blank_line();
             writer.line("fn smelt_set_timeout(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, delay_ms: f64) -> SmeltUnknown {");
@@ -815,6 +856,7 @@ fn emit_source_with_free_function_router(
             writer.line("}");
             writer.blank_line();
             writer.line("async fn smelt_sleep_ms(delay_ms: f64) {");
+            writer.line("    smelt_drain_promise_tasks().await;");
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
             writer.line(
                 "    let target_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));",
@@ -824,8 +866,10 @@ fn emit_source_with_free_function_router(
             writer.line("        let Some(next_due) = next_due else { break; };");
             writer.line("        SMELT_TIMER_NOW_MS.with(|now| now.set(next_due));");
             writer.line("        smelt_drain_due_timers();");
+            writer.line("        smelt_drain_promise_tasks().await;");
             writer.line("    }");
             writer.line("    SMELT_TIMER_NOW_MS.with(|now| now.set(target_ms));");
+            writer.line("    smelt_drain_promise_tasks().await;");
             writer.line("    tokio::task::yield_now().await;");
             writer.line("}");
             writer.blank_line();

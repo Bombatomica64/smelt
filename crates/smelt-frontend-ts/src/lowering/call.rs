@@ -1050,11 +1050,6 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower Promise/Future `.then(...)` and `.catch(...)` continuation calls.
-    ///
-    /// Smelt does not model JavaScript Promise continuation scheduling yet. For
-    /// type-surface lowering, promise chains whose value is ignored can still be
-    /// represented as the original future value so subsequent `.catch(...)`
-    /// links and surrounding statements keep a precise `Promise<T>` surface.
     fn promise_continuation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1069,10 +1064,42 @@ impl<'builder> ModuleBuilder<'builder> {
         }
         let receiver = self.expression(&member.object, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
-        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Future(_))) {
+        let Some(Type::Future(inner_ty)) = self.ctx.krate.types.get(receiver_ty).cloned() else {
             return Ok(None);
-        }
-        Ok(Some(receiver))
+        };
+        let [callback_arg, ..] = call.arguments.as_slice() else {
+            return Ok(Some(receiver));
+        };
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let callback_return_ty = self.ctx.krate.types.intern(Type::None);
+        let callback_param_ty = if method == "catch" {
+            unknown_ty
+        } else {
+            inner_ty
+        };
+        let callback_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![callback_param_ty],
+            rest: None,
+            required_params: Some(1),
+            mutable_params: Vec::new(),
+            return_ty: callback_return_ty,
+            is_async: false,
+            may_throw: false,
+        }));
+        let callback = self.argument_with_hint(callback_arg, body, Some(callback_ty))?;
+        let (op, output_ty) = if method == "catch" {
+            (AsyncOp::Catch, receiver_ty)
+        } else {
+            (AsyncOp::Then, self.ctx.krate.types.intern(Type::Future(unknown_ty)))
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::AsyncOp {
+                op,
+                args: vec![receiver, callback],
+            },
+            ty: output_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower `callable.bind(this_arg, ...bound)` into a closure with captured arguments.

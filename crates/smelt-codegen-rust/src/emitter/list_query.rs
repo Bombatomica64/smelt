@@ -953,24 +953,19 @@ impl FunctionEmitter<'_> {
             let mut body_text = String::new();
             emitter.emit_mutable_local_preludes(&mut body_text)?;
             emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
+            let body_text = promote_trailing_future_binding_return(body_text);
             let returns_future = matches!(
                 emitter.mir.types.get(function.return_ty),
                 Some(Type::Future(_))
             );
-            let awaits_inside_body = body_text.contains(".await")
-                && !body_text
-                    .contains("let _smelt_tmp_1: ::std::pin::Pin<Box<dyn ::std::future::Future");
+            let awaits_inside_body = contains_await_outside_nested_async_block(&body_text);
             if returns_future || awaits_inside_body {
                 let output_ty = match emitter.mir.types.get(function.return_ty) {
                     Some(Type::Future(item)) => *item,
                     _ => function.return_ty,
                 };
                 let output_text = emitter.type_text_with_impl_trait(output_ty, false)?;
-                let return_ty = if closure.can_throw {
-                    format!("Result<{output_text}, Box<dyn std::error::Error>>")
-                } else {
-                    output_text.clone()
-                };
+                let return_ty = format!("Result<{output_text}, Box<dyn std::error::Error>>");
                 let async_value_needs_await = async_body_returns_future_value(&body_text);
                 let return_value = if closure.can_throw && async_value_needs_await {
                     if matches!(
@@ -1002,15 +997,16 @@ impl FunctionEmitter<'_> {
                 ) || emitter.is_erased_class_type(output_ty)
                 {
                     if async_value_needs_await {
-                        "let smelt_async_output = smelt_async_value.await; smelt_async_output.into_smelt_unknown()".to_owned()
+                        "let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())".to_owned()
                     } else {
-                        "smelt_async_value.into_smelt_unknown()".to_owned()
+                        "Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value.into_smelt_unknown())".to_owned()
                     }
                 } else if async_value_needs_await {
-                    "let smelt_async_output = smelt_async_value.await; smelt_async_output"
-                        .to_owned()
+                    format!(
+                        "let smelt_async_output = smelt_async_value.await?; Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_output)"
+                    )
                 } else {
-                    "smelt_async_value".to_owned()
+                    format!("Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_value)")
                 };
                 let mut cloned_async_captures = HashSet::new();
                 let async_capture_lines = closure
@@ -1160,12 +1156,37 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
         active.push(block_ptr);
-        for statement in &block.statements {
-            self.emit_statement(statement, out)?;
-        }
         let Some(terminator) = &block.terminator else {
             return Err(EmitError::new("closure basic block has no terminator"));
         };
+        if let Terminator::Switch {
+            cond,
+            then_block,
+            else_block,
+        } = terminator
+            && self.block_can_reach(*then_block, block.id, &mut HashSet::new())
+        {
+            out.push_str("    loop {\n");
+            for statement in &block.statements {
+                self.emit_statement(statement, out)?;
+            }
+            let branch_declared = self.declared_locals_snapshot();
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            self.emit_closure_block_inner(self.block(*then_block)?, out, active, Some(block.id))?;
+            out.push_str("    } else {\n");
+            self.restore_declared_locals(branch_declared.clone());
+            self.emit_closure_block_inner(self.block(*else_block)?, out, active, Some(block.id))?;
+            out.push_str("    ;\n");
+            out.push_str("    break;\n");
+            out.push_str("    }\n");
+            out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
+            active.pop();
+            return Ok(());
+        }
+        for statement in &block.statements {
+            self.emit_statement(statement, out)?;
+        }
         let result = match terminator {
             Terminator::Return(operand) => {
                 if self.function.return_ty == self.none_ty {
@@ -3541,6 +3562,102 @@ fn async_body_returns_future_value(body_text: &str) -> bool {
             "let {final_expr}: ::std::pin::Pin<Box<dyn ::std::future::Future"
         ))
     })
+}
+
+/// Promote a trailing generated future binding to the closure body value.
+///
+/// Async expression-bodied arrows that return `new Promise(...)` can lower to a
+/// future local followed by the generic null fallthrough. In that shape the
+/// future is the JavaScript return value and should be awaited by the enclosing
+/// async wrapper.
+fn promote_trailing_future_binding_return(body_text: String) -> String {
+    let lines = body_text.lines().collect::<Vec<_>>();
+    let Some((final_index, _)) = lines
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, line)| !line.trim().is_empty())
+    else {
+        return body_text;
+    };
+    if lines[final_index].trim() != "SmeltUnknown::Null" {
+        return body_text;
+    }
+    let Some(future_name) = lines[..final_index].iter().rev().find_map(|line| {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("let ") || !trimmed.contains("::std::future::Future<Output =") {
+            return None;
+        }
+        let rest = trimmed.strip_prefix("let ")?;
+        rest.split(':').next().map(str::trim).filter(|name| {
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        })
+    }) else {
+        return body_text;
+    };
+    let mut rewritten = String::new();
+    for (index, line) in lines.iter().enumerate() {
+        if index == final_index {
+            let indent_len = line.len().saturating_sub(line.trim_start().len());
+            rewritten.push_str(&line[..indent_len]);
+            rewritten.push_str(future_name);
+            rewritten.push('\n');
+        } else {
+            rewritten.push_str(line);
+        }
+        rewritten.push('\n');
+    }
+    rewritten
+}
+
+/// Return whether closure body text awaits outside generated nested async blocks.
+///
+/// Promise continuations emit `Box::pin(async move { ... .await ... })` inside
+/// otherwise synchronous callbacks. Those nested awaits must not make the
+/// containing callback return a future.
+fn contains_await_outside_nested_async_block(body_text: &str) -> bool {
+    let bytes = body_text.as_bytes();
+    let mut index = 0usize;
+    let mut async_depths = Vec::<usize>::new();
+    let mut brace_depth = 0usize;
+    while index < bytes.len() {
+        if starts_with_at(body_text, index, "async move") {
+            let mut cursor = index + "async move".len();
+            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            if cursor < bytes.len() && bytes[cursor] == b'{' {
+                brace_depth += 1;
+                async_depths.push(brace_depth);
+                index = cursor + 1;
+                continue;
+            }
+        }
+        if starts_with_at(body_text, index, ".await") && async_depths.is_empty() {
+            return true;
+        }
+        match bytes[index] {
+            b'{' => brace_depth += 1,
+            b'}' => {
+                if async_depths.last().copied() == Some(brace_depth) {
+                    async_depths.pop();
+                }
+                brace_depth = brace_depth.saturating_sub(1);
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    false
+}
+
+/// Return whether `needle` starts at byte offset `index`.
+fn starts_with_at(text: &str, index: usize, needle: &str) -> bool {
+    text.get(index..)
+        .is_some_and(|remaining| remaining.starts_with(needle))
 }
 
 /// Rewrites emitted closure text so shared captures use their `RefCell` storage.

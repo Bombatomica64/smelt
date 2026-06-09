@@ -509,7 +509,7 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Return whether a successor path can reach `target`.
-    fn block_can_reach(
+    pub(super) fn block_can_reach(
         &self,
         block_id: smelt_mir::BlockId,
         target: smelt_mir::BlockId,
@@ -580,34 +580,6 @@ impl<'mir> FunctionEmitter<'mir> {
             }
         }
         found
-    }
-
-    /// Returns true when a local is produced by a call to an async throwing function.
-    pub(super) fn local_is_async_throwing_call_result(
-        &self,
-        local: LocalId,
-    ) -> Result<bool, EmitError> {
-        for block in &self.function.blocks {
-            let Some(Terminator::Call { callee, dest, .. }) = &block.terminator else {
-                continue;
-            };
-            if *dest != local {
-                continue;
-            }
-            let Callee::Static(function_id) = callee else {
-                return Ok(false);
-            };
-            let function = self
-                .mir
-                .functions
-                .get(id_index(
-                    function_id.0,
-                    "function index does not fit usize",
-                )?)
-                .ok_or_else(|| EmitError::new("call references an unknown function"))?;
-            return Ok(function.is_async && function.can_throw);
-        }
-        Ok(false)
     }
 
     /// Returns whether an operand is a local closure whose body can throw.
@@ -2896,9 +2868,15 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => {
                 Ok(format!("{value_text}.source.clone()"))
             }
+            Some(Type::List(item_ty)) => {
+                let item_text = self.property_key_to_string_text("value", *item_ty)?;
+                Ok(format!(
+                    "{value_text}.clone().into_iter().map(|value| {item_text}).collect::<Vec<_>>().join(\",\")"
+                ))
+            }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {
                 Ok(format!(
-                    "match {value_text} {{ SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{{value}}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
+                    "{{ fn smelt_property_key(value: SmeltUnknown) -> String {{ match value {{ SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{{value}}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }} }} smelt_property_key({value_text}) }}"
                 ))
             }
             _ => Ok("\"[object Object]\".to_owned()".to_owned()),
@@ -2954,13 +2932,13 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("({callback_text})({args})")
         };
-        let source_returns_future =
-            matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
+        let source_type_text = self.type_text_with_impl_trait(self.operand_ty(operand)?, false)?;
+        let source_returns_future = source.is_async
+            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
+            || source_type_text.contains("Future<Output");
         let source_async_output_may_throw = source.may_throw
             || self.operand_closure_can_throw(operand)?
-            || self
-                .type_text_with_impl_trait(self.operand_ty(operand)?, false)?
-                .contains("Future<Output = Result");
+            || source_type_text.contains("Future<Output = Result");
         let call_value = if source_async_output_may_throw
             && source_returns_future
             && !target_function.may_throw
@@ -2974,12 +2952,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.type_text_with_impl_trait(target_function.return_ty, false)?;
             if is_borrowed_param {
                 format!(
-                    "Box::pin(async move {{ let smelt_async_output = {call}.await.unwrap_or_else(|error| panic!(\"{{}}\", error)); {awaited} }}) as {target_future_ty}"
+                    "Box::pin(async move {{ let smelt_async_output = {call}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }}) as {target_future_ty}"
                 )
             } else {
-                let async_call = call.replace(&function_text, "smelt_async_callback");
+                let async_call = call
+                    .replace(&function_text, "smelt_async_callback")
+                    .replace("smelt_callback", "smelt_async_callback");
                 format!(
-                    "{{ let smelt_async_callback = {function_text}.clone(); Box::pin(async move {{ let smelt_async_output = {async_call}.await.unwrap_or_else(|error| panic!(\"{{}}\", error)); {awaited} }}) as {target_future_ty} }}"
+                    "{{ let smelt_async_callback = {function_text}.clone(); Box::pin(async move {{ let smelt_async_output = {async_call}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }}) as {target_future_ty} }}"
                 )
             }
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
@@ -3008,6 +2988,18 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 format!("{{ {call_value}; () }}")
             }
+        } else if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
+            && source_returns_future
+        {
+            if target_function.may_throw {
+                format!(
+                    "{{ smelt_spawn_promise_task(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), Box<dyn std::error::Error>>(()) }}"
+                )
+            } else {
+                format!(
+                    "{{ smelt_spawn_promise_task(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}"
+                )
+            }
         } else if target_function.may_throw
             && source_returns_future
             && !source_async_output_may_throw
@@ -3015,7 +3007,7 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             let item_text = self.type_text_with_impl_trait(*item, false)?;
             format!(
-                "Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await) }})"
+                "Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }})"
             )
         } else if target_function.may_throw
             && default_adjusted_return_text.contains("::std::future::Future")
@@ -3027,7 +3019,7 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             let item_text = self.type_text_with_impl_trait(*item, false)?;
             format!(
-                "Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await) }})"
+                "Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }})"
             )
         } else if target_function.may_throw {
             format!("Ok::<_, Box<dyn std::error::Error>>({default_adjusted_return_text})")
@@ -3212,13 +3204,13 @@ impl<'mir> FunctionEmitter<'mir> {
             )
         };
         let uses_adapted_callback = callback_prelude.is_some();
-        let source_returns_future =
-            matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
+        let source_type_text = self.type_text_with_impl_trait(self.operand_ty(operand)?, false)?;
+        let source_returns_future = source.is_async
+            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
+            || source_type_text.contains("Future<Output");
         let source_async_output_may_throw = source.may_throw
             || self.operand_closure_can_throw(operand)?
-            || self
-                .type_text_with_impl_trait(self.operand_ty(operand)?, false)?
-                .contains("Future<Output = Result");
+            || source_type_text.contains("Future<Output = Result");
         let call_value = if source_async_output_may_throw
             && source_returns_future
             && !target_function.may_throw
@@ -3231,14 +3223,15 @@ impl<'mir> FunctionEmitter<'mir> {
             let target_future_ty =
                 self.type_text_with_impl_trait(target_function.return_ty, false)?;
             if uses_adapted_callback {
-                let async_call =
-                    call_text.replace("_smelt_adapted_callback", "smelt_async_callback");
+                let async_call = call_text
+                    .replace("_smelt_adapted_callback", "smelt_async_callback")
+                    .replace("smelt_callback", "smelt_async_callback");
                 format!(
-                    "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); Box::pin(async move {{ let smelt_async_output = {async_call}.await.unwrap_or_else(|error| panic!(\"{{}}\", error)); {awaited} }}) as {target_future_ty} }}"
+                    "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); Box::pin(async move {{ let smelt_async_output = {async_call}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }}) as {target_future_ty} }}"
                 )
             } else {
                 format!(
-                    "Box::pin(async move {{ let smelt_async_output = {call_text}.await.unwrap_or_else(|error| panic!(\"{{}}\", error)); {awaited} }}) as {target_future_ty}"
+                    "Box::pin(async move {{ let smelt_async_output = {call_text}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }}) as {target_future_ty}"
                 )
             }
         } else if source_returns_future
@@ -3260,18 +3253,12 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.value_at_type_text("smelt_async_output", *source_item, *target_item)?;
             let target_future_ty =
                 self.type_text_with_impl_trait(target_function.return_ty, false)?;
-            let async_call = call_text.replace("_smelt_adapted_callback", "smelt_async_callback");
-            if source_item == target_item
-                && self.mir.types.get(*target_item) == Some(&Type::Unknown)
-            {
-                format!(
-                    "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); Box::pin(async move {{ let smelt_async_output = {async_call}.await.unwrap_or_else(|error| panic!(\"{{}}\", error)); {awaited} }}) as {target_future_ty} }}"
-                )
-            } else {
-                format!(
-                    "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); Box::pin(async move {{ let smelt_async_output = {async_call}.await; {awaited} }}) as {target_future_ty} }}"
-                )
-            }
+            let async_call = call_text
+                .replace("_smelt_adapted_callback", "smelt_async_callback")
+                .replace("smelt_callback", "smelt_async_callback");
+            format!(
+                "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); Box::pin(async move {{ let smelt_async_output = {async_call}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }}) as {target_future_ty} }}"
+            )
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call_text}?")
         } else if source.may_throw && !source_returns_future {
@@ -3310,6 +3297,18 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 format!("{{ {call_value}; () }}")
             }
+        } else if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
+            && source_returns_future
+        {
+            if target_function.may_throw {
+                format!(
+                    "{{ smelt_spawn_promise_task(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), Box<dyn std::error::Error>>(()) }}"
+                )
+            } else {
+                format!(
+                    "{{ smelt_spawn_promise_task(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}"
+                )
+            }
         } else if target_function.may_throw
             && source_returns_future
             && !source_async_output_may_throw
@@ -3317,7 +3316,7 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             let item_text = self.type_text_with_impl_trait(*item, false)?;
             format!(
-                "Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await) }})"
+                "Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }})"
             )
         } else if target_function.may_throw
             && default_adjusted_return_text.contains("::std::future::Future")
@@ -3329,7 +3328,7 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             let item_text = self.type_text_with_impl_trait(*item, false)?;
             format!(
-                "Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await) }})"
+                "Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }})"
             )
         } else if target_function.may_throw {
             format!("Ok::<_, Box<dyn std::error::Error>>({default_adjusted_return_text})")
