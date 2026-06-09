@@ -409,6 +409,10 @@ impl Rvalue {
             Self::ListFromLength { length } => {
                 visit(length);
             }
+            Self::ListRepeat { value, count } => {
+                visit(value);
+                visit(count);
+            }
             Self::ListFromLengthMap { length, callback } => {
                 visit(length);
                 visit(callback);

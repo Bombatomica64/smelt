@@ -1050,6 +1050,7 @@ fn mark_local_escaping_closures(
         | Rvalue::ListSearch { .. }
         | Rvalue::ListCallback { .. }
         | Rvalue::ListFromLength { .. }
+        | Rvalue::ListRepeat { .. }
         | Rvalue::ListFromLengthMap { .. }
         | Rvalue::ListReduce { .. }
         | Rvalue::ListSlice { .. }
@@ -2947,6 +2948,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListRepeat { value, count } => {
+                let value_operand = self.lower_expr(*value)?;
+                let count_operand = self.lower_expr(*count)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListRepeat {
+                        value: value_operand,
+                        count: count_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListFromLengthMap { length, callback } => {
                 let length_operand = self.lower_expr(*length)?;
                 let callback_operand = self.lower_expr(*callback)?;
@@ -4401,6 +4415,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListSearch { .. }
             | ExprKind::ListCallback { .. }
             | ExprKind::ListFromLength { .. }
+            | ExprKind::ListRepeat { .. }
             | ExprKind::ListFromLengthMap { .. }
             | ExprKind::ListReduce { .. }
             | ExprKind::ListSlice { .. }

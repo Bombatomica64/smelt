@@ -70,16 +70,7 @@ impl FunctionEmitter<'_> {
         item: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let set_ty = match self.validate_set_item_operands(set, item, "set add") {
-            Ok(set_ty) => set_ty,
-            Err(_) => {
-                return Ok(if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
-                    "()".to_owned()
-                } else {
-                    "Default::default()".to_owned()
-                });
-            }
-        };
+        let set_ty = self.operand_ty(set)?;
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = set else {
             return Err(EmitError::new(
                 "set add receiver must be a mutable local for now",

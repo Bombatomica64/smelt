@@ -17,6 +17,8 @@ pub enum AsyncOp {
     SetTimeout,
     /// Cancel a scheduled timeout callback.
     ClearTimeout,
+    /// Create a future by executing a JavaScript `Promise` executor.
+    Promise,
     /// Create a task from a future.
     CreateTask,
     /// Wait for a future with a timeout.

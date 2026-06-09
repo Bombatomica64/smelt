@@ -907,6 +907,7 @@ impl FunctionEmitter<'_> {
                 self.list_callback_text(*op, list, callback, dest_ty)
             }
             Rvalue::ListFromLength { length } => self.list_from_length_text(length, dest_ty),
+            Rvalue::ListRepeat { value, count } => self.list_repeat_text(value, count, dest_ty),
             Rvalue::ListFromLengthMap { length, callback } => {
                 self.list_from_length_map_text(length, callback, dest_ty)
             }
@@ -1096,7 +1097,7 @@ impl FunctionEmitter<'_> {
                 }
             }
             Rvalue::AsyncOp { op, args } => {
-                let text = self.async_op_text(*op, args)?;
+                let text = self.async_op_text(*op, args, dest_ty)?;
                 if matches!(op, smelt_hir::AsyncOp::Sleep)
                     && let Some(Type::Future(item)) = self.mir.types.get(dest_ty)
                     && self.mir.types.get(*item) != Some(&Type::None)

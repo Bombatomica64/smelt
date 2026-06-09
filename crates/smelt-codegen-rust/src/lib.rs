@@ -300,7 +300,10 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
                 matches!(
                     value,
                     Rvalue::AsyncOp {
-                        op: AsyncOp::Sleep | AsyncOp::SetTimeout | AsyncOp::ClearTimeout,
+                        op: AsyncOp::Sleep
+                            | AsyncOp::SetTimeout
+                            | AsyncOp::ClearTimeout
+                            | AsyncOp::Promise,
                         ..
                     }
                 )
@@ -814,9 +817,15 @@ fn emit_source_with_free_function_router(
             writer.line("async fn smelt_sleep_ms(delay_ms: f64) {");
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
             writer.line(
-                "    SMELT_TIMER_NOW_MS.with(|now| now.set(now.get().saturating_add(delay_ms)));",
+                "    let target_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));",
             );
-            writer.line("    smelt_drain_due_timers();");
+            writer.line("    loop {");
+            writer.line("        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms).map(|timer| timer.due_ms).min());");
+            writer.line("        let Some(next_due) = next_due else { break; };");
+            writer.line("        SMELT_TIMER_NOW_MS.with(|now| now.set(next_due));");
+            writer.line("        smelt_drain_due_timers();");
+            writer.line("    }");
+            writer.line("    SMELT_TIMER_NOW_MS.with(|now| now.set(target_ms));");
             writer.line("    tokio::task::yield_now().await;");
             writer.line("}");
             writer.blank_line();

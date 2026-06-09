@@ -73,6 +73,7 @@ impl ModuleBuilder<'_> {
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
+        let saved_generator_yields = self.current_generator_yields;
         self.current_async = function.r#async;
         self.current_return_ty = declared_return_ty;
         let mut body = Body::new(
@@ -91,6 +92,7 @@ impl ModuleBuilder<'_> {
                     self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
+                    self.current_generator_yields = saved_generator_yields;
                     self.pop_type_parameter_scope();
                     return Err(error);
                 }
@@ -139,6 +141,7 @@ impl ModuleBuilder<'_> {
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
+                self.current_generator_yields = saved_generator_yields;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -165,6 +168,7 @@ impl ModuleBuilder<'_> {
                     self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
+                    self.current_generator_yields = saved_generator_yields;
                     self.pop_type_parameter_scope();
                     return Err(error);
                 }
@@ -175,6 +179,7 @@ impl ModuleBuilder<'_> {
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
+                self.current_generator_yields = saved_generator_yields;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -235,6 +240,11 @@ impl ModuleBuilder<'_> {
         {
             errors.push(error);
         }
+        let generator_yields =
+            function
+                .generator
+                .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
+        self.current_generator_yields = generator_yields;
         self.current_arguments_arities
             .push(function.params.items.len());
         for statement in &function_body.statements {
@@ -245,6 +255,9 @@ impl ModuleBuilder<'_> {
                 errors.push(error);
             }
         }
+        if let Some(accumulator) = generator_yields {
+            self.push_generator_return(accumulator, function, &mut body);
+        }
         if function.r#async {
             body.build_async_state_machine();
         }
@@ -253,6 +266,7 @@ impl ModuleBuilder<'_> {
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
+        self.current_generator_yields = saved_generator_yields;
         self.current_arguments_arities.pop();
         self.pop_type_parameter_scope();
 
@@ -329,6 +343,62 @@ impl ModuleBuilder<'_> {
             );
         }
         Ok(item)
+    }
+
+    /// Create the synthetic list that stores values yielded by a generator body.
+    fn initialize_generator_yield_accumulator(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        body: &mut Body,
+    ) -> GeneratorYieldAccumulator {
+        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        let local = body.push_local(LocalDecl {
+            name: Some(self.intern_source_name("__smelt_yields")),
+            ty: list_ty,
+            mutable: true,
+            span: self.span(function.span.start, function.span.end),
+        });
+        let value = body.push_expr(Expr {
+            kind: ExprKind::ListLit(Vec::new()),
+            ty: list_ty,
+            span: self.span(function.span.start, function.span.end),
+        });
+        let pat = body.push_pattern(Pattern::Binding(local));
+        body.push_stmt(Stmt::Let {
+            pat,
+            ty: list_ty,
+            value: Some(value),
+        });
+        GeneratorYieldAccumulator {
+            local,
+            list_ty,
+            item_ty,
+        }
+    }
+
+    /// Return the materialized generator list through the function's erased boundary.
+    fn push_generator_return(
+        &mut self,
+        accumulator: GeneratorYieldAccumulator,
+        function: &oxc::ast::ast::Function<'_>,
+        body: &mut Body,
+    ) {
+        let local = body.push_expr(Expr {
+            kind: ExprKind::Local(accumulator.local),
+            ty: accumulator.list_ty,
+            span: self.span(function.span.start, function.span.end),
+        });
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let value = body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: local,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span: self.span(function.span.start, function.span.end),
+        });
+        body.push_stmt(Stmt::Return(Some(value)));
     }
 
     /// Return whether a TypeScript formal parameter has a default value.

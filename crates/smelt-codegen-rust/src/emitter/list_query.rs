@@ -519,6 +519,34 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Converts a sized repeated list expression into Rust vector construction.
+    pub(super) fn list_repeat_text(
+        &self,
+        value: &Operand,
+        count: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new("list repeat destination must be a list"));
+        };
+        if self.operand_ty(value)? != *item_ty {
+            return Err(EmitError::new(
+                "list repeat value must match the list item type",
+            ));
+        }
+        if !matches!(
+            self.mir.types.get(self.operand_ty(count)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new("list repeat count must be numeric"));
+        }
+        let value_text = self.operand_text(value)?;
+        let count_text = self.operand_text(count)?;
+        Ok(format!(
+            "{{ let smelt_repeat_count = ({count_text} as f64).max(0.0).floor() as usize; vec![{value_text}; smelt_repeat_count] }}"
+        ))
+    }
+
     /// Converts an array reduce callback into Rust `fold` text.
     pub(super) fn list_reduce_text(
         &self,

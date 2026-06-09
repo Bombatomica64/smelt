@@ -750,6 +750,13 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListFromLength { length } => {
             format!("list_from_length {}", operand_text(length))
         }
+        Rvalue::ListRepeat { value, count } => {
+            format!(
+                "list_repeat {}, {}",
+                operand_text(value),
+                operand_text(count)
+            )
+        }
         Rvalue::ListFromLengthMap { length, callback } => format!(
             "list_from_length_map {}, {}",
             operand_text(length),
@@ -1117,6 +1124,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Sleep => "async_sleep",
                 smelt_hir::AsyncOp::SetTimeout => "async_set_timeout",
                 smelt_hir::AsyncOp::ClearTimeout => "async_clear_timeout",
+                smelt_hir::AsyncOp::Promise => "async_promise",
                 smelt_hir::AsyncOp::CreateTask => "async_create_task",
                 smelt_hir::AsyncOp::WaitFor => "async_wait_for",
                 smelt_hir::AsyncOp::HttpGetText => "async_http_get_text",

@@ -417,6 +417,10 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(callback, aliases, dest)
         }
         Rvalue::ListFromLength { length } => rewrite_operand_except(length, aliases, dest),
+        Rvalue::ListRepeat { value, count } => {
+            rewrite_operand_except(value, aliases, dest)
+                | rewrite_operand_except(count, aliases, dest)
+        }
         Rvalue::ListFromLengthMap { length, callback } => {
             rewrite_operand_except(length, aliases, dest)
                 | rewrite_operand_except(callback, aliases, dest)

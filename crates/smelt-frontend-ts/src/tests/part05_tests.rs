@@ -339,6 +339,54 @@ console.log(result);
 }
 
 #[test]
+fn lowers_generator_yields_into_materialized_unknown_array() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function* values(limit: number): Generator<number> {
+  for (let i = 0; i < limit; i += 1) {
+    yield i;
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 1);
+    let function = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some("values") => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing generator function".to_owned())?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. })),
+        "yield should append to the synthetic generator list"
+    );
+    ensure!(
+        body.stmts.iter().any(|stmt| matches!(
+            stmt,
+            Stmt::Return(Some(value))
+                if matches!(
+                    body.exprs.get(value.0 as usize).map(|expr| &expr.kind),
+                    Some(ExprKind::UnknownCast { .. })
+                )
+        )),
+        "generator should return an erased iterable value"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_if_else_while_and_for_of_to_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

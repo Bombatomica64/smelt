@@ -87,6 +87,16 @@ impl FunctionEmitter<'_> {
                 self.operand_text(default_operand)?
             ));
         }
+        if dest_ty == *value_ty
+            && self.mir.types.get(*key_ty) == Some(&Type::String)
+            && self.type_text_with_impl_trait(*value_ty, false)? == "SmeltUnknown"
+        {
+            return Ok(format!(
+                "{}.get(&{}).unwrap_or(SmeltUnknown::Null)",
+                self.operand_text(dict)?,
+                key_text
+            ));
+        }
         match (self.mir.types.get(*value_ty), self.mir.types.get(dest_ty)) {
             (Some(Type::Optional(value_inner)), Some(Type::Optional(dest_inner)))
                 if value_inner == dest_inner =>
@@ -421,6 +431,20 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         if !matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _))) {
+            if matches!(
+                self.mir.types.get(dict_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) && matches!(
+                self.mir.types.get(dest_ty),
+                Some(Type::Dict(key_ty, value_ty))
+                    if self.mir.types.get(*key_ty) == Some(&Type::String)
+                        && self.mir.types.get(*value_ty) == Some(&Type::Unknown)
+            ) {
+                let dict_text = self.operand_text(dict)?;
+                return Ok(format!(
+                    "match {dict_text}.clone() {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter()), _ => Default::default() }}"
+                ));
+            }
             return Ok("Default::default()".to_owned());
         }
         if dest_ty != dict_ty {

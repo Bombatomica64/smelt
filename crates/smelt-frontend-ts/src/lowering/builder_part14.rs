@@ -203,7 +203,7 @@ impl ModuleBuilder<'_> {
         if let Some(Argument::ArrayExpression(array)) = new_expr.arguments.first() {
             return self.array_expression(array, body, None);
         }
-        if let Some(length) = new_expr.arguments.first() {
+        let length = if let Some(length) = new_expr.arguments.first() {
             let length = self.argument(length, body)?;
             if !matches!(
                 self.ctx.krate.types.get(Self::expr_ty(body, length)),
@@ -214,23 +214,29 @@ impl ModuleBuilder<'_> {
                     "new TypedArray(...) length must be numeric",
                 ));
             }
-        }
+            Some(length)
+        } else {
+            None
+        };
         let item_ty = self.ctx.krate.types.intern(Type::Float);
         let ty = self.ctx.krate.types.intern(Type::List(item_ty));
-        if new_expr.arguments.is_empty() {
+        let Some(length) = length else {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::ListLit(Vec::new()),
                 ty,
                 span: self.span(new_expr.span.start, new_expr.span.end),
             }));
-        }
+        };
         let zero = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Float(0.0)),
             ty: item_ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         });
         Ok(body.push_expr(Expr {
-            kind: ExprKind::ListLit(vec![zero; 1024]),
+            kind: ExprKind::ListRepeat {
+                value: zero,
+                count: length,
+            },
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))

@@ -115,6 +115,54 @@ const assigned = Object.assign(fnValue, { lazy: fnValue });
 }
 
 #[test]
+fn emits_inline_callable_object_assign_call_body() {
+    let source = source_for(
+        r#"
+function wrap(call: (...args: string[]) => void): unknown {
+  let cached: string | undefined;
+  return Object.assign(
+    (...args: string[]) => {
+      call(...args);
+      return cached;
+    },
+    { flush: () => cached },
+  );
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_object.insert(\"__smelt_call\".to_owned()"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null"),
+        "{source}"
+    );
+    assert!(
+        source.contains("let _smelt_tmp_3: () = (call)("),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_promise_constructor_executor_result_future() {
+    let source = source_for(
+        r#"
+function makeValue(): Promise<number> {
+  return new Promise<number>((resolve) => {
+    resolve(1);
+  });
+}
+"#,
+    );
+
+    assert!(source.contains("smelt_promise_result"), "{source}");
+    assert!(source.contains("smelt_resolve"), "{source}");
+    assert!(source.contains("break result.expect"), "{source}");
+}
+
+#[test]
 fn emits_object_has_own_methods() {
     let source = source_for(
         r#"

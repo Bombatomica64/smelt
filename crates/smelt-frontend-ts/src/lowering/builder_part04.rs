@@ -441,6 +441,11 @@ return_ty,
                     body.push_stmt_to_block(block, Stmt::Assign { target, value });
                     return Ok(());
                 }
+                if let Expression::YieldExpression(yield_expr) = &expr_stmt.expression
+                    && self.generator_yield_statement(yield_expr, body, block)?
+                {
+                    return Ok(());
+                }
                 let assertion_narrowing = self.assertion_call_narrowing(&expr_stmt.expression);
                 let expr = self.expression(&expr_stmt.expression, body)?;
                 body.push_stmt_to_block(block, Stmt::Expr(expr));
@@ -1123,6 +1128,55 @@ return_ty,
         };
         self.current_statement_block = previous_statement_block;
         result
+    }
+
+    /// Append a `yield` statement value to the active generator accumulator.
+    fn generator_yield_statement(
+        &mut self,
+        yield_expr: &oxc::ast::ast::YieldExpression<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        let Some(accumulator) = self.current_generator_yields else {
+            return Ok(false);
+        };
+        if yield_expr.delegate {
+            return Err(SmeltError::unsupported(
+                self.span(yield_expr.span.start, yield_expr.span.end),
+                "yield* generator delegation is not lowered yet",
+            ));
+        }
+        let value = if let Some(argument) = &yield_expr.argument {
+            self.expression(argument, body)?
+        } else {
+            let none_ty = self.ctx.krate.types.intern(Type::None);
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: none_ty,
+                span: self.span(yield_expr.span.start, yield_expr.span.end),
+            })
+        };
+        let item = body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value,
+                target: accumulator.item_ty,
+            },
+            ty: accumulator.item_ty,
+            span: self.span(yield_expr.span.start, yield_expr.span.end),
+        });
+        let list = body.push_expr(Expr {
+            kind: ExprKind::Local(accumulator.local),
+            ty: accumulator.list_ty,
+            span: self.span(yield_expr.span.start, yield_expr.span.end),
+        });
+        let number_ty = self.ctx.krate.types.intern(Type::Float);
+        let push = body.push_expr(Expr {
+            kind: ExprKind::ListPush { list, item },
+            ty: number_ty,
+            span: self.span(yield_expr.span.start, yield_expr.span.end),
+        });
+        body.push_stmt_to_block(block, Stmt::Expr(push));
+        Ok(true)
     }
 
     /// Lower writes to known module-level variables without requiring a local target.

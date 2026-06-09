@@ -353,6 +353,8 @@ struct ModuleBuilder<'ctx> {
     current_async: bool,
     /// Declared return type for the current lowered function body.
     current_return_ty: Option<smelt_hir::TypeId>,
+    /// Synthetic yield accumulator for the current generator function body.
+    current_generator_yields: Option<GeneratorYieldAccumulator>,
     /// Active JavaScript `arguments` object arities for function bodies.
     current_arguments_arities: Vec<usize>,
     /// HIR block that owns side-effect statements emitted while lowering an expression.
@@ -403,6 +405,17 @@ struct ModuleBuilder<'ctx> {
     local_function_items: HashMap<String, smelt_hir::ItemId>,
     /// TypeScript overload signatures keyed by implementation name.
     function_overloads: HashMap<String, Vec<OverloadSignature>>,
+}
+
+/// Synthetic list used to materialize a synchronous generator body.
+#[derive(Debug, Clone, Copy)]
+struct GeneratorYieldAccumulator {
+    /// Local that stores yielded values in source order.
+    local: smelt_hir::LocalId,
+    /// HIR type of the accumulator list.
+    list_ty: smelt_hir::TypeId,
+    /// HIR type of each erased yielded value.
+    item_ty: smelt_hir::TypeId,
 }
 
 // Lowering builder implementation split into small include files.

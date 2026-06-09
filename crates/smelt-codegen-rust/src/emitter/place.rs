@@ -29,6 +29,13 @@ impl FunctionEmitter<'_> {
                         }
                         return Ok(format!("{base_text}.get(&{key_text}).cloned().flatten()"));
                     }
+                    if self.mir.types.get(*key) == Some(&Type::String)
+                        && self.type_text_with_impl_trait(*value, false)? == "SmeltUnknown"
+                    {
+                        return Ok(format!(
+                            "{base_text}.get(&{key_text}).unwrap_or(SmeltUnknown::Null)"
+                        ));
+                    }
                     if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
                         return Ok(format!(
                             "{base_text}.get(&{key_text}).expect(\"missing field\")"

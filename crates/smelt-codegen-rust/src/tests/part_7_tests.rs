@@ -526,6 +526,134 @@ const yes = value instanceof Error;
 }
 
 #[test]
+fn copies_erased_object_rest_destructuring_properties() {
+    let source = source_for(
+        r#"
+declare function getValue(): unknown;
+declare function makeCall(): (...args: unknown[]) => void;
+
+const source = getValue() as { call: (...args: unknown[]) => void; cancel: () => void; flush: () => void };
+const { call, ...rest } = source;
+const callable = makeCall();
+const merged = Object.assign(callable, rest);
+merged.cancel();
+merged.flush();
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltRecord::with_id_from_entries(map.id, map.into_iter())")
+            || source.contains("SmeltRecord::with_id_from_entries(values.id"),
+        "{source}"
+    );
+    assert!(source.contains(".remove(&\"call\".to_owned())"), "{source}");
+    assert!(source.contains("assigned.extend("), "{source}");
+}
+
+#[test]
+fn dynamic_object_destructuring_defaults_do_not_require_missing_fields() {
+    let source = source_for(
+        r#"
+export function pick(options: Record<string, unknown>): unknown {
+  const { leading = false, trailing = true, maxWait } = options;
+  return [leading, trailing, maxWait];
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".get(&\"leading\".to_owned()).unwrap_or("),
+        "{source}"
+    );
+    assert!(
+        source.contains(".get(&\"trailing\".to_owned()).unwrap_or("),
+        "{source}"
+    );
+    assert!(
+        source.contains(".get(&\"maxWait\".to_owned()).unwrap_or("),
+        "{source}"
+    );
+    assert!(!source.contains("expect(\"missing field\")"), "{source}");
+}
+
+#[test]
+fn typed_option_bag_parameter_defaults_do_not_require_missing_fields() {
+    let source = source_for(
+        r#"
+export function pick(
+  {
+    leading = false,
+    trailing = true,
+    maxWait,
+  }: {
+    readonly leading?: boolean;
+    readonly trailing?: boolean;
+    readonly maxWait?: number;
+  } = {},
+): unknown {
+  return [leading, trailing, maxWait];
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".get(&\"leading\".to_owned()).unwrap_or("),
+        "{source}"
+    );
+    assert!(
+        source.contains(".get(&\"trailing\".to_owned()).unwrap_or("),
+        "{source}"
+    );
+    assert!(
+        source.contains(".get(&\"maxWait\".to_owned()).unwrap_or("),
+        "{source}"
+    );
+    assert!(!source.contains("expect(\"missing field\")"), "{source}");
+}
+
+#[test]
+fn emits_runtime_sized_numeric_typed_array_constructors() {
+    let source = source_for(
+        r#"
+export function make(count: number): number[] {
+  const output = new Uint8Array(count);
+  for (let index = 0; index < count; index += 1) {
+    output[index] = index + 1;
+  }
+  return output;
+}
+"#,
+    );
+
+    assert!(source.contains("vec![0.0; smelt_repeat_count]"), "{source}");
+    assert!(!source.contains("vec![0.0, 0.0, 0.0, 0.0"), "{source}");
+}
+
+#[test]
+fn inserts_unknown_iterable_values_into_typed_sets() {
+    let source = source_for(
+        r#"
+declare function values(): unknown;
+
+export function collect(): Set<number> {
+  const results = new Set<number>();
+  for (const value of values() as Iterable<unknown>) {
+    results.add(value as number);
+  }
+  return results;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("match value.clone().clone()")
+            && (source.contains("results.push(") || source.contains("results.insert(")),
+        "{source}"
+    );
+    assert!(!source.contains("Default::default();\n"), "{source}");
+}
+
+#[test]
 fn parses_javascript_date_to_string_input() {
     let source = source_for(
         r#"
@@ -3733,6 +3861,14 @@ setTimeout(() => {}, 10);
     let drain = source.find("    smelt_drain_due_timers();").unwrap();
     let yield_now = source.find("    tokio::task::yield_now().await;").unwrap();
     assert!(drain < yield_now, "{source}");
+    assert!(
+        source.contains("let target_ms = SMELT_TIMER_NOW_MS.with"),
+        "{source}"
+    );
+    assert!(
+        source.contains("filter(|timer| timer.due_ms <= target_ms)"),
+        "{source}"
+    );
 }
 
 #[test]

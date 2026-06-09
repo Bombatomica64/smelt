@@ -432,6 +432,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListFromLength { length } => {
             format!("list_from_length {}", expr_ref(*length))
         }
+        ExprKind::ListRepeat { value, count } => {
+            format!("list_repeat {}, {}", expr_ref(*value), expr_ref(*count))
+        }
         ExprKind::ListFromLengthMap { length, callback } => format!(
             "list_from_length_map {}, {}",
             expr_ref(*length),
@@ -812,6 +815,7 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::Sleep => "async_sleep",
         AsyncOp::SetTimeout => "async_set_timeout",
         AsyncOp::ClearTimeout => "async_clear_timeout",
+        AsyncOp::Promise => "async_promise",
         AsyncOp::CreateTask => "async_create_task",
         AsyncOp::WaitFor => "async_wait_for",
         AsyncOp::HttpGetText => "async_http_get_text",

@@ -3910,10 +3910,14 @@ fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         Rvalue::OptionalCoalesce { optional, fallback } => {
             operand_uses_local(optional, local) || operand_uses_local(fallback, local)
         }
-        Rvalue::Struct { fields, .. } | Rvalue::CallableObjectAssign { props: fields, .. } => {
-            fields
-                .iter()
-                .any(|(_, field_value)| operand_uses_local(field_value, local))
+        Rvalue::Struct { fields, .. } => fields
+            .iter()
+            .any(|(_, field_value)| operand_uses_local(field_value, local)),
+        Rvalue::CallableObjectAssign { callable, props } => {
+            operand_uses_local(callable, local)
+                || props
+                    .iter()
+                    .any(|(_, field_value)| operand_uses_local(field_value, local))
         }
         Rvalue::ExternalClassInstance { args, .. } => args
             .iter()

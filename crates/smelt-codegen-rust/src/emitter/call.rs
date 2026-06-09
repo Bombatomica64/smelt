@@ -16,6 +16,7 @@ impl FunctionEmitter<'_> {
         &self,
         op: smelt_hir::AsyncOp,
         args: &[Operand],
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         match op {
             smelt_hir::AsyncOp::All | smelt_hir::AsyncOp::AllSettled => {
@@ -104,6 +105,31 @@ impl FunctionEmitter<'_> {
                 Ok(format!(
                     "smelt_clear_timeout({})",
                     self.operand_text(timeout)?
+                ))
+            }
+            smelt_hir::AsyncOp::Promise => {
+                let [executor] = args else {
+                    return Err(EmitError::new("Promise requires an executor operand"));
+                };
+                let Some(Type::Future(output_ty)) = self.mir.types.get(dest_ty) else {
+                    return Err(EmitError::new("Promise destination must be a future"));
+                };
+                let executor_text = self.operand_text(executor)?;
+                let executor_call = match self.mir.types.get(self.operand_ty(executor)?) {
+                    Some(Type::Function(function))
+                        if function.rest == Some(0) && function.params.len() == 1 =>
+                    {
+                        format!("({executor_text})(vec![smelt_resolve, smelt_reject]);")
+                    }
+                    _ => format!("({executor_text})(smelt_resolve, smelt_reject);"),
+                };
+                let output_ty = *output_ty;
+                let output_text = self.type_text(output_ty)?;
+                let resolve_value =
+                    self.value_at_type_text("value", self.type_id(Type::Unknown)?, output_ty)?;
+                Ok(format!(
+                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |value: SmeltUnknown| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result.expect(\"Promise rejected\"); }} smelt_sleep_ms(0.0).await; tokio::task::yield_now().await; }} }}) as {} }}",
+                    self.type_text_with_impl_trait(dest_ty, false)?
                 ))
             }
             smelt_hir::AsyncOp::CreateTask => {

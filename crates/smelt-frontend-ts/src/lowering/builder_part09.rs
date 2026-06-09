@@ -955,7 +955,8 @@ impl ModuleBuilder<'_> {
             | AsyncOp::WaitFor
             | AsyncOp::HttpGetText
             | AsyncOp::SetTimeout
-            | AsyncOp::ClearTimeout => Err(SmeltError::unsupported(
+            | AsyncOp::ClearTimeout
+            | AsyncOp::Promise => Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 format!("Promise.{op:?} is not lowered yet"),
             )),
@@ -1043,11 +1044,44 @@ impl ModuleBuilder<'_> {
             };
             self.argument(duration_argument, body)?
         } else {
-            body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Float(0.0)),
-                ty: self.ctx.krate.types.intern(Type::Float),
-                span: self.span(new_expr.span.start, new_expr.span.start),
-            })
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let none_ty = self.ctx.krate.types.intern(Type::None);
+            let resolve_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: vec![unknown_ty],
+                rest: None,
+                required_params: Some(1),
+                mutable_params: Vec::new(),
+                return_ty: none_ty,
+                is_async: false,
+                may_throw: false,
+            }));
+            let reject_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: vec![unknown_ty],
+                rest: None,
+                required_params: Some(1),
+                mutable_params: Vec::new(),
+                return_ty: none_ty,
+                is_async: false,
+                may_throw: false,
+            }));
+            let executor_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: vec![resolve_ty, reject_ty],
+                rest: None,
+                required_params: Some(2),
+                mutable_params: Vec::new(),
+                return_ty: none_ty,
+                is_async: false,
+                may_throw: false,
+            }));
+            let executor_expr = self.argument_with_hint(&new_expr.arguments[0], body, Some(executor_ty))?;
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::Promise,
+                    args: vec![executor_expr],
+                },
+                ty,
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            })));
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::AsyncOp {

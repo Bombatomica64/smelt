@@ -936,6 +936,13 @@ pub enum Rvalue {
         /// Numeric length source.
         length: Operand,
     },
+    /// Build a list by cloning one value for a numeric count.
+    ListRepeat {
+        /// Value cloned into each list slot.
+        value: Operand,
+        /// Numeric count source.
+        count: Operand,
+    },
     /// Build a list by invoking a mapper for indexes from zero to length.
     ListFromLengthMap {
         /// Numeric length source.
