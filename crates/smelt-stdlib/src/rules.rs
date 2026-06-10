@@ -140,6 +140,20 @@ pub enum RuleId {
     TsObjectStatic,
     /// TypeScript supported static `Array.*` call.
     TsArrayStatic,
+    /// TypeScript `Map.prototype.has`.
+    TsMapHas,
+    /// TypeScript `Map.prototype.get`.
+    TsMapGet,
+    /// TypeScript `Map` mutating method.
+    TsMapMutation,
+    /// TypeScript `Map` projection method.
+    TsMapProjection,
+    /// TypeScript `Set.prototype.has`.
+    TsSetHas,
+    /// TypeScript `Set` mutating method.
+    TsSetMutation,
+    /// TypeScript `Set` projection method.
+    TsSetProjection,
     /// Python `json.dumps(value)`.
     PyJsonDumps,
     /// Python `json.loads(text)`.
@@ -196,7 +210,14 @@ impl RuleId {
             | Self::TsNumberParseFloat
             | Self::TsNumberParseInt
             | Self::TsObjectStatic
-            | Self::TsArrayStatic => None,
+            | Self::TsArrayStatic
+            | Self::TsMapHas
+            | Self::TsMapGet
+            | Self::TsMapMutation
+            | Self::TsMapProjection
+            | Self::TsSetHas
+            | Self::TsSetMutation
+            | Self::TsSetProjection => None,
         }
     }
 
@@ -222,6 +243,13 @@ impl RuleId {
             Self::TsNumberParseInt => "Number.parseInt",
             Self::TsObjectStatic => "Object static method",
             Self::TsArrayStatic => "Array static method",
+            Self::TsMapHas => "Map.has",
+            Self::TsMapGet => "Map.get",
+            Self::TsMapMutation => "Map mutation method",
+            Self::TsMapProjection => "Map projection method",
+            Self::TsSetHas => "Set.has",
+            Self::TsSetMutation => "Set mutation method",
+            Self::TsSetProjection => "Set projection method",
             Self::PyJsonDumps => "json.dumps",
             Self::PyJsonLoads => "json.loads",
             Self::PyReSearch => "re.search",

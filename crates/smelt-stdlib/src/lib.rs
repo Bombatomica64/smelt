@@ -15,7 +15,10 @@ pub use classes::{StdlibClass, typescript_stdlib_class};
 pub use deps::BackendDependency;
 pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use fields::{FieldRule, typescript_field_rule};
-pub use recognition::{CallRecognition, TYPESCRIPT_CALLS, typescript_call_rule};
+pub use recognition::{
+    CallRecognition, MethodRecognition, TYPESCRIPT_CALLS, TYPESCRIPT_METHODS,
+    TypeScriptReceiverKind, typescript_call_rule, typescript_method_rule,
+};
 pub use rules::{
     ApiNamespace, ApiShape, ArgShape, EffectKind, ReceiverKind, ReturnShape, RuleId, SourceLanguage,
 };

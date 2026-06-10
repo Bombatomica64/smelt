@@ -14,6 +14,28 @@ pub struct CallRecognition {
     pub rule: RuleId,
 }
 
+/// TypeScript receiver category used when recognition depends on lowered type shape.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum TypeScriptReceiverKind {
+    /// A source `Map<K, V>` value, represented internally as a dictionary.
+    Map,
+    /// A source `Set<T>` value.
+    Set,
+}
+
+/// Receiver-method call shape recognized after a frontend knows the receiver type.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct MethodRecognition {
+    /// Receiver category selected by frontend type lowering.
+    pub receiver: TypeScriptReceiverKind,
+    /// Source method name.
+    pub member: &'static str,
+    /// Shared rule selected by this receiver/member pair.
+    pub rule: RuleId,
+}
+
 /// Exact TypeScript call spellings that are safe to recognize before type lowering.
 ///
 /// Receiver methods are deliberately absent because names such as `map`, `test`,
@@ -74,10 +96,54 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     static_call("Array", "from", RuleId::TsArrayStatic),
 ];
 
+/// TypeScript receiver-method spellings keyed by known receiver type.
+pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
+    method(TypeScriptReceiverKind::Map, "has", RuleId::TsMapHas),
+    method(TypeScriptReceiverKind::Map, "get", RuleId::TsMapGet),
+    method(TypeScriptReceiverKind::Map, "set", RuleId::TsMapMutation),
+    method(TypeScriptReceiverKind::Map, "delete", RuleId::TsMapMutation),
+    method(TypeScriptReceiverKind::Map, "clear", RuleId::TsMapMutation),
+    method(TypeScriptReceiverKind::Map, "keys", RuleId::TsMapProjection),
+    method(
+        TypeScriptReceiverKind::Map,
+        "values",
+        RuleId::TsMapProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Map,
+        "entries",
+        RuleId::TsMapProjection,
+    ),
+    method(TypeScriptReceiverKind::Set, "has", RuleId::TsSetHas),
+    method(TypeScriptReceiverKind::Set, "add", RuleId::TsSetMutation),
+    method(TypeScriptReceiverKind::Set, "delete", RuleId::TsSetMutation),
+    method(TypeScriptReceiverKind::Set, "clear", RuleId::TsSetMutation),
+    method(TypeScriptReceiverKind::Set, "keys", RuleId::TsSetProjection),
+    method(
+        TypeScriptReceiverKind::Set,
+        "values",
+        RuleId::TsSetProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Set,
+        "entries",
+        RuleId::TsSetProjection,
+    ),
+];
+
 /// Return the shared rule for an exact TypeScript global or static namespace call.
 #[must_use]
 pub fn typescript_call_rule(receiver: Option<&str>, member: &str) -> Option<RuleId> {
     TYPESCRIPT_CALLS
+        .iter()
+        .find(|entry| entry.receiver == receiver && entry.member == member)
+        .map(|entry| entry.rule)
+}
+
+/// Return the shared rule for a TypeScript receiver-method call.
+#[must_use]
+pub fn typescript_method_rule(receiver: TypeScriptReceiverKind, member: &str) -> Option<RuleId> {
+    TYPESCRIPT_METHODS
         .iter()
         .find(|entry| entry.receiver == receiver && entry.member == member)
         .map(|entry| entry.rule)
@@ -100,6 +166,19 @@ const fn static_call(
 ) -> CallRecognition {
     CallRecognition {
         receiver: Some(receiver),
+        member,
+        rule,
+    }
+}
+
+/// Build receiver-method recognition metadata.
+const fn method(
+    receiver: TypeScriptReceiverKind,
+    member: &'static str,
+    rule: RuleId,
+) -> MethodRecognition {
+    MethodRecognition {
+        receiver,
         member,
         rule,
     }
@@ -144,6 +223,42 @@ mod tests {
 
         for (receiver, member) in cases {
             assert_eq!(typescript_call_rule(receiver, member), None);
+        }
+    }
+
+    /// Receiver-method rules are selected by frontend-provided receiver kind.
+    #[test]
+    fn recognizes_typescript_receiver_methods() {
+        let cases = [
+            (TypeScriptReceiverKind::Map, "has", Some(RuleId::TsMapHas)),
+            (TypeScriptReceiverKind::Map, "get", Some(RuleId::TsMapGet)),
+            (
+                TypeScriptReceiverKind::Map,
+                "set",
+                Some(RuleId::TsMapMutation),
+            ),
+            (
+                TypeScriptReceiverKind::Map,
+                "entries",
+                Some(RuleId::TsMapProjection),
+            ),
+            (TypeScriptReceiverKind::Set, "has", Some(RuleId::TsSetHas)),
+            (
+                TypeScriptReceiverKind::Set,
+                "add",
+                Some(RuleId::TsSetMutation),
+            ),
+            (
+                TypeScriptReceiverKind::Set,
+                "values",
+                Some(RuleId::TsSetProjection),
+            ),
+            (TypeScriptReceiverKind::Set, "get", None),
+            (TypeScriptReceiverKind::Map, "add", None),
+        ];
+
+        for (receiver, member, expected) in cases {
+            assert_eq!(typescript_method_rule(receiver, member), expected);
         }
     }
 }

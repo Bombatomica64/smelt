@@ -686,6 +686,53 @@ impl<'builder> ModuleBuilder<'builder> {
             .map_or(Ok(None), Err)
     }
 
+    /// Dispatch typed `Map` and `Set` receiver methods through stdlib method metadata.
+    ///
+    /// The frontend still owns typed HIR construction, but recognition of which
+    /// receiver/member pairs are standard-library collection methods lives in
+    /// `smelt-stdlib`.
+    fn collection_method_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let member_name = member.property.name.as_str();
+        if !Self::is_collection_method_name(member_name) {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = self.type_param_constraint_or_self(Self::expr_ty(body, receiver));
+        let receiver_kind = match self.ctx.krate.types.get(receiver_ty) {
+            Some(Type::Dict(_, _)) => smelt_stdlib::TypeScriptReceiverKind::Map,
+            Some(Type::Set(_)) => smelt_stdlib::TypeScriptReceiverKind::Set,
+            _ => return Ok(None),
+        };
+        let Some(rule) = smelt_stdlib::typescript_method_rule(receiver_kind, member_name) else {
+            return Ok(None);
+        };
+        match rule {
+            RuleId::TsMapHas => self.map_has_call(call, body),
+            RuleId::TsMapGet => self.map_get_call(call, body),
+            RuleId::TsMapMutation => self.map_mutation_call(call, body),
+            RuleId::TsMapProjection => self.map_projection_call(call, body),
+            RuleId::TsSetHas => self.set_contains_call(call, body),
+            RuleId::TsSetMutation => self.set_mutation_call(call, body),
+            RuleId::TsSetProjection => self.set_projection_call(call, body),
+            _ => Ok(None),
+        }
+    }
+
+    /// Return whether a member name belongs to a registry-backed collection method family.
+    fn is_collection_method_name(member: &str) -> bool {
+        matches!(
+            member,
+            "add" | "clear" | "delete" | "entries" | "get" | "has" | "keys" | "set" | "values"
+        )
+    }
+
     /// Ordered builtin/stdlib call lowering handlers.
     ///
     /// The order is load-bearing: earlier handlers win when two could match the
@@ -725,11 +772,8 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,
         Self::object_has_own_call,
-        Self::map_has_call,
-        Self::map_get_call,
-        Self::map_mutation_call,
+        Self::collection_method_call,
         Self::map_projection_call,
-        Self::set_projection_call,
         Self::regexp_test_call,
         Self::regexp_exec_call,
         Self::string_match_call,
@@ -764,8 +808,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_join_call,
         Self::list_concat_call,
         Self::list_contains_call,
-        Self::set_contains_call,
-        Self::set_mutation_call,
         Self::string_contains_call,
         Self::string_split_call,
         Self::namespace_member_call,
