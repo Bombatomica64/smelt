@@ -5,8 +5,16 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum StdlibClass {
+    /// JavaScript `Date`, represented by timestamp and date helper operations.
+    Date,
+    /// JavaScript `Map`, represented by dictionary HIR values.
+    Map,
+    /// Remeda parser helper result class synthesized during TypeScript lowering.
+    MatchFnResult,
     /// JavaScript `RegExp`, backed by the generated regex runtime shim.
     RegExp,
+    /// JavaScript `Set`, represented by set HIR values.
+    Set,
 }
 
 /// Return the stdlib class modeled by a TypeScript class type name.
@@ -16,7 +24,11 @@ pub enum StdlibClass {
 #[must_use]
 pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
     match name {
+        "Date" => Some(StdlibClass::Date),
+        "Map" => Some(StdlibClass::Map),
+        "MatchFnResult" => Some(StdlibClass::MatchFnResult),
         "RegExp" => Some(StdlibClass::RegExp),
+        "Set" => Some(StdlibClass::Set),
         _ => None,
     }
 }
@@ -28,13 +40,20 @@ mod tests {
     /// Exact stdlib class names resolve to their registry identity.
     #[test]
     fn recognizes_stdlib_class_names() {
+        assert_eq!(typescript_stdlib_class("Date"), Some(StdlibClass::Date));
+        assert_eq!(typescript_stdlib_class("Map"), Some(StdlibClass::Map));
+        assert_eq!(
+            typescript_stdlib_class("MatchFnResult"),
+            Some(StdlibClass::MatchFnResult)
+        );
         assert_eq!(typescript_stdlib_class("RegExp"), Some(StdlibClass::RegExp));
+        assert_eq!(typescript_stdlib_class("Set"), Some(StdlibClass::Set));
     }
 
     /// User class names never resolve to a stdlib identity.
     #[test]
     fn rejects_user_class_names() {
-        for name in ["Regexp", "RegExpLike", "Date", "MyClass"] {
+        for name in ["Regexp", "RegExpLike", "Dates", "HashMap", "MyClass"] {
             assert_eq!(typescript_stdlib_class(name), None);
         }
     }

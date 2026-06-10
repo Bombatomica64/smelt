@@ -1,4 +1,9 @@
 impl ModuleBuilder<'_> {
+    /// Return whether a source constructor name resolves to a modeled TypeScript stdlib class.
+    fn is_ts_stdlib_class_name(name: &str, class: smelt_stdlib::StdlibClass) -> bool {
+        smelt_stdlib::typescript_stdlib_class(name) == Some(class)
+    }
+
     /// Lower a TypeScript `instanceof` binary expression into a HIR predicate.
     fn instanceof_expression(
         &mut self,
@@ -30,7 +35,9 @@ impl ModuleBuilder<'_> {
             ));
         };
         let class_text = class_ident.name.as_str();
-        if class_text == "Date" && self.expression_is_known_date_value(value, body) {
+        if Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::Date)
+            && self.expression_is_known_date_value(value, body)
+        {
             let ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(true)),
@@ -39,7 +46,7 @@ impl ModuleBuilder<'_> {
             }));
         }
         if Self::instanceof_fold_false_builtin_target(class_text)
-            && !(class_text == "Date"
+            && !(Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::Date)
                 && matches!(
                     self.ctx.krate.types.get(value_ty),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
@@ -80,27 +87,32 @@ impl ModuleBuilder<'_> {
 
     /// Return true when an expression is a built-in constructor target.
     fn instanceof_builtin_target(target: &str) -> bool {
-        matches!(
-            target,
-            "Date"
-                | "Map"
-                | "Set"
-                | "RegExp"
-                | "Promise"
-                | "Error"
-                | "EvalError"
-                | "RangeError"
-                | "ReferenceError"
-                | "SyntaxError"
-                | "TypeError"
-                | "URIError"
-                | "AggregateError"
-        )
+        smelt_stdlib::typescript_stdlib_class(target).is_some()
+            || matches!(
+                target,
+                "Promise"
+                    | "Error"
+                    | "EvalError"
+                    | "RangeError"
+                    | "ReferenceError"
+                    | "SyntaxError"
+                    | "TypeError"
+                    | "URIError"
+                    | "AggregateError"
+            )
     }
 
     /// Return true for builtin targets represented by non-class HIR values today.
     fn instanceof_fold_false_builtin_target(target: &str) -> bool {
-        matches!(target, "Date" | "Map" | "Set" | "RegExp")
+        matches!(
+            smelt_stdlib::typescript_stdlib_class(target),
+            Some(
+                smelt_stdlib::StdlibClass::Date
+                    | smelt_stdlib::StdlibClass::Map
+                    | smelt_stdlib::StdlibClass::RegExp
+                    | smelt_stdlib::StdlibClass::Set
+            )
+        )
     }
 
     /// Return true when `instanceof` can be emitted as a concrete HIR class check.

@@ -3793,7 +3793,14 @@ impl ModuleBuilder<'_> {
                     || Self::expression_uses_identifier_in_arithmetic(&binary.right, name)
             }
             Expression::NewExpression(new_expr) => {
-                matches!(&new_expr.callee, Expression::Identifier(identifier) if identifier.name == "Date")
+                matches!(
+                    &new_expr.callee,
+                    Expression::Identifier(identifier)
+                        if Self::is_ts_stdlib_class_name(
+                            identifier.name.as_str(),
+                            smelt_stdlib::StdlibClass::Date
+                        )
+                )
                     && new_expr.arguments.iter().any(|argument| {
                         argument
                             .as_expression()
@@ -5438,7 +5445,14 @@ impl ModuleBuilder<'_> {
                     ty: self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)),
                 })
             }
-            Expression::NewExpression(new_expr) if matches!(&new_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp") =>
+            Expression::NewExpression(new_expr) if matches!(
+                &new_expr.callee,
+                Expression::Identifier(callee)
+                    if Self::is_ts_stdlib_class_name(
+                        callee.name.as_str(),
+                        smelt_stdlib::StdlibClass::RegExp
+                    )
+            ) =>
             {
                 let Some(first) = new_expr.arguments.first() else {
                     return Err(SmeltError::unsupported(

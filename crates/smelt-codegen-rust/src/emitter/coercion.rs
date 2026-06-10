@@ -169,10 +169,7 @@ impl FunctionEmitter<'_> {
             return Ok(format!("{}.source.clone()", self.operand_text(operand)?));
         }
         if self.is_match_fn_result_type(self.operand_ty(operand)?)?
-            && !matches!(
-                self.mir.types.get(target),
-                Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "MatchFnResult"
-            )
+            && !self.is_match_fn_result_class_type(target)?
         {
             return self.extract_value_text(
                 &format!("{}.value.clone()", self.operand_text(operand)?),
@@ -517,12 +514,7 @@ impl FunctionEmitter<'_> {
         {
             return self.extract_value_text(value_text, target);
         }
-        if self.is_match_fn_result_type(source)?
-            && !matches!(
-                self.mir.types.get(target),
-                Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "MatchFnResult"
-            )
-        {
+        if self.is_match_fn_result_type(source)? && !self.is_match_fn_result_class_type(target)? {
             let value_ty = match self.match_fn_result_value_type(source)? {
                 Some(value_ty) => value_ty,
                 None => self.type_id(Type::Unknown)?,

@@ -3612,10 +3612,12 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn is_erased_class_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Class { name, .. }) => {
-                // Stdlib classes have dedicated runtime representations and
-                // are never erased to `SmeltUnknown`.
+                // RegExp has a dedicated Rust runtime type. Other stdlib
+                // classes may still be represented by primitive or collection
+                // values and should keep the ordinary erased-class fallback.
                 if self.symbol_name(*name).is_ok_and(|type_name| {
-                    smelt_stdlib::typescript_stdlib_class(type_name).is_some()
+                    smelt_stdlib::typescript_stdlib_class(type_name)
+                        == Some(smelt_stdlib::StdlibClass::RegExp)
                 }) {
                     return false;
                 }
@@ -3742,7 +3744,17 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn is_match_fn_result_type(&self, ty: TypeId) -> Result<bool, EmitError> {
         Ok(matches!(
             self.mir.types.get(ty),
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "MatchFnResult"
+            Some(Type::Class { name, .. }) if smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?)
+                == Some(smelt_stdlib::StdlibClass::MatchFnResult)
+        ))
+    }
+
+    /// Return whether a type is the synthetic `MatchFnResult` class without inspecting generics.
+    pub(super) fn is_match_fn_result_class_type(&self, ty: TypeId) -> Result<bool, EmitError> {
+        Ok(matches!(
+            self.mir.types.get(ty),
+            Some(Type::Class { name, .. }) if smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?)
+                == Some(smelt_stdlib::StdlibClass::MatchFnResult)
         ))
     }
 
@@ -3759,7 +3771,9 @@ impl<'mir> FunctionEmitter<'mir> {
         let Some(Type::Class { name, args }) = self.mir.types.get(ty) else {
             return Ok(None);
         };
-        if self.symbol_name(*name)? != "MatchFnResult" {
+        if smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?)
+            != Some(smelt_stdlib::StdlibClass::MatchFnResult)
+        {
             return Ok(None);
         }
         Ok(args.first().copied())

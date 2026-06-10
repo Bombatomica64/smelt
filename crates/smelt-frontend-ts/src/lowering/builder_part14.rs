@@ -451,7 +451,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &new_expr.callee else {
             return Ok(None);
         };
-        if callee.name != "Set" {
+        if !Self::is_ts_stdlib_class_name(callee.name.as_str(), smelt_stdlib::StdlibClass::Set) {
             return Ok(None);
         }
         let (items, ty) = match new_expr.arguments.as_slice() {
@@ -583,7 +583,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &new_expr.callee else {
             return Ok(None);
         };
-        if callee.name != "Map" {
+        if !Self::is_ts_stdlib_class_name(callee.name.as_str(), smelt_stdlib::StdlibClass::Map) {
             return Ok(None);
         }
         let (entries, ty) = match new_expr.arguments.as_slice() {
