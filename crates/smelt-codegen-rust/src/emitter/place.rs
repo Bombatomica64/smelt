@@ -357,8 +357,24 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(index_ty), Some(Type::String)) {
             return Ok(format!(
                 r#"match {base_text}.clone() {{
+                    SmeltUnknown::String(value) => {{
+                        let smelt_key = {key_text};
+                        if smelt_key == "length" {{
+                            SmeltUnknown::Number(value.chars().count() as f64)
+                        }} else {{
+                            smelt_key.parse::<usize>().ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Null)
+                        }}
+                    }}
+                    SmeltUnknown::Array(values) => {{
+                        let smelt_key = {key_text};
+                        if smelt_key == "length" {{
+                            SmeltUnknown::Number(values.len() as f64)
+                        }} else {{
+                            smelt_key.parse::<usize>().ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
+                        }}
+                    }}
                     SmeltUnknown::Object(values) => values.get(&{key_text}).unwrap_or(SmeltUnknown::Null),
-                    _ => panic!("unknown is not object"),
+                    _ => SmeltUnknown::Null,
                 }}"#
             ));
         }

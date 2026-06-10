@@ -773,6 +773,11 @@ impl ModuleBuilder<'_> {
             {
                 self.regexp_literal_expression(literal, body)
             }
+            Argument::RegExpLiteral(literal)
+                if type_hint.is_some_and(|hint| self.type_accepts_regexp_literal(hint)) =>
+            {
+                self.regexp_literal_expression(literal, body)
+            }
             Argument::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
                 &as_expr.type_annotation,
@@ -798,6 +803,24 @@ impl ModuleBuilder<'_> {
                 ))
             }
             _ => self.argument(argument, body),
+        }
+    }
+
+    /// Return whether a contextual argument type should preserve a `RegExp` literal object.
+    fn type_accepts_regexp_literal(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::Class { name, .. }) => self
+                .ctx
+                .krate
+                .symbols
+                .get(*name)
+                .is_some_and(|name| name == "RegExp"),
+            Some(Type::Optional(item)) => self.type_accepts_regexp_literal(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.type_accepts_regexp_literal(item)),
+            _ => false,
         }
     }
 

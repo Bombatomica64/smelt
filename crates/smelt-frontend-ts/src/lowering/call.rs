@@ -570,7 +570,16 @@ impl<'builder> ModuleBuilder<'builder> {
                     .take(fixed_param_count)
                     .enumerate()
                     .map(|(index, arg)| {
-                        self.argument_with_hint(arg, body, params.get(index).copied())
+                        let implementation_hint = params.get(index).copied();
+                        let hint = if matches!(arg, Argument::RegExpLiteral(_)) {
+                            selected_overload
+                                .as_ref()
+                                .and_then(|signature| signature.params.get(index).copied())
+                                .or(implementation_hint)
+                        } else {
+                            implementation_hint
+                        };
+                        self.argument_with_hint(arg, body, hint)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 if let Some(rest) = rest {
@@ -1393,30 +1402,39 @@ impl<'builder> ModuleBuilder<'builder> {
             let arg = self.argument(argument, body)?;
             lowered_arg_tys.push(Self::expr_ty(body, arg));
         }
-        let mut selected: Option<(usize, usize, OverloadSignature, HashMap<_, _>)> = None;
+        let mut selected: Option<(usize, usize, usize, OverloadSignature, HashMap<_, _>)> = None;
         for (order, signature) in signatures.iter().enumerate() {
             let mut substitutions = HashMap::new();
-            if self.overload_signature_matches_args(
+            let constraint_scope = Self::overload_type_param_constraint_scope(signature);
+            self.type_param_constraint_scopes.push(constraint_scope);
+            let matches = self.overload_signature_matches_args(
                 signature,
                 arguments,
                 &lowered_arg_tys,
                 &mut substitutions,
-            )
-                && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
-                && self.overload_substitutions_satisfy_constraints(signature, &substitutions)
-            {
+            ) && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
+                && self.overload_substitutions_satisfy_constraints(signature, &substitutions);
+            self.type_param_constraint_scopes.pop();
+            if matches {
                 let score =
                     self.overload_signature_specificity_score(signature, lowered_arg_tys.len());
-                let candidate = (score, usize::MAX - order, signature.clone(), substitutions);
-                if selected
-                    .as_ref()
-                    .is_none_or(|current| (candidate.0, candidate.1) > (current.0, current.1))
-                {
+                let literal_score =
+                    usize::MAX - self.overload_source_arg_mismatch_count(signature, arguments);
+                let candidate = (
+                    score,
+                    literal_score,
+                    usize::MAX - order,
+                    signature.clone(),
+                    substitutions,
+                );
+                if selected.as_ref().is_none_or(|current| {
+                    (candidate.1, candidate.0, candidate.2) > (current.1, current.0, current.2)
+                }) {
                     selected = Some(candidate);
                 }
             }
         }
-        if let Some((_, _, signature, substitutions)) = selected {
+        if let Some((_, _, _, signature, substitutions)) = selected {
             return Ok(Some(
                 self.instantiate_overload_signature(signature, &substitutions),
             ));
@@ -1425,33 +1443,49 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         }
         if self.allow_unknown_index_access {
-            let mut loose_selected: Option<(usize, usize, OverloadSignature, HashMap<_, _>)> = None;
+            let mut loose_selected: Option<(
+                usize,
+                usize,
+                usize,
+                OverloadSignature,
+                HashMap<_, _>,
+            )> = None;
             for (order, signature) in signatures.iter().enumerate() {
                 if !Self::overload_signature_arity_matches(signature, arguments.len()) {
                     continue;
                 }
                 let mut substitutions = HashMap::new();
-                if !self.loose_overload_signature_matches_args(
+                let constraint_scope = Self::overload_type_param_constraint_scope(signature);
+                self.type_param_constraint_scopes.push(constraint_scope);
+                let matches = self.loose_overload_signature_matches_args(
                     signature,
                     arguments,
                     &lowered_arg_tys,
                     &mut substitutions,
-                ) || !self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
-                    || !self.overload_substitutions_satisfy_constraints(signature, &substitutions)
-                {
+                ) && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
+                    && self.overload_substitutions_satisfy_constraints(signature, &substitutions);
+                self.type_param_constraint_scopes.pop();
+                if !matches {
                     continue;
                 }
                 let score =
                     self.overload_signature_specificity_score(signature, lowered_arg_tys.len());
-                let candidate = (score, usize::MAX - order, signature.clone(), substitutions);
-                if loose_selected
-                    .as_ref()
-                    .is_none_or(|current| (candidate.0, candidate.1) > (current.0, current.1))
-                {
+                let literal_score =
+                    usize::MAX - self.overload_source_arg_mismatch_count(signature, arguments);
+                let candidate = (
+                    score,
+                    literal_score,
+                    usize::MAX - order,
+                    signature.clone(),
+                    substitutions,
+                );
+                if loose_selected.as_ref().is_none_or(|current| {
+                    (candidate.1, candidate.0, candidate.2) > (current.1, current.0, current.2)
+                }) {
                     loose_selected = Some(candidate);
                 }
             }
-            if let Some((_, _, signature, substitutions)) = loose_selected {
+            if let Some((_, _, _, signature, substitutions)) = loose_selected {
                 return Ok(Some(
                     self.instantiate_overload_signature(signature, &substitutions),
                 ));
@@ -1476,6 +1510,105 @@ impl<'builder> ModuleBuilder<'builder> {
                     .collect::<Vec<_>>()
             ),
         ))
+    }
+
+    /// Build the active constraint scope needed while matching a stored overload signature.
+    fn overload_type_param_constraint_scope(
+        signature: &OverloadSignature,
+    ) -> HashMap<smelt_hir::Symbol, smelt_hir::TypeId> {
+        signature
+            .type_params
+            .iter()
+            .filter_map(|param| param.constraint.map(|constraint| (param.name, constraint)))
+            .collect()
+    }
+
+    /// Count obvious source literal conflicts with an overload parameter surface.
+    fn overload_source_arg_mismatch_count(
+        &mut self,
+        signature: &OverloadSignature,
+        arguments: &[Argument<'_>],
+    ) -> usize {
+        if arguments.len() < 2 {
+            return 0;
+        }
+        let constraints = Self::overload_type_param_constraint_scope(signature);
+        signature
+            .params
+            .iter()
+            .take(arguments.len())
+            .zip(arguments)
+            .filter(|(expected, argument)| {
+                !self.overload_source_arg_matches_param(**expected, argument, &constraints)
+            })
+            .count()
+    }
+
+    /// Return whether one source literal can inhabit an overload parameter surface.
+    fn overload_source_arg_matches_param(
+        &mut self,
+        expected: smelt_hir::TypeId,
+        argument: &Argument<'_>,
+        constraints: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        let expected = match self.ctx.krate.types.get(expected).cloned() {
+            Some(Type::TypeParam { name }) => constraints.get(&name).copied().unwrap_or(expected),
+            _ => expected,
+        };
+        match self.ctx.krate.types.get(expected).cloned() {
+            Some(Type::Unknown | Type::TypeParam { .. }) => true,
+            Some(Type::Optional(inner)) => {
+                matches!(argument, Argument::NullLiteral(_))
+                    || self.overload_source_arg_matches_param(inner, argument, constraints)
+            }
+            Some(Type::Union(items)) => items
+                .into_iter()
+                .any(|item| self.overload_source_arg_matches_param(item, argument, constraints)),
+            Some(Type::String) => matches!(
+                argument,
+                Argument::StringLiteral(_)
+                    | Argument::TemplateLiteral(_)
+                    | Argument::Identifier(_)
+                    | Argument::CallExpression(_)
+                    | Argument::StaticMemberExpression(_)
+                    | Argument::ComputedMemberExpression(_)
+            ),
+            Some(Type::Int | Type::Float) => matches!(
+                argument,
+                Argument::NumericLiteral(_)
+                    | Argument::BigIntLiteral(_)
+                    | Argument::Identifier(_)
+                    | Argument::CallExpression(_)
+                    | Argument::StaticMemberExpression(_)
+                    | Argument::ComputedMemberExpression(_)
+            ),
+            Some(Type::Bool) => matches!(
+                argument,
+                Argument::BooleanLiteral(_)
+                    | Argument::Identifier(_)
+                    | Argument::CallExpression(_)
+                    | Argument::StaticMemberExpression(_)
+                    | Argument::ComputedMemberExpression(_)
+            ),
+            Some(Type::None) => matches!(argument, Argument::NullLiteral(_)),
+            Some(Type::Class { name, .. }) if self
+                .ctx
+                .krate
+                .symbols
+                .get(name)
+                .is_some_and(|name| name == "RegExp") =>
+            {
+                matches!(
+                    argument,
+                    Argument::RegExpLiteral(_)
+                        | Argument::Identifier(_)
+                        | Argument::CallExpression(_)
+                        | Argument::StaticMemberExpression(_)
+                        | Argument::ComputedMemberExpression(_)
+                )
+            }
+            _ => true,
+        }
     }
 
     /// Return whether an overload accepts the call under permissive top-level shape checks.
@@ -2184,14 +2317,48 @@ impl<'builder> ModuleBuilder<'builder> {
                     substitutions,
                 )
             }
-            (Some(Type::Union(expected_items)), _) => expected_items
-                .into_iter()
-                .any(|item| self.infer_overload_type(item, actual, &mut substitutions.clone())),
-            (_, Some(Type::Union(actual_items))) => actual_items
-                .into_iter()
-                .any(|item| self.infer_overload_type(expected, item, &mut substitutions.clone())),
+            (Some(Type::Union(expected_items)), _) => {
+                self.infer_overload_union_branch(expected_items, actual, substitutions)
+            }
+            (_, Some(Type::Union(actual_items))) => {
+                self.infer_overload_actual_union_branch(expected, actual_items, substitutions)
+            }
             _ => false,
         }
+    }
+
+    /// Infer against the first compatible expected union member and keep its substitutions.
+    fn infer_overload_union_branch(
+        &mut self,
+        expected_items: Vec<smelt_hir::TypeId>,
+        actual: smelt_hir::TypeId,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        for item in expected_items {
+            let mut branch_substitutions = substitutions.clone();
+            if self.infer_overload_type(item, actual, &mut branch_substitutions) {
+                *substitutions = branch_substitutions;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Infer against the first compatible actual union member and keep its substitutions.
+    fn infer_overload_actual_union_branch(
+        &mut self,
+        expected: smelt_hir::TypeId,
+        actual_items: Vec<smelt_hir::TypeId>,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        for item in actual_items {
+            let mut branch_substitutions = substitutions.clone();
+            if self.infer_overload_type(expected, item, &mut branch_substitutions) {
+                *substitutions = branch_substitutions;
+                return true;
+            }
+        }
+        false
     }
 
     /// Infer compatibility for function-typed overload parameters.

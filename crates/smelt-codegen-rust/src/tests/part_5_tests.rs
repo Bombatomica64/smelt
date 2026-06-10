@@ -362,8 +362,13 @@ const limited = word.split(",", 2);
 "#,
     );
 
-    assert!(source.contains(".split(&\",\".to_owned()).map(str::to_owned).collect::<Vec<_>>();"));
-    assert!(source.contains(".take((2.0 as f64).max(0.0) as usize)"));
+    assert!(source.contains("if smelt_separator.is_empty()"));
+    assert!(
+        source.contains(
+            "smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>()"
+        )
+    );
+    assert!(source.contains("else if smelt_limit.is_sign_positive()"));
 }
 
 #[test]
@@ -381,7 +386,7 @@ function splitWord(word: string, limit: number | undefined | string): string[] {
         "{source}"
     );
     assert!(
-        source.contains(".take(split_limit.max(0.0) as usize)"),
+        source.contains("else if split_limit.is_sign_positive()"),
         "{source}"
     );
 }

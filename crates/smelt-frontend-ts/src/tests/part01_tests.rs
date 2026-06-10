@@ -854,6 +854,69 @@ const curried = flatten(2);
 }
 
 #[test]
+fn union_overload_parameters_preserve_numeric_datalast_selection() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export function split(data: string, separator: RegExp, limit?: number): string[];
+export function split(separator: RegExp, limit?: number): (data: string) => string[];
+export function split<S extends string, Separator extends string, N extends number | undefined = undefined>(
+  data: S,
+  separator: Separator,
+  limit?: N,
+): string[];
+export function split<S extends string, Separator extends string, N extends number | undefined = undefined>(
+  separator: Separator,
+  limit?: N,
+): (data: S) => string[];
+export function split(
+  dataOrSeparator: RegExp | string,
+  separatorOrLimit?: RegExp | number | string,
+  limit?: number,
+): unknown {
+  return dataOrSeparator;
+}
+"#),
+        "src/split.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { split } from "./split";
+const direct = split("a,b", ",", 1);
+const limited = split(",", 1);
+"#),
+        "src/split.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let local_ty = |name: &str| {
+        body.locals
+            .iter()
+            .find(|local| local.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some(name))
+            .map(|local| local.ty)
+            .ok_or_else(|| format!("missing `{name}` local"))
+    };
+    ensure!(
+        matches!(
+            ctx.krate.types.get(local_ty("direct")?),
+            Some(Type::List(_))
+        ),
+        "expected three-argument split to select the data-first overload"
+    );
+    ensure!(
+        matches!(
+            ctx.krate.types.get(local_ty("limited")?),
+            Some(Type::Function(_))
+        ),
+        "expected numeric second argument to select the data-last overload, got {:?}",
+        ctx.krate.types.get(local_ty("limited")?)
+    );
+    Ok(())
+}
+
+#[test]
 fn remeda_test_overload_fallback_rejects_impossible_argument_shapes() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(

@@ -3073,6 +3073,23 @@ function sample<T>(data: readonly T[]): T[] {
 }
 
 #[test]
+fn emits_erased_string_key_index_reads_for_arrays_and_strings() {
+    let source = source_for(
+        r#"
+export function read(value: unknown, key: string): unknown {
+  return value[key as keyof typeof value];
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::Array(values)"), "{source}");
+    assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
+    assert!(source.contains("smelt_key == \"length\""), "{source}");
+    assert!(source.contains("parse::<usize>()"), "{source}");
+    assert!(!source.contains("unknown is not object"), "{source}");
+}
+
+#[test]
 fn emits_sort_with_comparator_function_value() {
     let source = source_for(
         r#"
@@ -3393,6 +3410,32 @@ const usesMultiline = pattern.multiline;
     assert!(source.contains(".has_flag('g')"), "{source}");
     assert!(source.contains(".has_flag('i')"), "{source}");
     assert!(source.contains(".has_flag('m')"), "{source}");
+}
+
+#[test]
+fn emits_javascript_string_split_empty_separator_and_limit_semantics() {
+    let source = source_for(
+        r#"
+function splitChars(value: string): string[] {
+  return value.split("");
+}
+
+function splitNegative(value: string): string[] {
+  return value.split(",", -1);
+}
+"#,
+    );
+
+    assert!(source.contains("if smelt_separator.is_empty()"), "{source}");
+    assert!(
+        source.contains("if smelt_haystack.is_empty() { Vec::new() }"),
+        "{source}"
+    );
+    assert!(
+        source.contains("else if smelt_limit.is_sign_positive()"),
+        "{source}"
+    );
+    assert!(!source.contains(".max(0.0) as usize"), "{source}");
 }
 
 #[test]

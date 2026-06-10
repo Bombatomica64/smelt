@@ -2205,6 +2205,7 @@ impl ModuleBuilder<'_> {
         let mut record_ty = self.dict_type_from_hint(type_hint);
         let mut sources = Vec::new();
         let mut pending_entries = Vec::new();
+        let mut erased_spread_requires_unknown_record = false;
 
         for property in &object.properties {
             match property {
@@ -2234,6 +2235,7 @@ impl ModuleBuilder<'_> {
                         &mut pending_entries,
                         &mut sources,
                         &mut record_ty,
+                        &mut erased_spread_requires_unknown_record,
                         body,
                         object.span,
                     );
@@ -2289,6 +2291,8 @@ impl ModuleBuilder<'_> {
                         )
                     {
                         record_ty = Some(final_source_ty);
+                    } else if self.object_spread_source_needs_unknown_record(final_source_ty) {
+                        erased_spread_requires_unknown_record = true;
                     }
                     sources.push(source);
                 }
@@ -2298,6 +2302,7 @@ impl ModuleBuilder<'_> {
             &mut pending_entries,
             &mut sources,
             &mut record_ty,
+            &mut erased_spread_requires_unknown_record,
             body,
             object.span,
         );
@@ -2759,6 +2764,7 @@ impl ModuleBuilder<'_> {
         pending_entries: &mut Vec<(smelt_hir::ExprId, smelt_hir::ExprId)>,
         sources: &mut Vec<smelt_hir::ExprId>,
         record_ty: &mut Option<smelt_hir::TypeId>,
+        erased_spread_requires_unknown_record: &mut bool,
         body: &mut Body,
         span: oxc::span::Span,
     ) {
@@ -2766,15 +2772,40 @@ impl ModuleBuilder<'_> {
             return;
         }
         let entries = std::mem::take(pending_entries);
-        let chunk_ty = self.object_literal_type(&entries, *record_ty, body);
+        let force_unknown_record = record_ty.is_none()
+            && *erased_spread_requires_unknown_record
+            && !self.object_spread_entries_are_callable(&entries, body);
+        let chunk_ty = if force_unknown_record {
+            let key_ty = self.ctx.krate.types.intern(Type::String);
+            let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+            self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+        } else {
+            self.object_literal_type(&entries, *record_ty, body)
+        };
         if record_ty.is_none() {
             *record_ty = Some(chunk_ty);
         }
+        *erased_spread_requires_unknown_record = false;
         sources.push(body.push_expr(Expr {
             kind: ExprKind::DictLit(entries),
             ty: record_ty.unwrap_or(chunk_ty),
             span: self.span(span.start, span.end),
         }));
+    }
+
+    /// Return whether every explicit property in a spread chunk is callable.
+    fn object_spread_entries_are_callable(
+        &self,
+        entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
+        body: &Body,
+    ) -> bool {
+        !entries.is_empty()
+            && entries.iter().all(|(_, value)| {
+                matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, *value)),
+                    Some(Type::Function(_))
+                )
+            })
     }
 
     /// Validate a source expression used by an object spread property.
@@ -2827,6 +2858,20 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.types.get(source_ty),
             Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None)
         )
+    }
+
+    /// Return whether a spread source must keep later literal chunks erased.
+    ///
+    /// An unknown, generic, class, or optional object spread can carry
+    /// heterogeneous property values. Without a contextual record type, later
+    /// explicit properties must not force those copied fields into their own
+    /// value type.
+    fn object_spread_source_needs_unknown_record(&self, source_ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(source_ty) {
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => true,
+            Some(Type::Optional(inner)) => self.object_spread_source_needs_unknown_record(*inner),
+            _ => false,
+        }
     }
 
     /// Extract a dictionary type from a contextual object-literal type hint.

@@ -1178,6 +1178,7 @@ return_ty: function.return_ty,
             .map(|args| args.params.iter().collect::<Vec<_>>())
             .unwrap_or_default();
         match (name_text.as_str(), args.as_slice()) {
+            ("RegExp", []) => Ok(self.regexp_type()),
             ("Capitalize" | "Uncapitalize" | "Uppercase" | "Lowercase", [_]) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }

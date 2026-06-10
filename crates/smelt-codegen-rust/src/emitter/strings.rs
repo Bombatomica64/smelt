@@ -644,28 +644,38 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let haystack_text = self.string_like_operand_text(haystack, "string split")?;
-        let base = if matches!(
+        let split_items = if matches!(
             self.mir.types.get(self.operand_ty(separator)?),
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp"
         ) {
             let regex_text = self.regexp_operand_text(separator)?;
-            format!("{regex_text}.split_string(&{haystack_text}).into_iter()")
+            format!("{regex_text}.split_string(&{haystack_text})")
+        } else if matches!(
+            self.mir.types.get(self.operand_ty(separator)?),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+        ) {
+            let separator_unknown = self.operand_text(separator)?;
+            format!(
+                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}"
+            )
         } else {
             let separator_text = self.string_like_operand_text(separator, "string split")?;
-            format!("{haystack_text}.split(&{separator_text}).map(str::to_owned)")
+            format!(
+                "{{ let smelt_haystack = {haystack_text}; let smelt_separator = {separator_text}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }}"
+            )
         };
         let result = if let Some(limit_operand) = limit {
             let limit_text = self.operand_text(limit_operand)?;
             match self.mir.types.get(self.operand_ty(limit_operand)?) {
-                Some(Type::None) => Ok(format!("{base}.collect::<Vec<_>>()")),
+                Some(Type::None) => Ok(split_items),
                 Some(Type::Int | Type::Float) => Ok(format!(
-                    "{base}.take(({limit_text} as f64).max(0.0) as usize).collect::<Vec<_>>()"
+                    "{{ let mut smelt_parts = {split_items}; let smelt_limit = {limit_text} as f64; if !smelt_limit.is_finite() || smelt_limit == 0.0 {{ smelt_parts.truncate(0); }} else if smelt_limit.is_sign_positive() {{ smelt_parts.truncate(smelt_limit.floor() as usize); }} smelt_parts }}"
                 )),
                 Some(Type::Optional(inner))
                     if matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float)) =>
                 {
                     Ok(format!(
-                        "if let Some(split_limit) = {limit_text} {{ {base}.take((split_limit as f64).max(0.0) as usize).collect::<Vec<_>>() }} else {{ {base}.collect::<Vec<_>>() }}"
+                        "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = {limit_text} {{ let smelt_limit = split_limit as f64; if !smelt_limit.is_finite() || smelt_limit == 0.0 {{ smelt_parts.truncate(0); }} else if smelt_limit.is_sign_positive() {{ smelt_parts.truncate(smelt_limit.floor() as usize); }} }} smelt_parts }}"
                     ))
                 }
                 Some(Type::Optional(inner))
@@ -675,18 +685,18 @@ impl FunctionEmitter<'_> {
                     ) =>
                 {
                     Ok(format!(
-                        "if let Some(split_limit) = match {limit_text} {{ Some(SmeltUnknown::Number(value)) => Some(value), Some(SmeltUnknown::Null) | None => None, _ => None }} {{ {base}.take(split_limit.max(0.0) as usize).collect::<Vec<_>>() }} else {{ {base}.collect::<Vec<_>>() }}"
+                        "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_text} {{ Some(SmeltUnknown::Number(value)) => Some(value), Some(SmeltUnknown::Null) | None => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"
                     ))
                 }
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(format!(
-                    "if let Some(split_limit) = match {limit_text} {{ SmeltUnknown::Number(value) => Some(value), SmeltUnknown::Null => None, _ => None }} {{ {base}.take(split_limit.max(0.0) as usize).collect::<Vec<_>>() }} else {{ {base}.collect::<Vec<_>>() }}"
+                    "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_text} {{ SmeltUnknown::Number(value) => Some(value), SmeltUnknown::Null => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"
                 )),
                 _ => Err(EmitError::new(
                     "string split limit must be numeric or optional numeric",
                 )),
             }
         } else {
-            Ok(format!("{base}.collect::<Vec<_>>()"))
+            Ok(split_items)
         }?;
         if matches!(
             self.mir.types.get(dest_ty),
