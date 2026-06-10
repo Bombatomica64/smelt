@@ -558,7 +558,7 @@ impl FunctionEmitter<'_> {
                 .map(|param_name| RustIdent::new(param_name).into_string()),
             Type::TypeParam { .. } => Ok("SmeltUnknown".to_owned()),
             Type::Class { name, args } => {
-                if self.symbol_name(*name)? == "RegExp" {
+                if self.is_regexp_class_symbol(*name)? {
                     return Ok("SmeltRegExp".to_owned());
                 }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
@@ -740,7 +740,7 @@ impl FunctionEmitter<'_> {
                 Ok("Default::default()".to_owned())
             }
             Type::TypeParam { .. } | Type::Union(_) => Ok("SmeltUnknown::Null".to_owned()),
-            Type::Class { name, .. } if self.symbol_name(*name)? == "RegExp" => {
+            Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
                 Ok("SmeltRegExp::new(String::new(), String::new())".to_owned())
             }
             Type::Class { .. } => Ok("Default::default()".to_owned()),

@@ -164,7 +164,7 @@ impl FunctionEmitter<'_> {
         }
         if matches!(self.mir.types.get(target), Some(Type::String))
             && let Some(Type::Class { name, .. }) = self.mir.types.get(self.operand_ty(operand)?)
-            && self.symbol_name(*name)? == "RegExp"
+            && self.is_regexp_class_symbol(*name)?
         {
             return Ok(format!("{}.source.clone()", self.operand_text(operand)?));
         }
@@ -181,7 +181,7 @@ impl FunctionEmitter<'_> {
         }
         if matches!(
             self.mir.types.get(target),
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp"
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)?
         ) && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::String)
         {
             return Ok(format!(
@@ -570,7 +570,7 @@ impl FunctionEmitter<'_> {
         }
         if matches!(
             self.mir.types.get(target),
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp"
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)?
         ) && self.mir.types.get(source) == Some(&Type::String)
         {
             return Ok(format!("SmeltRegExp::new({value_text}, String::new())"));
@@ -775,7 +775,7 @@ impl FunctionEmitter<'_> {
                     "SmeltUnknown::Object(SmeltObject::new({text}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))"
                 ))
             }
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => {
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
                 Ok(format!("({text}).clone().into_smelt_unknown()"))
             }
             Some(Type::Class { name, .. })
@@ -939,7 +939,7 @@ impl FunctionEmitter<'_> {
                     "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))"
                 ))
             }
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => {
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
                 Ok(format!("({value_text}).clone().into_smelt_unknown()"))
             }
             Some(Type::Class { name, .. })
@@ -1207,18 +1207,18 @@ impl FunctionEmitter<'_> {
             )),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!(
-                    "match {text}.clone() {{ SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => panic!(\"unknown is not iterable\") }}"
+                    "match {text}.clone() {{ SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}"
                 ))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
                 Ok(format!(
-                    "match {text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), _ => panic!(\"unknown is not iterable\") }}"
+                    "match {text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}"
                 ))
             }
             Some(Type::List(item)) => {
                 let item_text = self.extract_value_text("value", *item)?;
                 Ok(format!(
-                    "if let SmeltUnknown::Array(values) = {text}.clone() {{ values.into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else {{ panic!(\"unknown is not array\") }}"
+                    "match {text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), _ => panic!(\"unknown iterator did not return array\") }}, _ => panic!(\"unknown is not array\") }}, _ => panic!(\"unknown is not array\") }}"
                 ))
             }
             Some(Type::Dict(key, item))
@@ -1285,7 +1285,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "PropertyKey" => {
                 Ok(text.to_owned())
             }
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => Ok(format!(
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => Ok(format!(
                 "match {text}.clone() {{ SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}), _ => SmeltRegExp::default() }}"
             )),
             Some(Type::Class { .. })

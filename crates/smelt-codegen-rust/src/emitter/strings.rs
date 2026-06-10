@@ -134,7 +134,7 @@ impl FunctionEmitter<'_> {
         let replacement_text = self.string_like_operand_text(replacement, "string replace")?;
         if matches!(
             self.mir.types.get(self.operand_ty(pattern)?),
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp"
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)?
         ) {
             let regex_text = self.regexp_operand_text(pattern)?;
             let force_all = matches!(op, smelt_hir::StringReplaceOp::All);
@@ -416,7 +416,7 @@ impl FunctionEmitter<'_> {
     fn regexp_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let text = self.operand_text(operand)?;
         match self.mir.types.get(self.operand_ty(operand)?) {
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => Ok(text),
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => Ok(text),
             Some(Type::String) => Ok(format!("SmeltRegExp::new({text}, String::new())")),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => Ok(format!(
                 "match {text} {{ SmeltUnknown::String(value) => SmeltRegExp::new(value, String::new()), SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}), _ => SmeltRegExp::new(String::new(), String::new()) }}"
@@ -473,7 +473,7 @@ impl FunctionEmitter<'_> {
                     "match {text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
                 ))
             }
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => {
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
                 Ok(format!("{}.source.clone()", self.operand_text(operand)?))
             }
             Some(Type::None | Type::Never) => Ok("String::new()".to_owned()),
@@ -646,7 +646,7 @@ impl FunctionEmitter<'_> {
         let haystack_text = self.string_like_operand_text(haystack, "string split")?;
         let split_items = if matches!(
             self.mir.types.get(self.operand_ty(separator)?),
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp"
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)?
         ) {
             let regex_text = self.regexp_operand_text(separator)?;
             format!("{regex_text}.split_string(&{haystack_text})")

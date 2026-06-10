@@ -51,13 +51,14 @@ impl FunctionEmitter<'_> {
                 ) || self.is_erased_class_type(base_ty)
                 {
                     let field_name = self.symbol_source_name(*field)?;
+                    let field_rule = smelt_stdlib::typescript_field_rule(field_name);
                     let base_text = self.local_value_text(*base)?;
-                    if field_name == "length" {
+                    if field_rule == Some(smelt_stdlib::FieldRule::TsLength) {
                         return Ok(format!(
                             "match {base_text}.clone() {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
                         ));
                     }
-                    if field_name == "sort" {
+                    if field_rule == Some(smelt_stdlib::FieldRule::TsSort) {
                         return Ok(format!(
                             "match {base_text}.clone() {{ SmeltUnknown::Array(value) => smelt_array_sort_method(value), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"sort\"), _ => SmeltUnknown::Null }}"
                         ));
@@ -74,7 +75,9 @@ impl FunctionEmitter<'_> {
                 {
                     let field_name = self.symbol_source_name(*field)?;
                     let base_text = self.local_value_text(*base)?;
-                    if field_name == "length" {
+                    if smelt_stdlib::typescript_field_rule(field_name)
+                        == Some(smelt_stdlib::FieldRule::TsLength)
+                    {
                         return Ok(format!(
                             "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
                         ));
@@ -103,7 +106,7 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
-                    && self.symbol_name(*name)? == "RegExp"
+                    && self.is_regexp_class_symbol(*name)?
                 {
                     return self.regexp_field_text(&self.local_value_text(*base)?, *field);
                 }
@@ -129,7 +132,9 @@ impl FunctionEmitter<'_> {
                 if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
                     return Ok("SmeltUnknown::Null".to_owned());
                 }
-                if self.symbol_source_name(*field)? == "constructor" {
+                if smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
+                    == Some(smelt_stdlib::FieldRule::TsConstructor)
+                {
                     return Ok("SmeltUnknown::Null".to_owned());
                 }
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {

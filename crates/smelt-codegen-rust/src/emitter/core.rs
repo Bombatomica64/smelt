@@ -2865,7 +2865,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     "{value_text}.clone().map_or(String::new(), |value| {inner_text})"
                 ))
             }
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => {
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
                 Ok(format!("{value_text}.source.clone()"))
             }
             Some(Type::List(item_ty)) => {
@@ -3596,14 +3596,27 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Returns whether a class symbol names the stdlib `RegExp` class.
+    ///
+    /// Several emitters dispatch RegExp-shaped class types to the regex
+    /// runtime shim; the identity lookup lives in the shared `smelt-stdlib`
+    /// registry instead of inline name comparisons.
+    pub(super) fn is_regexp_class_symbol(&self, name: Symbol) -> Result<bool, EmitError> {
+        Ok(
+            smelt_stdlib::typescript_stdlib_class(self.symbol_name(name)?)
+                == Some(smelt_stdlib::StdlibClass::RegExp),
+        )
+    }
+
     /// Returns whether a class-shaped type is emitted as `SmeltUnknown`.
     pub(super) fn is_erased_class_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Class { name, .. }) => {
-                if self
-                    .symbol_name(*name)
-                    .is_ok_and(|type_name| type_name == "RegExp")
-                {
+                // Stdlib classes have dedicated runtime representations and
+                // are never erased to `SmeltUnknown`.
+                if self.symbol_name(*name).is_ok_and(|type_name| {
+                    smelt_stdlib::typescript_stdlib_class(type_name).is_some()
+                }) {
                     return false;
                 }
                 !self.mir.classes.iter().any(|class| class.name == *name)

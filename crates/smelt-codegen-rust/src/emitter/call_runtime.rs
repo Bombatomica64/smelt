@@ -507,7 +507,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::ExternalClassInstance { class, args } => {
                 let text = self.external_class_instance_text(*class, args)?;
-                if self.symbol_name(*class)? == "RegExp"
+                if self.is_regexp_class_symbol(*class)?
                     && matches!(self.mir.types.get(dest_ty), Some(Type::String))
                 {
                     Ok(format!("{text}.source.clone()"))
@@ -2260,7 +2260,9 @@ impl FunctionEmitter<'_> {
         args: &[Operand],
     ) -> Result<String, EmitError> {
         let class_name = self.symbol_name(class)?;
-        if class_name == "RegExp" {
+        if smelt_stdlib::typescript_stdlib_class(class_name)
+            == Some(smelt_stdlib::StdlibClass::RegExp)
+        {
             let pattern = args.first().map_or_else(
                 || Ok("\"\".to_owned()".to_owned()),
                 |arg| self.string_like_operand_text(arg, "RegExp pattern"),
@@ -2328,7 +2330,7 @@ impl FunctionEmitter<'_> {
             return self.string_field_text(receiver_text, field);
         }
         if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
-            && self.symbol_name(*name)? == "RegExp"
+            && self.is_regexp_class_symbol(*name)?
         {
             return self.regexp_field_text(receiver_text, field);
         }

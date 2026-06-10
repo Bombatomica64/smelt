@@ -1702,7 +1702,8 @@ impl FunctionEmitter<'_> {
                 match self.mir.types.get(receiver.ty) {
                     Some(Type::String) => self.string_field_text(&receiver_text, *field),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                        if field_text == "length" =>
+                        if smelt_stdlib::typescript_field_rule(field_text)
+                            == Some(smelt_stdlib::FieldRule::TsLength) =>
                     {
                         Ok(format!(
                             "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value, _ => 0.0 }}, _ => 0.0 }}"
@@ -3297,7 +3298,10 @@ impl FunctionEmitter<'_> {
                     && self.callback_expr_renders_numeric(else_expr)
             }
             smelt_hir::CallbackExprKind::Field { field, .. } => {
-                self.symbol_name(*field).is_ok_and(|name| name == "length")
+                self.symbol_name(*field).is_ok_and(|name| {
+                    smelt_stdlib::typescript_field_rule(name)
+                        == Some(smelt_stdlib::FieldRule::TsLength)
+                })
             }
             smelt_hir::CallbackExprKind::MethodCall { method, .. } => self
                 .symbol_name(*method)
