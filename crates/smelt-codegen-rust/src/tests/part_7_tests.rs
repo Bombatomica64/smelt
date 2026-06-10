@@ -3107,6 +3107,27 @@ const sortByImplementation = <T>(
 }
 
 #[test]
+fn emits_spread_sort_for_erased_iterable_generic() {
+    let source = source_for(
+        r#"
+type IterableContainer<T> = readonly T[];
+
+const numberComparator = (a: number, b: number): number => a - b;
+
+function sorted<T extends IterableContainer<number>>(data: T): unknown {
+  return [...data].sort(numberComparator);
+}
+"#,
+    );
+
+    assert!(source.contains(".sort_by(|left, right|"), "{source}");
+    assert!(
+        source.contains("SmeltUnknown::Array(value) => smelt_array_sort_method(value)"),
+        "{source}"
+    );
+}
+
+#[test]
 fn adapts_rest_callback_without_flattening_list_arguments() {
     let source = source_for(
         r#"

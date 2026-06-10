@@ -57,6 +57,11 @@ impl FunctionEmitter<'_> {
                             "match {base_text}.clone() {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
                         ));
                     }
+                    if field_name == "sort" {
+                        return Ok(format!(
+                            "match {base_text}.clone() {{ SmeltUnknown::Array(value) => smelt_array_sort_method(value), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"sort\"), _ => SmeltUnknown::Null }}"
+                        ));
+                    }
                     return Ok(format!(
                         "match {base_text}.clone() {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Null }}"
                     ));
