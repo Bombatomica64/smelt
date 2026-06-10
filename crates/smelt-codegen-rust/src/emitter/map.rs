@@ -446,8 +446,20 @@ impl FunctionEmitter<'_> {
         }
         let value_text = self.extract_value_text("value", *value_ty)?;
         let source_text = self.operand_text(source)?;
+        // The spread-merge match inspects a dynamic `SmeltUnknown::Object`, so a
+        // source that still carries a concrete static shape (a typed options
+        // struct, an `Option<Struct>`, a type parameter, etc.) must first be
+        // erased to `SmeltUnknown` through its boundary adapter. Sources already
+        // typed as `unknown` are left untouched so the common dynamic spread
+        // keeps its previous byte-identical emission.
+        let source_ty = self.operand_ty(source)?;
+        let scrutinee_text = if matches!(self.mir.types.get(source_ty), Some(Type::Unknown)) {
+            format!("{source_text}.clone()")
+        } else {
+            format!("IntoSmeltUnknown::into_smelt_unknown({source_text}.clone())")
+        };
         Ok(format!(
-            "match {source_text}.clone() {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter().map(|(key, value)| (key, {value_text}))), _ => SmeltRecord::new() }}"
+            "match {scrutinee_text} {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter().map(|(key, value)| (key, {value_text}))), _ => SmeltRecord::new() }}"
         ))
     }
 

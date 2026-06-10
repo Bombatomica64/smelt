@@ -382,6 +382,36 @@ function call<Values extends unknown[]>(first: unknown, values: Values): unknown
 }
 
 #[test]
+fn erases_typed_optional_struct_spread_source_to_smelt_unknown() {
+    // Spreading an optional typed options struct (`{ ...options, extra }`) used
+    // to emit a `match options { SmeltUnknown::Object(map) => .. }` directly on
+    // the `Option<Struct>` value, which does not type-check. The spread source
+    // must first be erased to `SmeltUnknown` through its boundary adapter.
+    let source = source_for(
+        r#"
+interface WeekOptions {
+  weekStartsOn?: number;
+}
+function inner(date: number, options?: WeekOptions): number {
+  return date;
+}
+function outer(date: number, options?: WeekOptions): number {
+  return inner(date, { ...options, weekStartsOn: 1 });
+}
+"#,
+    );
+
+    assert!(
+        source.contains("IntoSmeltUnknown::into_smelt_unknown(options"),
+        "typed optional spread source was not erased through IntoSmeltUnknown: {source}"
+    );
+    assert!(
+        !source.contains("match options.clone().clone() { SmeltUnknown::Object(map)"),
+        "spread match still inspects the typed Option value directly: {source}"
+    );
+}
+
+#[test]
 fn emits_optional_number_typeof_as_a_presence_check() {
     let source = source_for(
         r#"
