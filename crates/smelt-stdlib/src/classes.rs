@@ -28,10 +28,7 @@ mod tests {
     /// Exact stdlib class names resolve to their registry identity.
     #[test]
     fn recognizes_stdlib_class_names() {
-        assert_eq!(
-            typescript_stdlib_class("RegExp"),
-            Some(StdlibClass::RegExp)
-        );
+        assert_eq!(typescript_stdlib_class("RegExp"), Some(StdlibClass::RegExp));
     }
 
     /// User class names never resolve to a stdlib identity.

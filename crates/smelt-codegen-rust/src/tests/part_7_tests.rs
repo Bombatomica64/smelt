@@ -3128,6 +3128,35 @@ function sorted<T extends IterableContainer<number>>(data: T): unknown {
 }
 
 #[test]
+fn emits_object_symbol_iterator_generator_as_erased_iterable() {
+    let source = source_for(
+        r#"
+function count(items: Iterable<unknown>): number {
+  const erased = items as unknown;
+  return [...(erased as Iterable<unknown>)].length;
+}
+
+const result = count({
+  *[Symbol.iterator]() {
+    yield 0;
+    yield 1;
+  },
+});
+"#,
+    );
+
+    assert!(source.contains("\"__smelt_symbol_iterator\""), "{source}");
+    assert!(
+        source.contains("iterator(vec![]).unwrap_or(SmeltUnknown::Null)"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("else { panic!(\"unknown is not array\") })"),
+        "{source}"
+    );
+}
+
+#[test]
 fn adapts_rest_callback_without_flattening_list_arguments() {
     let source = source_for(
         r#"
@@ -3148,7 +3177,8 @@ function wrap<T>(
     );
 
     assert!(
-        source.contains("if let SmeltUnknown::Array(values) = closure_arg_0.get("),
+        source.contains("match closure_arg_0.get(")
+            && source.contains("SmeltUnknown::Array(values) => values.into_iter()"),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(

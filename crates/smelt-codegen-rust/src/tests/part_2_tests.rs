@@ -472,6 +472,24 @@ function read(month: number): number | undefined {
 }
 
 #[test]
+fn emits_array_at_as_optional_index_without_negative_index_panics() {
+    let source = source_for(
+        r#"
+function last<T>(values: readonly T[]): T | undefined {
+  return values.at(-1);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("usize::try_from(normalized).ok()"),
+        "{source}"
+    );
+    assert!(!source.contains("negative index out of bounds"), "{source}");
+    assert!(source.contains(".and_then(|index|"), "{source}");
+}
+
+#[test]
 fn guards_callback_function_table_calls_selected_through_a_local() {
     let source = source_for(
         r#"

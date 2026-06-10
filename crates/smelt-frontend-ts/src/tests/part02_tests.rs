@@ -207,7 +207,8 @@ for (let ch: string of word) {
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Index { .. }))
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalIndex { .. })),
+        "string .at should lower to optional indexing"
     );
     ensure!(
         body.stmts
@@ -234,7 +235,8 @@ const last = values.at(-1);
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Index { .. }))
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalIndex { .. })),
+        "array .at should lower to optional indexing"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
 

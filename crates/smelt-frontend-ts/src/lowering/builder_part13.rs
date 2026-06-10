@@ -6890,7 +6890,11 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower TypeScript `.at(index)` on arrays and strings to Python-style HIR indexing.
+    /// Lower TypeScript `.at(index)` on arrays and strings to optional HIR indexing.
+    ///
+    /// JavaScript `.at` accepts negative indexes, but out-of-range positions
+    /// return `undefined` rather than raising. Model that with `OptionalIndex`
+    /// so generated Rust uses checked normalized indexes for misses.
     fn collection_at_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -6910,7 +6914,7 @@ impl ModuleBuilder<'_> {
         };
         let receiver = self.expression(&member.object, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
-        let ty = match self.ctx.krate.types.get(receiver_ty) {
+        let item_ty = match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::List(item_ty)) => *item_ty,
             Some(Type::String) => self.ctx.krate.types.intern(Type::String),
             _ => return Ok(None),
@@ -6922,8 +6926,9 @@ impl ModuleBuilder<'_> {
                 "array/string at index must be a number",
             ));
         }
+        let ty = self.ctx.krate.types.intern(Type::Optional(item_ty));
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Index { receiver, index },
+            kind: ExprKind::OptionalIndex { receiver, index },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

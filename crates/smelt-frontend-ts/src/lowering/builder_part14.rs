@@ -2165,7 +2165,13 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             if object_property.method {
-                if self.object_method_erases_to_iterable_marker(object_property) {
+                if self.object_method_erases_to_iterable_marker(object_property)
+                    && let Expression::FunctionExpression(function) = &object_property.value
+                {
+                    let key = self.object_property_key_expr(object_property, body)?;
+                    let value =
+                        self.function_expression_value(function, None, object_property.span, body)?;
+                    entries.push((key, value));
                     continue;
                 }
                 let key = self.object_property_key_expr(object_property, body)?;
@@ -2211,7 +2217,17 @@ impl ModuleBuilder<'_> {
             match property {
                 ObjectPropertyKind::ObjectProperty(object_property) => {
                     if object_property.method {
-                        if self.object_method_erases_to_iterable_marker(object_property) {
+                        if self.object_method_erases_to_iterable_marker(object_property)
+                            && let Expression::FunctionExpression(function) = &object_property.value
+                        {
+                            let key = self.object_property_key_expr(object_property, body)?;
+                            let value = self.function_expression_value(
+                                function,
+                                None,
+                                object_property.span,
+                                body,
+                            )?;
+                            pending_entries.push((key, value));
                             continue;
                         }
                         let key = self.object_property_key_expr(object_property, body)?;
@@ -2514,6 +2530,7 @@ impl ModuleBuilder<'_> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
+        let saved_generator_yields = self.current_generator_yields;
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         self.current_async = function.r#async;
         self.current_return_ty = Some(return_ty);
@@ -2613,10 +2630,18 @@ impl ModuleBuilder<'_> {
                 });
             }
         }
+        let generator_yields =
+            function
+                .generator
+                .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
+        self.current_generator_yields = generator_yields;
         for statement in &function_body.statements {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
             }
+        }
+        if let Some(accumulator) = generator_yields {
+            self.push_generator_return(accumulator, function, &mut body);
         }
         if function.r#async {
             body.build_async_state_machine();
@@ -2624,6 +2649,7 @@ impl ModuleBuilder<'_> {
         self.locals = saved_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
+        self.current_generator_yields = saved_generator_yields;
         self.narrowed_locals = saved_narrowed_locals;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
