@@ -652,17 +652,20 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct SmeltRegExp {
+    id: usize,
     source: String,
     flags: String,
     last_index: ::std::rc::Rc<::std::cell::RefCell<usize>>,
 }
 
+impl PartialEq for SmeltRegExp { fn eq(&self, other: &Self) -> bool { self.source == other.source && self.flags == other.flags && *self.last_index.borrow() == *other.last_index.borrow() } }
+
 impl SmeltRegExp {
     /// Construct a JavaScript-like RegExp value with shared lastIndex state.
     pub fn new(source: String, flags: String) -> Self {
-        Self { source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }
+        Self { id: smelt_next_object_id(), source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }
     }
     /// Return true when this RegExp has a flag.
     pub fn has_flag(&self, flag: char) -> bool {
@@ -751,7 +754,7 @@ impl SmeltRegExp {
 
 impl IntoSmeltUnknown for SmeltRegExp {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([
+        SmeltUnknown::Object(SmeltObject::with_id(self.id, ::std::collections::HashMap::from([
         ("source".to_owned(), SmeltUnknown::String(self.source)),
         ("flags".to_owned(), SmeltUnknown::String(self.flags)),
         ("__smelt_regexp".to_owned(), SmeltUnknown::Bool(true)),

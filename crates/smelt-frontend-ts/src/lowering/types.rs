@@ -2267,7 +2267,14 @@ return_ty: function.return_ty,
     ) -> smelt_hir::TypeId {
         if matches!(
             op,
-            BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
+            BinOp::Eq
+                | BinOp::NotEq
+                | BinOp::StrictEq
+                | BinOp::StrictNotEq
+                | BinOp::Lt
+                | BinOp::Lte
+                | BinOp::Gt
+                | BinOp::Gte
         ) {
             return self.ctx.krate.types.intern(Type::Bool);
         }

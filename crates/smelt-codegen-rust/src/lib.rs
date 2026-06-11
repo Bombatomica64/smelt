@@ -1388,17 +1388,20 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
     }
     if needs_regex {
-        writer.line("#[derive(Clone, Debug, PartialEq)]");
+        writer.line("#[derive(Clone, Debug)]");
         writer.block("pub struct SmeltRegExp", |struct_writer| {
+            struct_writer.line("id: usize,");
             struct_writer.line("source: String,");
             struct_writer.line("flags: String,");
             struct_writer.line("last_index: ::std::rc::Rc<::std::cell::RefCell<usize>>,");
         });
         writer.blank_line();
+        writer.line("impl PartialEq for SmeltRegExp { fn eq(&self, other: &Self) -> bool { self.source == other.source && self.flags == other.flags && *self.last_index.borrow() == *other.last_index.borrow() } }");
+        writer.blank_line();
         writer.block("impl SmeltRegExp", |impl_writer| {
             impl_writer.line("/// Construct a JavaScript-like RegExp value with shared lastIndex state.");
             impl_writer.block("pub fn new(source: String, flags: String) -> Self", |fn_writer| {
-                fn_writer.line("Self { source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }");
+                fn_writer.line("Self { id: smelt_next_object_id(), source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }");
             });
             impl_writer.line("/// Return true when this RegExp has a flag.");
             impl_writer.block("pub fn has_flag(&self, flag: char) -> bool", |fn_writer| {
@@ -1487,9 +1490,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.block("impl IntoSmeltUnknown for SmeltRegExp", |impl_writer| {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                fn_writer.line(
-                    "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([",
-                );
+                fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, ::std::collections::HashMap::from([");
                 fn_writer.line("(\"source\".to_owned(), SmeltUnknown::String(self.source)),");
                 fn_writer.line("(\"flags\".to_owned(), SmeltUnknown::String(self.flags)),");
                 fn_writer.line("(\"__smelt_regexp\".to_owned(), SmeltUnknown::Bool(true)),");

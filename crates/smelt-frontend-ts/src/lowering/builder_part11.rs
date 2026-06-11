@@ -1,4 +1,78 @@
 impl ModuleBuilder<'_> {
+    /// Lower `a === b || Object.is(a, b)` as JavaScript `SameValueZero` equality.
+    fn same_value_zero_logical(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if logical.operator != LogicalOperator::Or {
+            return Ok(None);
+        }
+        let Expression::BinaryExpression(left_binary) = &logical.left else {
+            return Ok(None);
+        };
+        if left_binary.operator != BinaryOperator::StrictEquality {
+            return Ok(None);
+        }
+        let Expression::CallExpression(right_call) = &logical.right else {
+            return Ok(None);
+        };
+        let Some((object_left, object_right)) = Self::object_is_identifier_pair(right_call) else {
+            return Ok(None);
+        };
+        if !Self::expression_is_identifier(&left_binary.left, object_left)
+            || !Self::expression_is_identifier(&left_binary.right, object_right)
+        {
+            return Ok(None);
+        }
+        let lhs = self.expression(&left_binary.left, body)?;
+        let rhs = self.expression(&left_binary.right, body)?;
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::StrictEq,
+                lhs,
+                rhs,
+            },
+            ty,
+            span: self.span(logical.span.start, logical.span.end),
+        })))
+    }
+
+    /// Return identifier names from an `Object.is(left, right)` call.
+    fn object_is_identifier_pair<'a>(
+        call: &'a oxc::ast::ast::CallExpression<'a>,
+    ) -> Option<(&'a str, &'a str)> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return None;
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Object" || member.property.name != "is" {
+            return None;
+        }
+        let [left_arg, right_arg] = call.arguments.as_slice() else {
+            return None;
+        };
+        let left = Self::argument_identifier(left_arg)?;
+        let right = Self::argument_identifier(right_arg)?;
+        Some((left, right))
+    }
+
+    /// Return the identifier name carried by a normal call argument.
+    fn argument_identifier<'a>(argument: &'a Argument<'a>) -> Option<&'a str> {
+        match argument {
+            Argument::Identifier(ident) => Some(ident.name.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Return whether an expression is the requested identifier.
+    fn expression_is_identifier(expression: &Expression<'_>, name: &str) -> bool {
+        matches!(expression, Expression::Identifier(ident) if ident.name == name)
+    }
+
     /// Lower `Object.is(a, b)` as a strict equality expression.
     fn object_is_call(
         &mut self,

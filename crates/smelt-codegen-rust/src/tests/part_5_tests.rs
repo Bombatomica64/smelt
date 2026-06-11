@@ -188,6 +188,23 @@ test("array reference identity", () => {
 }
 
 #[test]
+fn emits_same_value_zero_identity_for_erased_object_is_or_strict_equality() {
+    let source = source_for(
+        r#"
+export function same(data: unknown, other: unknown): boolean {
+  return data === other || Object.is(data, other);
+}
+"#,
+    );
+
+    assert!(source.contains(".same_js_key(&"), "{source}");
+    assert!(
+        !source.contains("data.clone() == other.clone()"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_strict_identity_for_optional_records() {
     let source = source_for(
         r#"
