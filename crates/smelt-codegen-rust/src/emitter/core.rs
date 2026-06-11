@@ -2123,27 +2123,6 @@ impl<'mir> FunctionEmitter<'mir> {
         self.context.function_return_types.get(rust_name).copied()
     }
 
-    /// Return whether an emitted Rust function has a `Result` return ABI.
-    pub(super) fn emitted_function_can_throw(&self, rust_name: &str) -> bool {
-        self.context
-            .function_can_throw
-            .get(rust_name)
-            .copied()
-            .unwrap_or(false)
-    }
-
-    /// Return the emitted Rust name for a callback function symbol.
-    pub(super) fn callback_function_rust_name(
-        &self,
-        function: Symbol,
-    ) -> Result<String, EmitError> {
-        self.context
-            .callback_names
-            .get(&function)
-            .cloned()
-            .map_or_else(|| Ok(sanitize_ident(self.symbol_name(function)?)), Ok)
-    }
-
     /// Emits a method or constructor definition.
     /// Emits a method or constructor definition.
     pub(crate) fn emit_method(&mut self, out: &mut String) -> Result<(), EmitError> {

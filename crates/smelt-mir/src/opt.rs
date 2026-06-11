@@ -544,7 +544,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
         }
-        Rvalue::ListSort { list, .. } => rewrite_operand_except(list, aliases, dest),
+        Rvalue::ListSort { list, comparator } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_optional_operand_except(comparator, aliases, dest)
+        }
         Rvalue::ListPop { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListShift { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListNext { list } => rewrite_operand_except(list, aliases, dest),

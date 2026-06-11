@@ -3101,7 +3101,11 @@ const sortByImplementation = <T>(
     );
 
     assert!(
-        source.contains("(closure_arg_1)((left.clone()).into_smelt_unknown(), (right.clone()).into_smelt_unknown())"),
+        source.contains("(smelt_comparator)(left.clone(), right.clone())"),
+        "{source}"
+    );
+    assert!(
+        source.contains("if ordering < 0.0 { std::cmp::Ordering::Less }"),
         "{source}"
     );
 }

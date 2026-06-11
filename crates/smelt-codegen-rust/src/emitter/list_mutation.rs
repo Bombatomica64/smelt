@@ -514,13 +514,14 @@ impl FunctionEmitter<'_> {
     pub(super) fn list_sort_text(
         &self,
         list: &Operand,
-        comparator: Option<&smelt_hir::CallbackExpr>,
+        comparator: Option<&Operand>,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list sort receiver must be a list"));
         };
+        let element_ty = *item_ty;
         let returns_list = if dest_ty == list_ty {
             true
         } else if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
@@ -539,20 +540,8 @@ impl FunctionEmitter<'_> {
         } else {
             "()".to_owned()
         };
-        if let Some(comparator_callback) = comparator {
-            if !returns_list {
-                return Err(EmitError::new(
-                    "comparator sort is only supported for array sort",
-                ));
-            }
-            if self.mir.types.get(comparator_callback.ty) != Some(&Type::Float) {
-                return Err(EmitError::new("array sort comparator must return a number"));
-            }
-            // Sort comparators are the only persisted CallbackExpr users left.
-            let callback_text = self.callback_expr_text(comparator_callback, &["left", "right"])?;
-            return Ok(format!(
-                "{{ {list_text}.sort_by(|left, right| {{ let left = left.clone(); let right = right.clone(); let ordering = {callback_text}; if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }}); {result_text} }}"
-            ));
+        if let Some(comparator) = comparator {
+            return self.list_sort_comparator_text(comparator, element_ty, returns_list, &list_text, &result_text);
         }
         match self.mir.types.get(*item_ty) {
             Some(Type::Bool | Type::Int | Type::Float | Type::String) if returns_list => {
@@ -570,6 +559,46 @@ impl FunctionEmitter<'_> {
                 "list sort supports bool, int, float, and string items",
             )),
         }
+    }
+
+    /// Converts a JavaScript `Array.prototype.sort` comparator closure to Rust.
+    ///
+    /// The comparator is a normal closure operand taking two list items and
+    /// returning a number, like other list callbacks. The closure is bound once
+    /// and invoked per comparison; its numeric result maps to `Ordering` with
+    /// JavaScript semantics (negative -> `Less`, positive -> `Greater`, zero and
+    /// `NaN` -> `Equal`).
+    fn list_sort_comparator_text(
+        &self,
+        comparator: &Operand,
+        element_ty: TypeId,
+        returns_list: bool,
+        list_text: &str,
+        result_text: &str,
+    ) -> Result<String, EmitError> {
+        if !returns_list {
+            return Err(EmitError::new(
+                "comparator sort is only supported for array sort",
+            ));
+        }
+        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(comparator)?)
+        else {
+            return Err(EmitError::new("array sort comparator must be a closure"));
+        };
+        if self.mir.types.get(function_ty.return_ty) != Some(&Type::Float) {
+            return Err(EmitError::new("array sort comparator must return a number"));
+        }
+        let left_param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
+        let right_param_ty = function_ty.params.get(1).copied().unwrap_or(left_param_ty);
+        let left_arg = self.value_at_type_text("left.clone()", element_ty, left_param_ty)?;
+        let right_arg = self.value_at_type_text("right.clone()", element_ty, right_param_ty)?;
+        let closure_text = match self.closure_operand_text_for_declared_type(comparator) {
+            Ok(closure_text) => closure_text,
+            Err(_) => self.operand_text(comparator)?,
+        };
+        Ok(format!(
+            "{{ let mut smelt_comparator = {closure_text}; {list_text}.sort_by(|left, right| {{ let ordering = (smelt_comparator)({left_arg}, {right_arg}); if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }}); {result_text} }}"
+        ))
     }
 
     // Validates that an optional slice index is numeric.

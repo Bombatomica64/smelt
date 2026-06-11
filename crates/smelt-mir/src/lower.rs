@@ -2644,12 +2644,16 @@ impl<'hir> LoweringCtx<'hir> {
             }
             ExprKind::ListSort { list, comparator } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
+                let comparator_operand = match comparator {
+                    Some(comparator) => Some(self.lower_expr(*comparator)?),
+                    None => None,
+                };
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::ListSort {
                         list: list_operand,
-                        comparator: comparator.clone(),
+                        comparator: comparator_operand,
                     },
                 });
                 self.write_back_mutation_receiver(writeback)?;

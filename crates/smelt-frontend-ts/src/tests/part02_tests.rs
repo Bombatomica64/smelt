@@ -1213,7 +1213,7 @@ const sortedByCompare = values.sort((left, right) => left - right);
         ExprKind::ListSort {
             comparator: Some(callback),
             ..
-        } if callback_has_param(callback, 1)
+        } if closure_callback_has_param(&ctx, body, *callback, 1)
     )));
     Ok(())
 }

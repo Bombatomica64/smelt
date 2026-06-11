@@ -5,7 +5,7 @@
     reason = "crate-visible helpers are shared with the parent module"
 )]
 
-use smelt_hir::{AsyncOp, CallbackExpr, CallbackExprKind, Type};
+use smelt_hir::{AsyncOp, Type};
 use smelt_mir::{Mir, Rvalue, Statement};
 use smelt_stdlib::BackendDependency;
 
@@ -80,7 +80,11 @@ fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
 }
 
 /// Returns true when a MIR rvalue uses Regex APIs.
-fn rvalue_needs_regex(rvalue: &Rvalue, mir: &Mir) -> bool {
+///
+/// Sort comparators reach codegen as closure operands, so any regex usage
+/// inside a comparator body is detected through the closure rvalues iterated by
+/// [`rvalues`]; no comparator-tree scan is needed here.
+fn rvalue_needs_regex(rvalue: &Rvalue, _mir: &Mir) -> bool {
     matches!(
         rvalue,
         Rvalue::RegexIsMatch { .. }
@@ -91,94 +95,12 @@ fn rvalue_needs_regex(rvalue: &Rvalue, mir: &Mir) -> bool {
             | Rvalue::RegexExec { .. }
             | Rvalue::RegexMatchAll { .. }
             | Rvalue::StringSplit { .. }
-    ) || matches!(
-        rvalue,
-        Rvalue::ListSort {
-            comparator: Some(callback),
-            ..
-        } if sort_comparator_needs_regex(callback, mir)
     )
 }
 
 /// Returns true when a MIR rvalue uses Unicode normalization APIs.
 fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::StringNormalize { .. })
-}
-
-/// Returns true when one legacy sort-comparator tree uses Regex APIs.
-///
-/// `CallbackExpr` should only reach MIR codegen as an `Array.prototype.sort`
-/// comparator; normal callback bodies are emitted from closure CFGs.
-fn sort_comparator_needs_regex(callback: &CallbackExpr, mir: &Mir) -> bool {
-    match &callback.kind {
-        CallbackExprKind::MethodCall {
-            receiver,
-            method,
-            args,
-        } => {
-            mir.symbols.get(*method).is_some_and(|name| {
-                name == "match" || name == "__smelt_replace_first_match_uppercase"
-            }) || sort_comparator_needs_regex(receiver, mir)
-                || args
-                    .iter()
-                    .any(|arg| sort_comparator_needs_regex(&arg.expr, mir))
-        }
-        CallbackExprKind::Call { callee, args } => {
-            sort_comparator_needs_regex(callee, mir)
-                || args
-                    .iter()
-                    .any(|arg| sort_comparator_needs_regex(&arg.expr, mir))
-        }
-        CallbackExprKind::FunctionTableLookup { key, .. } => sort_comparator_needs_regex(key, mir),
-        CallbackExprKind::AssignCapture { value, .. }
-        | CallbackExprKind::Unary { operand: value, .. }
-        | CallbackExprKind::UnknownIs { value, .. }
-        | CallbackExprKind::TypeofValue { value } => sort_comparator_needs_regex(value, mir),
-        CallbackExprKind::ListLit(items) => items
-            .iter()
-            .any(|item| sort_comparator_needs_regex(item, mir)),
-        CallbackExprKind::Sequence { effects, result } => {
-            effects
-                .iter()
-                .any(|effect| sort_comparator_needs_regex(effect, mir))
-                || sort_comparator_needs_regex(result, mir)
-        }
-        CallbackExprKind::DictLit(entries) => entries
-            .iter()
-            .any(|(_, value)| sort_comparator_needs_regex(value, mir)),
-        CallbackExprKind::Throw { message } => message
-            .as_ref()
-            .is_some_and(|panic_message| sort_comparator_needs_regex(panic_message, mir)),
-        CallbackExprKind::Index { receiver, .. }
-        | CallbackExprKind::Field { receiver, .. }
-        | CallbackExprKind::HasField { receiver, .. }
-        | CallbackExprKind::FieldTruthy { receiver, .. } => {
-            sort_comparator_needs_regex(receiver, mir)
-        }
-        CallbackExprKind::DynamicIndex { receiver, index }
-        | CallbackExprKind::HasDynamicField {
-            receiver,
-            field: index,
-        }
-        | CallbackExprKind::Binary {
-            lhs: receiver,
-            rhs: index,
-            ..
-        } => sort_comparator_needs_regex(receiver, mir) || sort_comparator_needs_regex(index, mir),
-        CallbackExprKind::Conditional {
-            cond,
-            then_expr,
-            else_expr,
-        } => {
-            sort_comparator_needs_regex(cond, mir)
-                || sort_comparator_needs_regex(then_expr, mir)
-                || sort_comparator_needs_regex(else_expr, mir)
-        }
-        CallbackExprKind::Param(_)
-        | CallbackExprKind::Capture(_)
-        | CallbackExprKind::Function(_)
-        | CallbackExprKind::Literal(_) => false,
-    }
 }
 
 /// Returns true when a MIR rvalue uses Chrono APIs.

@@ -1,5 +1,5 @@
 use super::{
-    AsyncOp, BinOp, BoolFoldOp, CallbackExpr, ClosureExpr, DatePart, DictProjectionOp,
+    AsyncOp, BinOp, BoolFoldOp, ClosureExpr, DatePart, DictProjectionOp,
     ListCallbackOp, ListProjectionOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp,
     NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
@@ -397,10 +397,11 @@ pub enum ExprKind {
     },
     ListSort {
         list: ExprId,
-        /// Legacy comparator tree for JavaScript `Array.prototype.sort`.
+        /// Optional comparator closure for JavaScript `Array.prototype.sort`.
         ///
-        /// Other callback bodies must be represented as normal closure CFGs.
-        comparator: Option<CallbackExpr>,
+        /// Like other callbacks, the comparator is a normal closure body
+        /// referenced by `ExprId`; it takes two list items and returns a number.
+        comparator: Option<ExprId>,
     },
     ListPop {
         list: ExprId,

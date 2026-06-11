@@ -564,8 +564,11 @@ impl Rvalue {
                 visit(list);
                 visit(item);
             }
-            Self::ListSort { list, .. } => {
+            Self::ListSort { list, comparator } => {
                 visit(list);
+                if let Some(comparator) = comparator {
+                    visit(comparator);
+                }
             }
             Self::ListPop { list } => {
                 visit(list);

@@ -41,7 +41,7 @@ mod strings_io;
 mod tuple;
 mod types;
 
-use literals::{assigned_locals, constant_text, hir_literal_text, method_mutates_this};
+use literals::{assigned_locals, constant_text, method_mutates_this};
 
 /// Precomputed crate-level codegen facts shared by all function emitters.
 pub(crate) struct EmitContext {
@@ -57,10 +57,6 @@ pub(crate) struct EmitContext {
     function_param_types: HashMap<String, Vec<TypeId>>,
     /// Emitted return types keyed by Rust function name.
     function_return_types: HashMap<String, TypeId>,
-    /// Whether an emitted Rust function can throw and therefore returns `Result`.
-    function_can_throw: HashMap<String, bool>,
-    /// First emitted Rust name keyed by source callback symbol.
-    callback_names: HashMap<Symbol, String>,
     /// Function parameters that must use an owned callback handle.
     owned_callback_params: HashSet<(FuncId, LocalId)>,
 }
@@ -94,8 +90,6 @@ impl EmitContext {
         let mut function_param_types = HashMap::new();
         let mut function_return_types = HashMap::new();
         let mut function_param_type_priorities = HashMap::<String, u8>::new();
-        let mut function_can_throw = HashMap::new();
-        let mut callback_names = HashMap::new();
         for function in &mir.functions {
             let source_name = mir
                 .symbols
@@ -125,9 +119,6 @@ impl EmitContext {
                         })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            callback_names
-                .entry(function.name)
-                .or_insert_with(|| rust_name.clone());
             let priority = emitted_signature_priority(function);
             if function_param_type_priorities
                 .get(&rust_name)
@@ -138,7 +129,6 @@ impl EmitContext {
                 function_return_types.insert(rust_name.clone(), function.return_ty);
                 function_param_type_priorities.insert(rust_name.clone(), priority);
             }
-            function_can_throw.insert(rust_name.clone(), function.can_throw);
             function_names.insert(function.id, rust_name);
         }
         let owned_callback_params = compute_owned_callback_params(mir)?;
@@ -150,8 +140,6 @@ impl EmitContext {
             function_names,
             function_param_types,
             function_return_types,
-            function_can_throw,
-            callback_names,
             owned_callback_params,
         })
     }

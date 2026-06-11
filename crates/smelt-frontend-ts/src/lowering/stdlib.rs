@@ -1660,10 +1660,15 @@ impl ModuleBuilder<'_> {
         };
         let element_ty = *list_element_ty;
         let comparator = if let Some(argument) = comparator_argument {
-            let callback = self.arrow_callback(argument, &[element_ty, element_ty], body)?;
+            let callback = self.callback_argument(
+                argument,
+                &[element_ty, element_ty],
+                "array sort",
+                body,
+            )?;
             let number_ty = self.ctx.krate.types.intern(Type::Float);
-            self.require_callback_ty(callback.ty, number_ty, call, "array sort")?;
-            Some(callback)
+            self.require_callback_ty(callback.return_ty, number_ty, call, "array sort")?;
+            Some(callback.expr)
         } else {
             None
         };
@@ -2024,11 +2029,20 @@ impl ModuleBuilder<'_> {
                     }
                 };
                 let comparator = if let Some(argument) = comparator_argument {
-                    let callback =
-                        self.arrow_callback(argument, &[element_ty, element_ty], body)?;
+                    let callback = self.callback_argument(
+                        argument,
+                        &[element_ty, element_ty],
+                        "array toSorted",
+                        body,
+                    )?;
                     let number_ty = self.ctx.krate.types.intern(Type::Float);
-                    self.require_callback_ty(callback.ty, number_ty, call, "array toSorted")?;
-                    Some(callback)
+                    self.require_callback_ty(
+                        callback.return_ty,
+                        number_ty,
+                        call,
+                        "array toSorted",
+                    )?;
+                    Some(callback.expr)
                 } else {
                     None
                 };
