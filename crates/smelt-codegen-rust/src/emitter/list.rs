@@ -266,7 +266,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(dest_ty)
         {
-            format!("SmeltUnknown::Array({sliced_values_text}.into())")
+            self.erase_unknown_array_text(sliced_values_text)
         } else {
             sliced_values_text.to_owned()
         };

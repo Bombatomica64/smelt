@@ -18,7 +18,10 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || self.is_erased_class_type(*key)
                     {
-                        format!("SmeltUnknown::String({field_name:?}.to_owned())")
+                        self.erase_value_text(
+                            &format!("{field_name:?}.to_owned()"),
+                            self.type_id(Type::String)?,
+                        )?
                     } else {
                         self.default_value(*key)?
                     };
@@ -130,12 +133,12 @@ impl FunctionEmitter<'_> {
                     };
                 }
                 if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
-                    return Ok("SmeltUnknown::Null".to_owned());
+                    return Ok(self.null_value_text());
                 }
                 if smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
                     == Some(smelt_stdlib::FieldRule::TsConstructor)
                 {
-                    return Ok("SmeltUnknown::Null".to_owned());
+                    return Ok(self.null_value_text());
                 }
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
                     return self.string_field_text(&self.local_value_text(*base)?, *field);
@@ -159,7 +162,7 @@ impl FunctionEmitter<'_> {
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
                 {
-                    return Ok("SmeltUnknown::Null".to_owned());
+                    return Ok(self.null_value_text());
                 }
                 Ok(format!(
                     "{}.{}",
@@ -183,7 +186,7 @@ impl FunctionEmitter<'_> {
                         if matches!(self.mir.types.get(*inner_ty), Some(Type::List(_))) =>
                     {
                         let Some(Type::List(item_ty)) = self.mir.types.get(*inner_ty) else {
-                            return Ok("SmeltUnknown::Null".to_owned());
+                            return Ok(self.null_value_text());
                         };
                         let base_text = self.local_value_text(*base)?;
                         let index_text = self.normalized_index_text(
@@ -255,7 +258,7 @@ impl FunctionEmitter<'_> {
                         let tuple_index = self.tuple_index(index, items.len())?;
                         Ok(format!("{}.{tuple_index}", self.local_value_text(*base)?))
                     }
-                    _ => Ok("SmeltUnknown::Null".to_owned()),
+                    _ => Ok(self.null_value_text()),
                 }
             }
         }

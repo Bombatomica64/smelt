@@ -705,8 +705,8 @@ impl FunctionEmitter<'_> {
             Type::Int => Ok("0".to_owned()),
             Type::Float => Ok("0.0".to_owned()),
             Type::String => Ok("String::new()".to_owned()),
-            Type::Unknown => Ok("SmeltUnknown::Null".to_owned()),
-            Type::Never => Ok("SmeltUnknown::Null".to_owned()),
+            Type::Unknown => Ok(self.null_value_text()),
+            Type::Never => Ok(self.null_value_text()),
             Type::None => Ok("()".to_owned()),
             Type::List(_) => Ok("Vec::new()".to_owned()),
             Type::Set(item) if self.type_is_hash_set_key_safe(*item) => {
@@ -739,7 +739,7 @@ impl FunctionEmitter<'_> {
             Type::TypeParam { name } if self.current_function_has_type_param(*name) => {
                 Ok("Default::default()".to_owned())
             }
-            Type::TypeParam { .. } | Type::Union(_) => Ok("SmeltUnknown::Null".to_owned()),
+            Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value_text()),
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
                 Ok("SmeltRegExp::new(String::new(), String::new())".to_owned())
             }

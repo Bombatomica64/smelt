@@ -2489,7 +2489,8 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
         let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
-            format!("{{ {call_value}; SmeltUnknown::Null }}")
+            let null_text = self.null_value_text();
+            format!("{{ {call_value}; {null_text} }}")
         } else {
             self.value_at_type_text(&call_value, source.return_ty, unknown_ty)?
         };
@@ -2955,7 +2956,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.mir.types.get(target_function.return_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             ) {
-            "SmeltUnknown::Null".to_owned()
+            self.null_value_text()
         } else {
             converted_return_text
         };
@@ -3264,7 +3265,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.mir.types.get(target_function.return_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             ) {
-            "SmeltUnknown::Null".to_owned()
+            self.null_value_text()
         } else {
             field_adjusted_return_text
         };
@@ -3381,14 +3382,15 @@ impl<'mir> FunctionEmitter<'mir> {
                 _ => format!("{callback_text}({args})"),
             }
         };
+        let null_text = self.null_value_text();
         let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
             if source.may_throw {
                 format!(
-                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null) }}"
+                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
                 )
             } else {
                 format!(
-                    "{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null) }}"
+                    "{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
                 )
             }
         } else if self.class_has_no_known_fields(source.return_ty) {

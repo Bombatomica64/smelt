@@ -123,7 +123,7 @@ impl FunctionEmitter<'_> {
                         .map(|item| self.erase(&self.list_literal_operand(item)))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    return Ok(format!("SmeltUnknown::Array(vec![{items_text}].into())"));
+                    return Ok(self.erase_array_text(&items_text));
                 }
                 if let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) {
                     let items_text = items
@@ -189,9 +189,7 @@ impl FunctionEmitter<'_> {
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(", ");
-                    return Ok(format!(
-                        "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([{entries_text}])))"
-                    ));
+                    return Ok(self.erase_object_text(&entries_text));
                 }
                 let dict_types = match self.mir.types.get(dest_ty) {
                     Some(Type::Dict(key_ty, value_ty)) => Some((*key_ty, *value_ty)),
@@ -410,7 +408,10 @@ impl FunctionEmitter<'_> {
                         self.operand_text(operand)?
                     };
                     if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
-                        Ok(format!("SmeltUnknown::Number(-({numeric_text}) as f64)"))
+                        self.erase_value_text(
+                            &format!("-({numeric_text})"),
+                            self.type_id(Type::Float)?,
+                        )
                     } else {
                         Ok(format!("-{numeric_text}"))
                     }
@@ -1752,7 +1753,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Int) => format!("(({numeric_text}) as f64).trunc() as i64"),
             Some(Type::Float) => numeric_text,
             Some(Type::String) => format!("({numeric_text}).to_string()"),
-            _ => format!("SmeltUnknown::Number({numeric_text})"),
+            _ => self.erase_f64_text(&numeric_text),
         }))
     }
 
