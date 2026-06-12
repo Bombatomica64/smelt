@@ -874,11 +874,32 @@ impl FunctionEmitter<'_> {
     }
 
     /// Wrap a rendered value expression with a known static type into `SmeltUnknown`.
+    ///
+    /// Transitional wrapper: callers that still thread bare `(text, type)` reach
+    /// the [`RenderedValue`]-based [`FunctionEmitter::erase_value`] through here
+    /// by treating the text as a primary/postfix [`Precedence::Atom`]. New
+    /// callers should build a [`RenderedValue`] with the right precedence and
+    /// call [`FunctionEmitter::erase_value`] directly so erase can parenthesize
+    /// loose operands itself.
     pub(super) fn erase_value_text(
         &self,
         value_text: &str,
         ty: TypeId,
     ) -> Result<String, EmitError> {
+        self.erase_value(&RenderedValue::atom(value_text, ty))
+    }
+
+    /// Box a typed [`RenderedValue`] into the erased `SmeltUnknown` runtime form.
+    ///
+    /// This is the real per-`Type` mechanics behind the `erase` verb. Unlike the
+    /// old text-only entry, the rendered value knows its own precedence, so erase
+    /// wraps the operand itself wherever it inlines the value as a cast operand
+    /// (`… as f64`) or a method receiver (`.into()`, `.into_iter()`, `.clone()`,
+    /// `.into_smelt_unknown()`). For an [`Precedence::Atom`] those wraps are
+    /// no-ops, so output stays byte-identical to the historical inlining.
+    pub(super) fn erase_value(&self, value: &RenderedValue) -> Result<String, EmitError> {
+        let ty = value.ty();
+        let value_text = value.text();
         match self.mir.types.get(ty) {
             Some(Type::Unknown) => Ok(value_text.to_owned()),
             Some(Type::TypeParam { .. }) if value_text == "Default::default()" => {
@@ -893,16 +914,26 @@ impl FunctionEmitter<'_> {
                 Ok("SmeltUnknown::Number(0.0)".to_owned())
             }
             Some(Type::Int | Type::Float) => {
-                Ok(format!("SmeltUnknown::Number({value_text} as f64)"))
+                // Cast operand: a loose top-level operator must be parenthesized
+                // so `as f64` does not reassociate across it.
+                Ok(format!(
+                    "SmeltUnknown::Number({} as f64)",
+                    value.parenthesized_if_needed()
+                ))
             }
             Some(Type::String) => Ok(format!("SmeltUnknown::String({value_text})")),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
-                Ok(format!("SmeltUnknown::Array({value_text}.into())"))
+                // Method receiver: wrap a loose operand before `.into()`.
+                Ok(format!(
+                    "SmeltUnknown::Array({}.into())",
+                    value.parenthesized_if_needed()
+                ))
             }
             Some(Type::List(item)) => {
                 let value_wrap = self.erase_value_text("value", *item)?;
                 Ok(format!(
-                    "SmeltUnknown::Array({value_text}.into_iter().map(|value| {value_wrap}).collect())"
+                    "SmeltUnknown::Array({}.into_iter().map(|value| {value_wrap}).collect())",
+                    value.parenthesized_if_needed()
                 ))
             }
             Some(Type::Dict(key, item))
@@ -928,7 +959,8 @@ impl FunctionEmitter<'_> {
                 let key_wrap = self.property_key_to_string_text("key", *key)?;
                 let value_wrap = self.erase_value_text("value", *item)?;
                 Ok(format!(
-                    "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))"
+                    "SmeltUnknown::Object(SmeltObject::new({}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))",
+                    value.parenthesized_if_needed()
                 ))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
@@ -944,7 +976,8 @@ impl FunctionEmitter<'_> {
             Some(Type::Set(item)) => {
                 let value_wrap = self.erase_value_text("value", *item)?;
                 Ok(format!(
-                    "{{ let mut values = {value_text}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}"
+                    "{{ let mut values = {}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}",
+                    value.parenthesized_if_needed()
                 ))
             }
             Some(Type::Tuple(items)) => {
@@ -952,7 +985,10 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, item)| {
-                        self.erase_value_text(&format!("{value_text}.{index}.clone()"), *item)
+                        self.erase_value_text(
+                            &format!("{}.{index}.clone()", value.parenthesized_if_needed()),
+                            *item,
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
@@ -961,12 +997,16 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_value_text("value", *inner)?;
                 Ok(format!(
-                    "{value_text}.clone().map_or(SmeltUnknown::Null, |value| {value_wrap})"
+                    "{}.clone().map_or(SmeltUnknown::Null, |value| {value_wrap})",
+                    value.parenthesized_if_needed()
                 ))
             }
             Some(Type::Function(function)) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok(format!("{value_text}.clone().into_smelt_unknown()"));
+                    return Ok(format!(
+                        "{}.clone().into_smelt_unknown()",
+                        value.parenthesized_if_needed()
+                    ));
                 }
                 let args = self.function_args_from_smelt_args_text(function)?;
                 let call_text = format!("(smelt_function_value)({args})");
@@ -995,7 +1035,8 @@ impl FunctionEmitter<'_> {
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
                 };
                 Ok(format!(
-                    "{{ let smelt_function_origin = {value_text}.clone(); let smelt_function_value = {value_text}; let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}"
+                    "{{ let smelt_function_origin = {clone_receiver}.clone(); let smelt_function_value = {value_text}; let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}",
+                    clone_receiver = value.parenthesized_if_needed()
                 ))
             }
             Some(Type::Union(_)) => Ok(value_text.to_owned()),
