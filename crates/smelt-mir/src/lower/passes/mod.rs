@@ -2,10 +2,12 @@
 //!
 //! These passes operate over already-lowered MIR and are kept separate from
 //! expression lowering so ABI and capture invariants have a narrow home.
+//!
+//! Closure-specific analyses (escape analysis and throwing-closure type
+//! widening) live in [`super::closures`], which owns the closure ABI end to
+//! end. This module keeps only the general function-throwing propagation in
+//! [`throwing`], whose `can_throw` results the closure widening consumes.
 
-pub(super) mod aliases;
-pub(super) mod closure_types;
-pub(super) mod escaping;
 pub(super) mod throwing;
 
 use crate::{LocalId, Operand, Place};

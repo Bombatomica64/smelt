@@ -23,6 +23,11 @@ pub fn validate(mir: &Mir) -> Vec<ValidationError> {
 }
 
 /// Validate MIR closure table entries and escape-specific capture rules.
+///
+/// The escaping-closure capture check below enforces invariant 1 of the closure
+/// ABI contract published by the `lower::closures` module: every closure with
+/// `escapes == true` must capture by value so Rust codegen can emit an owning
+/// `move` closure that does not borrow stack locals past their owner's return.
 fn validate_closures(mir: &Mir, errors: &mut Vec<ValidationError>) {
     for (idx, closure) in mir.closures.iter().enumerate() {
         if usize::try_from(closure.id.0).ok() != Some(idx) {
@@ -59,6 +64,8 @@ fn validate_closures(mir: &Mir, errors: &mut Vec<ValidationError>) {
                     closure.id, target
                 )));
             }
+            // Closure ABI contract invariant 1 (see `lower::closures`):
+            // escaping closures capture by value only.
             if closure.escapes && capture.mode != smelt_hir::CaptureMode::ByValue {
                 errors.push(error(format!(
                     "escaping closure {:?} captures {:?} without owning it",

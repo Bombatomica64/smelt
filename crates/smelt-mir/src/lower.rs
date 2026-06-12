@@ -13,10 +13,12 @@ use smelt_hir::{
 
 use crate::{
     BasicBlock, BlockId, BuiltinFn, Callee, ClosureId, Constant, ExceptionHandler, FuncId,
-    HirOrigin, LocalDecl, LocalId, LocalKind, Mir, MirClosure, MirClosureCapture, MirFunction,
-    MirListSpliceItem, Operand, Place, Rvalue, Statement, Terminator,
+    HirOrigin, LocalDecl, LocalId, LocalKind, Mir, MirClosure, MirFunction, MirListSpliceItem,
+    Operand, Place, Rvalue, Statement, Terminator,
 };
 
+/// Closure ABI ownership: construction, escape analysis, and throwing widening.
+mod closures;
 /// Whole-program MIR analyses that run after core HIR lowering.
 mod passes;
 
@@ -302,11 +304,15 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     }
 
     if errors.is_empty() {
-        passes::escaping::mark_escaping_closures(&mut mir);
+        // Closure ABI finalization. `closures` owns escape analysis and the
+        // throwing-closure type widening; the general function-throwing
+        // propagation in `passes::throwing` feeds the widening, which is why the
+        // two interleave. See `closures` for the invariants this publishes.
+        closures::mark_escaping_closures(&mut mir);
         passes::throwing::propagate_throwing_functions(&mut mir);
-        passes::closure_types::synchronize_throwing_closure_types(&mut mir);
+        closures::widen_throwing_closure_types(&mut mir);
         passes::throwing::propagate_throwing_functions(&mut mir);
-        passes::closure_types::synchronize_throwing_closure_types(&mut mir);
+        closures::widen_throwing_closure_types(&mut mir);
         crate::normalize_operational_types(&mut mir);
         Ok(mir)
     } else {
@@ -3262,103 +3268,7 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
-            ExprKind::Closure(closure) => {
-                let closure_index = self
-                    .closure_base
-                    .checked_add(self.closures.len())
-                    .ok_or_else(|| {
-                        self.error("MIR closure index overflowed usize", Some(expr.span))
-                    })?;
-                let closure_id = ClosureId(u32_from_usize(
-                    closure_index,
-                    "MIR closure index does not fit in u32",
-                )?);
-                let captures = closure
-                    .captures
-                    .iter()
-                    .map(|capture| {
-                        self.locals
-                            .get(&capture.source_local)
-                            .copied()
-                            .map(|local| Operand::Copy(Place::Local(local)))
-                            .ok_or_else(|| {
-                                self.error(
-                                    "closure captures a local that is not available in MIR",
-                                    Some(closure.span),
-                                )
-                            })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let mir_captures = closure
-                    .captures
-                    .iter()
-                    .map(|capture| {
-                        self.locals
-                            .get(&capture.source_local)
-                            .copied()
-                            .map(|source_local| MirClosureCapture {
-                                source_local,
-                                target_local: capture.body_local.map(|local| LocalId(local.0)),
-                                symbol: capture.symbol,
-                                ty: capture.ty,
-                                mode: capture.mode,
-                            })
-                            .ok_or_else(|| {
-                                self.error(
-                                    "closure captures a local that is not available in MIR",
-                                    Some(closure.span),
-                                )
-                            })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let closure_body = self
-                    .krate
-                    .bodies
-                    .get(usize_from_u32(
-                        closure.body.0,
-                        "HIR closure body index does not fit in usize",
-                    )?)
-                    .ok_or_else(|| {
-                        self.error("closure references an unknown body", Some(closure.span))
-                    })?;
-                let closure_ctx = LoweringCtx::new_closure(
-                    self.krate,
-                    self.item_functions,
-                    closure.body,
-                    closure_body,
-                    closure.return_ty,
-                    closure.span,
-                    self.loop_index_ty,
-                    self.loop_bool_ty,
-                    closure_index.checked_add(1).ok_or_else(|| {
-                        self.error("MIR closure index overflowed usize", Some(expr.span))
-                    })?,
-                )?;
-                let (function, nested_closures) = closure_ctx.lower()?;
-                self.closures.push(MirClosure {
-                    id: closure_id,
-                    params: function.params,
-                    rest: closure.rest,
-                    required_params: closure.required_params,
-                    locals: function.locals,
-                    captures: mir_captures,
-                    return_ty: closure.return_ty,
-                    blocks: function.blocks,
-                    entry: function.entry,
-                    escapes: false,
-                    can_throw: function.can_throw,
-                });
-                self.closures.extend(nested_closures);
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::Closure {
-                        id: closure_id,
-                        captures,
-                    },
-                });
-                Operand::Copy(Place::Local(dest))
-            }
+            ExprKind::Closure(closure) => self.lower_closure_expr(closure, expr.ty, expr.span)?,
             ExprKind::ClosureCall { callee, args } => {
                 let callee_ty = self.hir_expr(*callee)?.ty;
                 let callee_operand = self.lower_expr(*callee)?;
