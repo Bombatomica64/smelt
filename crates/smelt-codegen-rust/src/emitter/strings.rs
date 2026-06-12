@@ -20,7 +20,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(dest_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
-            Ok(format!("SmeltUnknown::String({result})"))
+            self.erase_value_text(&result, self.type_id(Type::String)?)
         } else {
             Ok(result)
         }
@@ -570,9 +570,12 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(needle_ty) == Some(&Type::Unknown)
             && self.mir.types.get(haystack_ty) == Some(&Type::String)
         {
+            let erased_haystack = self.erase_value_text(
+                &format!("{}.clone()", self.operand_text(haystack)?),
+                self.type_id(Type::String)?,
+            )?;
             return Ok(format!(
-                "SmeltUnknown::String({}.clone()).includes({})",
-                self.operand_text(haystack)?,
+                "{erased_haystack}.includes({})",
                 self.operand_text(needle)?
             ));
         }
@@ -624,7 +627,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(dest_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
-            Ok(format!("SmeltUnknown::String({result})"))
+            self.erase_value_text(&result, self.type_id(Type::String)?)
         } else {
             Ok(result)
         }
@@ -702,9 +705,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(dest_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
-            Ok(format!(
-                "SmeltUnknown::Array({result}.into_iter().map(SmeltUnknown::String).collect())"
-            ))
+            Ok(self.erase_string_array_text(&result))
         } else {
             Ok(result)
         }

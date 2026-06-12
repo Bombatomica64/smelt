@@ -1003,6 +1003,77 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// The erased `null`/`undefined` tag of `SmeltUnknown`.
+    ///
+    /// This is the canonical boxed "no value" the seam hands back when a typed
+    /// value has nothing observable to carry across the boundary (a `None`
+    /// return, an absent field, the default of an erased target). Keeping the
+    /// variant text here means callers outside the seam never spell
+    /// `SmeltUnknown::Null` by hand; they ask for the null tag by intent.
+    pub(super) fn null_value_text(&self) -> String {
+        "SmeltUnknown::Null".to_owned()
+    }
+
+    /// Box an iterator of already-rendered `String` values into a `SmeltUnknown`
+    /// string array, owning the per-element `SmeltUnknown::String` construction.
+    ///
+    /// `value_iter_text` must evaluate to something iterable yielding owned
+    /// `String`s (e.g. a `Vec<String>` or a chained iterator). Callers that have
+    /// produced a list of strings and need the erased array form route through
+    /// here instead of writing the `SmeltUnknown::Array(..)` / `SmeltUnknown::String`
+    /// variants themselves.
+    pub(super) fn erase_string_array_text(&self, value_iter_text: &str) -> String {
+        format!(
+            "SmeltUnknown::Array({value_iter_text}.into_iter().map(SmeltUnknown::String).collect())"
+        )
+    }
+
+    /// Box an already-`f64` numeric expression into a `SmeltUnknown` number,
+    /// owning the `SmeltUnknown::Number` construction.
+    ///
+    /// Unlike [`erase_value_text`](Self::erase_value_text) for `Int`/`Float`,
+    /// this assumes `value_text` already evaluates to an `f64` and so adds no
+    /// `as f64` cast. Use it where the numeric value was already coerced to
+    /// `f64` before crossing the seam.
+    pub(super) fn erase_f64_text(&self, value_text: &str) -> String {
+        format!("SmeltUnknown::Number({value_text})")
+    }
+
+    /// Box a fixed list of already-erased element expressions into a
+    /// `SmeltUnknown` array.
+    ///
+    /// `elements_text` is the comma-joined Rust text of elements that have each
+    /// already crossed the seam (e.g. via [`erase`](Self::erase)). This owns the
+    /// outer `SmeltUnknown::Array(vec![..].into())` construction so literal-array
+    /// erase paths need not spell the variant.
+    pub(super) fn erase_array_text(&self, elements_text: &str) -> String {
+        format!("SmeltUnknown::Array(vec![{elements_text}].into())")
+    }
+
+    /// Box an expression that already evaluates to a collection of erased
+    /// `SmeltUnknown` values into a `SmeltUnknown` array.
+    ///
+    /// `values_text` must be `Into<SmeltArray>` (e.g. a `Vec<SmeltUnknown>`); the
+    /// elements have already crossed the seam. This owns the
+    /// `SmeltUnknown::Array(.. .into())` construction so array-building paths that
+    /// already hold erased values need not spell the variant.
+    pub(super) fn erase_unknown_array_text(&self, values_text: &str) -> String {
+        format!("SmeltUnknown::Array({values_text}.into())")
+    }
+
+    /// Box a fixed set of already-erased `(key, value)` entry expressions into a
+    /// `SmeltUnknown` object.
+    ///
+    /// `entries_text` is the comma-joined Rust text of `(String, SmeltUnknown)`
+    /// tuples whose values have already crossed the seam. This owns the outer
+    /// `SmeltUnknown::Object(SmeltObject::new(..))` construction so literal-object
+    /// erase paths need not spell the variant.
+    pub(super) fn erase_object_text(&self, entries_text: &str) -> String {
+        format!(
+            "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([{entries_text}])))"
+        )
+    }
+
     /// Mark a timestamp-backed `Date` only when it crosses an erased value boundary.
     ///
     /// Internally dates stay as numeric timestamps for compact date arithmetic. The
