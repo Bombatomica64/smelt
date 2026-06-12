@@ -1157,7 +1157,13 @@ impl ModuleBuilder<'_> {
     fn callback_captures(&mut self, callback: &CallbackExpr, body: &Body) -> Vec<ClosureCapture> {
         let mut captures = HashMap::new();
         self.collect_callback_captures(callback, body, &mut captures);
-        captures.into_values().collect()
+        // `HashMap` iteration order is randomized per process, so sort by the
+        // stable source local id before returning. Capture clone preludes are an
+        // unordered set, so this only fixes emission determinism (stable
+        // snapshots) without changing semantics.
+        let mut captures = captures.into_values().collect::<Vec<_>>();
+        captures.sort_by_key(|capture| capture.source_local.0);
+        captures
     }
 
     /// Instantiate a stored local-callback default expression at one call site.
