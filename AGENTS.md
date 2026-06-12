@@ -2,7 +2,7 @@ if i need to tell you something multiple time put it here
 
 
 ## always run
-cargo test
+cargo test (only run full tests before a commit)
 cargo check
 cargo clippy
 
