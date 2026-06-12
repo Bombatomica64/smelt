@@ -37,6 +37,10 @@ lint:
 test-all:
 	cargo test
 
+# Run the slow compile-the-output codegen tier (emits crates and runs cargo check)
+test-compile-corpus:
+	cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored
+
 # Run the focused module-linking and stub-generation tests
 test-modules:
 	cargo test -p smelt-cli --test hir_cli check_emits_typescript_declaration_stubs_for_linked_modules
