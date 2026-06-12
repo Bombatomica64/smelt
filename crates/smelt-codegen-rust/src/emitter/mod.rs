@@ -35,6 +35,7 @@ mod literals;
 mod map;
 mod numeric;
 mod place;
+mod rendered_value;
 mod set;
 mod strings;
 mod strings_io;
@@ -42,6 +43,7 @@ mod tuple;
 mod types;
 
 use literals::{assigned_locals, constant_text, method_mutates_this};
+use rendered_value::{Precedence, RenderedValue};
 
 /// Precomputed crate-level codegen facts shared by all function emitters.
 pub(crate) struct EmitContext {

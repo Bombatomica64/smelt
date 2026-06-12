@@ -1748,12 +1748,28 @@ impl FunctionEmitter<'_> {
         let float_ty = self.type_id(Type::Float)?;
         let lhs_text = self.value_at_type(lhs, float_ty)?;
         let rhs_text = self.value_at_type(rhs, float_ty)?;
-        let numeric_text = format!("{lhs_text} {} {rhs_text}", smelt_hir::bin_op_text(op));
+        // The combined `lhs <op> rhs` is a binary expression: a loose operand
+        // that must be parenthesized before it becomes a cast operand
+        // (`(...) as f64`) or a method receiver (`(...).to_string()`). Carrying
+        // its precedence in a `RenderedValue` lets the value wrap itself instead
+        // of relying on each arm below to remember the parentheses by hand.
+        let numeric = RenderedValue::with_precedence(
+            format!("{lhs_text} {} {rhs_text}", smelt_hir::bin_op_text(op)),
+            float_ty,
+            Precedence::NeedsParens,
+        );
         Ok(Some(match self.mir.types.get(dest_ty) {
-            Some(Type::Int) => format!("(({numeric_text}) as f64).trunc() as i64"),
-            Some(Type::Float) => numeric_text,
-            Some(Type::String) => format!("({numeric_text}).to_string()"),
-            _ => self.erase_f64_text(&numeric_text),
+            Some(Type::Int) => format!(
+                "({} as f64).trunc() as i64",
+                numeric.parenthesized_if_needed()
+            ),
+            Some(Type::Float) => numeric.into_text(),
+            Some(Type::String) => {
+                format!("{}.to_string()", numeric.parenthesized_if_needed())
+            }
+            // The erased target is already an `f64` value in argument position
+            // (no reassociation); the coercion seam owns the `Number` tag text.
+            _ => self.erase_f64_text(&numeric.into_text()),
         }))
     }
 

@@ -15,14 +15,20 @@ impl FunctionEmitter<'_> {
             smelt_hir::StringCaseOp::Lower => "to_lowercase",
             smelt_hir::StringCaseOp::Upper => "to_uppercase",
         };
-        let result = format!("{receiver_text}.{method_name}()");
+        // The case operation always yields a `String`. A `.to_lowercase()` /
+        // `.to_uppercase()` call is a postfix expression, so the rendered value
+        // is an atom: erasing it through the coercion seam reproduces the
+        // historical `SmeltUnknown::String(...)` wrapping while letting the seam
+        // (not this caller) own the parenthesization decision.
+        let result = RenderedValue::atom(format!("{receiver_text}.{method_name}()"), dest_ty);
         if matches!(
             self.mir.types.get(dest_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
-            self.erase_value_text(&result, self.type_id(Type::String)?)
+            let string_ty = self.type_id(Type::String)?;
+            self.erase_value(&RenderedValue::atom(result.into_text(), string_ty))
         } else {
-            Ok(result)
+            Ok(result.into_text())
         }
     }
 
