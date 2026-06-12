@@ -78,8 +78,9 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("async sleep requires a duration operand"));
                 };
                 Ok(format!(
-                    "Box::pin(async move {{ smelt_sleep_ms({} as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }})",
-                    self.operand_text(duration)?
+                    "Box::pin(async move {{ {sleep_ms}({} as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }})",
+                    self.operand_text(duration)?,
+                    sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
             smelt_hir::AsyncOp::SetTimeout => {
@@ -103,8 +104,9 @@ impl FunctionEmitter<'_> {
                     "{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(Vec::new()).map(|_| ()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) } }".to_owned()
                 };
                 Ok(format!(
-                    "{{ let smelt_timer_callback = {callback_text}.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
-                    self.value_at_type(duration, self.type_id(Type::Float)?)?
+                    "{{ let smelt_timer_callback = {callback_text}.clone(); {set_timeout}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
+                    self.value_at_type(duration, self.type_id(Type::Float)?)?,
+                    set_timeout = smelt_stdlib::runtime_symbols::timers::SET_TIMEOUT,
                 ))
             }
             smelt_hir::AsyncOp::ClearTimeout => {
@@ -114,8 +116,9 @@ impl FunctionEmitter<'_> {
                     ));
                 };
                 Ok(format!(
-                    "smelt_clear_timeout({})",
-                    self.operand_text(timeout)?
+                    "{clear_timeout}({})",
+                    self.operand_text(timeout)?,
+                    clear_timeout = smelt_stdlib::runtime_symbols::timers::CLEAR_TIMEOUT,
                 ))
             }
             smelt_hir::AsyncOp::Promise => {
@@ -139,8 +142,9 @@ impl FunctionEmitter<'_> {
                 let resolve_value =
                     self.value_at_type_text("value", self.type_id(Type::Unknown)?, output_ty)?;
                 Ok(format!(
-                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |value: SmeltUnknown| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; smelt_sleep_ms(0.0).await; }} }}) as {} }}",
-                    self.type_text_with_impl_trait(dest_ty, false)?
+                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |value: SmeltUnknown| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }}) as {} }}",
+                    self.type_text_with_impl_trait(dest_ty, false)?,
+                    sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
             smelt_hir::AsyncOp::Then => {
@@ -181,7 +185,8 @@ impl FunctionEmitter<'_> {
                 };
                 let future_text = self.await_operand_text(future)?;
                 Ok(format!(
-                    "{{ smelt_spawn_promise_task(Box::pin(async move {{ let _ = {future_text}.await; }})); () }}"
+                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {future_text}.await; }})); () }}",
+                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
                 ))
             }
             smelt_hir::AsyncOp::CreateTask => {

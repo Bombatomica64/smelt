@@ -159,7 +159,10 @@ impl<'mir> FunctionEmitter<'mir> {
             out.push_str("    SMELT_DATE_NOW.with(|value| value.set(None));\n");
         }
         if self.function.is_test && self.context.needs_timer_helpers {
-            out.push_str("    smelt_reset_timers();\n");
+            out.push_str(&format!(
+                "    {reset_timers}();\n",
+                reset_timers = smelt_stdlib::runtime_symbols::timers::RESET_TIMERS,
+            ));
         }
         self.emit_mutable_local_preludes(out)?;
         self.emit_block(self.entry_block()?, out)?;
@@ -2972,11 +2975,13 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             if target_function.may_throw {
                 format!(
-                    "{{ smelt_spawn_promise_task(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), Box<dyn std::error::Error>>(()) }}"
+                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), Box<dyn std::error::Error>>(()) }}",
+                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
                 )
             } else {
                 format!(
-                    "{{ smelt_spawn_promise_task(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}"
+                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}",
+                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
                 )
             }
         } else if target_function.may_throw
@@ -3281,11 +3286,13 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             if target_function.may_throw {
                 format!(
-                    "{{ smelt_spawn_promise_task(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), Box<dyn std::error::Error>>(()) }}"
+                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), Box<dyn std::error::Error>>(()) }}",
+                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
                 )
             } else {
                 format!(
-                    "{{ smelt_spawn_promise_task(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}"
+                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}",
+                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
                 )
             }
         } else if target_function.may_throw

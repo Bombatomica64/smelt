@@ -777,14 +777,20 @@ fn emit_source_with_free_function_router(
             writer.line("    static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };");
             writer.line("}");
             writer.blank_line();
-            writer.line("fn smelt_reset_timers() {");
+            writer.line(format!(
+                "fn {reset_timers}() {{",
+                reset_timers = smelt_stdlib::runtime_symbols::timers::RESET_TIMERS,
+            ));
             writer.line("    SMELT_NEXT_TIMER_ID.with(|next| next.set(1));");
             writer.line("    SMELT_TIMER_NOW_MS.with(|now| now.set(0));");
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());");
             writer.line("    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());");
             writer.line("}");
             writer.blank_line();
-            writer.line("fn smelt_noop_waker() -> ::std::task::Waker {");
+            writer.line(format!(
+                "fn {noop_waker}() -> ::std::task::Waker {{",
+                noop_waker = smelt_stdlib::runtime_symbols::timers::NOOP_WAKER,
+            ));
             writer.line(
                 "    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { smelt_raw_waker() }",
             );
@@ -795,15 +801,24 @@ fn emit_source_with_free_function_router(
             writer.line("    unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }");
             writer.line("}");
             writer.blank_line();
-            writer.line("fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {");
+            writer.line(format!(
+                "fn {spawn_promise_task}(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {{",
+                spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
+            ));
             writer.line("    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));");
             writer.line("}");
             writer.blank_line();
-            writer.line("async fn smelt_drain_promise_tasks() {");
+            writer.line(format!(
+                "async fn {drain_promise_tasks}() {{",
+                drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
+            ));
             writer.line("    for _ in 0..64 {");
             writer.line("        let mut tasks = SMELT_PROMISE_TASKS.with(|tasks| ::std::mem::take(&mut *tasks.borrow_mut()));");
             writer.line("        if tasks.is_empty() { break; }");
-            writer.line("        let waker = smelt_noop_waker();");
+            writer.line(format!(
+                "        let waker = {noop_waker}();",
+                noop_waker = smelt_stdlib::runtime_symbols::timers::NOOP_WAKER,
+            ));
             writer.line("        let mut cx = ::std::task::Context::from_waker(&waker);");
             writer.line("        let mut pending = Vec::new();");
             writer.line("        for mut task in tasks.drain(..) {");
@@ -820,7 +835,10 @@ fn emit_source_with_free_function_router(
             writer.line("    }");
             writer.line("}");
             writer.blank_line();
-            writer.line("fn smelt_set_timeout(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, delay_ms: f64) -> SmeltUnknown {");
+            writer.line(format!(
+                "fn {set_timeout}(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, delay_ms: f64) -> SmeltUnknown {{",
+                set_timeout = smelt_stdlib::runtime_symbols::timers::SET_TIMEOUT,
+            ));
             writer.line("    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });");
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
             writer.line("    let due_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));");
@@ -828,7 +846,10 @@ fn emit_source_with_free_function_router(
             writer.line("    SmeltUnknown::Number(id as f64)");
             writer.line("}");
             writer.blank_line();
-            writer.line("fn smelt_clear_timeout<T: IntoSmeltUnknown>(handle: T) {");
+            writer.line(format!(
+                "fn {clear_timeout}<T: IntoSmeltUnknown>(handle: T) {{",
+                clear_timeout = smelt_stdlib::runtime_symbols::timers::CLEAR_TIMEOUT,
+            ));
             writer.line(
                 "    let SmeltUnknown::Number(id) = handle.into_smelt_unknown() else { return; };",
             );
@@ -838,7 +859,10 @@ fn emit_source_with_free_function_router(
         );
             writer.line("}");
             writer.blank_line();
-            writer.line("fn smelt_drain_due_timers() {");
+            writer.line(format!(
+                "fn {drain_due_timers}() {{",
+                drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
+            ));
             writer.line("    loop {");
             writer.line("        let now = SMELT_TIMER_NOW_MS.with(|now| now.get());");
             writer.line("        let due = SMELT_TIMERS.with(|timers| {");
@@ -858,8 +882,14 @@ fn emit_source_with_free_function_router(
             writer.line("    }");
             writer.line("}");
             writer.blank_line();
-            writer.line("async fn smelt_sleep_ms(delay_ms: f64) {");
-            writer.line("    smelt_drain_promise_tasks().await;");
+            writer.line(format!(
+                "async fn {sleep_ms}(delay_ms: f64) {{",
+                sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+            ));
+            writer.line(format!(
+                "    {drain_promise_tasks}().await;",
+                drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
+            ));
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
             writer.line(
                 "    let target_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));",
@@ -868,11 +898,20 @@ fn emit_source_with_free_function_router(
             writer.line("        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms).map(|timer| timer.due_ms).min());");
             writer.line("        let Some(next_due) = next_due else { break; };");
             writer.line("        SMELT_TIMER_NOW_MS.with(|now| now.set(next_due));");
-            writer.line("        smelt_drain_due_timers();");
-            writer.line("        smelt_drain_promise_tasks().await;");
+            writer.line(format!(
+                "        {drain_due_timers}();",
+                drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
+            ));
+            writer.line(format!(
+                "        {drain_promise_tasks}().await;",
+                drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
+            ));
             writer.line("    }");
             writer.line("    SMELT_TIMER_NOW_MS.with(|now| now.set(target_ms));");
-            writer.line("    smelt_drain_promise_tasks().await;");
+            writer.line(format!(
+                "    {drain_promise_tasks}().await;",
+                drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
+            ));
             writer.line("    tokio::task::yield_now().await;");
             writer.line("}");
             writer.blank_line();
@@ -1887,21 +1926,29 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
             "fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de>",
             |fn_writer| {
                 fn_writer.line("let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;");
-                fn_writer.line("Ok(smelt_unknown_from_json_value(value))");
+                fn_writer.line(format!(
+                    "Ok({from_json}(value))",
+                    from_json = smelt_stdlib::runtime_symbols::json::UNKNOWN_FROM_JSON_VALUE,
+                ));
             },
         );
     });
     writer.blank_line();
+    let from_json = smelt_stdlib::runtime_symbols::json::UNKNOWN_FROM_JSON_VALUE;
     writer.block(
-        "fn smelt_unknown_from_json_value(value: serde_json::Value) -> SmeltUnknown",
+        format!("fn {from_json}(value: serde_json::Value) -> SmeltUnknown"),
         |fn_writer| {
             fn_writer.block("match value", |match_writer| {
                 match_writer.line("serde_json::Value::Null => SmeltUnknown::Null,");
                 match_writer.line("serde_json::Value::Bool(value) => SmeltUnknown::Bool(value),");
                 match_writer.line("serde_json::Value::Number(value) => SmeltUnknown::Number(value.as_f64().unwrap_or_default()),");
                 match_writer.line("serde_json::Value::String(value) => SmeltUnknown::String(value),");
-                match_writer.line("serde_json::Value::Array(values) => SmeltUnknown::Array(values.into_iter().map(smelt_unknown_from_json_value).collect()),");
-                match_writer.line("serde_json::Value::Object(values) => SmeltUnknown::Object(SmeltObject::new(values.into_iter().map(|(key, value)| (key, smelt_unknown_from_json_value(value))).collect())),");
+                match_writer.line(format!(
+                    "serde_json::Value::Array(values) => SmeltUnknown::Array(values.into_iter().map({from_json}).collect()),"
+                ));
+                match_writer.line(format!(
+                    "serde_json::Value::Object(values) => SmeltUnknown::Object(SmeltObject::new(values.into_iter().map(|(key, value)| (key, {from_json}(value))).collect())),"
+                ));
             });
         },
     );
