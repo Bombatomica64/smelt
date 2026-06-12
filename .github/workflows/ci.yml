@@ -43,6 +43,10 @@ jobs:
         run: |
           cargo +nightly llvm-cov --workspace --branch --lcov --output-path lcov.info
 
+      - name: Compile emitted-Rust corpus (slow tier)
+        run: |
+          cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored
+
       - name: Coverage summary (JSON)
         run: |
           cargo +nightly llvm-cov report --branch --json --summary-only --output-path coverage-summary.json
