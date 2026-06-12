@@ -9,6 +9,20 @@ The first migration moves the type lowering and resolution functions listed unde
 `lowering/types.rs`. The remaining `builder_part16.rs` functions continue to own
 identifier, constant-expression, and source-span helpers.
 
+The first extraction that *shrinks* a numbered part moves the `Map`/`Set`
+collection-method lowering family into `lowering/collections.rs`. From
+`builder_part12.rs`: `set_contains_call`, `set_mutation_call`, `map_has_call`,
+`map_get_call`, `map_mutation_call`, and the exclusive helper
+`map_value_type_compatible`. From `builder_part13.rs`: `map_projection_call`,
+`static_dict_projection_utility_call`, and `set_projection_call`. The dispatcher
+formerly named `collection_method_call` in `lowering/call.rs` (plus its
+`is_collection_method_name` predicate) also moves there and is renamed
+`dispatch_collection_method`, which is the module's narrow entry point alongside
+`map_projection_call`. Shared helpers stay put: `map_key_type_compatible`
+(used by `builder_part14.rs`), `array_item_type_compatible` (in `stdlib.rs`),
+`object_keys_compatible_type` (in `builder_part11.rs`), `numeric_type_compatible`,
+and `is_numeric_like_type`.
+
 ## `builder_part01.rs`
 
 Current concern: module setup, imports, exports, and module constants.
@@ -397,7 +411,7 @@ Current concern: object, math, lodash, array, and string stdlib calls.
 - `string_repeat_call`
 ## `builder_part12.rs`
 
-Current concern: type assignability and collection/string methods.
+Current concern: type assignability and string methods.
 
 - `type_assignable_to`
 - `type_assignable_to_inner`
@@ -405,7 +419,6 @@ Current concern: type assignability and collection/string methods.
 - `map_key_type_compatible`
 - `numeric_type_compatible`
 - `is_numeric_like_type`
-- `map_value_type_compatible`
 - `erased_or_union_surface`
 - `string_pad_call`
 - `string_char_at_call`
@@ -415,18 +428,15 @@ Current concern: type assignability and collection/string methods.
 - `string_contains_call`
 - `list_contains_call`
 - `list_surface_type`
-- `set_contains_call`
-- `set_mutation_call`
-- `map_has_call`
-- `map_get_call`
-- `map_mutation_call`
+
+Moved out to `lowering/collections.rs` (Map/Set collection-method concern):
+`set_contains_call`, `set_mutation_call`, `map_has_call`, `map_get_call`,
+`map_mutation_call`, and the exclusive helper `map_value_type_compatible`.
+
 ## `builder_part13.rs`
 
-Current concern: callbacks, collection callbacks, and collection projections.
+Current concern: callbacks, collection callbacks, and list operations.
 
-- `map_projection_call`
-- `static_dict_projection_utility_call`
-- `set_projection_call`
 - `list_concat_call`
 - `finish_list_concat_call`
 - `list_callback_call`
@@ -506,6 +516,11 @@ Current concern: callbacks, collection callbacks, and collection projections.
 - `list_search_call`
 - `list_entries_call`
 - `collection_at_call`
+
+Moved out to `lowering/collections.rs` (Map/Set collection-method concern):
+`map_projection_call`, `static_dict_projection_utility_call`, and
+`set_projection_call`.
+
 ## `builder_part14.rs`
 
 Current concern: collection construction, operators, arrays, and objects.

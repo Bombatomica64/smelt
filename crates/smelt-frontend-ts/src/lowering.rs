@@ -428,6 +428,7 @@ include!("lowering/builder_part06.rs");
 include!("lowering/builder_part07.rs");
 include!("lowering/builder_part08.rs");
 include!("lowering/call.rs");
+include!("lowering/collections.rs");
 include!("lowering/builder_part09.rs");
 include!("lowering/builder_part10.rs");
 include!("lowering/builder_part11.rs");
