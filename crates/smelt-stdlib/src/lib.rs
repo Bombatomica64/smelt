@@ -10,6 +10,7 @@ pub mod diagnostics;
 pub mod fields;
 pub mod recognition;
 pub mod rules;
+pub mod runtime_symbols;
 
 pub use classes::{StdlibClass, typescript_stdlib_class};
 pub use deps::BackendDependency;
