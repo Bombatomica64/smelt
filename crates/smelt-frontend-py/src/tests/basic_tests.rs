@@ -342,3 +342,99 @@ def run() -> None:
     )?;
     Ok(())
 }
+
+#[test]
+fn fstring_interpolation_lowers_to_string_concat() -> TestResult {
+    let source = py!(r#"
+def greet(name: str, count: int) -> str:
+    return f"Hello {name}, you have {count} messages"
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let item_id = module
+        .items
+        .first()
+        .copied()
+        .ok_or_else(|| "expected greet function".to_owned())?;
+    let Item::Function(greet) = item(&ctx, item_id)? else {
+        return Err("expected function item".to_owned());
+    };
+    let body_id = greet.body.ok_or_else(|| "expected greet body".to_owned())?;
+    let body = body(&ctx, body_id)?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::BinOp {
+                    op: BinOp::Add,
+                    ..
+                }
+            ) && ctx.krate.types.get(expr.ty) == Some(&Type::String)
+        }),
+        "expected f-string to lower to a String addition chain",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn fstring_only_literal_parts_lower_to_string() -> TestResult {
+    let source = py!(r#"
+def shout() -> str:
+    return f"static text"
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let item_id = module
+        .items
+        .first()
+        .copied()
+        .ok_or_else(|| "expected shout function".to_owned())?;
+    let Item::Function(shout) = item(&ctx, item_id)? else {
+        return Err("expected function item".to_owned());
+    };
+    let body_id = shout.body.ok_or_else(|| "expected shout body".to_owned())?;
+    let body = body(&ctx, body_id)?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(&expr.kind, ExprKind::Literal(Literal::String(text)) if text == "static text")
+        }),
+        "expected a literal-only f-string to lower to a string literal",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn fstring_format_spec_is_rejected() -> TestResult {
+    let source = py!(r#"
+def render(value: float) -> str:
+    return f"{value:.2f}"
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    let error = first_error(&errors)?;
+    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
+    ensure(
+        error.message.contains("format specifications"),
+        "expected format specification rejection message",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn fstring_repr_conversion_is_rejected() -> TestResult {
+    let source = py!(r#"
+def render(value: int) -> str:
+    return f"{value!r}"
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    let error = first_error(&errors)?;
+    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
+    ensure(
+        error.message.contains("conversions"),
+        "expected conversion rejection message",
+    )?;
+    Ok(())
+}

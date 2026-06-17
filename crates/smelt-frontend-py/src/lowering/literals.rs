@@ -265,6 +265,8 @@ impl ModuleBuilder<'_> {
                 }))
             }
 
+            Expr::FString(f) => self.fstring_expression(f, body),
+
             Expr::Named(_)
             | Expr::Lambda(_)
             | Expr::ListComp(_)
@@ -273,7 +275,6 @@ impl ModuleBuilder<'_> {
             | Expr::Generator(_)
             | Expr::Yield(_)
             | Expr::YieldFrom(_)
-            | Expr::FString(_)
             | Expr::TString(_)
             | Expr::BytesLiteral(_)
             | Expr::EllipsisLiteral(_)
@@ -284,6 +285,142 @@ impl ModuleBuilder<'_> {
                 format!("unsupported expression: {}", expr_kind_name(expr)),
             )),
         }
+    }
+
+    /// Lower a Python f-string (`f"a{expr}b"`) as runtime string concatenation.
+    ///
+    /// Mirrors the TypeScript template-literal lowering: each literal chunk and
+    /// interpolated expression is folded together with `BinOp::Add` on a `String`
+    /// result type. The Rust emitter coerces non-string operands of a string
+    /// addition via `to_string()`, which matches the common `f"{value}"` case
+    /// where `value` formats through `str(...)`.
+    ///
+    /// Format specifications (`{x:.2f}`), the `repr`/`ascii` conversions
+    /// (`{x!r}`, `{x!a}`) and self-documenting expressions (`{x=}`) are not yet
+    /// modeled, so they are rejected as unsupported rather than silently
+    /// dropped. Implicitly concatenated literal parts (`"a" f"b{x}"`) are
+    /// preserved by walking the f-string parts directly instead of the
+    /// `elements()` helper, which skips plain string literal parts.
+    fn fstring_expression(
+        &mut self,
+        fstring: &ruff_python_ast::ExprFString,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // A segment is either a static literal chunk or a lowered interpolation.
+        enum Segment {
+            Literal(String),
+            Expr(smelt_hir::ExprId),
+        }
+
+        let span = self.span(fstring.range);
+        let str_ty = self.intern_type(Type::String);
+        let mut segments: Vec<Segment> = Vec::new();
+
+        for part in fstring.value.iter() {
+            match part {
+                ruff_python_ast::FStringPart::Literal(literal) => {
+                    segments.push(Segment::Literal(literal.as_str().to_owned()));
+                }
+                ruff_python_ast::FStringPart::FString(inner) => {
+                    for element in &inner.elements {
+                        match element {
+                            ruff_python_ast::InterpolatedStringElement::Literal(literal) => {
+                                segments.push(Segment::Literal(literal.value.to_string()));
+                            }
+                            ruff_python_ast::InterpolatedStringElement::Interpolation(interp) => {
+                                if interp.debug_text.is_some() {
+                                    return Err(SmeltError::unsupported(
+                                        self.span(interp.range),
+                                        "f-string self-documenting expressions (trailing `=`) are not supported",
+                                    ));
+                                }
+                                if interp.format_spec.is_some() {
+                                    return Err(SmeltError::unsupported(
+                                        self.span(interp.range),
+                                        "f-string format specifications (a `:` conversion suffix) are not supported",
+                                    ));
+                                }
+                                if !matches!(
+                                    interp.conversion,
+                                    ruff_python_ast::ConversionFlag::None
+                                        | ruff_python_ast::ConversionFlag::Str
+                                ) {
+                                    return Err(SmeltError::unsupported(
+                                        self.span(interp.range),
+                                        "f-string `!r`/`!a` conversions are not supported",
+                                    ));
+                                }
+                                let expr = self.expression(&interp.expression, body)?;
+                                segments.push(Segment::Expr(expr));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fold segments into a chain of `String` additions, using the first
+        // segment as the accumulator base so a literal-only f-string lowers to a
+        // single string literal.
+        let mut iter = segments.into_iter();
+        let mut acc = match iter.next() {
+            Some(Segment::Literal(text)) => body.push_expr(HirExpr {
+                kind: ExprKind::Literal(Literal::String(text)),
+                ty: str_ty,
+                span,
+            }),
+            Some(Segment::Expr(expr)) => {
+                // Anchor on an empty string literal so the first interpolation is
+                // emitted through the string-addition path (which coerces the
+                // operand to `String`).
+                let empty = body.push_expr(HirExpr {
+                    kind: ExprKind::Literal(Literal::String(String::new())),
+                    ty: str_ty,
+                    span,
+                });
+                body.push_expr(HirExpr {
+                    kind: ExprKind::BinOp {
+                        op: BinOp::Add,
+                        lhs: empty,
+                        rhs: expr,
+                    },
+                    ty: str_ty,
+                    span,
+                })
+            }
+            None => body.push_expr(HirExpr {
+                kind: ExprKind::Literal(Literal::String(String::new())),
+                ty: str_ty,
+                span,
+            }),
+        };
+
+        for segment in iter {
+            let rhs = match segment {
+                Segment::Literal(text) => {
+                    if text.is_empty() {
+                        continue;
+                    }
+                    body.push_expr(HirExpr {
+                        kind: ExprKind::Literal(Literal::String(text)),
+                        ty: str_ty,
+                        span,
+                    })
+                }
+                Segment::Expr(expr) => expr,
+            };
+            acc = body.push_expr(HirExpr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::Add,
+                    lhs: acc,
+                    rhs,
+                },
+                ty: str_ty,
+                span,
+            });
+        }
+
+        Ok(acc)
     }
 
     /// Lower a Python conditional expression (`then if cond else else_`).
