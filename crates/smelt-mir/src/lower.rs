@@ -3404,7 +3404,18 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
-            ExprKind::Block(_) | ExprKind::Lambda { .. } => {
+            ExprKind::Block(block_id) => {
+                // Execute the block's statements in the current control flow,
+                // then yield the block's tail expression (or `None`) as the
+                // block-expression value. Used by comprehension lowering.
+                let tail = self.hir_block(*block_id)?.tail;
+                self.lower_block_stmts(*block_id)?;
+                match tail {
+                    Some(tail_expr) => self.lower_expr(tail_expr)?,
+                    None => Operand::Const(Constant::None),
+                }
+            }
+            ExprKind::Lambda { .. } => {
                 return Err(self.error(
                     "expression kind is not implemented in MIR yet",
                     Some(expr.span),

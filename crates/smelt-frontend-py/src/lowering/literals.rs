@@ -268,12 +268,12 @@ impl ModuleBuilder<'_> {
             Expr::FString(f) => self.fstring_expression(f, body),
 
             Expr::ListComp(c) => self.list_comprehension(c, body),
+            Expr::SetComp(c) => self.set_comprehension(c, body),
+            Expr::DictComp(c) => self.dict_comprehension(c, body),
+            Expr::Generator(c) => self.generator_expression(c, body),
 
             Expr::Named(_)
             | Expr::Lambda(_)
-            | Expr::SetComp(_)
-            | Expr::DictComp(_)
-            | Expr::Generator(_)
             | Expr::Yield(_)
             | Expr::YieldFrom(_)
             | Expr::TString(_)

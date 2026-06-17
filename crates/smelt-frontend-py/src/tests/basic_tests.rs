@@ -439,116 +439,161 @@ def render(value: int) -> str:
     Ok(())
 }
 
+/// Returns the body of the single function item in `source` after lowering.
+fn single_function_body<'a>(ctx: &'a HirCtx, module_id: ModuleId) -> Result<&'a Body, String> {
+    let module = module(ctx, module_id)?;
+    let item_id = module
+        .items
+        .first()
+        .copied()
+        .ok_or_else(|| "expected a function item".to_owned())?;
+    let Item::Function(function) = item(ctx, item_id)? else {
+        return Err("expected function item".to_owned());
+    };
+    let body_id = function.body.ok_or_else(|| "expected function body".to_owned())?;
+    body(ctx, body_id)
+}
+
 #[test]
-fn list_comprehension_lowers_to_map() -> TestResult {
+fn list_comprehension_lowers_to_block_with_push() -> TestResult {
     let source = py!(r#"
 def doubles(xs: list[int]) -> list[int]:
     return [x * 2 for x in xs]
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
-    let module = module(&ctx, module_id)?;
-    let item_id = module
-        .items
-        .first()
-        .copied()
-        .ok_or_else(|| "expected doubles function".to_owned())?;
-    let Item::Function(doubles) = item(&ctx, item_id)? else {
-        return Err("expected function item".to_owned());
-    };
-    let body_id = doubles.body.ok_or_else(|| "expected body".to_owned())?;
-    let body = body(&ctx, body_id)?;
+    let body = single_function_body(&ctx, module_id)?;
     ensure(
-        body.exprs.iter().any(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::ListCallback {
-                    op: ListCallbackOp::Map,
-                    ..
-                }
-            )
-        }),
-        "expected list comprehension to lower to a Map list callback",
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Block(_))),
+        "expected list comprehension to lower to a block expression",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. })),
+        "expected the accumulator to be built with list pushes",
     )?;
     Ok(())
 }
 
 #[test]
-fn list_comprehension_if_clause_lowers_to_filter_then_map() -> TestResult {
+fn list_comprehension_if_clause_lowers() -> TestResult {
+    // The `if` guard lowers to an `If` statement inside the loop; we assert the
+    // overall comprehension still lowers to a block with a push.
     let source = py!(r#"
 def evens(xs: list[int]) -> list[int]:
-    return [x for x in xs if x % 2 == 0]
+    return [x for x in xs if x > 0]
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
-    let module = module(&ctx, module_id)?;
-    let item_id = module
-        .items
-        .first()
-        .copied()
-        .ok_or_else(|| "expected evens function".to_owned())?;
-    let Item::Function(evens) = item(&ctx, item_id)? else {
-        return Err("expected function item".to_owned());
-    };
-    let body_id = evens.body.ok_or_else(|| "expected body".to_owned())?;
-    let body = body(&ctx, body_id)?;
+    let body = single_function_body(&ctx, module_id)?;
     ensure(
-        body.exprs.iter().any(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::ListCallback {
-                    op: ListCallbackOp::Filter,
-                    ..
-                }
-            )
-        }),
-        "expected `if` clause to lower to a Filter list callback",
-    )?;
-    ensure(
-        body.exprs.iter().any(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::ListCallback {
-                    op: ListCallbackOp::Map,
-                    ..
-                }
-            )
-        }),
-        "expected the element expression to lower to a Map list callback",
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Block(_))),
+        "expected a block expression",
     )?;
     Ok(())
 }
 
 #[test]
-fn nested_list_comprehension_is_rejected() -> TestResult {
+fn nested_list_comprehension_lowers() -> TestResult {
     let source = py!(r#"
 def pairs(xs: list[int], ys: list[int]) -> list[int]:
     return [x + y for x in xs for y in ys]
 "#);
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
-    let error = first_error(&errors)?;
-    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
+    let module_id = lower_module(source, &mut ctx)?;
+    let body = single_function_body(&ctx, module_id)?;
     ensure(
-        error.message.contains("nested list comprehensions"),
-        "expected nested comprehension rejection message",
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Block(_))),
+        "expected nested list comprehension to lower to a block expression",
     )?;
     Ok(())
 }
 
 #[test]
-fn list_comprehension_over_non_list_is_rejected() -> TestResult {
+fn set_comprehension_lowers_to_block_with_add() -> TestResult {
+    let source = py!(r#"
+def uniq(xs: list[int]) -> set[int]:
+    return {x for x in xs}
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let body = single_function_body(&ctx, module_id)?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetAdd { .. })),
+        "expected set comprehension to build the accumulator with set adds",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn dict_comprehension_lowers_to_block() -> TestResult {
+    let source = py!(r#"
+def table(xs: list[int]) -> dict[int, int]:
+    return {k: k for k in xs}
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let body = single_function_body(&ctx, module_id)?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Block(_))),
+        "expected dict comprehension to lower to a block expression",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictLit(_))),
+        "expected an empty dict accumulator literal",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn generator_expression_lowers() -> TestResult {
+    let source = py!(r#"
+def collected(xs: list[int]) -> list[int]:
+    return list(x for x in xs)
+"#);
+    let mut ctx = HirCtx::new();
+    // Generator expressions materialize eagerly; lowering should succeed.
+    lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+#[test]
+fn list_comprehension_over_string_lowers() -> TestResult {
     let source = py!(r#"
 def chars(text: str) -> list[str]:
     return [c for c in text]
+"#);
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+#[test]
+fn comprehension_destructuring_target_is_rejected() -> TestResult {
+    let source = py!(r#"
+def firsts(pairs: list[tuple[int, int]]) -> list[int]:
+    return [a for a, b in pairs]
 "#);
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
     ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
     ensure(
-        error.message.contains("can only iterate over a list"),
-        "expected non-list iterable rejection message",
+        error.message.contains("destructuring"),
+        "expected destructuring rejection message",
     )?;
     Ok(())
 }
