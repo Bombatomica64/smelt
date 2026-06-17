@@ -438,3 +438,117 @@ def render(value: int) -> str:
     )?;
     Ok(())
 }
+
+#[test]
+fn list_comprehension_lowers_to_map() -> TestResult {
+    let source = py!(r#"
+def doubles(xs: list[int]) -> list[int]:
+    return [x * 2 for x in xs]
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let item_id = module
+        .items
+        .first()
+        .copied()
+        .ok_or_else(|| "expected doubles function".to_owned())?;
+    let Item::Function(doubles) = item(&ctx, item_id)? else {
+        return Err("expected function item".to_owned());
+    };
+    let body_id = doubles.body.ok_or_else(|| "expected body".to_owned())?;
+    let body = body(&ctx, body_id)?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::ListCallback {
+                    op: ListCallbackOp::Map,
+                    ..
+                }
+            )
+        }),
+        "expected list comprehension to lower to a Map list callback",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn list_comprehension_if_clause_lowers_to_filter_then_map() -> TestResult {
+    let source = py!(r#"
+def evens(xs: list[int]) -> list[int]:
+    return [x for x in xs if x % 2 == 0]
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let item_id = module
+        .items
+        .first()
+        .copied()
+        .ok_or_else(|| "expected evens function".to_owned())?;
+    let Item::Function(evens) = item(&ctx, item_id)? else {
+        return Err("expected function item".to_owned());
+    };
+    let body_id = evens.body.ok_or_else(|| "expected body".to_owned())?;
+    let body = body(&ctx, body_id)?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::ListCallback {
+                    op: ListCallbackOp::Filter,
+                    ..
+                }
+            )
+        }),
+        "expected `if` clause to lower to a Filter list callback",
+    )?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::ListCallback {
+                    op: ListCallbackOp::Map,
+                    ..
+                }
+            )
+        }),
+        "expected the element expression to lower to a Map list callback",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn nested_list_comprehension_is_rejected() -> TestResult {
+    let source = py!(r#"
+def pairs(xs: list[int], ys: list[int]) -> list[int]:
+    return [x + y for x in xs for y in ys]
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    let error = first_error(&errors)?;
+    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
+    ensure(
+        error.message.contains("nested list comprehensions"),
+        "expected nested comprehension rejection message",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn list_comprehension_over_non_list_is_rejected() -> TestResult {
+    let source = py!(r#"
+def chars(text: str) -> list[str]:
+    return [c for c in text]
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    let error = first_error(&errors)?;
+    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
+    ensure(
+        error.message.contains("can only iterate over a list"),
+        "expected non-list iterable rejection message",
+    )?;
+    Ok(())
+}

@@ -267,9 +267,10 @@ impl ModuleBuilder<'_> {
 
             Expr::FString(f) => self.fstring_expression(f, body),
 
+            Expr::ListComp(c) => self.list_comprehension(c, body),
+
             Expr::Named(_)
             | Expr::Lambda(_)
-            | Expr::ListComp(_)
             | Expr::SetComp(_)
             | Expr::DictComp(_)
             | Expr::Generator(_)

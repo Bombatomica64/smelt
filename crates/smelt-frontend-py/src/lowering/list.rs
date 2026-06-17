@@ -287,6 +287,99 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower a Python list comprehension `[elt for target in iter if cond ...]`.
+    ///
+    /// Comprehensions reuse the same callback/closure machinery as `map`/`filter`:
+    /// the iterable must be a list, the loop target binds as the single callback
+    /// parameter, each `if` clause becomes a `Filter` closure applied in source
+    /// order, and the element expression becomes a final `Map` closure. The
+    /// element and condition expressions are therefore restricted to the same
+    /// subset accepted inside lambda callbacks (`python_callback_expr`).
+    ///
+    /// Only a single, synchronous generator with a plain name target is modeled;
+    /// nested generators, async generators, and destructuring targets are
+    /// rejected as unsupported rather than mis-lowered.
+    pub(crate) fn list_comprehension(
+        &mut self,
+        comp: &ruff_python_ast::ExprListComp,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(comp.range);
+        let [generator] = comp.generators.as_slice() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "nested list comprehensions (multiple `for` clauses) are not supported",
+            ));
+        };
+        if generator.is_async {
+            return Err(SmeltError::unsupported(
+                span,
+                "async list comprehensions are not supported",
+            ));
+        }
+        let Expr::Name(target_name) = &generator.target else {
+            return Err(SmeltError::unsupported(
+                self.span(generator.target.range()),
+                "list comprehension targets must be a single name (destructuring is not supported)",
+            ));
+        };
+
+        let mut list = self.expression(&generator.iter, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(generator.iter.range()),
+                "list comprehensions can only iterate over a list",
+            ));
+        };
+        let element_ty = *item_ty;
+
+        // Bind the loop target as the single callback parameter so the condition
+        // and element expressions resolve it through the lambda-callback subset.
+        let mut params = HashMap::new();
+        params.insert(
+            target_name.id.as_str(),
+            CallbackExpr {
+                kind: CallbackExprKind::Param(0),
+                ty: element_ty,
+            },
+        );
+
+        let bool_ty = self.intern_type(Type::Bool);
+        for condition in &generator.ifs {
+            let predicate = self.python_callback_expr(condition, &params, body)?;
+            if predicate.ty != bool_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(condition.range()),
+                    "list comprehension `if` clauses must be boolean conditions",
+                ));
+            }
+            let closure = self.callback_expr_to_closure(&predicate, &[element_ty], span, body)?;
+            list = body.push_expr(HirExpr {
+                kind: ExprKind::ListCallback {
+                    op: ListCallbackOp::Filter,
+                    list,
+                    callback: closure,
+                },
+                ty: list_ty,
+                span,
+            });
+        }
+
+        let element = self.python_callback_expr(&comp.elt, &params, body)?;
+        let result_ty = self.intern_type(Type::List(element.ty));
+        let closure = self.callback_expr_to_closure(&element, &[element_ty], span, body)?;
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::ListCallback {
+                op: ListCallbackOp::Map,
+                list,
+                callback: closure,
+            },
+            ty: result_ty,
+            span,
+        }))
+    }
+
     /// Lower either an inline lambda or an annotated local lambda callback.
     fn python_callback_argument(
         &mut self,
@@ -792,6 +885,7 @@ impl ModuleBuilder<'_> {
                     Operator::Sub => BinOp::Sub,
                     Operator::Mult => BinOp::Mul,
                     Operator::Div => BinOp::Div,
+                    Operator::Mod => BinOp::Rem,
                     _ => {
                         return Err(SmeltError::unsupported(
                             self.span(binary.range),
