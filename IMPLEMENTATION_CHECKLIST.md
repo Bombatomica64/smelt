@@ -278,7 +278,9 @@ runtime errors.
   - [x] TypeScript `Array.prototype.find` and `findIndex` with capture-free expression callbacks.
   - [x] TypeScript `Array.prototype.some` and `every` with capture-free expression callbacks.
   - [ ] TypeScript callback methods with captured closures, callback function values, and index/array parameters.
-  - [ ] Python `map`, `filter`, and callback-style `sorted(key=...)` if supported.
+  - [x] Python `map`, `filter`, and callback-style `sorted(key=...)` if supported.
+    - [x] `list(map(...))` and `list(filter(...))` with lambda or local lambda callbacks.
+    - [x] `sorted(values, key=..., reverse=...)` and `list.sort(key=..., reverse=...)`.
 - [ ] Batch F, dependency-backed mappings:
   - [ ] `serde_json` dependency injection, then TypeScript `JSON.stringify` / `JSON.parse` and
         Python `json.dumps` / `json.loads`.
@@ -478,8 +480,9 @@ runtime errors.
     - [x] `sum(...)` for int and float lists.
     - [x] `min(...)` and `max(...)` for all-int or all-float fixed argument lists.
   - [x] `all(...)` and `any(...)`.
-  - [ ] `sorted(...)` and `reversed(...)`.
+  - [x] `sorted(...)` and `reversed(...)`.
     - [x] `sorted(...)` for plain sortable lists without `key` or `reverse`.
+    - [x] `sorted(...)` with a scalar `key=` callable and/or `reverse=` boolean.
     - [x] `reversed(...)` for list values.
   - [ ] `list(...)`, `dict(...)`, `tuple(...)`, and `set(...)` constructors.
     - [x] Empty annotated `list()`, `dict()`, `set()`, and `tuple()`.

@@ -326,6 +326,35 @@ ordered_floats: list[float] = sorted(floats)
 }
 
 #[test]
+fn emits_python_sorted_key_and_reverse() {
+    let source = source_for_py(
+        r#"
+bias: int = 10
+values: list[int] = [2, 1]
+ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True)
+"#,
+    );
+
+    assert!(source.contains("let mut smelt_sort_key ="));
+    assert!(source.contains("let left_key = (smelt_sort_key)"));
+    assert!(source.contains("right_key.cmp(&left_key)"));
+}
+
+#[test]
+fn emits_python_list_sort_key() {
+    let source = source_for_py(
+        r#"
+values: list[int] = [2, 1]
+ordered: None = values.sort(key=lambda value: value * 2)
+"#,
+    );
+
+    assert!(source.contains("let mut smelt_sort_key ="));
+    assert!(source.contains(".sort_by(|left, right|"));
+    assert!(source.contains("left_key.cmp(&right_key)"));
+}
+
+#[test]
 fn emits_python_reversed_builtin() {
     let source = source_for_py(
         r#"

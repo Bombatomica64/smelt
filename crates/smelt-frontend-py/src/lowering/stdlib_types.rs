@@ -141,7 +141,12 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower Python `sorted(values)` calls for directly sortable lists.
+    /// Lower Python `sorted(values, key=..., reverse=...)` for sortable lists.
+    ///
+    /// Lists of scalar items sort directly; an optional `key=` lambda or local
+    /// callable sorts by its mapped value, and `reverse=True` produces a
+    /// descending order. This mirrors the TypeScript `Array.prototype.sort`
+    /// comparator support so the two frontends keep parity.
     pub(super) fn sorted_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,
@@ -153,10 +158,10 @@ impl ModuleBuilder<'_> {
         if name.id.as_str() != "sorted" {
             return Ok(None);
         }
-        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+        if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
                 self.span(call.range),
-                "sorted() currently supports exactly one list argument and no keywords",
+                "sorted() currently supports exactly one list argument",
             ));
         }
         let list = self.expression(&call.arguments.args[0], body)?;
@@ -167,20 +172,82 @@ impl ModuleBuilder<'_> {
                 "sorted() argument must be a sortable list",
             ));
         };
-        if !matches!(
-            self.ctx.krate.types.get(*item_ty),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String)
-        ) {
+        let element_ty = *item_ty;
+        let (key, reverse) =
+            self.sort_keyword_arguments(&call.arguments.keywords, element_ty, body)?;
+        if key.is_none()
+            && !matches!(
+                self.ctx.krate.types.get(element_ty),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+            )
+        {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
                 "sorted() argument must be a sortable list",
             ));
         }
         Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::ListSorted { list },
+            kind: ExprKind::ListSorted {
+                list,
+                key,
+                reverse,
+            },
             ty: list_ty,
             span: self.span(call.range),
         })))
+    }
+
+    /// Parse Python `key=` and `reverse=` sort keyword arguments.
+    ///
+    /// A `key` lambda or local callable lowers to a closure mapping one list
+    /// item to a scalar sort value; `key=None` is treated as absent. `reverse`
+    /// accepts only boolean literals because non-literal flags would need
+    /// runtime branching that the sort lowering does not model yet.
+    fn sort_keyword_arguments(
+        &mut self,
+        keywords: &[ruff_python_ast::Keyword],
+        element_ty: smelt_hir::TypeId,
+        body: &mut Body,
+    ) -> Result<(Option<smelt_hir::ExprId>, bool), SmeltError> {
+        let mut key = None;
+        let mut reverse = false;
+        for keyword in keywords {
+            match keyword.arg.as_ref().map(ruff_python_ast::Identifier::as_str) {
+                Some("key") => {
+                    if matches!(&keyword.value, Expr::NoneLiteral(_)) {
+                        continue;
+                    }
+                    let callback =
+                        self.python_callback_argument(&keyword.value, &[element_ty], body)?;
+                    if !matches!(
+                        self.ctx.krate.types.get(callback.return_ty),
+                        Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                    ) {
+                        return Err(SmeltError::unsupported(
+                            self.span(keyword.range),
+                            "sort key must return bool, int, float, or str",
+                        ));
+                    }
+                    key = Some(callback.expr);
+                }
+                Some("reverse") => match &keyword.value {
+                    Expr::BooleanLiteral(value) => reverse = value.value,
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(keyword.range),
+                            "sort reverse must be a boolean literal",
+                        ));
+                    }
+                },
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(keyword.range),
+                        "sort supports only key and reverse keyword arguments",
+                    ));
+                }
+            }
+        }
+        Ok((key, reverse))
     }
 
     /// Lower Python `reversed(values)` calls for list values.
@@ -535,19 +602,11 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Return whether a Python `list.sort()` keyword leaves direct sorting unchanged.
-    fn is_noop_sort_keyword(keyword: &ruff_python_ast::Keyword) -> bool {
-        match keyword.arg.as_ref().map(|arg| arg.as_str()) {
-            Some("key") => matches!(&keyword.value, Expr::NoneLiteral(_)),
-            Some("reverse") => matches!(
-                &keyword.value,
-                Expr::BooleanLiteral(value) if !value.value
-            ),
-            _ => false,
-        }
-    }
-
-    /// Lower Python `list.sort()` calls with direct scalar ordering.
+    /// Lower Python `list.sort(key=..., reverse=...)` calls in place.
+    ///
+    /// Scalar lists sort directly; an optional `key=` callable sorts by its
+    /// mapped value and `reverse=True` orders descending, matching the
+    /// `sorted()` lowering and the TypeScript array sort comparator support.
     pub(super) fn list_sort_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,
@@ -565,23 +624,20 @@ impl ModuleBuilder<'_> {
                 "list.sort() currently supports no positional arguments",
             ));
         }
-        for keyword in &call.arguments.keywords {
-            if !Self::is_noop_sort_keyword(keyword) {
-                return Err(SmeltError::unsupported(
-                    self.span(keyword.range),
-                    "list.sort() currently supports only key=None and reverse=False keywords",
-                ));
-            }
-        }
         let list = self.expression(&attr.value, body)?;
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
         };
-        if !matches!(
-            self.ctx.krate.types.get(*list_element_ty),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String)
-        ) {
+        let element_ty = *list_element_ty;
+        let (key, reverse) =
+            self.sort_keyword_arguments(&call.arguments.keywords, element_ty, body)?;
+        if key.is_none()
+            && !matches!(
+                self.ctx.krate.types.get(element_ty),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+            )
+        {
             return Err(SmeltError::unsupported(
                 self.span(attr.value.range()),
                 "list.sort() supports bool, int, float, and str lists for now",
@@ -592,6 +648,8 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::ListSort {
                 list,
                 comparator: None,
+                key,
+                reverse,
             },
             ty,
             span: self.span(call.range),

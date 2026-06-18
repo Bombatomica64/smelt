@@ -891,7 +891,16 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("list_{op_text} {}", operand_text(list))
         }
-        Rvalue::ListSorted { list } => format!("list_sorted {}", operand_text(list)),
+        Rvalue::ListSorted { list, key, reverse } => {
+            let key_text = if key.is_some() { " <key>" } else { "" };
+            let reverse_text = if *reverse { " reverse" } else { "" };
+            format!(
+                "list_sorted {}{}{}",
+                operand_text(list),
+                key_text,
+                reverse_text
+            )
+        }
         Rvalue::ListReversed { list } => format!("list_reversed {}", operand_text(list)),
         Rvalue::ListEnumerate { list } => format!("list_enumerate {}", operand_text(list)),
         Rvalue::ListZip { left, right } => {
@@ -913,14 +922,25 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!("list_remove {}, {}", operand_text(list), operand_text(item))
         }
         Rvalue::ListSort {
-            list, comparator, ..
+            list,
+            comparator,
+            key,
+            reverse,
         } => {
             let comparator_text = if comparator.is_some() {
                 " <comparator>"
             } else {
                 ""
             };
-            format!("list_sort {}{}", operand_text(list), comparator_text)
+            let key_text = if key.is_some() { " <key>" } else { "" };
+            let reverse_text = if *reverse { " reverse" } else { "" };
+            format!(
+                "list_sort {}{}{}{}",
+                operand_text(list),
+                comparator_text,
+                key_text,
+                reverse_text
+            )
         }
         Rvalue::ListPop { list } => format!("list_pop {}", operand_text(list)),
         Rvalue::ListShift { list } => format!("list_shift {}", operand_text(list)),

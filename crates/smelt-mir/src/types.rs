@@ -1109,6 +1109,13 @@ pub enum Rvalue {
     ListSorted {
         /// List value to copy and sort.
         list: Operand,
+        /// Optional key closure for Python `sorted(values, key=...)`.
+        ///
+        /// The key is a normal closure operand mapping one list item to a
+        /// sortable value.
+        key: Option<Operand>,
+        /// Whether to sort in descending order, as in Python `reverse=True`.
+        reverse: bool,
     },
     /// Return a reversed copy of a list.
     ListReversed {
@@ -1164,6 +1171,13 @@ pub enum Rvalue {
         /// The comparator is a normal closure operand, like other list
         /// callbacks; it takes two list items and returns a number.
         comparator: Option<Operand>,
+        /// Optional key closure for Python `list.sort(key=...)`.
+        ///
+        /// The key is a normal closure operand mapping one list item to a
+        /// sortable value. It is mutually exclusive with `comparator`.
+        key: Option<Operand>,
+        /// Whether to sort in descending order, as in Python `reverse=True`.
+        reverse: bool,
     },
     /// Pop the last item from a list.
     ListPop {

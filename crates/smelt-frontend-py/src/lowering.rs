@@ -117,11 +117,11 @@ struct FunctionVariadics {
 
 /// A closure expression prepared for a callback-consuming Python API.
 #[derive(Debug, Clone, Copy)]
-struct ClosureCallback {
+pub(super) struct ClosureCallback {
     /// HIR expression id of the closure value.
-    expr: smelt_hir::ExprId,
+    pub(super) expr: smelt_hir::ExprId,
     /// Return type produced by the closure.
-    return_ty: TypeId,
+    pub(super) return_ty: TypeId,
 }
 
 /// A simple pytest parametrization table.

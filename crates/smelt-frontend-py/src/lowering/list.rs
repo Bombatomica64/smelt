@@ -288,7 +288,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower either an inline lambda or an annotated local lambda callback.
-    fn python_callback_argument(
+    pub(super) fn python_callback_argument(
         &mut self,
         arg: &Expr,
         expected_param_tys: &[TypeId],

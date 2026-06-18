@@ -515,6 +515,8 @@ impl FunctionEmitter<'_> {
         &self,
         list: &Operand,
         comparator: Option<&Operand>,
+        key: Option<&Operand>,
+        reverse: bool,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
@@ -542,6 +544,12 @@ impl FunctionEmitter<'_> {
         };
         if let Some(comparator) = comparator {
             return self.list_sort_comparator_text(comparator, element_ty, returns_list, &list_text, &result_text);
+        }
+        if key.is_some() || reverse {
+            let (prefix, closure) = self.list_sort_by_text(key, reverse, element_ty)?;
+            return Ok(format!(
+                "{{ {prefix}{list_text}.sort_by({closure}); {result_text} }}"
+            ));
         }
         match self.mir.types.get(*item_ty) {
             Some(Type::Bool | Type::Int | Type::Float | Type::String) if returns_list => {

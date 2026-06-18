@@ -298,18 +298,34 @@ result: None = values.sort(True)
     )?;
 
     let mut ctx = HirCtx::new();
-    let keyword_arg = lower_errors(
+    let non_literal_reverse = lower_errors(
         py!(r#"
+flag: bool = True
 values: list[int] = [1, 2]
-result: None = values.sort(reverse=True)
+result: None = values.sort(reverse=flag)
 "#),
         &mut ctx,
     )?;
     ensure(
-        first_error(&keyword_arg)?
+        first_error(&non_literal_reverse)?
             .message
-            .contains("key=None and reverse=False"),
-        "expected list sort keyword diagnostic",
+            .contains("reverse must be a boolean literal"),
+        "expected list sort non-literal reverse diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let unknown_keyword = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.sort(cmp=None)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&unknown_keyword)?
+            .message
+            .contains("only key and reverse keyword arguments"),
+        "expected list sort unknown keyword diagnostic",
     )
 }
 
