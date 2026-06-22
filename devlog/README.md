@@ -14,11 +14,16 @@ The `/devlog` skill (`skills/devlog/SKILL.md`) does the writing. Each run it:
 1. Looks at git history since the last log (`state.json` tracks the cutoff).
 2. Scans `blocker-logs/`, `Test-TODO.md`, and `IMPLEMENTATION_CHECKLIST.md` for
    real, current gripes.
-3. Folds in whatever you wrote in [`NOTES.md`](./NOTES.md) — the highest-signal
-   input.
-4. Drafts a single ≤280-char post (or offers a short thread), writes it to
-   `posts/YYYY-MM-DD.md`, and shows it to you to copy-paste.
-5. Advances `state.json` so tomorrow's window starts where today's ended.
+3. Folds in whatever you wrote in [`NOTES.md`](./NOTES.md).
+4. **Interviews you** — asks a few open questions (what'd you work on, what
+   pissed you off, what are you proud of, the AI-code angle, the vibe). You write
+   the raw material in your own words; the routine just makes it read well. (On
+   an unattended scheduled run with nobody to answer, it falls back to NOTES.md +
+   git history.)
+5. Drafts a single ≤280-char post in a slangy, honest dev voice (or offers a
+   short thread), writes it to `posts/YYYY-MM-DD.md`, and shows it to you to
+   copy-paste. Iterates if you want changes — it's your voice.
+6. Advances `state.json` so tomorrow's window starts where today's ended.
 
 ## Running it
 

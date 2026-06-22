@@ -13,21 +13,30 @@ was sent.
 
 ## Voice
 
-This is a personal dev log, not an announcement. Match these rules:
+This is a personal dev log, not an announcement. The user writes the raw
+material; you make it read well. Match these rules:
 
 - **Honest over hype.** Lead with what actually happened, including what broke
   or annoyed you. A good post can be mostly a gripe.
 - **No promo language.** Never "excited to announce", "🚀", "game-changer",
   "the future of", call-to-action, or hashtag spam. At most one tag if it's
   genuinely relevant.
+- **Slangy and online.** Sound like a dev posting at 1am, not a brand. Lean into
+  dev/online slang where it fits — e.g. "ngl", "tbh", "lowkey/highkey", "cooked",
+  "this is held together with vibes", "yak-shaving", "skill issue", "it's so
+  over / we're so back", "ship it", "jank", "fighting for my life in the borrow
+  checker". One or two slang beats per post — don't force it into every line or
+  it reads try-hard. Match the user's own phrasing from the interview when they
+  give it.
 - **AI-generated code is not a secret.** A lot of Smelt's code is AI-generated
   and the user is fine saying so. When it's relevant (a bug an agent caused, a
   refactor an agent did, trusting/distrusting generated output), say it plainly.
   Don't force it into every post.
-- **First person, lowercase-friendly, terse.** Sound like a tired-but-curious
-  engineer, not a brand. Dry humor is welcome.
+- **First person, lowercase-friendly, terse.** Dry humor welcome.
 - **Concrete.** Name the actual thing — `date-fns` slice, clippy warnings,
   HIR/MIR lowering, a specific commit — not "made great progress."
+- **Keep it the user's, not yours.** You're polishing their take, not replacing
+  it. Don't invent opinions or details they didn't give.
 
 ## Length
 
@@ -68,26 +77,49 @@ This is a personal dev log, not an announcement. Match these rules:
      but don't run a full suite just to write a tweet — cite what the logs say.
 
 4. **Fold in the user's notes.** Read `devlog/NOTES.md`. Anything the user jotted
-   there since the last run is the highest-signal input — weave it in and then
-   clear the consumed lines (move them under a `## Archived` heading, don't
-   delete, so there's a record).
+   there since the last run is high-signal input — weave it in and then clear the
+   consumed lines (move them under a `## Archived` heading, don't delete, so
+   there's a record).
 
-5. **Draft the post.** One honest paragraph or a few short lines. Include at least
-   one real gripe unless the day was genuinely clean. Keep it ≤ 280 chars.
+5. **Interview the user (interactive runs).** This is the main input — the user
+   writes most of the content, you make it good. Use the `AskUserQuestion` tool
+   to ask several open questions in one batch so they can answer in their own
+   words (they answer via the free-text "Other" field, or just reply in chat).
+   Ground the questions in what you found in steps 2–3 so they're not generic.
+   Ask roughly these, adapted to the day:
+   - **What'd you actually work on today?** (offer the commits you found as a
+     jog, but let them rewrite it)
+   - **What pissed you off / what's janky right now?** (the gripe — the heart of
+     the post)
+   - **Anything you're lowkey proud of?**
+   - **Anything to say about the AI-written side today?** (optional)
+   - **Vibe for today — we so back, or it's so over?**
 
-6. **Write the draft to a file**, do not post it:
+   Their raw answers are the primary material. If they hand you a full sentence,
+   keep their words and just tighten. If they give fragments, you assemble.
+
+   **Unattended / scheduled runs:** if no user is there to answer (e.g. a
+   scheduled web session running solo), skip the interview and draft from
+   `NOTES.md` + git history instead, then leave the draft for review.
+
+6. **Draft the post.** Shape the interview answers into one honest, slangy post.
+   Include at least one real gripe unless the day was genuinely clean. Keep their
+   voice; don't add opinions they didn't give. Keep it ≤ 280 chars.
+
+7. **Write the draft to a file**, do not post it:
    - Path: `devlog/posts/YYYY-MM-DD.md` (today's UTC date).
    - Contents: the post text; then, if the post warrants a link, a `reply:` line
      with the suggested first-reply (repo link); then a `---` and a short
-     "sources" note listing the commits / blockers / notes you drew from, and the
-     character count.
+     "sources" note listing the commits / blockers / notes / interview answers
+     you drew from, and the character count.
    - If the file already exists for today, write `YYYY-MM-DD-2.md` etc.
 
-7. **Show the draft in chat** verbatim, with the character count, and tell the
-   user it's ready to copy-paste. Offer the thread version only if step 5 hit the
-   length limit with leftover material.
+8. **Show the draft in chat** verbatim, with the character count, and tell the
+   user it's ready to copy-paste. If they want changes, iterate — it's their
+   voice. Offer the thread version only if step 6 hit the length limit with
+   leftover material.
 
-8. **Update state.** Set `last_commit` in `devlog/state.json` to current `HEAD`
+9. **Update state.** Set `last_commit` in `devlog/state.json` to current `HEAD`
    and `last_run` to today's UTC date. This advances the window even if the user
    chooses not to post — a skipped day just means tomorrow's window is larger.
 
