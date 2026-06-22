@@ -894,6 +894,102 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         }
         let callee_ty = Self::expr_ty(body, callee);
+        let has_spread = self.call_has_spread_arguments_or_source_spread(call);
+        // A spread call dispatches through the runtime `SmeltUnknown` call ABI
+        // whenever *either* the callee field value or the receiving object is
+        // erased to `SmeltUnknown` at codegen. That ABI flattens the whole
+        // argument list, so the spread must be packed into a single runtime
+        // list operand (`ClosureCallSpread`) instead of letting `self.argument`
+        // collapse `...rest` into a bare positional operand or letting the
+        // concrete-rest branch below build a typed `[fixed.., rest_list]`
+        // expansion (which the dynamic ABI would then re-wrap into a nested
+        // array).
+        //
+        // Two independent signals force the dynamic ABI:
+        //
+        //   * the *callee field's* type is itself a dynamic call surface
+        //     (`unknown`/type-parameter/union/erased callable object), or
+        //   * the *receiver's* type erases to `SmeltUnknown` at codegen — e.g.
+        //     a generic interface/type-alias instantiation such as
+        //     `Funnel<Args>` whose member read therefore returns a runtime
+        //     `SmeltUnknown` value regardless of the field's declared shape.
+        let callee_dispatches_dynamically = self.type_is_dynamic_call_surface(callee_ty);
+        let receiver_dispatches_dynamically =
+            self.static_member_receiver_dispatches_dynamically(member, body);
+        if has_spread && (callee_dispatches_dynamically || receiver_dispatches_dynamically) {
+            let unknown = self.ctx.krate.types.intern(Type::Unknown);
+            // Re-type the callee operand as `SmeltUnknown` whenever it would
+            // otherwise be emitted as a concrete Rust function: an erased
+            // callable object, or a field read whose *declared* type is a
+            // concrete function but whose *receiver* erases to `SmeltUnknown`
+            // (so the field read actually yields a runtime `SmeltUnknown`).
+            // The `ClosureCallSpread` emitter dispatches a `SmeltUnknown`
+            // callee through the runtime call ABI that consumes the packed
+            // argument list, whereas a `Type::Function` callee would be called
+            // as a typed Rust closure and reject the flattened `Vec` operand.
+            // Type-parameter and union callees already carry a non-function
+            // type, so they route through the runtime ABI without a cast.
+            let callee_needs_unknown_cast = self.is_callable_object_erased_class(callee_ty)
+                || matches!(self.ctx.krate.types.get(callee_ty), Some(Type::Function(_)));
+            let callable = if callee_needs_unknown_cast {
+                body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: callee },
+                    ty: unknown,
+                    span: self.span(member.span.start, member.span.end),
+                })
+            } else {
+                callee
+            };
+            let packed = self.packed_spread_call_arguments(unknown, call, body)?;
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ClosureCallSpread {
+                    callee: callable,
+                    args: packed,
+                },
+                ty: unknown,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        // A spread call whose callee is a *concrete* function with a rest
+        // parameter keeps its typed `[fixed.., rest_list]` expansion: codegen
+        // dispatches it through the concrete-function path whose Rust rest
+        // parameter absorbs the trailing list. `self.argument` would otherwise
+        // collapse `...rest` into a single bare positional operand and lose the
+        // spread, so route it through the shared spread expansion helper.
+        if has_spread
+            && let Some(function_ty) = self.function_member_type(callee_ty)
+            && let Some(Type::Function(function)) =
+                self.ctx.krate.types.get(function_ty).cloned()
+            && let Some(rest) = function.rest.and_then(|index| {
+                let param = self.type_param_constraint_or_self(*function.params.get(index)?);
+                match self.ctx.krate.types.get(param) {
+                    Some(Type::List(item_ty)) => Some(RestParam {
+                        index,
+                        item_ty: *item_ty,
+                    }),
+                    _ => None,
+                }
+            })
+        {
+            let callable = if callee_ty == function_ty {
+                callee
+            } else {
+                body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: callee },
+                    ty: function_ty,
+                    span: self.span(member.span.start, member.span.end),
+                })
+            };
+            let args = self.spread_closure_call_arguments(&function, Some(rest), call, body)?;
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall {
+                    callee: callable,
+                    args,
+                },
+                ty: function.return_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let mut args = Vec::new();
         for arg in &call.arguments {
             args.push(self.argument(arg, body)?);
@@ -2466,11 +2562,6 @@ impl<'builder> ModuleBuilder<'builder> {
                 Some(Type::Unknown | Type::TypeParam { .. })
             ) || self.is_callable_object_erased_class(callee_ty) =>
             {
-                let args = call
-                    .arguments
-                    .iter()
-                    .map(|arg| self.argument(arg, body))
-                    .collect::<Result<Vec<_>, _>>()?;
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 let callee = if self.is_callable_object_erased_class(callee_ty) {
                     body.push_expr(Expr {
@@ -2481,6 +2572,27 @@ impl<'builder> ModuleBuilder<'builder> {
                 } else {
                     callee
                 };
+                // Dynamically dispatched callees (unknown/type-parameter/erased
+                // callable surfaces) are invoked through the runtime
+                // `SmeltUnknown` call ABI, which flattens the entire argument
+                // list. A spread call must therefore pack its flattened
+                // arguments into a single runtime list operand and lower as
+                // `ClosureCallSpread`. Emitting a dynamic `ClosureCall` here
+                // would lose the spread, leaving the call-site flatten
+                // heuristic to misread the individual operands.
+                if self.call_has_spread_arguments_or_source_spread(call) {
+                    let args = self.packed_spread_call_arguments(ty, call, body)?;
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::ClosureCallSpread { callee, args },
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    })));
+                }
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ClosureCall { callee, args },
                     ty,
@@ -2680,6 +2792,66 @@ impl<'builder> ModuleBuilder<'builder> {
             self.ctx.krate.types.get(ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_callable_object_erased_class(ty)
+    }
+
+    /// Return whether a `Type::Class` value erases to `SmeltUnknown` at codegen.
+    ///
+    /// This mirrors the Rust emitter's `is_erased_class_type` rule: a class-shaped
+    /// type is emitted as `SmeltUnknown` when its name resolves to neither a
+    /// declared class nor a declared interface. Generic structural type aliases
+    /// such as `Funnel<Args>` (a `type` literal, not an `interface`) therefore
+    /// erase, while `RegExp` keeps its dedicated runtime type. Keeping the
+    /// predicate aligned with codegen lets the lowering decide, in the frontend,
+    /// whether a receiver value will be a runtime `SmeltUnknown` at the call site.
+    fn class_type_erases_to_unknown(&self, ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        let Some(type_name) = self.ctx.krate.symbols.get(*name) else {
+            return false;
+        };
+        if Self::is_ts_stdlib_class_name(type_name, smelt_stdlib::StdlibClass::RegExp) {
+            return false;
+        }
+        !self.classes.contains_key(type_name) && !self.interfaces.contains_key(type_name)
+    }
+
+    /// Return whether a value of this type dispatches member calls through the
+    /// runtime `SmeltUnknown` ABI rather than as a typed Rust value.
+    ///
+    /// A receiver dispatches dynamically when it is itself `unknown`, a type
+    /// parameter, a union, or a class-shaped type that erases to `SmeltUnknown`
+    /// (see [`Self::class_type_erases_to_unknown`]). Optional receivers unwrap to
+    /// their inner type first so `Funnel<Args> | undefined` is recognized too.
+    fn receiver_type_dispatches_dynamically(&self, ty: smelt_hir::TypeId) -> bool {
+        let inner = match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => ty,
+        };
+        matches!(
+            self.ctx.krate.types.get(inner),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.class_type_erases_to_unknown(inner)
+    }
+
+    /// Return whether the receiving object of a static member call erases to
+    /// `SmeltUnknown` at codegen.
+    ///
+    /// The receiver is lowered to recover its type; the produced expression is
+    /// otherwise unused here because the member-read callee already lowered the
+    /// receiver. When the receiver erases, the member read yields a runtime
+    /// `SmeltUnknown`, so a spread call through it must be packed as a
+    /// `ClosureCallSpread` regardless of the field's declared function type.
+    fn static_member_receiver_dispatches_dynamically(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> bool {
+        let Ok(receiver) = self.expression(&member.object, body) else {
+            return false;
+        };
+        let receiver_ty = Self::expr_ty(body, receiver);
+        self.receiver_type_dispatches_dynamically(receiver_ty)
     }
 
     /// Expand a JavaScript spread call into fixed function parameters plus rest.

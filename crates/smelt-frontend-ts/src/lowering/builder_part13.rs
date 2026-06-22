@@ -1743,6 +1743,37 @@ impl ModuleBuilder<'_> {
                 Type::Function(function) => Some(function.clone()),
                 _ => None,
             });
+        // A `funnel.call(...args)` style forward where the *receiver* erases to
+        // `SmeltUnknown` at codegen (e.g. a generic structural type alias such
+        // as `Funnel<Args>`) reads its `call` member as a runtime
+        // `SmeltUnknown` value and dispatches through the runtime call ABI. That
+        // ABI consumes the packed argument list, so a spread call must lower to
+        // `ClosureCallSpread` with the `call` field re-typed as `SmeltUnknown` —
+        // never to the concrete-function `[fixed.., rest_list]` expansion below,
+        // which the dynamic ABI would re-wrap into a nested array. This mirrors
+        // the same receiver-erasure rule applied in `callable_static_member_call`.
+        if self.receiver_type_dispatches_dynamically(receiver_ty)
+            && raw_args.len() == 1
+            && raw_args.first().is_some_and(|arg| arg.spread)
+            && let Some(spread_args) = callback_args.first().copied()
+        {
+            let unknown = self.ctx.krate.types.intern(Type::Unknown);
+            let field = self.intern_source_name("call");
+            let callee = body.push_expr(Expr {
+                kind: ExprKind::Field { receiver, field },
+                ty: unknown,
+                span,
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCallSpread {
+                    callee,
+                    args: spread_args,
+                },
+                ty,
+                span,
+            }));
+        }
+
         let (callee, function) = if let Some(function) = receiver_function {
             (receiver, Some(function))
         } else {
