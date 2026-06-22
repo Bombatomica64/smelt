@@ -3840,13 +3840,13 @@ function swap(data: unknown[], i: number, j: number): void {
     assert!(source.contains("index = 1.0"), "{source}");
     assert_eq!(
         source
-            .matches("data[index] = __smelt_destructure.get")
+            .matches("data[smelt_assign_index] = __smelt_destructure.get")
             .count(),
         2,
         "{source}"
     );
     assert!(
-        !source.contains("data[index] = SmeltUnknown::Array"),
+        !source.contains("data[smelt_assign_index] = SmeltUnknown::Array"),
         "{source}"
     );
 }
