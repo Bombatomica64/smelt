@@ -36,6 +36,17 @@ This is a personal dev log, not an announcement. Match these rules:
   alternative, but still give the single-post version first.
 - Never pad to fill space. A 120-character post is fine.
 
+## Links
+
+- **Never put the repo link in the main post.** X demotes posts with external
+  links, and a link burns ~23 chars of the 280 budget. The main post is content
+  only.
+- When the post points at something worth clicking, put the repo link in a
+  suggested **first reply** instead (added to the draft file under a `reply:`
+  line). The user posts the main tweet, then replies to it with the link.
+- On a pure-gripe / nothing-to-click day, skip the reply entirely — don't link
+  reflexively. Repo: https://github.com/Bombatomica64/smelt
+
 ## Procedure
 
 1. **Find the window.** Read `devlog/state.json` for `last_commit`. The window
@@ -66,8 +77,10 @@ This is a personal dev log, not an announcement. Match these rules:
 
 6. **Write the draft to a file**, do not post it:
    - Path: `devlog/posts/YYYY-MM-DD.md` (today's UTC date).
-   - Contents: the post text, then a `---` and a short "sources" note listing the
-     commits / blockers / notes you drew from, and the character count.
+   - Contents: the post text; then, if the post warrants a link, a `reply:` line
+     with the suggested first-reply (repo link); then a `---` and a short
+     "sources" note listing the commits / blockers / notes you drew from, and the
+     character count.
    - If the file already exists for today, write `YYYY-MM-DD-2.md` etc.
 
 7. **Show the draft in chat** verbatim, with the character count, and tell the

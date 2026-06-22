@@ -51,5 +51,9 @@ post.
 
 ## Notes on X limits
 
-Drafts target the free-tier 280-character limit. If you have X Premium and want
-longer posts or threads by default, say so and the skill can be relaxed.
+Drafts target the free-tier 280-character limit.
+
+The repo link never goes in the main post — X demotes posts with external links,
+and a link costs ~23 chars. When a post is worth linking, the draft includes a
+`reply:` line: post the main tweet, then reply to it with that link. Pure-gripe
+days skip the link entirely.
