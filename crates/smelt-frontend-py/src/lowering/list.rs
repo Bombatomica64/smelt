@@ -1,3 +1,66 @@
+/// Source element specification for a comprehension, before its element
+/// expressions are lowered.
+#[derive(Clone, Copy)]
+enum ComprehensionSource<'a> {
+    /// `[elt ...]` and `(elt ...)` generator expressions.
+    List(&'a Expr),
+    /// `{elt ...}` set comprehensions.
+    Set(&'a Expr),
+    /// `{key: value ...}` dict comprehensions.
+    Dict {
+        /// Key expression evaluated per produced element.
+        key: &'a Expr,
+        /// Value expression evaluated per produced element.
+        value: &'a Expr,
+    },
+}
+
+/// A bound comprehension generator clause: the loop pattern, the normalized
+/// iterable expression, and the `if` guards (kept as source AST so they lower
+/// while the loop target is in scope).
+struct ComprehensionLevel<'a> {
+    /// Loop binding pattern for this generator's target.
+    pat: smelt_hir::PatternId,
+    /// Normalized iterable expression for this generator.
+    iter: smelt_hir::ExprId,
+    /// `if` guard expressions for this generator, in source order.
+    ifs: &'a [Expr],
+}
+
+/// Shared context threaded through the comprehension loop builder: the
+/// accumulator local and type, how to append, and the comprehension span.
+struct ComprehensionBuild<'a> {
+    /// Mutable local holding the comprehension's accumulator collection.
+    acc_local: smelt_hir::LocalId,
+    /// Type of the accumulator collection.
+    acc_ty: TypeId,
+    /// How each produced element is appended to the accumulator.
+    append: &'a ComprehensionAppend,
+    /// Source span of the comprehension expression.
+    span: Span,
+}
+
+/// How a comprehension appends each produced element to its accumulator.
+enum ComprehensionAppend {
+    /// `acc.push(item)` — list comprehensions and generator expressions.
+    List {
+        /// Lowered element expression.
+        item: smelt_hir::ExprId,
+    },
+    /// `acc.add(item)` — set comprehensions.
+    Set {
+        /// Lowered element expression.
+        item: smelt_hir::ExprId,
+    },
+    /// `acc[key] = value` — dict comprehensions.
+    Dict {
+        /// Lowered key expression.
+        key: smelt_hir::ExprId,
+        /// Lowered value expression.
+        value: smelt_hir::ExprId,
+    },
+}
+
 impl ModuleBuilder<'_> {
     /// Resolve a class method by inspecting class metadata directly.
     fn class_method_item_by_name(&self, class_name: &str, method: &str) -> Option<ItemId> {
@@ -285,6 +348,321 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         })))
+    }
+
+    /// Lower a Python list comprehension `[elt for t in it if cond ...]`.
+    pub(crate) fn list_comprehension(
+        &mut self,
+        comp: &ruff_python_ast::ExprListComp,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(comp.range);
+        self.comprehension(&comp.generators, ComprehensionSource::List(&comp.elt), span, body)
+    }
+
+    /// Lower a Python set comprehension `{elt for t in it if cond ...}`.
+    pub(crate) fn set_comprehension(
+        &mut self,
+        comp: &ruff_python_ast::ExprSetComp,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(comp.range);
+        self.comprehension(&comp.generators, ComprehensionSource::Set(&comp.elt), span, body)
+    }
+
+    /// Lower a Python dict comprehension `{key: value for t in it if cond ...}`.
+    pub(crate) fn dict_comprehension(
+        &mut self,
+        comp: &ruff_python_ast::ExprDictComp,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(comp.range);
+        let Some(key) = comp.key.as_deref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "dict comprehension requires an explicit key expression",
+            ));
+        };
+        self.comprehension(
+            &comp.generators,
+            ComprehensionSource::Dict {
+                key,
+                value: &comp.value,
+            },
+            span,
+            body,
+        )
+    }
+
+    /// Lower a Python generator expression `(elt for t in it if cond ...)`.
+    ///
+    /// Generator expressions are materialized eagerly into a list, which is
+    /// correct for the common eager sinks (`list(...)`, `sum(...)`,
+    /// `" ".join(...)`) but does not preserve laziness.
+    pub(crate) fn generator_expression(
+        &mut self,
+        comp: &ruff_python_ast::ExprGenerator,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(comp.range);
+        self.comprehension(&comp.generators, ComprehensionSource::List(&comp.elt), span, body)
+    }
+
+    /// Lower any comprehension form to an imperative accumulator loop wrapped in
+    /// a block expression (see `docs/python-comprehensions.md`).
+    ///
+    /// The loop targets, element/key/value, and `if` guards all lower through
+    /// the normal expression path, so the full expression language is available
+    /// inside comprehension bodies. Comprehension targets are scoped to the
+    /// comprehension: `self.locals` is snapshotted on entry and restored on exit
+    /// so the loop variables do not leak into the enclosing scope.
+    fn comprehension(
+        &mut self,
+        generators: &[ruff_python_ast::Comprehension],
+        source: ComprehensionSource<'_>,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let saved_locals = self.locals.clone();
+        let result = self.comprehension_impl(generators, source, span, body);
+        self.locals = saved_locals;
+        result
+    }
+
+    /// Inner comprehension lowering; see [`Self::comprehension`] for the
+    /// surrounding scope save/restore.
+    fn comprehension_impl(
+        &mut self,
+        generators: &[ruff_python_ast::Comprehension],
+        source: ComprehensionSource<'_>,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if generators.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "comprehension requires at least one `for` clause",
+            ));
+        }
+
+        // Bind every generator target in source order, lowering each iterable so
+        // later iterables and conditions can reference earlier loop variables.
+        let mut levels: Vec<ComprehensionLevel<'_>> = Vec::with_capacity(generators.len());
+        for generator in generators {
+            if generator.is_async {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "async comprehensions are not supported",
+                ));
+            }
+            if !matches!(&generator.target, Expr::Name(_)) {
+                return Err(SmeltError::unsupported(
+                    self.span(generator.target.range()),
+                    "comprehension targets must be a single name (destructuring is not supported)",
+                ));
+            }
+            let raw_iter = self.expression(&generator.iter, body)?;
+            let iter = self.for_iterable(raw_iter, body);
+            let iter_ty = Self::expr_ty(body, iter);
+            let Some(item_ty) = self.iter_item_type(iter_ty) else {
+                return Err(SmeltError::unsupported(
+                    self.span(generator.iter.range()),
+                    "comprehensions can only iterate over a list, set, dict, or string",
+                ));
+            };
+            let pat = self.binding_pattern_from_target(&generator.target, body, Some(item_ty))?;
+            levels.push(ComprehensionLevel {
+                pat,
+                iter,
+                ifs: &generator.ifs,
+            });
+        }
+
+        // Lower the element/key/value while all loop targets are in scope and
+        // derive the accumulator's collection type from them.
+        let (acc_ty, append) = match source {
+            ComprehensionSource::List(elt) => {
+                let item = self.expression(elt, body)?;
+                let acc_ty = self.intern_type(Type::List(Self::expr_ty(body, item)));
+                (acc_ty, ComprehensionAppend::List { item })
+            }
+            ComprehensionSource::Set(elt) => {
+                let item = self.expression(elt, body)?;
+                let acc_ty = self.intern_type(Type::Set(Self::expr_ty(body, item)));
+                (acc_ty, ComprehensionAppend::Set { item })
+            }
+            ComprehensionSource::Dict { key, value } => {
+                let key_expr = self.expression(key, body)?;
+                let value_expr = self.expression(value, body)?;
+                let acc_ty = self.intern_type(Type::Dict(
+                    Self::expr_ty(body, key_expr),
+                    Self::expr_ty(body, value_expr),
+                ));
+                (
+                    acc_ty,
+                    ComprehensionAppend::Dict {
+                        key: key_expr,
+                        value: value_expr,
+                    },
+                )
+            }
+        };
+
+        // Declare the mutable accumulator and seed it with an empty collection.
+        let acc_name = self.intern_name("__smelt_comp_acc");
+        let acc_local = body.push_local(LocalDecl {
+            name: Some(acc_name),
+            ty: acc_ty,
+            mutable: true,
+            span,
+        });
+        let init_kind = match &append {
+            ComprehensionAppend::List { .. } => ExprKind::ListLit(Vec::new()),
+            ComprehensionAppend::Set { .. } => ExprKind::SetLit(Vec::new()),
+            ComprehensionAppend::Dict { .. } => ExprKind::DictLit(Vec::new()),
+        };
+        let init = body.push_expr(HirExpr {
+            kind: init_kind,
+            ty: acc_ty,
+            span,
+        });
+        let acc_pat = body.push_pattern(HirPattern::Binding(acc_local));
+        let outer = body.push_block(span);
+        body.push_stmt_to_block(
+            outer,
+            HirStmt::Let {
+                pat: acc_pat,
+                ty: acc_ty,
+                value: Some(init),
+            },
+        );
+
+        // Build the nested for/if structure with the append at the innermost.
+        let build = ComprehensionBuild {
+            acc_local,
+            acc_ty,
+            append: &append,
+            span,
+        };
+        self.emit_comprehension_levels(outer, &levels, &build, body)?;
+
+        // The block evaluates to the populated accumulator.
+        let tail = body.push_expr(HirExpr {
+            kind: ExprKind::Local(acc_local),
+            ty: acc_ty,
+            span,
+        });
+        let outer_idx = usize::try_from(outer.0)
+            .map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[outer_idx].tail = Some(tail);
+
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::Block(outer),
+            ty: acc_ty,
+            span,
+        }))
+    }
+
+    /// Emit the nested `for` loop for the first remaining generator level into
+    /// `target_block`: this level's `if` guards are applied as a chain of `if`
+    /// statements and inner levels are emitted by recursion. When no levels
+    /// remain it emits the accumulator append.
+    fn emit_comprehension_levels(
+        &mut self,
+        target_block: smelt_hir::BlockId,
+        levels: &[ComprehensionLevel<'_>],
+        build: &ComprehensionBuild<'_>,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let Some((level, rest)) = levels.split_first() else {
+            let stmt = self.comprehension_append_stmt(build, body)?;
+            body.push_stmt_to_block(target_block, stmt);
+            return Ok(());
+        };
+        // The loop body wraps the inner levels in this level's `if` guards,
+        // applied in source order as nested `if` statements.
+        let loop_body = body.push_block(build.span);
+        let bool_ty = self.intern_type(Type::Bool);
+        let mut innermost = loop_body;
+        for condition in level.ifs {
+            let cond = self.expression(condition, body)?;
+            if Self::expr_ty(body, cond) != bool_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(condition.range()),
+                    "comprehension `if` clauses must be boolean conditions",
+                ));
+            }
+            let then_block = body.push_block(build.span);
+            body.push_stmt_to_block(
+                innermost,
+                HirStmt::If {
+                    cond,
+                    then_block,
+                    else_block: None,
+                },
+            );
+            innermost = then_block;
+        }
+        self.emit_comprehension_levels(innermost, rest, build, body)?;
+        body.push_stmt_to_block(
+            target_block,
+            HirStmt::For {
+                pat: level.pat,
+                iter: level.iter,
+                body: loop_body,
+            },
+        );
+        Ok(())
+    }
+
+    /// Build the statement that appends one produced element to the accumulator.
+    fn comprehension_append_stmt(
+        &mut self,
+        build: &ComprehensionBuild<'_>,
+        body: &mut Body,
+    ) -> Result<HirStmt, SmeltError> {
+        let ComprehensionBuild {
+            acc_local,
+            acc_ty,
+            append,
+            span,
+        } = *build;
+        let none_ty = self.intern_type(Type::None);
+        let acc = body.push_expr(HirExpr {
+            kind: ExprKind::Local(acc_local),
+            ty: acc_ty,
+            span,
+        });
+        match append {
+            ComprehensionAppend::List { item } => {
+                let push = body.push_expr(HirExpr {
+                    kind: ExprKind::ListPush { list: acc, item: *item },
+                    ty: none_ty,
+                    span,
+                });
+                Ok(HirStmt::Expr(push))
+            }
+            ComprehensionAppend::Set { item } => {
+                let add = body.push_expr(HirExpr {
+                    kind: ExprKind::SetAdd { set: acc, item: *item },
+                    ty: none_ty,
+                    span,
+                });
+                Ok(HirStmt::Expr(add))
+            }
+            ComprehensionAppend::Dict { key, value } => {
+                let value_ty = Self::expr_ty(body, *value);
+                let target = body.push_expr(HirExpr {
+                    kind: ExprKind::Index { receiver: acc, index: *key },
+                    ty: value_ty,
+                    span,
+                });
+                Ok(HirStmt::Assign {
+                    target,
+                    value: *value,
+                })
+            }
+        }
     }
 
     /// Lower either an inline lambda or an annotated local lambda callback.
@@ -792,6 +1170,7 @@ impl ModuleBuilder<'_> {
                     Operator::Sub => BinOp::Sub,
                     Operator::Mult => BinOp::Mul,
                     Operator::Div => BinOp::Div,
+                    Operator::Mod => BinOp::Rem,
                     _ => {
                         return Err(SmeltError::unsupported(
                             self.span(binary.range),
