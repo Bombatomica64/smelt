@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>smelt devlog · engagement tracker</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1d212b;
+    --line: #272c38;
+    --text: #e7eaf0;
+    --muted: #8b93a7;
+    --accent: #5b9dff;
+    --accent-2: #f0883e;
+    --good: #4ec47a;
+    --bad: #e5586e;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 28px 20px 80px; }
+  header h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  .grid { display: grid; gap: 16px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px;
+  }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  input, select, textarea {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font: inherit;
+    width: 100%;
+  }
+  textarea { resize: vertical; min-height: 38px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  .field { flex: 1 1 110px; min-width: 90px; }
+  .field.sm { flex: 0 1 130px; }
+  button {
+    background: var(--accent);
+    color: #0a0d12;
+    border: 0;
+    border-radius: 8px;
+    padding: 9px 16px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.08); }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
+  button.ghost:hover { color: var(--text); border-color: var(--muted); }
+  button.danger { background: transparent; color: var(--bad); border: 1px solid transparent; padding: 4px 8px; font-size: 12px; }
+  button.danger:hover { background: rgba(229,88,110,0.12); }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .toolbar .spacer { flex: 1; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+  .card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .card .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .card .v { font-size: 24px; font-weight: 700; margin-top: 3px; letter-spacing: -0.02em; }
+  .card .d { font-size: 12px; margin-top: 2px; color: var(--muted); }
+  .chip { display: inline-flex; gap: 6px; align-items: center; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; font-size: 12px; color: var(--muted); }
+  .chip.active { color: var(--text); border-color: var(--accent); background: rgba(91,157,255,0.12); }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+  tbody tr:hover { background: var(--panel-2); }
+  .muted { color: var(--muted); }
+  .empty { color: var(--muted); text-align: center; padding: 30px; font-size: 14px; }
+  svg text { fill: var(--muted); font-size: 11px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .legend i { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
+  .note a { color: var(--accent); }
+  @media (max-width: 560px) { .field.sm { flex: 1 1 45%; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>smelt devlog · engagement tracker</h1>
+    <p>Glance at X post analytics, log a snapshot, watch the trend build over the months. Data lives in this browser — export regularly.</p>
+  </header>
+
+  <div class="grid" style="margin-top:22px;">
+
+    <!-- POST SELECTOR -->
+    <div class="panel">
+      <h2>Post</h2>
+      <div class="row">
+        <div class="field" style="flex:2 1 280px;">
+          <label for="postSelect">Tracked post</label>
+          <select id="postSelect"></select>
+        </div>
+        <div class="field" style="flex:0 0 auto;">
+          <label>&nbsp;</label>
+          <button class="ghost" id="newPostBtn">+ New post</button>
+        </div>
+        <div class="field" style="flex:0 0 auto;">
+          <label>&nbsp;</label>
+          <button class="danger" id="delPostBtn">Delete post</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <div class="field" style="flex:1 1 100%;">
+          <label for="postLabel">Label / note (e.g. the post text or date)</label>
+          <textarea id="postLabel" placeholder="smelt dev log: Object prototypes now dispatch by runtime kind…"></textarea>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div class="field" style="flex:1 1 100%;">
+          <label for="postUrl">Post URL (optional)</label>
+          <input id="postUrl" type="url" placeholder="https://x.com/you/status/…" />
+        </div>
+      </div>
+    </div>
+
+    <!-- ADD SNAPSHOT -->
+    <div class="panel">
+      <h2>Log a snapshot</h2>
+      <div class="row">
+        <div class="field sm"><label for="fDate">Date</label><input id="fDate" type="date" /></div>
+        <div class="field sm"><label for="fViews">Impressions</label><input id="fViews" type="number" min="0" placeholder="0" /></div>
+        <div class="field sm"><label for="fLikes">Likes</label><input id="fLikes" type="number" min="0" placeholder="0" /></div>
+        <div class="field sm"><label for="fReposts">Reposts</label><input id="fReposts" type="number" min="0" placeholder="0" /></div>
+        <div class="field sm"><label for="fReplies">Replies</label><input id="fReplies" type="number" min="0" placeholder="0" /></div>
+        <div class="field sm"><label for="fBookmarks">Bookmarks</label><input id="fBookmarks" type="number" min="0" placeholder="0" /></div>
+        <div class="field" style="flex:0 0 auto;"><label>&nbsp;</label><button id="addBtn">Save snapshot</button></div>
+      </div>
+      <p class="note">Tip: open your post on X → <em>View post analytics</em> → copy the totals here. Logging once a day gives you a clean day-to-day curve.</p>
+    </div>
+
+    <!-- SUMMARY CARDS -->
+    <div class="panel">
+      <h2>Latest totals</h2>
+      <div class="cards" id="cards"></div>
+    </div>
+
+    <!-- CHART -->
+    <div class="panel">
+      <div class="toolbar" style="margin-bottom:14px;">
+        <h2 style="margin:0;">Trend</h2>
+        <div class="spacer"></div>
+        <span class="chip" data-mode="cumulative" id="modeCum">Totals</span>
+        <span class="chip" data-mode="daily" id="modeDaily">Day-to-day</span>
+      </div>
+      <div id="metricChips" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;"></div>
+      <div id="chart"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <!-- TABLE -->
+    <div class="panel">
+      <div class="toolbar" style="margin-bottom:14px;">
+        <h2 style="margin:0;">Snapshots</h2>
+        <div class="spacer"></div>
+        <button class="ghost" id="exportBtn">Export JSON</button>
+        <button class="ghost" id="importBtn">Import JSON</button>
+        <input id="importFile" type="file" accept="application/json" style="display:none;" />
+      </div>
+      <div id="tableWrap"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ----- storage model -----
+   db = { posts: [ { id, label, url, snaps: [ {date, views, likes, reposts, replies, bookmarks} ] } ], current }
+*/
+const KEY = "smelt-devlog-tracker-v1";
+const METRICS = [
+  { k: "views",     label: "Impressions", color: "#5b9dff" },
+  { k: "likes",     label: "Likes",       color: "#4ec47a" },
+  { k: "reposts",   label: "Reposts",     color: "#f0883e" },
+  { k: "replies",   label: "Replies",     color: "#c77dff" },
+  { k: "bookmarks", label: "Bookmarks",   color: "#e5586e" },
+];
+
+let db = load();
+let mode = "cumulative";              // or "daily"
+let active = new Set(["views", "likes"]);
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  const id = uid();
+  return { posts: [{ id, label: "", url: "", snaps: [] }], current: id };
+}
+function save() { localStorage.setItem(KEY, JSON.stringify(db)); }
+function uid() { return Math.random().toString(36).slice(2, 9); }
+function fmt(n) { return (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString(); }
+function currentPost() { return db.posts.find(p => p.id === db.current) || db.posts[0]; }
+function sortedSnaps() {
+  return [...currentPost().snaps].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/* ----- post selector ----- */
+const postSelect = document.getElementById("postSelect");
+const postLabel = document.getElementById("postLabel");
+const postUrl = document.getElementById("postUrl");
+
+function renderPostSelect() {
+  postSelect.innerHTML = "";
+  db.posts.forEach((p, i) => {
+    const o = document.createElement("option");
+    o.value = p.id;
+    const txt = (p.label || "").trim();
+    o.textContent = (txt ? txt.slice(0, 50) : `Post ${i + 1}`) + (txt.length > 50 ? "…" : "");
+    if (p.id === db.current) o.selected = true;
+    postSelect.appendChild(o);
+  });
+  const p = currentPost();
+  postLabel.value = p.label || "";
+  postUrl.value = p.url || "";
+}
+postSelect.onchange = () => { db.current = postSelect.value; save(); renderAll(); };
+postLabel.oninput = () => { currentPost().label = postLabel.value; save(); renderPostSelect(); };
+postUrl.oninput = () => { currentPost().url = postUrl.value; save(); };
+document.getElementById("newPostBtn").onclick = () => {
+  const id = uid();
+  db.posts.push({ id, label: "", url: "", snaps: [] });
+  db.current = id; save(); renderAll();
+  postLabel.focus();
+};
+document.getElementById("delPostBtn").onclick = () => {
+  if (db.posts.length === 1) { alert("Keep at least one post."); return; }
+  if (!confirm("Delete this post and its snapshots?")) return;
+  db.posts = db.posts.filter(p => p.id !== db.current);
+  db.current = db.posts[0].id; save(); renderAll();
+};
+
+/* ----- add snapshot ----- */
+const fDate = document.getElementById("fDate");
+fDate.value = new Date().toISOString().slice(0, 10);
+document.getElementById("addBtn").onclick = () => {
+  const date = fDate.value;
+  if (!date) { alert("Pick a date."); return; }
+  const get = id => { const v = document.getElementById(id).value; return v === "" ? 0 : Math.max(0, Number(v)); };
+  const snap = {
+    date,
+    views: get("fViews"), likes: get("fLikes"), reposts: get("fReposts"),
+    replies: get("fReplies"), bookmarks: get("fBookmarks"),
+  };
+  const snaps = currentPost().snaps;
+  const existing = snaps.findIndex(s => s.date === date);
+  if (existing >= 0) {
+    if (!confirm("A snapshot for that date exists. Overwrite it?")) return;
+    snaps[existing] = snap;
+  } else {
+    snaps.push(snap);
+  }
+  save();
+  ["fViews","fLikes","fReposts","fReplies","fBookmarks"].forEach(id => document.getElementById(id).value = "");
+  renderAll();
+};
+
+/* ----- summary cards ----- */
+function renderCards() {
+  const snaps = sortedSnaps();
+  const last = snaps[snaps.length - 1];
+  const prev = snaps[snaps.length - 2];
+  const wrap = document.getElementById("cards");
+  wrap.innerHTML = "";
+  METRICS.forEach(m => {
+    const v = last ? last[m.k] : null;
+    let delta = "";
+    if (last && prev) {
+      const d = last[m.k] - prev[m.k];
+      const sign = d > 0 ? "+" : "";
+      const col = d > 0 ? "var(--good)" : d < 0 ? "var(--bad)" : "var(--muted)";
+      delta = `<div class="d" style="color:${col}">${sign}${fmt(d)} since prev</div>`;
+    }
+    const el = document.createElement("div");
+    el.className = "card";
+    el.innerHTML = `<div class="k" style="color:${m.color}">${m.label}</div><div class="v">${fmt(v)}</div>${delta}`;
+    wrap.appendChild(el);
+  });
+}
+
+/* ----- metric chips + mode ----- */
+function renderChips() {
+  const wrap = document.getElementById("metricChips");
+  wrap.innerHTML = "";
+  METRICS.forEach(m => {
+    const c = document.createElement("span");
+    c.className = "chip" + (active.has(m.k) ? " active" : "");
+    c.innerHTML = `<i class="dot" style="background:${m.color}"></i>${m.label}`;
+    c.onclick = () => {
+      if (active.has(m.k)) { if (active.size > 1) active.delete(m.k); }
+      else active.add(m.k);
+      renderChips(); renderChart();
+    };
+    wrap.appendChild(c);
+  });
+  document.getElementById("modeCum").classList.toggle("active", mode === "cumulative");
+  document.getElementById("modeDaily").classList.toggle("active", mode === "daily");
+}
+document.getElementById("modeCum").onclick = () => { mode = "cumulative"; renderChips(); renderChart(); };
+document.getElementById("modeDaily").onclick = () => { mode = "daily"; renderChips(); renderChart(); };
+
+/* ----- chart (hand-rolled SVG, zero deps) ----- */
+function seriesFor(metricKey) {
+  const snaps = sortedSnaps();
+  if (mode === "cumulative") {
+    return snaps.map(s => ({ date: s.date, y: s[metricKey] }));
+  }
+  // day-to-day: delta vs previous snapshot, normalized per day so uneven gaps stay fair
+  const out = [];
+  for (let i = 1; i < snaps.length; i++) {
+    const days = Math.max(1, daysBetween(snaps[i - 1].date, snaps[i].date));
+    out.push({ date: snaps[i].date, y: (snaps[i][metricKey] - snaps[i - 1][metricKey]) / days });
+  }
+  return out;
+}
+function daysBetween(a, b) {
+  return Math.round((new Date(b) - new Date(a)) / 86400000);
+}
+function renderChart() {
+  const host = document.getElementById("chart");
+  const snaps = sortedSnaps();
+  const need = mode === "daily" ? 3 : 2;
+  if (snaps.length < need) {
+    host.innerHTML = `<div class="empty">Log at least ${need} snapshots to draw the ${mode === "daily" ? "day-to-day" : ""} trend.</div>`;
+    document.getElementById("legend").innerHTML = "";
+    return;
+  }
+  const W = 980, H = 320, pad = { l: 52, r: 16, t: 16, b: 34 };
+  const keys = METRICS.filter(m => active.has(m.k)).map(m => m.k);
+  const seriesMap = {};
+  let maxY = 0, minY = 0;
+  const datesSet = new Set();
+  keys.forEach(k => {
+    const s = seriesFor(k);
+    seriesMap[k] = s;
+    s.forEach(pt => { datesSet.add(pt.date); maxY = Math.max(maxY, pt.y); minY = Math.min(minY, pt.y); });
+  });
+  const dates = [...datesSet].sort();
+  if (maxY === minY) maxY = minY + 1;
+  // pad headroom
+  maxY = maxY + (maxY - minY) * 0.08;
+
+  const x = i => pad.l + (dates.length === 1 ? 0 : (W - pad.l - pad.r) * i / (dates.length - 1));
+  const y = v => pad.t + (H - pad.t - pad.b) * (1 - (v - minY) / (maxY - minY));
+  const dateIndex = {}; dates.forEach((d, i) => dateIndex[d] = i);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" role="img">`;
+  // gridlines + y labels
+  const ticks = 4;
+  for (let t = 0; t <= ticks; t++) {
+    const val = minY + (maxY - minY) * t / ticks;
+    const yy = y(val);
+    svg += `<line x1="${pad.l}" y1="${yy}" x2="${W - pad.r}" y2="${yy}" stroke="#272c38" stroke-width="1"/>`;
+    svg += `<text x="${pad.l - 8}" y="${yy + 4}" text-anchor="end">${fmt(Math.round(val))}</text>`;
+  }
+  // x labels (thin out if many)
+  const step = Math.ceil(dates.length / 8);
+  dates.forEach((d, i) => {
+    if (i % step !== 0 && i !== dates.length - 1) return;
+    svg += `<text x="${x(i)}" y="${H - 12}" text-anchor="middle">${d.slice(5)}</text>`;
+  });
+  // lines
+  keys.forEach(k => {
+    const m = METRICS.find(mm => mm.k === k);
+    const pts = seriesMap[k];
+    if (!pts.length) return;
+    const path = pts.map((pt, j) => `${j === 0 ? "M" : "L"} ${x(dateIndex[pt.date])} ${y(pt.y)}`).join(" ");
+    svg += `<path d="${path}" fill="none" stroke="${m.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+    pts.forEach(pt => {
+      svg += `<circle cx="${x(dateIndex[pt.date])}" cy="${y(pt.y)}" r="3.2" fill="${m.color}"><title>${pt.date} · ${m.label}: ${fmt(Math.round(pt.y))}</title></circle>`;
+    });
+  });
+  svg += `</svg>`;
+  host.innerHTML = svg;
+
+  document.getElementById("legend").innerHTML = keys.map(k => {
+    const m = METRICS.find(mm => mm.k === k);
+    return `<span><i style="background:${m.color}"></i>${m.label}${mode === "daily" ? " / day" : ""}</span>`;
+  }).join("");
+}
+
+/* ----- table ----- */
+function renderTable() {
+  const snaps = sortedSnaps();
+  const wrap = document.getElementById("tableWrap");
+  if (!snaps.length) { wrap.innerHTML = `<div class="empty">No snapshots yet. Log one above.</div>`; return; }
+  let html = `<table><thead><tr><th>Date</th>${METRICS.map(m => `<th>${m.label}</th>`).join("")}<th></th></tr></thead><tbody>`;
+  snaps.forEach(s => {
+    html += `<tr><td>${s.date}</td>${METRICS.map(m => `<td>${fmt(s[m.k])}</td>`).join("")}<td><button class="danger" data-del="${s.date}">delete</button></td></tr>`;
+  });
+  html += `</tbody></table>`;
+  wrap.innerHTML = html;
+  wrap.querySelectorAll("[data-del]").forEach(b => {
+    b.onclick = () => {
+      const d = b.getAttribute("data-del");
+      currentPost().snaps = currentPost().snaps.filter(s => s.date !== d);
+      save(); renderAll();
+    };
+  });
+}
+
+/* ----- export / import ----- */
+document.getElementById("exportBtn").onclick = () => {
+  const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `smelt-engagement-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+document.getElementById("importBtn").onclick = () => document.getElementById("importFile").click();
+document.getElementById("importFile").onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data.posts || !Array.isArray(data.posts)) throw new Error("bad shape");
+      db = data;
+      if (!db.current || !db.posts.find(p => p.id === db.current)) db.current = db.posts[0].id;
+      save(); renderAll();
+    } catch (err) { alert("Couldn't import that file: " + err.message); }
+  };
+  reader.readAsText(file);
+  e.target.value = "";
+};
+
+/* ----- render all ----- */
+function renderAll() {
+  renderPostSelect();
+  renderCards();
+  renderChips();
+  renderChart();
+  renderTable();
+}
+renderAll();
+</script>
+</body>
+</html>
