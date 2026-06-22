@@ -478,8 +478,11 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let ty = self.ctx.krate.types.intern(Type::Unknown);
+        // `Object.prototype` is a sentinel string so prototype comparisons
+        // (`proto === Object.prototype`) survive type erasure and distinguish
+        // plain objects from arrays/null. Pairs with `object_get_prototype_of_call`.
         Some(body.push_expr(Expr {
-            kind: ExprKind::DictLit(Vec::new()),
+            kind: ExprKind::Literal(Literal::String("__smelt_proto:object".to_owned())),
             ty,
             span: self.span(member.span.start, member.span.end),
         }))

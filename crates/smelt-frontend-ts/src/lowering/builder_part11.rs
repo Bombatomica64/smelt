@@ -388,12 +388,63 @@ impl ModuleBuilder<'_> {
                 "Object.getPrototypeOf requires exactly one value",
             ));
         };
-        let _ = self.argument(value, body)?;
-        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        // Distinguish prototypes by runtime kind: arrays and null-prototype values
+        // have a different prototype than plain objects, which `isPlainObject` /
+        // `isDeepEqual` compare against `Object.prototype`. Emit
+        // `value is Array ? "__smelt_proto:array" : value is Null ? null : "__smelt_proto:object"`,
+        // matching the `Object.prototype` sentinel in `object_static_member`.
+        let value = self.argument(value, body)?;
+        let span = self.span(call.span.start, call.span.end);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let is_array = body.push_expr(Expr {
+            kind: ExprKind::UnknownIs {
+                value,
+                kind: UnknownKind::Array,
+            },
+            ty: bool_ty,
+            span,
+        });
+        let is_null = body.push_expr(Expr {
+            kind: ExprKind::UnknownIs {
+                value,
+                kind: UnknownKind::Null,
+            },
+            ty: bool_ty,
+            span,
+        });
+        let array_proto = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_proto:array".to_owned())),
+            ty: unknown_ty,
+            span,
+        });
+        let null_proto = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: unknown_ty,
+            span,
+        });
+        let object_proto = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_proto:object".to_owned())),
+            ty: unknown_ty,
+            span,
+        });
+        let null_or_object = body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond: is_null,
+                then_expr: null_proto,
+                else_expr: object_proto,
+            },
+            ty: unknown_ty,
+            span,
+        });
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::DictLit(Vec::new()),
-            ty,
-            span: self.span(call.span.start, call.span.end),
+            kind: ExprKind::Conditional {
+                cond: is_array,
+                then_expr: array_proto,
+                else_expr: null_or_object,
+            },
+            ty: unknown_ty,
+            span,
         })))
     }
 
