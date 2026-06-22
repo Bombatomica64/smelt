@@ -2429,6 +2429,18 @@ impl<'builder> ModuleBuilder<'builder> {
             body,
         )?;
         let callee_ty = Self::expr_ty(body, callee);
+        // A `typeof callee === "function"` guard narrows the *expression* type to
+        // a concrete function, but the backing local keeps its declared type. When
+        // that declared type is a dynamic surface (union/unknown/type parameter/
+        // erased callable), codegen still dispatches the call through the runtime
+        // `SmeltUnknown` ABI. Track the declared type so a spread call is packed
+        // into a single flattened argument vector even after narrowing hides the
+        // dynamic surface behind a function type.
+        let callee_dispatches_dynamically = self.type_is_dynamic_call_surface(callee_ty)
+            || self
+                .locals
+                .get(callee_ident.name.as_str())
+                .is_some_and(|&local| self.type_is_dynamic_call_surface(Self::local_ty(body, local)));
         let optional_function_ty = match self.ctx.krate.types.get(callee_ty) {
             Some(Type::Optional(inner))
                 if call.optional
@@ -2498,13 +2510,15 @@ impl<'builder> ModuleBuilder<'builder> {
             .local_callbacks
             .get(callee_ident.name.as_str())
             .cloned();
-        if callback_meta.is_none()
-            && self.call_has_spread_arguments_or_source_spread(call)
-            && (matches!(
-                self.ctx.krate.types.get(callee_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) || self.is_callable_object_erased_class(callee_ty))
-        {
+        // Dynamically dispatched callees (union/unknown/type-parameter/erased
+        // callable surfaces) are invoked through the runtime `SmeltUnknown` call
+        // ABI, which flattens the entire argument list. A spread must therefore
+        // be packed into a single runtime argument vector even when the callee
+        // carries local-callback metadata: the typed-shape `[fixed.., rest_list]`
+        // lowering below is only correct for a concrete function whose Rust rest
+        // parameter absorbs the trailing list, not for a dynamic dispatch that
+        // would otherwise wrap the rest list in a single extra `Array` argument.
+        if self.call_has_spread_arguments_or_source_spread(call) && callee_dispatches_dynamically {
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             let packed = self.packed_spread_call_arguments(unknown_ty, call, body)?;
             return Ok(Some(body.push_expr(Expr {
@@ -2652,6 +2666,20 @@ impl<'builder> ModuleBuilder<'builder> {
             Some(Type::Class { name, .. }) => self.callable_object_aliases.contains(name),
             _ => false,
         }
+    }
+
+    /// Return whether a callee of this type is invoked through the runtime
+    /// `SmeltUnknown` call ABI rather than a concrete Rust function.
+    ///
+    /// Such callees (unknown, type parameters, unions, and erased callable
+    /// objects) flatten their entire argument list at the call site, so spread
+    /// arguments must be packed into a single runtime vector rather than passed
+    /// as a trailing rest list.
+    fn type_is_dynamic_call_surface(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_callable_object_erased_class(ty)
     }
 
     /// Expand a JavaScript spread call into fixed function parameters plus rest.

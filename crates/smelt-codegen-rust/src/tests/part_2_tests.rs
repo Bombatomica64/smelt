@@ -51,6 +51,37 @@ const value = Number.parseInt("42");
 }
 
 #[test]
+fn extracts_borrowed_predicate_argument_from_dynamic_spread_dispatch() {
+    // A borrowed `&dyn Fn(..) -> bool` parameter fed from a dynamic `SmeltUnknown`
+    // (here a `...args` rest element forwarded by spread) must recover the real
+    // callable and reborrow it, instead of substituting a no-op default predicate
+    // that always returns `false`.
+    let source = source_for(
+        r#"
+const impl = (
+  data: number,
+  predicate: (value: number) => boolean,
+  ...rest: readonly number[]
+): number => (predicate(data) ? data : rest[0]);
+
+function dispatch(...args: readonly unknown[]): unknown {
+  // @ts-expect-error -- exercises dynamic dispatch through erased arguments
+  return impl(...args);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("&*({ let smelt_function = match"),
+        "expected borrowed predicate argument to reborrow an extracted callable: {source}"
+    );
+    assert!(
+        source.contains("smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(f64) -> bool>>"),
+        "expected the dynamic predicate to be extracted to a typed bool callback: {source}"
+    );
+}
+
+#[test]
 fn emits_typescript_infinity_identifier() {
     let source = source_for(
         r#"
