@@ -51,6 +51,25 @@ const value = Number.parseInt("42");
 }
 
 #[test]
+fn optional_arrow_parameter_is_nullable_for_undefined_comparison() {
+    // An optional arrow parameter (`arg2?: number`) has type `number | undefined`
+    // inside the body, so it must lower to `Option<f64>` and an `arg2 === undefined`
+    // guard must compare against `None` rather than constant-folding to `false`
+    // (which is what happened when the optional marker was dropped).
+    let source = source_for(
+        r#"
+const isMissing = (_: number, arg2?: number): boolean => arg2 === undefined;
+const result = isMissing(1);
+"#,
+    );
+
+    assert!(
+        source.contains("Option<f64>"),
+        "expected optional arrow parameter to lower as Option<f64>: {source}"
+    );
+}
+
+#[test]
 fn extracts_borrowed_predicate_argument_from_dynamic_spread_dispatch() {
     // A borrowed `&dyn Fn(..) -> bool` parameter fed from a dynamic `SmeltUnknown`
     // (here a `...args` rest element forwarded by spread) must recover the real

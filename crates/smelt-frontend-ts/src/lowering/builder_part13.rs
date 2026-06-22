@@ -3497,6 +3497,17 @@ impl ModuleBuilder<'_> {
                 }
                 (_, None) => self.ctx.krate.types.intern(Type::Unknown),
             };
+            // An optional parameter (`x?: T`) has type `T | undefined` inside the
+            // body, matching the function-type lowering in `types.rs`. Without
+            // this the param looks non-nullable, so an `x === undefined` guard
+            // constant-folds to `false`.
+            let ty = if param.optional
+                && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+            {
+                self.ctx.krate.types.intern(Type::Optional(ty))
+            } else {
+                ty
+            };
             params.push(ty);
         }
         if let Some(rest) = &arrow.params.rest {
