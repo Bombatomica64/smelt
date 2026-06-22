@@ -343,6 +343,88 @@ ordered: list[int] = sorted(values)
 }
 
 #[test]
+fn builtin_sorted_key_and_reverse_lower() -> TestResult {
+    let source = py!(r#"
+bias: int = 10
+values: list[int] = [2, 1]
+ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                &expr.kind,
+                ExprKind::ListSorted {
+                    key: Some(key),
+                    reverse: true,
+                    ..
+                } if closure_cfg_has_capture(&ctx, body, *key)
+            )
+        }),
+        "expected sorted key+reverse lowering",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn list_sort_key_and_reverse_lower() -> TestResult {
+    let source = py!(r#"
+bias: int = 10
+values: list[int] = [2, 1]
+ordered: None = values.sort(key=lambda value: value + bias, reverse=True)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                &expr.kind,
+                ExprKind::ListSort {
+                    comparator: None,
+                    key: Some(key),
+                    reverse: true,
+                    ..
+                } if closure_cfg_has_capture(&ctx, body, *key)
+            )
+        }),
+        "expected list.sort key+reverse lowering",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn sorted_non_literal_reverse_is_rejected() -> TestResult {
+    let source = py!(r#"
+flag: bool = True
+values: list[int] = [2, 1]
+ordered: list[int] = sorted(values, reverse=flag)
+"#);
+    let mut ctx = HirCtx::new();
+    ensure(
+        lower_module(source, &mut ctx).is_err(),
+        "expected non-literal reverse to be rejected",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn builtin_map_filter_lambda_callbacks_lower() -> TestResult {
     let source = py!(r#"
 factor: int = 2

@@ -2557,12 +2557,20 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
-            ExprKind::ListSorted { list } => {
+            ExprKind::ListSorted { list, key, reverse } => {
                 let list_operand = self.lower_expr(*list)?;
+                let key_operand = match key {
+                    Some(key) => Some(self.lower_expr(*key)?),
+                    None => None,
+                };
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
-                    value: Rvalue::ListSorted { list: list_operand },
+                    value: Rvalue::ListSorted {
+                        list: list_operand,
+                        key: key_operand,
+                        reverse: *reverse,
+                    },
                 });
                 Operand::Copy(Place::Local(dest))
             }
@@ -2648,10 +2656,19 @@ impl<'hir> LoweringCtx<'hir> {
                 self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
-            ExprKind::ListSort { list, comparator } => {
+            ExprKind::ListSort {
+                list,
+                comparator,
+                key,
+                reverse,
+            } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let comparator_operand = match comparator {
                     Some(comparator) => Some(self.lower_expr(*comparator)?),
+                    None => None,
+                };
+                let key_operand = match key {
+                    Some(key) => Some(self.lower_expr(*key)?),
                     None => None,
                 };
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -2660,6 +2677,8 @@ impl<'hir> LoweringCtx<'hir> {
                     value: Rvalue::ListSort {
                         list: list_operand,
                         comparator: comparator_operand,
+                        key: key_operand,
+                        reverse: *reverse,
                     },
                 });
                 self.write_back_mutation_receiver(writeback)?;

@@ -1674,7 +1674,12 @@ impl ModuleBuilder<'_> {
         };
         if comparator.is_some() {
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::ListSort { list, comparator },
+                kind: ExprKind::ListSort {
+                    list,
+                    comparator,
+                    key: None,
+                    reverse: false,
+                },
                 ty: list_ty,
                 span: self.span(call.span.start, call.span.end),
             })));
@@ -1689,7 +1694,12 @@ impl ModuleBuilder<'_> {
             ));
         }
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListSort { list, comparator },
+            kind: ExprKind::ListSort {
+                list,
+                comparator,
+                key: None,
+                reverse: false,
+            },
             ty: list_ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -2055,6 +2065,8 @@ impl ModuleBuilder<'_> {
                     kind: ExprKind::ListSort {
                         list: sorted,
                         comparator,
+                        key: None,
+                        reverse: false,
                     },
                     ty: list_ty,
                     span,

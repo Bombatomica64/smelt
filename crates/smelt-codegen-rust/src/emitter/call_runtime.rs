@@ -961,7 +961,9 @@ impl FunctionEmitter<'_> {
             Rvalue::ListCount { list, item } => self.list_count_text(list, item, dest_ty),
             Rvalue::ListSum { list } => self.list_sum_text(list, dest_ty),
             Rvalue::ListBoolFold { op, list } => self.list_bool_fold_text(*op, list),
-            Rvalue::ListSorted { list } => self.list_sorted_text(list, dest_ty),
+            Rvalue::ListSorted { list, key, reverse } => {
+                self.list_sorted_text(list, key.as_ref(), *reverse, dest_ty)
+            }
             Rvalue::ListReversed { list } => self.list_reversed_text(list, dest_ty),
             Rvalue::ListEnumerate { list } => self.list_enumerate_text(list, dest_ty),
             Rvalue::ListZip { left, right } => self.list_zip_text(left, right, dest_ty),
@@ -971,9 +973,12 @@ impl FunctionEmitter<'_> {
             Rvalue::ListRandomChoice { list } => self.list_random_choice_text(list, dest_ty),
             Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
             Rvalue::ListRemove { list, item } => self.list_remove_text(list, item, dest_ty),
-            Rvalue::ListSort { list, comparator } => {
-                self.list_sort_text(list, comparator.as_ref(), dest_ty)
-            }
+            Rvalue::ListSort {
+                list,
+                comparator,
+                key,
+                reverse,
+            } => self.list_sort_text(list, comparator.as_ref(), key.as_ref(), *reverse, dest_ty),
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::ListNext { list } => self.list_next_text(list, dest_ty),

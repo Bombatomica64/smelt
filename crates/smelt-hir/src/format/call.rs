@@ -563,7 +563,11 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("list_{op_text} {}", expr_ref(*list))
         }
-        ExprKind::ListSorted { list } => format!("list_sorted {}", expr_ref(*list)),
+        ExprKind::ListSorted { list, key, reverse } => {
+            let key_text = if key.is_some() { " <key>" } else { "" };
+            let reverse_text = if *reverse { " reverse" } else { "" };
+            format!("list_sorted {}{}{}", expr_ref(*list), key_text, reverse_text)
+        }
         ExprKind::ListReversed { list } => format!("list_reversed {}", expr_ref(*list)),
         ExprKind::ListEnumerate { list } => format!("list_enumerate {}", expr_ref(*list)),
         ExprKind::ListZip { left, right } => {
@@ -585,14 +589,25 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("list_remove {}, {}", expr_ref(*list), expr_ref(*item))
         }
         ExprKind::ListSort {
-            list, comparator, ..
+            list,
+            comparator,
+            key,
+            reverse,
         } => {
             let comparator_text = if comparator.is_some() {
                 " <comparator>"
             } else {
                 ""
             };
-            format!("list_sort {}{}", expr_ref(*list), comparator_text)
+            let key_text = if key.is_some() { " <key>" } else { "" };
+            let reverse_text = if *reverse { " reverse" } else { "" };
+            format!(
+                "list_sort {}{}{}{}",
+                expr_ref(*list),
+                comparator_text,
+                key_text,
+                reverse_text
+            )
         }
         ExprKind::ListPop { list } => format!("list_pop {}", expr_ref(*list)),
         ExprKind::ListShift { list } => format!("list_shift {}", expr_ref(*list)),

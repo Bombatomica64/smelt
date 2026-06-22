@@ -368,6 +368,13 @@ pub enum ExprKind {
     },
     ListSorted {
         list: ExprId,
+        /// Optional key closure for Python `sorted(values, key=...)`.
+        ///
+        /// Like other callbacks, the key is a normal closure body referenced by
+        /// `ExprId`; it maps one list item to a sortable value.
+        key: Option<ExprId>,
+        /// Whether to sort in descending order, as in Python `reverse=True`.
+        reverse: bool,
     },
     ListReversed {
         list: ExprId,
@@ -402,6 +409,14 @@ pub enum ExprKind {
         /// Like other callbacks, the comparator is a normal closure body
         /// referenced by `ExprId`; it takes two list items and returns a number.
         comparator: Option<ExprId>,
+        /// Optional key closure for Python `list.sort(key=...)`.
+        ///
+        /// The key is a normal closure body referenced by `ExprId`; it maps one
+        /// list item to a sortable value. It is mutually exclusive with the
+        /// JavaScript-style `comparator`.
+        key: Option<ExprId>,
+        /// Whether to sort in descending order, as in Python `reverse=True`.
+        reverse: bool,
     },
     ListPop {
         list: ExprId,

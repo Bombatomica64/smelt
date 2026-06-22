@@ -26,19 +26,28 @@ impl FunctionEmitter<'_> {
     pub(super) fn list_sorted_text(
         &self,
         list: &Operand,
+        key: Option<&Operand>,
+        reverse: bool,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("sorted() argument must be a list"));
         };
+        let element_ty = *item_ty;
         if dest_ty != list_ty {
             return Err(EmitError::new(
                 "sorted() destination must match the input list type",
             ));
         }
         let list_text = self.operand_text(list)?;
-        match self.mir.types.get(*item_ty) {
+        if key.is_some() || reverse {
+            let (prefix, closure) = self.list_sort_by_text(key, reverse, element_ty)?;
+            return Ok(format!(
+                "{{ {prefix}let mut sorted = {list_text}.clone(); sorted.sort_by({closure}); sorted }}"
+            ));
+        }
+        match self.mir.types.get(element_ty) {
             Some(Type::Bool | Type::Int | Type::String) => Ok(format!(
                 "{{ let mut sorted = {list_text}.clone(); sorted.sort(); sorted }}"
             )),
@@ -49,6 +58,74 @@ impl FunctionEmitter<'_> {
                 "sorted() supports bool, int, float, and string lists",
             )),
         }
+    }
+
+    /// Build the prefix bindings and `sort_by` comparison closure for Python
+    /// `key`/`reverse` sorting.
+    ///
+    /// When `key` is present it is bound once as `smelt_sort_key` and applied to
+    /// both compared items, producing owned key values. Otherwise the list items
+    /// compare directly through their references. `reverse` swaps the comparison
+    /// operands rather than reversing the result, so equal items keep their
+    /// original order to match Python's stable descending sort. Floating keys use
+    /// `partial_cmp` and panic on unordered values such as `NaN`.
+    pub(super) fn list_sort_by_text(
+        &self,
+        key: Option<&Operand>,
+        reverse: bool,
+        element_ty: TypeId,
+    ) -> Result<(String, String), EmitError> {
+        if let Some(key) = key {
+            let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(key)?) else {
+                return Err(EmitError::new("sort key must be a closure"));
+            };
+            let return_ty = function_ty.return_ty;
+            let param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
+            let left_arg = self.value_at_type_text("left.clone()", element_ty, param_ty)?;
+            let right_arg = self.value_at_type_text("right.clone()", element_ty, param_ty)?;
+            let closure_text = match self.closure_operand_text_for_declared_type(key) {
+                Ok(closure_text) => closure_text,
+                Err(_) => self.operand_text(key)?,
+            };
+            let (first, second) = if reverse {
+                ("right_key", "left_key")
+            } else {
+                ("left_key", "right_key")
+            };
+            let comparison = match self.mir.types.get(return_ty) {
+                Some(Type::Float) => format!(
+                    "{first}.partial_cmp(&{second}).expect(\"sort key incomparable float\")"
+                ),
+                Some(Type::Bool | Type::Int | Type::String) => format!("{first}.cmp(&{second})"),
+                _ => {
+                    return Err(EmitError::new(
+                        "sort key must return bool, int, float, or string",
+                    ));
+                }
+            };
+            let prefix = format!("let mut smelt_sort_key = {closure_text}; ");
+            let closure = format!(
+                "|left, right| {{ let left_key = (smelt_sort_key)({left_arg}); let right_key = (smelt_sort_key)({right_arg}); {comparison} }}"
+            );
+            return Ok((prefix, closure));
+        }
+        let (first, second) = if reverse {
+            ("right", "left")
+        } else {
+            ("left", "right")
+        };
+        let comparison = match self.mir.types.get(element_ty) {
+            Some(Type::Float) => {
+                format!("{first}.partial_cmp({second}).expect(\"sort incomparable float\")")
+            }
+            Some(Type::Bool | Type::Int | Type::String) => format!("{first}.cmp({second})"),
+            _ => {
+                return Err(EmitError::new(
+                    "sort supports bool, int, float, and string items",
+                ));
+            }
+        };
+        Ok((String::new(), format!("|left, right| {comparison}")))
     }
 
     /// Converts a reversed-copy list operation to Rust text.

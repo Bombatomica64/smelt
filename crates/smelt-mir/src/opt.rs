@@ -523,9 +523,12 @@ fn rewrite_rvalue(
         }
         Rvalue::ListSum { list }
         | Rvalue::ListBoolFold { list, .. }
-        | Rvalue::ListSorted { list }
         | Rvalue::ListReversed { list }
         | Rvalue::ListEnumerate { list } => rewrite_operand_except(list, aliases, dest),
+        Rvalue::ListSorted { list, key, .. } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_optional_operand_except(key, aliases, dest)
+        }
         Rvalue::ListZip { left, right } => {
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)
@@ -544,9 +547,15 @@ fn rewrite_rvalue(
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
         }
-        Rvalue::ListSort { list, comparator } => {
+        Rvalue::ListSort {
+            list,
+            comparator,
+            key,
+            ..
+        } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_optional_operand_except(comparator, aliases, dest)
+                | rewrite_optional_operand_except(key, aliases, dest)
         }
         Rvalue::ListPop { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListShift { list } => rewrite_operand_except(list, aliases, dest),

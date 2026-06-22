@@ -99,6 +99,14 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                 | ExprKind::ListSort {
                     comparator: Some(callback),
                     ..
+                }
+                | ExprKind::ListSort {
+                    key: Some(callback),
+                    ..
+                }
+                | ExprKind::ListSorted {
+                    key: Some(callback),
+                    ..
                 } => {
                     let Some(callback_expr) = body.exprs.get(callback.0 as usize) else {
                         errors.push(ValidationError {

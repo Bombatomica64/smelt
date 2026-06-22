@@ -156,7 +156,7 @@ fn unsupported_builtin_sorted_forms_reject() -> TestResult {
     let wrong_arity = lower_errors(
         py!(r#"
 values: list[int] = [1, 2]
-ordered: list[int] = sorted(values, reverse=True)
+ordered: list[int] = sorted(values, values)
 "#),
         &mut ctx,
     )?;
@@ -180,6 +180,22 @@ ordered: list[list[int]] = sorted(values)
             .message
             .contains("sortable list"),
         "expected sorted type diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let non_literal_reverse = lower_errors(
+        py!(r#"
+flag: bool = True
+values: list[int] = [1, 2]
+ordered: list[int] = sorted(values, reverse=flag)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&non_literal_reverse)?
+            .message
+            .contains("reverse must be a boolean literal"),
+        "expected sorted non-literal reverse diagnostic",
     )
 }
 

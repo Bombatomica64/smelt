@@ -546,10 +546,15 @@ impl Rvalue {
             }
             Self::ListSum { list }
             | Self::ListBoolFold { list, .. }
-            | Self::ListSorted { list }
             | Self::ListReversed { list }
             | Self::ListEnumerate { list } => {
                 visit(list);
+            }
+            Self::ListSorted { list, key, .. } => {
+                visit(list);
+                if let Some(key) = key {
+                    visit(key);
+                }
             }
             Self::ListZip { left, right } => {
                 visit(left);
@@ -571,10 +576,18 @@ impl Rvalue {
                 visit(list);
                 visit(item);
             }
-            Self::ListSort { list, comparator } => {
+            Self::ListSort {
+                list,
+                comparator,
+                key,
+                ..
+            } => {
                 visit(list);
                 if let Some(comparator) = comparator {
                     visit(comparator);
+                }
+                if let Some(key) = key {
+                    visit(key);
                 }
             }
             Self::ListPop { list } => {
