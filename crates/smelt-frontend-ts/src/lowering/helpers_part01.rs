@@ -19,7 +19,8 @@ fn unknown_kind_from_typeof(kind: &str) -> Option<UnknownKind> {
     match kind {
         "boolean" => Some(UnknownKind::Bool),
         "bigint" | "number" => Some(UnknownKind::Number),
-        "string" | "symbol" => Some(UnknownKind::String),
+        "string" => Some(UnknownKind::String),
+        "symbol" => Some(UnknownKind::Symbol),
         "object" => Some(UnknownKind::Object),
         "function" => Some(UnknownKind::Function),
         _ => None,

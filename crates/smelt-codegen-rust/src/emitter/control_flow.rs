@@ -342,7 +342,7 @@ impl FunctionEmitter<'_> {
                             self.normalized_index_text(&format!("{base_text}.len()"), index)?;
                         let default_value = self.default_value(*item)?;
                         out.push_str(&format!(
-                            "    {{ let index = {index_text}; if index >= {base_text}.len() {{ {base_text}.resize(index.saturating_add(1), {default_value}); }} {base_text}[index] = {rendered_value}; }}\n"
+                            "    {{ let smelt_assign_index = {index_text}; if smelt_assign_index >= {base_text}.len() {{ {base_text}.resize(smelt_assign_index.saturating_add(1), {default_value}); }} {base_text}[smelt_assign_index] = {rendered_value}; }}\n"
                         ));
                         return Ok(());
                     }

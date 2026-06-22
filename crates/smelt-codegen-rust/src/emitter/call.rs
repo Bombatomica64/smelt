@@ -379,10 +379,12 @@ impl FunctionEmitter<'_> {
                     } else {
                         false
                     };
-                    if matches!(
-                        self.mir.types.get(rest_ty),
-                        Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
-                    ) && !single_unknown_list_arg
+                    if function.rest == Some(0)
+                        && matches!(
+                            self.mir.types.get(rest_ty),
+                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                        )
+                        && !single_unknown_list_arg
                     {
                         let items = args
                             .iter()

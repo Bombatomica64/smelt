@@ -286,7 +286,11 @@ impl FunctionEmitter<'_> {
             }
             return Err(EmitError::new("dict remove receiver must be a dict"));
         };
-        if self.operand_ty(key)? != *key_ty {
+        // Coerce a dynamically-typed (`Unknown`/optional/union) key to the dict's
+        // key type instead of dropping the removal — mirrors `dict_set_text`.
+        // `delete out[key]` lowers here with `key` erased even though `out` is
+        // keyed by `String` (omit) or a union (intersection's `Map.delete`).
+        if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok("false".to_owned());
         }
         if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
@@ -300,7 +304,7 @@ impl FunctionEmitter<'_> {
         Ok(format!(
             "{}.remove(&{}).is_some()",
             self.local_mut_value_text(*local)?,
-            self.operand_text(key)?
+            self.dict_key_operand_text(key, *key_ty)?
         ))
     }
 

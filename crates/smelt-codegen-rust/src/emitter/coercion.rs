@@ -1238,6 +1238,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::UnknownKind::Bool => "SmeltUnknown::Bool(_)",
             smelt_hir::UnknownKind::Number => "SmeltUnknown::Number(_)",
             smelt_hir::UnknownKind::String => "SmeltUnknown::String(_)",
+            smelt_hir::UnknownKind::Symbol => "SmeltUnknown::Symbol(_)",
             smelt_hir::UnknownKind::Function => {
                 return Ok(format!("matches!({text}, SmeltUnknown::Function(_))"));
             }

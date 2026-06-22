@@ -497,7 +497,11 @@ impl FunctionEmitter<'_> {
         };
         let callback_closure = match self.closure_operand_text_for_declared_type(callback) {
             Ok(callback_closure) => callback_closure,
-            Err(_) => return Ok("Default::default()".to_owned()),
+            // A reduce callback passed as a borrowed function parameter (rather
+            // than a local closure) renders as the parameter name itself, which
+            // calls through the `&dyn Fn`. Fall back to it instead of dropping
+            // the reduce body to a default value.
+            Err(_) => self.operand_text(callback)?,
         };
         let callback_text = format!(
             "{{ let smelt_callback = {callback_closure}; (smelt_callback)(acc, item, index, array) }}"

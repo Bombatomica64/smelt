@@ -1655,6 +1655,12 @@ impl FunctionEmitter<'_> {
                             )
                         })
             }
+            // A tuple (e.g. `splitAt`'s `[T[], T[]]`) and a list literal of the
+            // same shape are structurally comparable once both are erased to
+            // `SmeltUnknown::Array`; they are NOT definitely incompatible. Let the
+            // erase-both equality path handle them instead of folding to `false`.
+            (Some(Type::Tuple(_)), Some(Type::List(_)))
+            | (Some(Type::List(_)), Some(Type::Tuple(_))) => false,
             (
                 Some(
                     Type::List(_)
