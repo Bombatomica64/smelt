@@ -5608,6 +5608,43 @@ function partialBind<F extends StrictFunction>(func: F, ...partial: unknown[]) {
 }
 
 #[test]
+fn lowers_dynamic_spread_call_with_leading_positional_argument() -> Result<(), String> {
+    // A `typeof === "function"` guard narrows the union callee to a concrete
+    // function with a leading positional parameter ahead of its rest. The backing
+    // local stays a union, so codegen dispatches the call dynamically and must
+    // receive a single flattened argument vector. The spread therefore has to
+    // lower as `ClosureCallSpread`, not a typed-shape `ClosureCall` that would
+    // wrap the rest list in one extra `Array` argument.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Handler = (data: unknown, ...extraArgs: readonly unknown[]) => unknown;
+
+function run(
+  handlerOrBranches: Handler | { readonly other: number },
+  data: unknown,
+  ...extraArgs: readonly unknown[]
+): unknown {
+  return typeof handlerOrBranches === "function"
+    ? handlerOrBranches(data, ...extraArgs)
+    : data;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCallSpread { .. })),
+        "expected dynamic spread call with a leading positional argument to lower as ClosureCallSpread"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_returned_callback_capturing_function_list() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(

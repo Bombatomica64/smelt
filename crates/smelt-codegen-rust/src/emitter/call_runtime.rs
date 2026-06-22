@@ -713,25 +713,12 @@ impl FunctionEmitter<'_> {
                         args.iter()
                             .map(|arg| self.erase(arg))
                             .collect::<Result<Vec<_>, EmitError>>()?;
-                    let smelt_call_args = if rendered_args.len() == 1
-                        && args.first().is_some_and(|arg| {
-                            matches!(
-                                self.operand_ty(arg)
-                                    .ok()
-                                    .and_then(|ty| self.mir.types.get(ty)),
-                                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                                    | Some(Type::List(_))
-                            )
-                        }) {
-                        let arg = rendered_args
-                            .first()
-                            .ok_or_else(|| EmitError::new("erased call is missing argument"))?;
-                        format!(
-                            "match {arg} {{ SmeltUnknown::Array(values) => values.into_vec(), value => vec![value] }}"
-                        )
-                    } else {
-                        format!("vec![{}]", rendered_args.join(", "))
-                    };
+                    // A `ClosureCall` carries the exact argument list; spread calls
+                    // are represented separately as `ClosureCallSpread`, which packs
+                    // and flattens the runtime vector. Pass these arguments verbatim
+                    // so a single array argument is delivered as one value instead of
+                    // being mistaken for a spread and flattened into its elements.
+                    let smelt_call_args = format!("vec![{}]", rendered_args.join(", "));
                     let call_text = format!(
                         "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args = {smelt_call_args}; let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
                     );

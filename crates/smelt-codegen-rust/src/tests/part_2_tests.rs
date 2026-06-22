@@ -51,6 +51,56 @@ const value = Number.parseInt("42");
 }
 
 #[test]
+fn optional_arrow_parameter_is_nullable_for_undefined_comparison() {
+    // An optional arrow parameter (`arg2?: number`) has type `number | undefined`
+    // inside the body, so it must lower to `Option<f64>` and an `arg2 === undefined`
+    // guard must compare against `None` rather than constant-folding to `false`
+    // (which is what happened when the optional marker was dropped).
+    let source = source_for(
+        r#"
+const isMissing = (_: number, arg2?: number): boolean => arg2 === undefined;
+const result = isMissing(1);
+"#,
+    );
+
+    assert!(
+        source.contains("Option<f64>"),
+        "expected optional arrow parameter to lower as Option<f64>: {source}"
+    );
+}
+
+#[test]
+fn extracts_borrowed_predicate_argument_from_dynamic_spread_dispatch() {
+    // A borrowed `&dyn Fn(..) -> bool` parameter fed from a dynamic `SmeltUnknown`
+    // (here a `...args` rest element forwarded by spread) must recover the real
+    // callable and reborrow it, instead of substituting a no-op default predicate
+    // that always returns `false`.
+    let source = source_for(
+        r#"
+const impl = (
+  data: number,
+  predicate: (value: number) => boolean,
+  ...rest: readonly number[]
+): number => (predicate(data) ? data : rest[0]);
+
+function dispatch(...args: readonly unknown[]): unknown {
+  // @ts-expect-error -- exercises dynamic dispatch through erased arguments
+  return impl(...args);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("&*({ let smelt_function = match"),
+        "expected borrowed predicate argument to reborrow an extracted callable: {source}"
+    );
+    assert!(
+        source.contains("smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(f64) -> bool>>"),
+        "expected the dynamic predicate to be extracted to a typed bool callback: {source}"
+    );
+}
+
+#[test]
 fn emits_typescript_infinity_identifier() {
     let source = source_for(
         r#"

@@ -2665,6 +2665,25 @@ impl<'mir> FunctionEmitter<'mir> {
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Function(_))
         ) {
+            // A dynamically-typed source (e.g. a `SmeltUnknown` element spread
+            // from a `...args` rest array) still carries a callable at runtime.
+            // Recover the owned `Rc<dyn Fn>` through checked extraction and
+            // reborrow it for the duration of the call instead of substituting a
+            // no-op default callback, which would silently swap the caller's
+            // predicate/mapper for one that always returns the type's default.
+            // The erased-unknown-rest shape extracts to a `SmeltErasedFunction`
+            // (not an `Rc<dyn Fn>`) so it cannot be reborrowed this way; leave it
+            // to the existing default fallback.
+            if (matches!(
+                self.mir.types.get(self.operand_ty(operand)?),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) || self.is_erased_class_type(self.operand_ty(operand)?))
+                && let Some(Type::Function(function)) = self.mir.types.get(target)
+                && !self.is_erased_unknown_rest_function(function)
+            {
+                let owned = self.extract(operand, target)?;
+                return Ok(format!("&*({owned})"));
+            }
             return self.borrowed_default_function_text(target);
         }
         if let Some(adapter) = self.rest_vector_function_adapter_text(operand, target, true)? {
