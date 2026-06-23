@@ -41,27 +41,49 @@ JavaScript `===` on objects/arrays/functions is *reference* identity. In Smelt:
    `Rc` (reuse / extend `smelt_register_function_origin` to also dedupe identity,
    or key a thread-local identity map on `Rc::as_ptr` of the typed callback).
 
-   **STATUS 2026-06-23 — memoization DONE but insufficient (branch
-   `worktree-agent-a427cd9dd2b15c2a8`, commit `b33cdd06`, green on `cargo test` +
-   clippy, NOT merged).** Implemented as a thread-local
-   `SMELT_ERASED_FUNCTION_IDENTITIES: HashMap<usize, SmeltUnknown>` keyed on
-   `Rc::as_ptr` of the source callback, wrapping the `erase_value` `Type::Function`
-   arm via a `smelt_erase_function_identity(source_key, build)` helper (lib.rs +
-   coercion.rs). The cache value transitively owns the source `Rc`, closing the
-   ABA pointer-reuse hazard.
+   **STATUS 2026-06-23 — DONE via transpile-time per-item accessors (commit
+   `d1f2c7e0`, on `main`, green on full `cargo test` + clippy). Resolved
+   `isDeepEqual::functions` (34 → 33 generated failures, 0 regressions).**
 
-   This proves the mechanism but **resolves 0 of the target tests**, because the
-   real blocker is *upstream of the erase site*: a **named function used as a
-   value is materialized as a fresh wrapper per use** (e.g. `isDeepEqual(func1,
-   func1)` builds two distinct `Rc::new(|| func1())`; `doNothing()` builds a fresh
-   `SmeltErasedFunction` per call). The two source `Rc`s already differ before
-   erasure, so memoization can't unify them. Also note `isStrictEqual.test.ts` has
-   **no** function-comparison cases (that target was a mis-attribution; its
-   failures are all array/object/set/uint/promise = B1 step 2). The genuine fix is
-   **function-reference lowering**: resolve a reference to a named function (or a
-   module-level singleton like `doesNothing`) to a single stable instance instead
-   of re-wrapping per use — a frontend/MIR change. Combine that with the
-   memoization branch to flip isDeepEqual-functions and mergeDeep-functions.
+   Earlier runtime-cache attempts failed: erase-site memoization keyed on the
+   source `Rc::as_ptr` couldn't help because a named function used as a value is
+   materialized as a *fresh wrapper per reference* (the source `Rc`s already
+   differ); and a generic `smelt_function_item_value::<T>` cache couldn't unify
+   `T` (each `|| func1()` literal is a distinct closure type → `Box<dyn Any>`
+   downcast miss) without the fragile `Rc<dyn Fn..>` type-text.
+
+   The working design moves identity resolution to **transpile time**: tag the
+   bare function-item wrapper at its frontend origin
+   (`ClosureExpr::function_item` → `MirClosure::function_item_key`, the ItemId
+   index; only `item_function_closure_expression` / `callback_function_item_closure`
+   set it, so user arrows keep fresh identity). When such a wrapper is **erased to
+   `SmeltUnknown`** (`coercion.rs` `erase`), emit a call to a per-item accessor
+   `__smelt_fn_value_<key>()` and record its body in an `EmitContext` collector;
+   `lib.rs` flushes one accessor per item after the function loop:
+   `fn __smelt_fn_value_K() -> SmeltUnknown { thread_local OnceCell; cell.get_or_init(|| SmeltUnknown::Function(/* forwards to fn item by name */)).clone() }`.
+   All references to one item call the same accessor → one shared
+   `SmeltUnknown::Function` → equal under `Rc::ptr_eq`. Monomorphic (returns
+   concrete `SmeltUnknown`), so no generic downcast and no `Rc<dyn Fn..>`
+   type-text. `erased_rest_forwarding_closure_text` was extracted from
+   `rest_vector_unknown_adapter_text` and shared.
+
+   **REMAINING: `mergeDeep::functions` (the `doNothing()` singleton).** Not fixed
+   by the above because `doNothing()` (`do_nothing()`) returns its value in a
+   **typed** context — `SmeltErasedFunction`, not erased `SmeltUnknown` — so it
+   never reaches the erase hook, and each call builds a fresh `SmeltErasedFunction`
+   (generated `doNothing.rs` shows a fresh build, plus an unnecessary
+   `SmeltErasedFunction`→`SmeltErasedFunction` re-wrap on the return coercion). To
+   flip it: route a function-item value in the erased-rest/`SmeltErasedFunction`
+   context to a per-item accessor returning `SmeltErasedFunction` (a concrete type,
+   so a `OnceCell<SmeltErasedFunction>` accessor works — same shape as the
+   `SmeltUnknown` one), at the `Rvalue::Closure` / `closure_text_for_type`
+   `SmeltErasedFunction` branch; and make the `typeof doesNothing` return coercion
+   a pass-through instead of re-wrapping. Then erasing the shared
+   `SmeltErasedFunction` for comparison preserves identity.
+
+   Note: `isStrictEqual.test.ts` has **no** function-comparison cases (that target
+   was a mis-attribution; its failures are all array/object/set/uint/promise = B1
+   step 2).
 2. **Lists/arrays (the large change).** Give typed lists a stable JS id. Two
    viable shapes:
    - **(2a) Id-bearing list backing**: introduce a list wrapper carrying `id`
