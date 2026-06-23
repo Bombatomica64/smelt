@@ -40,8 +40,28 @@ JavaScript `===` on objects/arrays/functions is *reference* identity. In Smelt:
    wrapper per source `Rc`, so erasing the same function twice yields the same
    `Rc` (reuse / extend `smelt_register_function_origin` to also dedupe identity,
    or key a thread-local identity map on `Rc::as_ptr` of the typed callback).
-   Unblocks isDeepEqual-functions, mergeDeep-functions, and the function arms of
-   isStrictEqual.
+
+   **STATUS 2026-06-23 — memoization DONE but insufficient (branch
+   `worktree-agent-a427cd9dd2b15c2a8`, commit `b33cdd06`, green on `cargo test` +
+   clippy, NOT merged).** Implemented as a thread-local
+   `SMELT_ERASED_FUNCTION_IDENTITIES: HashMap<usize, SmeltUnknown>` keyed on
+   `Rc::as_ptr` of the source callback, wrapping the `erase_value` `Type::Function`
+   arm via a `smelt_erase_function_identity(source_key, build)` helper (lib.rs +
+   coercion.rs). The cache value transitively owns the source `Rc`, closing the
+   ABA pointer-reuse hazard.
+
+   This proves the mechanism but **resolves 0 of the target tests**, because the
+   real blocker is *upstream of the erase site*: a **named function used as a
+   value is materialized as a fresh wrapper per use** (e.g. `isDeepEqual(func1,
+   func1)` builds two distinct `Rc::new(|| func1())`; `doNothing()` builds a fresh
+   `SmeltErasedFunction` per call). The two source `Rc`s already differ before
+   erasure, so memoization can't unify them. Also note `isStrictEqual.test.ts` has
+   **no** function-comparison cases (that target was a mis-attribution; its
+   failures are all array/object/set/uint/promise = B1 step 2). The genuine fix is
+   **function-reference lowering**: resolve a reference to a named function (or a
+   module-level singleton like `doesNothing`) to a single stable instance instead
+   of re-wrapping per use — a frontend/MIR change. Combine that with the
+   memoization branch to flip isDeepEqual-functions and mergeDeep-functions.
 2. **Lists/arrays (the large change).** Give typed lists a stable JS id. Two
    viable shapes:
    - **(2a) Id-bearing list backing**: introduce a list wrapper carrying `id`
