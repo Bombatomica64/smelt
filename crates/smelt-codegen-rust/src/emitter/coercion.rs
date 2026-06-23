@@ -1362,9 +1362,12 @@ impl FunctionEmitter<'_> {
                 Ok(text.to_owned())
             }
             Some(Type::List(_)) if text.contains(".concat(") => Ok(text.to_owned()),
-            Some(Type::None) => Ok(format!(
-                "if matches!({text}.clone(), SmeltUnknown::Null) {{ () }} else {{ panic!(\"unknown is not null\") }}"
-            )),
+            // Extracting an erased value into the unit type means the source
+            // language discards it (a `=> void` callback ignores whatever it
+            // returns; JS does not assert the value is null). Drop it instead of
+            // panicking — the old assert turned e.g. `tap(identity)` and a
+            // `vi.fn<(x) => void>` transformer into runtime panics.
+            Some(Type::None) => Ok(format!("{{ let _ = {text}.clone(); () }}")),
             Some(Type::Bool) => Ok(format!(
                 "match {text}.clone() {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }}"
             )),
