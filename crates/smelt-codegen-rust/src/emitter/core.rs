@@ -3639,6 +3639,25 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Returns whether a target type can absorb an erased `SmeltUnknown::Function`.
+    ///
+    /// A function argument flowing into one of these targets should be erased
+    /// via `value_at_type` (which yields `Some(SmeltUnknown::Function(..))` for
+    /// optionals) rather than dropped to a default. Covers the dynamic surfaces
+    /// (`Unknown`, type parameters, unions, erased classes), `Function` itself,
+    /// and a single `Optional` layer wrapping any of those — e.g. purry
+    /// data-last params typed `arg?: Data | Callback`, where the predicate must
+    /// survive as a value so the runtime dispatcher can branch on `typeof`.
+    pub(super) fn type_accepts_erased_function(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(
+                Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_),
+            ) => true,
+            Some(Type::Optional(inner)) => self.type_accepts_erased_function(*inner),
+            _ => self.is_erased_class_type(ty),
+        }
+    }
+
     /// Returns whether `default_value` is a concrete literal/container value.
     ///
     /// This excludes classes and callable/composite fallback cases where

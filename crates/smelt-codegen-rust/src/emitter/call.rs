@@ -492,20 +492,7 @@ impl FunctionEmitter<'_> {
                         if matches!(
                             self.mir.types.get(self.operand_ty(arg)?),
                             Some(Type::Function(_))
-                        ) && !matches!(
-                            self.mir.types.get(target_ty),
-                            Some(
-                                Type::Function(_)
-                                    | Type::Unknown
-                                    | Type::TypeParam { .. }
-                                    | Type::Union(_)
-                            )
-                        ) && !self.is_erased_class_type(target_ty)
-                            && !matches!(
-                                self.mir.types.get(target_ty),
-                                Some(Type::Optional(inner))
-                                    if matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
-                            )
+                        ) && !self.type_accepts_erased_function(target_ty)
                         {
                             self.default_value(target_ty)
                         } else {
