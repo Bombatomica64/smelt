@@ -20,6 +20,22 @@ impl FunctionEmitter<'_> {
                 self.operand_text(set)?
             ));
         }
+        // A `Set<unknown>` follows JS `Set.prototype.has` reference semantics
+        // (SameValueZero): objects/arrays match by identity, not structural
+        // contents — exactly like the data-first `Array.prototype.includes` path
+        // (`same_js_key`). `HashSet::contains` would instead use SmeltUnknown's
+        // structural `Eq`, so e.g. `new Set([obj]).has({...obj})` would wrongly
+        // report `true`. Primitive elements still compare by value because
+        // `same_js_key` falls through to `==` for them.
+        if matches!(
+            self.mir.types.get(*item_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            return Ok(format!(
+                "{}.iter().any(|value| value.same_js_key(&{item_text}))",
+                self.operand_text(set)?
+            ));
+        }
         Ok(format!(
             "{}.contains(&{})",
             self.operand_text(set)?,
