@@ -3124,11 +3124,14 @@ function sorted<T extends IterableContainer<number>>(data: T): unknown {
 "#,
     );
 
+    // The spread of the erased, list-constrained `data` materializes a fresh,
+    // CONCRETE `Vec<f64>` (its `SmeltUnknown` elements unwrapped to the `number`
+    // element type from the `IterableContainer<number>` constraint) instead of
+    // staying an erased alias. That concrete binding is what lets the following
+    // `.sort(cmp)` take the typed in-place path rather than the dynamic path
+    // whose sorted result is discarded.
+    assert!(source.contains(": Vec<f64> = match data"), "{source}");
     assert!(source.contains(".sort_by(|left, right|"), "{source}");
-    assert!(
-        source.contains("SmeltUnknown::Array(value) => smelt_array_sort_method(value)"),
-        "{source}"
-    );
 }
 
 #[test]

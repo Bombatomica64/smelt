@@ -646,29 +646,7 @@ impl FunctionEmitter<'_> {
             Rvalue::SetProjection { op, set } => self.set_projection_text(*op, set, dest_ty),
             Rvalue::ListConcat { left, right } => {
                 let text = self.list_concat_text(left, right)?;
-                let left_ty = self.operand_ty(left)?;
-                let right_ty = self.operand_ty(right)?;
-                let source_ty = match (self.mir.types.get(left_ty), self.mir.types.get(right_ty)) {
-                    (Some(Type::List(left_item)), Some(Type::List(right_item)))
-                        if left_item == right_item =>
-                    {
-                        self.type_id(Type::List(*left_item))?
-                    }
-                    (Some(Type::List(left_item)), Some(Type::List(right_item)))
-                        if matches!(self.mir.types.get(*left_item), Some(Type::Never)) =>
-                    {
-                        self.type_id(Type::List(*right_item))?
-                    }
-                    (Some(Type::List(left_item)), Some(Type::List(right_item)))
-                        if matches!(self.mir.types.get(*right_item), Some(Type::Never)) =>
-                    {
-                        self.type_id(Type::List(*left_item))?
-                    }
-                    _ => {
-                        let unknown_ty = self.type_id(Type::Unknown)?;
-                        self.type_id(Type::List(unknown_ty))?
-                    }
-                };
+                let source_ty = self.concat_result_list_ty(left, right)?;
                 self.value_at_type_text(&text, source_ty, dest_ty)
             }
             Rvalue::ListSearch { op, list, item } => {

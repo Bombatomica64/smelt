@@ -112,10 +112,13 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(right_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(right_ty);
-        if (left_erased || right_erased)
-            && let Some(unknown_ty) = self.find_type_id(&Type::Unknown)
-            && let Some(list_ty) = self.find_type_id(&Type::List(unknown_ty))
-        {
+        if left_erased || right_erased {
+            // Coerce both operands to the materialized result list type. When one
+            // side is a concrete `List<X>` (e.g. the empty `[]` synthesized for an
+            // erased `[...data]` spread), prefer `List<X>` over `List<Unknown>` so
+            // the erased side's elements are unwrapped to the concrete element type
+            // and `List<Unknown>` need not be interned for this function.
+            let list_ty = self.concat_result_list_ty(left, right)?;
             let left_text = self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty)?;
             let right_text =
                 self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty)?;
@@ -148,6 +151,64 @@ impl FunctionEmitter<'_> {
             self.operand_text(left)?,
             self.operand_text(right)?
         ))
+    }
+
+    /// Compute the list type the materialized concat result carries.
+    ///
+    /// `[...left, ...right]` collects into a single `Vec`, so both operands must
+    /// be coerced to one element type. When both are concrete `List`s with the
+    /// same item (or one is an empty `List<Never>`) that shared item wins. When
+    /// exactly one side is erased (`Unknown`/`TypeParam`/`Union`/erased class) and
+    /// the other is a concrete `List<X>`, the concrete `List<X>` wins — the erased
+    /// side's runtime `SmeltUnknown` elements are unwrapped to `X`, and `List<X>`
+    /// is guaranteed interned because the concrete operand carries it. Only when no
+    /// operand offers a concrete list type do we fall back to `List<Unknown>`.
+    pub(super) fn concat_result_list_ty(
+        &self,
+        left: &Operand,
+        right: &Operand,
+    ) -> Result<TypeId, EmitError> {
+        let left_ty = self.operand_ty(left)?;
+        let right_ty = self.operand_ty(right)?;
+        let left_item = match self.mir.types.get(left_ty) {
+            Some(Type::List(item)) => Some(*item),
+            _ => None,
+        };
+        let right_item = match self.mir.types.get(right_ty) {
+            Some(Type::List(item)) => Some(*item),
+            _ => None,
+        };
+        if let (Some(left_item), Some(right_item)) = (left_item, right_item) {
+            if left_item == right_item
+                || matches!(self.mir.types.get(right_item), Some(Type::Never))
+            {
+                return self.type_id(Type::List(left_item));
+            }
+            if matches!(self.mir.types.get(left_item), Some(Type::Never)) {
+                return self.type_id(Type::List(right_item));
+            }
+        }
+        if let Some(left_item) = left_item
+            && self.is_erased_concat_operand(right_ty)
+        {
+            return self.type_id(Type::List(left_item));
+        }
+        if let Some(right_item) = right_item
+            && self.is_erased_concat_operand(left_ty)
+        {
+            return self.type_id(Type::List(right_item));
+        }
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        self.type_id(Type::List(unknown_ty))
+    }
+
+    /// Whether a concat operand erases to a runtime `SmeltUnknown` value, so its
+    /// elements must be unwrapped when collected alongside a concrete-typed side.
+    fn is_erased_concat_operand(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(ty)
     }
 
     /// Return whether an operand is statically known to be an empty list.
