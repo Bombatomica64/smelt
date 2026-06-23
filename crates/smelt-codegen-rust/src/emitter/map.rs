@@ -553,14 +553,22 @@ impl FunctionEmitter<'_> {
                     // (`__smelt_date`, `__smelt_regexp`/`source`/`flags`, ...),
                     // which are representation details, not real JS properties.
                     // This is why e.g. `isShallowEqual(/a/, /b/)` (no own keys) is
-                    // equal.
-                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    // equal. The marker filter (`smelt_is_for_in_record_key`) is
+                    // defined only over `SmeltRecord` — the sole backing where
+                    // those markers can appear — so the `SmeltJsMap` and plain
+                    // dict backings keep the symbol-only filter (they never carry
+                    // internal markers, and the helper would not type-check there).
+                    if self.dict_uses_smelt_record(*key_ty) {
                         Ok(format!(
                             "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
                         ))
+                    } else if self.dict_uses_js_key_map(*key_ty) {
+                        Ok(format!(
+                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>()"
+                        ))
                     } else {
                         Ok(format!(
-                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&{dict_text}, key)).cloned().collect::<Vec<_>>()"
+                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
                         ))
                     }
                 } else if self.dict_uses_js_key_map(*key_ty) {

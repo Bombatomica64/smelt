@@ -62,7 +62,7 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
 
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>();"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&mapping.clone(), key)).collect::<Vec<_>>();"
         ),
         "{source}"
     );
