@@ -800,6 +800,16 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Set(item)) => {
                 let value_wrap = self.erase_value_text("value", *item)?;
+                // A Set erases to an array; like list bindings, the SAME source
+                // Set binding erased twice must compare `===` equal (arrays
+                // compare by id). `HashSet` has no `as_ptr`, so key the stable id
+                // on the binding's own address (`&set`). Temps / fresh sets keep
+                // `SmeltArray::new`.
+                if let Some(bare_local) = self.list_local_identity_key(operand)? {
+                    return Ok(format!(
+                        "{{ let smelt_list_id = smelt_list_identity(&({bare_local}) as *const _ as *const () as usize); let mut values = {text}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, values)) }}"
+                    ));
+                }
                 Ok(format!(
                     "{{ let mut values = {text}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}"
                 ))
