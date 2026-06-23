@@ -97,7 +97,29 @@ JavaScript `===` on objects/arrays/functions is *reference* identity. In Smelt:
      that flow through transforms.
    Recommendation: prototype (2b) for the common `x === x` / `toBe(input)` cases;
    fall back to (2a) if value-flow cases (isIncludedIn, mapWithFeedback) need it.
-3. Sets and typed arrays (uint8) ride on the same list-identity mechanism.
+
+   **STATUS 2026-06-23 — (2b) binding-level DONE for the `x === x` cases (commit
+   `ade26b59`, on `main`, full `cargo test` + clippy green). 33 → 30 generated
+   failures.** When a source *binding* (param / user `let`/`const`, NOT a temp) of
+   `Type::List` is erased, a stable id is keyed on the live `Vec`'s storage
+   address via a `smelt_list_identity` thread-local + `SmeltArray::with_id`
+   (`coercion.rs` `erase` Type::List arms + `lib.rs` prelude). Temps / list
+   literals keep `SmeltArray::new` (fresh id), matching JS. Key uses the in-scope
+   `operand_text` reference (minus `.clone()`) via `(<local>).as_ptr()` (auto-refs
+   `Vec` and `&Vec`). **Resolved:** `isStrictEqual::{arrays_1266, uint_arrays_1268}`,
+   `isIncludedIn::datafirst_arrays`. **Known limitation:** empty-`Vec` `as_ptr`
+   sentinel can collide distinct empty bindings.
+
+   **Still failing (need value-flow identity / 2a, deferred):** `tap` data-first/last
+   (input returned *through* the tap function — identity must survive the call);
+   `isStrictEqual::sets_1270` (sets erase via a sorted-collect *temp*, so no binding
+   to key on); `isShallowEqual::{arrays_of_arrays, objects_of_arrays}` (inner/nested
+   arrays); `isIncludedIn` data-last (identity through extraction); `reduce`/`mapWithFeedback`
+   (accumulator identity through callbacks). These need a true id-bearing list value
+   (option 2a) or per-path identity preservation, not binding-level keying.
+3. Sets and typed arrays (uint8) ride on the same list-identity mechanism — but note
+   sets erase through a sorted-collect temp (see above), so the binding-level fix
+   does not reach them; they need the value-level id.
 
 ### Risk / gating
 Very high blast radius (list backing touches nearly all list codegen). Roll out
