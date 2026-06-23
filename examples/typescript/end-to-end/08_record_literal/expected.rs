@@ -3,7 +3,7 @@
 
 fn main() {
     let _smelt_tmp_1: ::std::collections::HashMap<String, f64> = ::std::collections::HashMap::from([("ada".to_owned(), 10.0), ("grace".to_owned(), 20.0)]);
-    let scores: ::std::collections::HashMap<String, f64> = _smelt_tmp_1.clone();
+    let scores: ::std::collections::HashMap<String, f64> = _smelt_tmp_1;
     let _ = { println!("{}", scores.get(&"ada".to_owned()).cloned().expect("missing field").clone()); };
     return;
 }

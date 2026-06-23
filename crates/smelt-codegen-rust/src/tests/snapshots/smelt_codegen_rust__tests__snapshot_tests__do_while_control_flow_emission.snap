@@ -16,17 +16,17 @@ fn first_outside(value: f64) -> f64 {
     loop {
     if !(true) { break; }
     previous = current.clone();
-    _smelt_tmp_3 = current.clone() - 1.0;
-    current = _smelt_tmp_3.clone();
+    _smelt_tmp_3 = current - 1.0;
+    current = _smelt_tmp_3;
     _smelt_tmp_4 = current.clone() > 0.0;
-    _smelt_tmp_5 = !(_smelt_tmp_4.clone());
+    _smelt_tmp_5 = !(_smelt_tmp_4);
     if _smelt_tmp_5.clone() {
     break;
     } else {
     continue;
     }
     }
-    return previous.clone();
+    return previous;
 }
 
 fn main() {

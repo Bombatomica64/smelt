@@ -10,11 +10,11 @@ fn main() {
     loop {
     _smelt_tmp_2 = i.clone() < 4.0;
     if !(_smelt_tmp_2.clone()) { break; }
-    _smelt_tmp_3 = sum.clone() + i.clone();
-    sum = _smelt_tmp_3.clone();
-    _smelt_tmp_4 = i.clone() + 1.0;
-    i = _smelt_tmp_4.clone();
+    _smelt_tmp_3 = sum + i.clone();
+    sum = _smelt_tmp_3;
+    _smelt_tmp_4 = i + 1.0;
+    i = _smelt_tmp_4;
     }
-    let _ = { println!("{}", sum.clone()); };
+    let _ = { println!("{}", sum); };
     return;
 }

@@ -3,7 +3,7 @@
 
 fn main() {
     let _smelt_tmp_1: (String, f64) = ("age".to_owned(), 42.0);
-    let pair: (String, f64) = _smelt_tmp_1.clone();
-    let _ = { println!("{:?}", pair.clone()); };
+    let pair: (String, f64) = _smelt_tmp_1;
+    let _ = { println!("{:?}", pair); };
     return;
 }

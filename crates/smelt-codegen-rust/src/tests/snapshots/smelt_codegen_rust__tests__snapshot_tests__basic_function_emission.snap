@@ -9,12 +9,12 @@ expression: emitted
 
 fn add(left: f64, right: f64) -> f64 {
     let _smelt_tmp_2: f64 = left.clone() + right.clone();
-    return _smelt_tmp_2.clone();
+    return _smelt_tmp_2;
 }
 
 fn main() {
     let total: f64;
     let _smelt_tmp_1: f64 = add(2.0, 3.0);
-    total = _smelt_tmp_1.clone();
+    total = _smelt_tmp_1;
     return;
 }

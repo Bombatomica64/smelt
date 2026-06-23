@@ -25,6 +25,6 @@ fn main() {
     let _smelt_tmp_2 = make_adder(5).clone();
     adder = _smelt_tmp_2.clone();
     _smelt_tmp_3 = (adder)(6);
-    result = _smelt_tmp_3.clone();
+    result = _smelt_tmp_3;
     return;
 }

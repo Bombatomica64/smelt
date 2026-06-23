@@ -15,17 +15,17 @@ fn main (FuncId(0)) -> None
     %2 = copy %0 < 6.0
     switch copy %2 ? bb2 : bb3
   bb2:
-    %3 = copy %0 + 1.0
-    %0 = copy %3
+    %3 = move %0 + 1.0
+    %0 = move %3
     %4 = copy %0 == 2.0
     switch copy %4 ? bb4 : bb5
   bb3:
-    %6 = call @console_log(copy %1) -> bb6
+    %6 = call @console_log(move %1) -> bb6
   bb4:
     goto bb1
   bb5:
-    %5 = copy %1 + copy %0
-    %1 = copy %5
+    %5 = move %1 + copy %0
+    %1 = move %5
     goto bb1
   bb6:
     return none

@@ -7,9 +7,9 @@ expression: emitted
 
 fn contains() -> bool {
     let _smelt_tmp_1: Vec<f64> = vec![1.0, 2.0];
-    let values: Vec<f64> = _smelt_tmp_1.clone();
-    let _smelt_tmp_2: bool = values.clone().iter().any(|value| *value == 2.0);
-    return _smelt_tmp_2.clone();
+    let values: Vec<f64> = _smelt_tmp_1;
+    let _smelt_tmp_2: bool = values.iter().any(|value| *value == 2.0);
+    return _smelt_tmp_2;
 }
 
 fn main() {

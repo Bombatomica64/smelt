@@ -6,7 +6,7 @@ fn main (FuncId(0)) -> None
   bb0:
     %0 = 7.0
     %1 = copy %0
-    %2 = call @console_log(copy %0) -> bb1
+    %2 = call @console_log(move %0) -> bb1
   bb1:
     return none
 

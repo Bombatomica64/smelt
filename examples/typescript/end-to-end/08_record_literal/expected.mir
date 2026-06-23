@@ -5,7 +5,7 @@ fn main (FuncId(0)) -> None
     %2 temp: None
   bb0:
     %1 = {"ada": 10.0, "grace": 20.0}
-    %0 = copy %1
+    %0 = move %1
     %2 = call @console_log(copy %0.field1) -> bb1
   bb1:
     return none

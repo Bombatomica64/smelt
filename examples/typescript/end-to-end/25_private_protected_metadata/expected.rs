@@ -11,9 +11,9 @@ struct Secret {
 fn main() {
     let mut secret: Secret;
     let mut _smelt_tmp_1: Secret = Secret::new("s".to_owned(), 1.0);
-    secret = _smelt_tmp_1.clone();
+    secret = _smelt_tmp_1;
     let _smelt_tmp_2: String = secret.reveal();
-    let _ = { println!("{}", _smelt_tmp_2.clone()); };
+    let _ = { println!("{}", _smelt_tmp_2); };
     return;
 }
 

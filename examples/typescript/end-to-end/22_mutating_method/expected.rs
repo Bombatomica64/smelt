@@ -10,9 +10,9 @@ struct Counter {
 fn main() {
     let mut counter: Counter;
     let mut _smelt_tmp_1: Counter = Counter::new(4.0);
-    counter = _smelt_tmp_1.clone();
+    counter = _smelt_tmp_1;
     let _smelt_tmp_2: f64 = counter.inc(3.0);
-    let _ = { println!("{}", _smelt_tmp_2.clone()); };
+    let _ = { println!("{}", _smelt_tmp_2); };
     return;
 }
 
@@ -24,7 +24,7 @@ impl Counter {
     }
     fn inc(&mut self, delta: f64) -> f64 {
     let _smelt_tmp_2: f64 = self.value.clone() + delta.clone();
-    self.value = _smelt_tmp_2.clone();
+    self.value = _smelt_tmp_2;
     return self.value.clone();
     }
 }

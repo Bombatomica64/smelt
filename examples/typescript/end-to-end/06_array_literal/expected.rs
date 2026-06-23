@@ -3,7 +3,7 @@
 
 fn main() {
     let _smelt_tmp_1: Vec<f64> = vec![1.0, 2.0, 3.0];
-    let values: Vec<f64> = _smelt_tmp_1.clone();
-    let _ = { println!("{:?}", values.clone()); };
+    let values: Vec<f64> = _smelt_tmp_1;
+    let _ = { println!("{:?}", values); };
     return;
 }

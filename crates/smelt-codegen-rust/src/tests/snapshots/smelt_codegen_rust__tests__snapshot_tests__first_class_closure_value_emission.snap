@@ -9,7 +9,7 @@ expression: emitted
 
 fn make_adder(base: f64) -> ::std::rc::Rc<dyn Fn(f64) -> f64> {
     let _smelt_tmp_2: f64 = base.clone() + 1.0;
-    let offset: f64 = _smelt_tmp_2.clone();
+    let offset: f64 = _smelt_tmp_2;
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let offset = offset.clone();
     move |closure_arg_0: f64| {
@@ -27,6 +27,6 @@ fn main() {
     let _smelt_tmp_2 = make_adder(2.0).clone();
     adder = { let smelt_fn = _smelt_tmp_2.clone(); ::std::rc::Rc::new(move |arg0: f64| -> f64 { (smelt_fn)(arg0).smelt_into_f64() }) };
     _smelt_tmp_3 = (adder)(3.0);
-    result = _smelt_tmp_3.clone();
+    result = _smelt_tmp_3;
     return;
 }

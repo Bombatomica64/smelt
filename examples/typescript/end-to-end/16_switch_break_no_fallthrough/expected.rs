@@ -15,6 +15,6 @@ fn main() {
     label = "other".to_owned();
         }
     }
-    let _ = { println!("{}", label.clone()); };
+    let _ = { println!("{}", label); };
     return;
 }

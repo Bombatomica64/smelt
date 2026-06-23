@@ -24,7 +24,7 @@ fn zip(first: Vec<SmeltUnknown>, second: Vec<SmeltUnknown>, fn_: &dyn Fn(SmeltUn
     _smelt_tmp_6.clone()
     }
 }); let smelt_array = first.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() };
-    return _smelt_tmp_4.clone();
+    return _smelt_tmp_4;
 }
 
 fn main() {

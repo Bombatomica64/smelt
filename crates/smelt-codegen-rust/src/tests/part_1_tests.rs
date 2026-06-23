@@ -8,7 +8,7 @@ fn emits_main_with_console_log() {
 
     assert!(source.contains("fn main() {"));
     assert!(source.contains("let count: f64 = 42.0;"));
-    assert!(source.contains("let _ = { println!(\"{}\", count.clone()); };"));
+    assert!(source.contains("let _ = { println!(\"{}\", count); };"));
 }
 
 #[test]
@@ -472,9 +472,9 @@ const text = whole.toString();
 "#,
     );
 
-    assert!(source.contains("value.clone() / 1000.0;"));
-    assert!(source.contains("_smelt_tmp_3.clone().trunc();"));
-    assert!(source.contains("whole.clone().to_string();"));
+    assert!(source.contains("value / 1000.0;"));
+    assert!(source.contains("_smelt_tmp_3.trunc();"));
+    assert!(source.contains("whole.to_string();"));
     assert!(!source.contains("= 0_i64;"));
     assert!(!source.contains("= 0.0;"));
 }
@@ -540,7 +540,9 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
         "{source}"
     );
     assert!(source.contains("let mut mutable_total"));
-    assert!(source.contains("mutable_total.clone() +"));
+    // The accumulator's old value is dead after the read (the next statement
+    // reassigns it), so move-on-last-use drops the clone.
+    assert!(source.contains("mutable_total +"));
     assert!(source.contains("mutable_total ="));
 }
 

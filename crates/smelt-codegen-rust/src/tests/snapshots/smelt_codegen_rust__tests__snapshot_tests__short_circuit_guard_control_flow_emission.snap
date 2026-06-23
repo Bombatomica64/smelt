@@ -18,23 +18,23 @@ fn count(a: bool, b: bool) -> f64 {
     let _smelt_tmp_7: bool;
     let _smelt_tmp_8: f64;
     let _smelt_tmp_3: bool = valid(a.clone());
-    _smelt_tmp_4 = !(_smelt_tmp_3.clone());
+    _smelt_tmp_4 = !(_smelt_tmp_3);
     if _smelt_tmp_4.clone() {
     _smelt_tmp_5 = true;
     } else {
     let _smelt_tmp_6: bool = valid(b.clone());
-    _smelt_tmp_7 = !(_smelt_tmp_6.clone());
-    _smelt_tmp_5 = _smelt_tmp_7.clone();
+    _smelt_tmp_7 = !(_smelt_tmp_6);
+    _smelt_tmp_5 = _smelt_tmp_7;
     }
     if _smelt_tmp_5.clone() {
     return f64::NAN;
     } else {
     result = 0.0;
     if a.clone() {
-    _smelt_tmp_8 = result.clone() + 1.0;
-    result = _smelt_tmp_8.clone();
+    _smelt_tmp_8 = result + 1.0;
+    result = _smelt_tmp_8;
     }
-    return result.clone();
+    return result;
     }
 }
 

@@ -9,7 +9,7 @@ expression: emitted
 
 fn erase(value: f64) -> SmeltUnknown {
     let _smelt_tmp_1: SmeltUnknown = SmeltUnknown::Number(value.clone() as f64);
-    return _smelt_tmp_1.clone();
+    return _smelt_tmp_1;
 }
 
 fn main() {
