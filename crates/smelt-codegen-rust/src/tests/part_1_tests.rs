@@ -354,7 +354,8 @@ const total = sum(2, 3, 4);
 "#,
     );
 
-    assert!(source.contains("fn sum(values: Vec<f64>) -> f64"));
+    // `values` is only read, so borrow-instead-of-clone passes it as `&Vec`.
+    assert!(source.contains("fn sum(values: &Vec<f64>) -> f64"));
     assert!(source.contains("vec![2.0, 3.0, 4.0]"));
 }
 

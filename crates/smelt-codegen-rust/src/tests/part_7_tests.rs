@@ -922,7 +922,7 @@ const defaulted = throttle(() => {});
         "{source}"
     );
     assert!(
-        source.contains(", 1.0, _smelt_tmp_3)"),
+        source.contains(", 1.0, &_smelt_tmp_3)"),
         "explicit object argument should remain in the call: {source}"
     );
 }
@@ -1703,7 +1703,7 @@ function passthrough(values: readonly unknown[]): readonly unknown[] {
     assert!(source.contains("pub enum SmeltUnknown"));
     assert!(source.contains("String(String),"));
     assert!(source.contains("fn identity(value: SmeltUnknown) -> SmeltUnknown"));
-    assert!(source.contains("fn passthrough(values: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>"));
+    assert!(source.contains("fn passthrough(values: &Vec<SmeltUnknown>) -> Vec<SmeltUnknown>"));
 }
 
 #[test]
@@ -3755,7 +3755,7 @@ def read(values: dict[str, Optional[int]]) -> Optional[int]:
     );
 
     assert!(
-        source.contains("values: ::std::collections::HashMap<String, Option<i64>>"),
+        source.contains("values: &::std::collections::HashMap<String, Option<i64>>"),
         "{source}"
     );
     assert!(!source.contains("Option<Option<i64>>"), "{source}");

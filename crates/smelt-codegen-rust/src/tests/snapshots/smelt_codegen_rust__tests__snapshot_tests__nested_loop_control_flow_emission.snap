@@ -7,7 +7,7 @@ expression: emitted
 
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
-fn collect(values: Vec<f64>, flags: Vec<bool>) -> f64 {
+fn collect(values: &Vec<f64>, flags: &Vec<bool>) -> f64 {
     let mut value: f64;
     let mut _smelt_tmp_5: f64;
     let mut _smelt_tmp_6: bool;

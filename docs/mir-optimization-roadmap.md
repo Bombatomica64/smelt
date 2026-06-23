@@ -125,12 +125,36 @@ allocations rustc cannot (e.g. `counter = _smelt_tmp_1;` moving an owned struct,
 **Verification:** golden `expected.rs` diffs (e.g. `22_mutating_method` should
 lose its movable clones), plus MIR `validate` still passing.
 
-### Pass 2 — Borrow-instead-of-clone for arguments
+### Pass 2 — Borrow-instead-of-clone for arguments — *done*
 
-When a callee only *reads* a parameter, change its ABI to `&T` and drop the
-clone at call sites. Needs Pass 1's liveness plus a per-function
-"param is read-only" summary. Touches signatures → emits changes, so it lands
-after Pass 1 is stable.
+When a free function only *reads* a collection parameter, its ABI becomes `&T`
+and call sites pass `&arg` instead of cloning the whole collection. This is a
+*codegen* analysis (not a MIR pass): it reuses the existing `&mut T` machinery
+(`parameter_needs_mutable_reference` emits `&mut T` for mutated reference-type
+params; the call sites already pass references). Pass 2 adds the read-only
+sibling `parameter_can_be_shared_reference` (`emitter/core.rs`) plus the `&T`
+signature branch (`parameter_decl_type_text`) and `shared_reference_argument_text`
+at the static-call arg sites (`emitter/call.rs`).
+
+**Scope / guards (conservative v1):**
+
+- Free functions only (`HirOrigin::Body`). Methods/constructors route args
+  through a different path; a free function's `FuncId` can only appear as a
+  `Callee::Static` (bare item expressions are rejected in value position during
+  lowering), so a free function can never be a first-class value — changing its
+  ABI is observed at every call site, making it sound.
+- Collection params only (`List`/`Set`/`Dict`). Their reads work through `&T`
+  and their mutations are already caught by `parameter_needs_mutable_reference`.
+  `Class` params are excluded for now because a mutating method call on the
+  receiver is not yet recognised as requiring `&mut` (follow-up).
+- Mutated params keep `&mut T`; the two analyses are mutually exclusive.
+- `shared_reference_argument_text` forwards a reference parameter through
+  without re-borrowing (a `&mut T` reborrows to `&T`; a `&T` passes as-is).
+
+The body needs no changes: reads via projections/methods work on `&T`, and a
+whole-value `Operand::Copy` still emits `.clone()` (correct). The win is purely
+at the call site — a value used by several callees is borrowed, not cloned per
+call.
 
 ### Pass 3 — `Rc<RefCell<T>>` → owned `T`
 

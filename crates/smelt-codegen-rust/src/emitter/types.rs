@@ -479,6 +479,9 @@ impl FunctionEmitter<'_> {
                 self.type_text_with_impl_trait(ty, false)?
             ));
         }
+        if self.parameter_can_be_shared_reference(local) {
+            return Ok(format!("&{}", self.type_text_with_impl_trait(ty, false)?));
+        }
         if matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
             if !self.function_parameter_requires_owned(local)? {
                 return self.param_type_text(ty);

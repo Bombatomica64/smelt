@@ -301,9 +301,9 @@ chosen: int = pick(value=5, **extras)
 "#,
     );
 
-    assert!(source.contains("fn sum_values(values: Vec<i64>) -> i64"));
+    assert!(source.contains("fn sum_values(values: &Vec<i64>) -> i64"));
     assert!(source.contains("vec![2, 3, 4]"));
-    assert!(source.contains("fn pick(kwargs: ::std::collections::HashMap<String, i64>) -> i64"));
+    assert!(source.contains("fn pick(kwargs: &::std::collections::HashMap<String, i64>) -> i64"));
     assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
     assert!(source.contains("assigned.extend"));
 }

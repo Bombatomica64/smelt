@@ -7,7 +7,7 @@ expression: emitted
 
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
-fn zip(first: Vec<SmeltUnknown>, second: Vec<SmeltUnknown>, fn_: &dyn Fn(SmeltUnknown, SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown) -> Vec<SmeltUnknown> {
+fn zip(first: &Vec<SmeltUnknown>, second: &Vec<SmeltUnknown>, fn_: &dyn Fn(SmeltUnknown, SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown) -> Vec<SmeltUnknown> {
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let mut first = first.clone();
     let mut second = second.clone();

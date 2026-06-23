@@ -948,6 +948,97 @@ impl<'mir> FunctionEmitter<'mir> {
         result
     }
 
+    /// Returns whether a parameter type is a collection worth borrowing as `&T`.
+    ///
+    /// Restricted to `List`/`Set`/`Dict`: their read operations (`len`, indexing,
+    /// iteration) work through a shared reference, and their mutations are
+    /// already detected by [`Self::parameter_needs_mutable_reference_in`]. Class
+    /// parameters are intentionally excluded for now because a mutating method
+    /// call on the receiver is not yet recognised as requiring `&mut`.
+    pub(super) fn parameter_type_is_borrowable_collection(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _))
+        )
+    }
+
+    /// Returns whether a free-function parameter can be passed by shared reference.
+    ///
+    /// Source languages pass objects by reference, so HIR-to-MIR lowering hands a
+    /// collection argument to a function by owned value and the caller clones the
+    /// whole collection. When the callee never mutates that parameter we can
+    /// borrow it as `&T` instead, eliminating the caller-side clone.
+    ///
+    /// This mirrors [`Self::parameter_needs_mutable_reference`] (which emits
+    /// `&mut T` for mutated parameters); the two are mutually exclusive. It is
+    /// limited to free functions (`HirOrigin::Body`): methods and constructors
+    /// route arguments through a different emission path, and a free function's
+    /// `FuncId` can only appear as a `Callee::Static` (item expressions are
+    /// rejected in value position during lowering), so the new ABI is observed
+    /// at every call site.
+    pub(super) fn parameter_can_be_shared_reference(&self, local: LocalId) -> bool {
+        self.parameter_can_be_shared_reference_in(self.function, local)
+    }
+
+    /// See [`Self::parameter_can_be_shared_reference`]; resolves against `function`.
+    pub(super) fn parameter_can_be_shared_reference_in(
+        &self,
+        function: &MirFunction,
+        local: LocalId,
+    ) -> bool {
+        if !matches!(function.origin, HirOrigin::Body(_)) {
+            return false;
+        }
+        // Async functions return a future that would borrow the parameter across
+        // every `.await`, which does not type-check at the call site; keep their
+        // collection parameters owned.
+        if function.is_async {
+            return false;
+        }
+        if !function.params.contains(&local) {
+            return false;
+        }
+        let Ok(decl) = self.function_local_decl(function, local) else {
+            return false;
+        };
+        if !self.parameter_type_is_borrowable_collection(decl.ty) {
+            return false;
+        }
+        !self.parameter_needs_mutable_reference_in(function, local)
+    }
+
+    /// Renders an argument for a shared-reference collection parameter.
+    ///
+    /// Emits `&value`, except when the argument is itself a reference parameter
+    /// of the current function: a `&mut T` reborrows to `&T` and a `&T` is
+    /// forwarded as-is, so the place is passed through without re-borrowing.
+    pub(super) fn shared_reference_argument_text(
+        &self,
+        operand: &Operand,
+        target: TypeId,
+    ) -> Result<String, EmitError> {
+        if let Operand::Copy(place) | Operand::Move(place) = operand
+            && let Place::Local(local) = place
+            && self.function.id.0 != u32::MAX
+            && self.function.params.contains(local)
+            && (self.parameter_needs_mutable_reference(*local)
+                || self.parameter_can_be_shared_reference(*local))
+        {
+            return self.place_text(place);
+        }
+        let text = match operand {
+            Operand::Copy(place) | Operand::Move(place) => {
+                if self.place_ty(place)? == target {
+                    self.place_text(place)?
+                } else {
+                    self.value_at_type(operand, target)?
+                }
+            }
+            Operand::Const(_) => self.value_at_type(operand, target)?,
+        };
+        Ok(format!("&{text}"))
+    }
+
     /// Renders an argument for a mutable-reference collection parameter.
     pub(super) fn mutable_reference_argument_text(
         &self,

@@ -437,6 +437,8 @@ impl FunctionEmitter<'_> {
                             )?);
                         } else if self.parameter_needs_mutable_reference_in(function, param) {
                             rendered_args.push(self.mutable_reference_argument_text(arg, target_ty)?);
+                        } else if self.parameter_can_be_shared_reference_in(function, param) {
+                            rendered_args.push(self.shared_reference_argument_text(arg, target_ty)?);
                         } else {
                             rendered_args.push(self.value_at_type(arg, target_ty)?);
                         }
@@ -488,6 +490,11 @@ impl FunctionEmitter<'_> {
                             self.parameter_needs_mutable_reference_in(function, target_param)
                         }) {
                             return self.mutable_reference_argument_text(arg, target_ty);
+                        }
+                        if param.is_some_and(|target_param| {
+                            self.parameter_can_be_shared_reference_in(function, target_param)
+                        }) {
+                            return self.shared_reference_argument_text(arg, target_ty);
                         }
                         if matches!(
                             self.mir.types.get(self.operand_ty(arg)?),

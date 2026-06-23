@@ -526,3 +526,48 @@ export function nextHour(): number {
         "setHours must preserve JavaScript overflow semantics: {source}"
     );
 }
+
+#[test]
+fn borrows_read_only_collection_parameter_instead_of_cloning() {
+    let source = source_for(
+        "function total(xs: number[]): number {
+  let sum = 0;
+  for (const x of xs) {
+    sum = sum + x;
+  }
+  return sum;
+}
+const values: number[] = [1, 2, 3];
+const first = total(values);
+const second = total(values);
+console.log(first + second);
+",
+    );
+
+    // `xs` is only read, so the free function takes a shared borrow and both
+    // call sites pass `&values` rather than cloning the whole vector.
+    assert!(
+        source.contains("fn total(xs: &Vec<f64>) -> f64"),
+        "{source}"
+    );
+    assert!(source.contains("total(&values)"), "{source}");
+    assert!(
+        !source.contains("total(values.clone())"),
+        "the read-only list argument must not be cloned: {source}"
+    );
+}
+
+#[test]
+fn keeps_scalar_parameters_owned() {
+    let source = source_for(
+        "function add(a: number, b: number): number {
+  return a + b;
+}
+const result = add(2, 3);
+console.log(result);
+",
+    );
+
+    // Borrowing only applies to collections; scalar parameters stay owned `f64`.
+    assert!(source.contains("fn add(a: f64, b: f64) -> f64"), "{source}");
+}

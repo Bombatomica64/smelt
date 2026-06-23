@@ -7,7 +7,7 @@ expression: emitted
 
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
-fn plus_one(values: Vec<f64>) -> Vec<f64> {
+fn plus_one(values: &Vec<f64>) -> Vec<f64> {
     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: Vec<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + 1.0;
     _smelt_tmp_3.clone()
@@ -19,7 +19,7 @@ fn plus_one(values: Vec<f64>) -> Vec<f64> {
     return _smelt_tmp_2;
 }
 
-fn lower(values: Vec<String>) -> Vec<String> {
+fn lower(values: &Vec<String>) -> Vec<String> {
     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: Vec<String>| {
     let _smelt_tmp_3: SmeltUnknown = SmeltUnknown::String(closure_arg_0.clone().to_lowercase());
     _smelt_tmp_3.clone()
@@ -31,7 +31,7 @@ fn lower(values: Vec<String>) -> Vec<String> {
     return _smelt_tmp_2.into_iter().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }).collect::<Vec<_>>();
 }
 
-fn spread(values: Vec<f64>, args: Vec<f64>, func: &dyn Fn(Vec<f64>) -> f64) -> Vec<f64> {
+fn spread(values: &Vec<f64>, args: &Vec<f64>, func: &dyn Fn(Vec<f64>) -> f64) -> Vec<f64> {
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let mut args = args.clone();
     move |closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: Vec<f64>| {
@@ -53,7 +53,7 @@ fn spread(values: Vec<f64>, args: Vec<f64>, func: &dyn Fn(Vec<f64>) -> f64) -> V
     return _smelt_tmp_4;
 }
 
-fn collect_indices(values: Vec<f64>) -> Vec<f64> {
+fn collect_indices(values: &Vec<f64>) -> Vec<f64> {
     let mut _value: f64;
     let mut index: f64;
     let mut _smelt_tmp_7: f64;
@@ -78,7 +78,7 @@ fn collect_indices(values: Vec<f64>) -> Vec<f64> {
     return indices;
 }
 
-fn iso(values: Vec<SmeltUnknown>) -> Vec<String> {
+fn iso(values: &Vec<SmeltUnknown>) -> Vec<String> {
     let _smelt_tmp_1 = ::std::rc::Rc::new(|mut closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: Vec<SmeltUnknown>| {
     let _smelt_tmp_3: String = (closure_arg_0.clone()).to_iso_string();
     let _smelt_tmp_4: SmeltUnknown = SmeltUnknown::String(_smelt_tmp_3.clone());
