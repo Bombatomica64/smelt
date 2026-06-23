@@ -4081,3 +4081,127 @@ function partitionLike(values: number[]): [number[], number[]] {
     assert!(source.contains("result.0 ="), "{source}");
     assert!(source.contains("result.1 ="), "{source}");
 }
+
+#[test]
+fn function_item_value_references_share_one_accessor() {
+    // JavaScript reference identity requires every reference to the same named
+    // function value to be the SAME runtime value. The frontend wraps a
+    // function item used as a value in a fresh forwarding closure per
+    // reference, so the two `func1` arguments below each lower to their own
+    // `ExprKind::Closure`. Both wrappers are tagged with the same source item,
+    // so when they are erased to `SmeltUnknown` codegen must route them through
+    // one per-item compile-time accessor `__smelt_fn_value_<key>()` with a
+    // shared key, and emit that accessor (with its `OnceCell` cache) exactly
+    // once for the crate.
+    let source = source_for(
+        r"
+function func1(): void {}
+function takesTwo(a: unknown, b: unknown): boolean { return true; }
+const r = takesTwo(func1, func1);
+",
+    );
+
+    // Both func1 arguments live in `fn main`; both must call the SAME accessor.
+    // Scope the call-count to the `main` body only (up to the accessor's own
+    // definition, which is appended after the function loop) so the definition's
+    // `fn __smelt_fn_value_<key>()` header is not miscounted as a call site.
+    let main_body = source
+        .split_once("fn main")
+        .map(|(_prelude, body)| body)
+        .and_then(|body| body.split_once("\nfn __smelt_fn_value_"))
+        .map(|(main_body, _accessors)| main_body)
+        .expect("emitted source has a main function and an accessor definition");
+    let first_call = main_body
+        .match_indices("__smelt_fn_value_")
+        .next()
+        .map(|(index, _)| index)
+        .expect("a function-item value accessor call is emitted");
+    let key = main_body[first_call + "__smelt_fn_value_".len()..]
+        .split('(')
+        .next()
+        .map(str::to_owned)
+        .expect("the accessor call has a key");
+    let accessor_call = format!("__smelt_fn_value_{key}()");
+    let call_count = main_body.matches(&accessor_call).count();
+    assert_eq!(
+        call_count, 2,
+        "both func1 references must call the same accessor {accessor_call}; got {call_count}\n{source}"
+    );
+
+    // The accessor must be defined exactly once, lazily caching ONE erased
+    // `SmeltUnknown::Function` value behind a `OnceCell`.
+    let definition = format!("fn __smelt_fn_value_{key}() -> SmeltUnknown {{");
+    assert_eq!(
+        source.matches(&definition).count(),
+        1,
+        "the accessor must be defined exactly once\n{source}"
+    );
+    let accessor_def = source
+        .split_once(&definition)
+        .map(|(_, tail)| tail)
+        .expect("the accessor definition is emitted");
+    assert!(
+        accessor_def.contains("::std::cell::OnceCell"),
+        "the accessor must cache its value in a OnceCell\n{source}"
+    );
+    assert!(
+        accessor_def.contains("SmeltUnknown::Function"),
+        "the accessor must build an erased SmeltUnknown::Function value\n{source}"
+    );
+
+    // The old runtime cache helper must be gone entirely.
+    assert!(
+        !source.contains("smelt_function_item_value"),
+        "the removed runtime cache helper must not be emitted\n{source}"
+    );
+}
+
+#[test]
+fn user_arrow_does_not_route_through_an_accessor() {
+    // A user-written arrow is NOT a bare function-item-as-value wrapper. It must
+    // keep JavaScript's fresh identity (a new closure value each evaluation), so
+    // erasing it to `SmeltUnknown` must NOT route it through a per-item
+    // accessor; it keeps its plain per-reference erased wrapper.
+    let source = source_for(
+        r"
+function takesOne(a: unknown): boolean { return true; }
+const g = (x: unknown) => x;
+const r = takesOne(g);
+",
+    );
+
+    assert!(
+        !source.contains("__smelt_fn_value_"),
+        "a user arrow must not route through a function-item value accessor\n{source}"
+    );
+}
+
+#[test]
+fn user_arrow_forwarding_a_function_emits_no_accessor() {
+    // When a user arrow forwards to a named function (`(x) => func1(x)`), the
+    // arrow itself stays a fresh closure value and the inner `func1(x)` is a
+    // direct typed call, not a function-item-as-value wrapper erased to
+    // `SmeltUnknown`. Identity is only stabilized at the erase site, so no
+    // per-item accessor is emitted for this shape.
+    let source = source_for(
+        r"
+function func1(x: number): number { return x; }
+function takesOne(a: (value: number) => number): boolean { return true; }
+const r = takesOne((x) => func1(x));
+",
+    );
+
+    let body = source
+        .split_once("fn main")
+        .map(|(_prelude, body)| body)
+        .expect("emitted source has a main function");
+    assert!(
+        !source.contains("__smelt_fn_value_"),
+        "no function-item value accessor should be emitted for a forwarding arrow\n{source}"
+    );
+    // The outer arrow is still a plain closure value.
+    assert!(
+        body.contains("::std::rc::Rc::new(|closure_arg_0"),
+        "the user arrow must remain a plain closure value\n{source}"
+    );
+}

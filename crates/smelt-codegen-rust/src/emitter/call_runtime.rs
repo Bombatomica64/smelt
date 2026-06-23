@@ -702,7 +702,15 @@ impl FunctionEmitter<'_> {
                 {
                     return self.default_value(dest_ty);
                 }
-                self.closure_text_for_type(*id, dest_ty)
+                // Emit the closure value directly at its destination type.
+                //
+                // A bare function-item-as-value wrapper still carries a stable
+                // `function_item_key`, but reference identity is now preserved at
+                // the ERASE site (see `coercion::erase`), which routes erased
+                // function-item references through a per-item accessor. Here, in
+                // typed context, identity does not matter, so this arm emits the
+                // plain fresh closure regardless of `function_item_key`.
+                Ok(self.closure_text_for_type(*id, dest_ty)?)
             }
             Rvalue::ClosureCall { callee, args } => {
                 let callee_ty = self.operand_ty(callee)?;

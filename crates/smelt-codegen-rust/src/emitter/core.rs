@@ -3376,37 +3376,81 @@ impl<'mir> FunctionEmitter<'mir> {
         true
     }
 
-    /// Adapts a concrete callback to the erased JavaScript callback surface.
-    pub(super) fn rest_vector_unknown_adapter_text(
+    /// If `operand` is a bare function-item-as-value wrapper, return its crate
+    /// unique item cache key and the self-contained erased `SmeltUnknown::Function`
+    /// accessor body for that item.
+    ///
+    /// The body forwards to the function item directly: the wrapper closure has
+    /// no captures and references the free function by name, so the resulting
+    /// expression captures no outer local and can be lifted verbatim into a
+    /// module-level `__smelt_fn_value_<key>()` accessor that caches one shared
+    /// erased value. Returns `None` for any operand that is not a bare function
+    /// item value (e.g. user arrows), so those keep their fresh per-reference
+    /// identity through the ordinary erase path.
+    pub(super) fn function_item_erased_accessor(
         &self,
         operand: &Operand,
-    ) -> Result<Option<String>, EmitError> {
-        let Some(Type::Function(source)) = self.mir.types.get(self.operand_ty(operand)?) else {
+    ) -> Result<Option<(usize, String)>, EmitError> {
+        let Some(local) = operand_local(operand) else {
             return Ok(None);
         };
-        let function_text = self.operand_text(operand)?;
-        let args = self.function_args_from_smelt_args_text(source)?;
-        let needs_owned_callback = matches!(
-            operand,
-            Operand::Copy(place) | Operand::Move(place) if !self.is_function_parameter_place(place)?
-        );
-        let callback_text = if needs_owned_callback {
-            "smelt_callback".to_owned()
-        } else {
-            function_text.clone()
+        let Some(closure_id) = closure_definitions(self.function)?.get(&local).copied() else {
+            return Ok(None);
         };
+        let Some(closure) = self
+            .mir
+            .closures
+            .get(id_index(closure_id.0, "closure index does not fit usize")?)
+        else {
+            return Ok(None);
+        };
+        let Some(key) = closure.function_item_key else {
+            return Ok(None);
+        };
+        let source_ty = self.operand_ty(operand)?;
+        let Some(Type::Function(_)) = self.mir.types.get(source_ty) else {
+            return Ok(None);
+        };
+        // Self-contained typed wrapper that forwards to the function item by name
+        // (no captures, no local reference): `::std::rc::Rc::new(move |..| func1(..))`.
+        let wrapper_text = self.closure_text_for_type(closure_id, source_ty)?;
+        // Erased forwarding closure using `smelt_callback` as the bound source.
+        let inner = self.erased_rest_forwarding_closure_text(source_ty)?;
+        let body =
+            format!("SmeltUnknown::Function({{ let smelt_callback = {wrapper_text}; {inner} }})");
+        Ok(Some((key, body)))
+    }
+
+    /// Build the erased rest-forwarding closure for a function type.
+    ///
+    /// Emits `::std::rc::Rc::new(move |smelt_args| { .. })` that forwards the
+    /// erased `Vec<SmeltUnknown>` argument vector to a callback the caller has
+    /// bound as `smelt_callback: Rc<dyn Fn..>`, then erases the result back into
+    /// `SmeltUnknown`. The closure is self-contained: it references only
+    /// `smelt_callback` and `smelt_args`, never the original operand local, so it
+    /// can be reused both by `rest_vector_unknown_adapter_text` (owned callback
+    /// path) and by the function-item value accessor.
+    ///
+    /// This mirrors the `needs_owned_callback` branch of
+    /// `rest_vector_unknown_adapter_text`: the call is `smelt_callback.call(..)`
+    /// when the source already exposes the erased rest ABI and cannot throw, and
+    /// `(smelt_callback)(..)` otherwise. The `return_text` branches (None-return,
+    /// fieldless class, may-throw, ordinary erase) match that function exactly.
+    pub(super) fn erased_rest_forwarding_closure_text(
+        &self,
+        source_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let Some(Type::Function(source)) = self.mir.types.get(source_ty) else {
+            return Err(EmitError::new(
+                "erased rest forwarding closure requires a function type",
+            ));
+        };
+        let args = self.function_args_from_smelt_args_text(source)?;
         let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
         let call = if source_is_erased {
-            format!("{callback_text}.call({args})")
+            format!("smelt_callback.call({args})")
         } else {
-            match operand {
-                Operand::Copy(place) | Operand::Move(place)
-                    if !self.is_function_parameter_place(place)? =>
-                {
-                    format!("({callback_text})({args})")
-                }
-                _ => format!("{callback_text}({args})"),
-            }
+            format!("(smelt_callback)({args})")
         };
         let null_text = self.null_value_text();
         let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
@@ -3432,13 +3476,71 @@ impl<'mir> FunctionEmitter<'mir> {
             let value = self.erase_value_text(&call, source.return_ty)?;
             format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
         };
-        let closure =
-            format!("::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})");
-        Ok(Some(if needs_owned_callback {
-            format!("{{ let smelt_callback = {function_text}.clone(); {closure} }}")
+        Ok(format!(
+            "::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})"
+        ))
+    }
+
+    /// Adapts a concrete callback to the erased JavaScript callback surface.
+    pub(super) fn rest_vector_unknown_adapter_text(
+        &self,
+        operand: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        let source_ty = self.operand_ty(operand)?;
+        let Some(Type::Function(source)) = self.mir.types.get(source_ty) else {
+            return Ok(None);
+        };
+        let function_text = self.operand_text(operand)?;
+        let needs_owned_callback = matches!(
+            operand,
+            Operand::Copy(place) | Operand::Move(place) if !self.is_function_parameter_place(place)?
+        );
+        if needs_owned_callback {
+            // Bind the callback as `smelt_callback` and reuse the shared erased
+            // forwarding closure builder. The bound name and call shapes match
+            // the original owned-callback code, so the emitted text is identical.
+            let inner = self.erased_rest_forwarding_closure_text(source_ty)?;
+            return Ok(Some(format!(
+                "{{ let smelt_callback = {function_text}.clone(); {inner} }}"
+            )));
+        }
+        // Non-owned (function-parameter) path: invoke the callback by its operand
+        // text directly, with no binding or extra parentheses. Kept inline so the
+        // emitted text remains byte-identical to the previous implementation.
+        let args = self.function_args_from_smelt_args_text(source)?;
+        let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
+        let call = if source_is_erased {
+            format!("{function_text}.call({args})")
         } else {
-            closure
-        }))
+            format!("{function_text}({args})")
+        };
+        let null_text = self.null_value_text();
+        let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
+            if source.may_throw {
+                format!(
+                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
+                )
+            } else {
+                format!(
+                    "{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
+                )
+            }
+        } else if self.class_has_no_known_fields(source.return_ty) {
+            if source.may_throw {
+                call
+            } else {
+                format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call})")
+            }
+        } else if source.may_throw {
+            let value = self.erase_value_text(&format!("{call}?"), source.return_ty)?;
+            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+        } else {
+            let value = self.erase_value_text(&call, source.return_ty)?;
+            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+        };
+        Ok(Some(format!(
+            "::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})"
+        )))
     }
 
     /// Converts a statically typed operand into a tagged `SmeltUnknown` value.

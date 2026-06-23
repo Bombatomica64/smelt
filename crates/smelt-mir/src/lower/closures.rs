@@ -141,6 +141,13 @@ impl LoweringCtx<'_> {
                 .ok_or_else(|| self.error("MIR closure index overflowed usize", Some(expr_span)))?,
         )?;
         let (function, nested_closures) = closure_ctx.lower()?;
+        // Carry the function-item identity tag from HIR so codegen can cache one
+        // runtime wrapper per named function item. The `ItemId` index is a
+        // crate-unique, stable cache key shared by every reference to the item.
+        let function_item_key = closure
+            .function_item
+            .map(|item| usize_from_u32(item.0, "function item id does not fit usize"))
+            .transpose()?;
         self.closures.push(MirClosure {
             id: closure_id,
             params: function.params,
@@ -153,6 +160,7 @@ impl LoweringCtx<'_> {
             entry: function.entry,
             escapes: false,
             can_throw: function.can_throw,
+            function_item_key,
         });
         self.closures.extend(nested_closures);
         let dest = self.push_temp(expr_ty, expr_span);

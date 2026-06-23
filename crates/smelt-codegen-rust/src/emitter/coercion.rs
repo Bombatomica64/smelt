@@ -806,6 +806,22 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Function(_)) => {
+                // A bare function-item-as-value wrapper has a stable item key.
+                // Every reference to the same named function value lowers to its
+                // own closure, so erasing each one inline would build a distinct
+                // `SmeltUnknown::Function` wrapper that compares unequal under
+                // JavaScript reference identity (`===`). Route the erased value
+                // through a per-item accessor so all references share ONE cached
+                // erased value. User arrows have no key and fall through to the
+                // ordinary fresh-erasure logic below.
+                if let Some((key, accessor_body)) = self.function_item_erased_accessor(operand)? {
+                    self.context
+                        .function_item_accessors
+                        .borrow_mut()
+                        .entry(key)
+                        .or_insert(accessor_body);
+                    return Ok(format!("__smelt_fn_value_{key}()"));
+                }
                 if let Some(erased_call) = self.erased_call_assignment_text(operand)? {
                     return Ok(erased_call);
                 }

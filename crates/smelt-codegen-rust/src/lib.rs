@@ -1672,6 +1672,18 @@ fn emit_source_with_free_function_router(
         has_emitted_root_function = true;
     }
 
+    // Flush the per-function-item value accessors collected while erasing
+    // function-item-as-value wrappers to `SmeltUnknown`. Each accessor lazily
+    // builds and caches ONE erased `SmeltUnknown::Function` so that every
+    // reference to the same named function value shares one inner `Rc`, keeping
+    // JavaScript reference identity (`===`) stable across references. Sorted by
+    // item key via the `BTreeMap` for deterministic golden output.
+    for (key, body) in context.function_item_accessors.borrow().iter() {
+        out.push_str(&format!(
+            "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
+        ));
+    }
+
     let mut emitted_impl_names = HashSet::new();
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;

@@ -152,6 +152,15 @@ function double(values: number[]): number[] {
 ",
         },
         Case {
+            name: "function_item_value_identity",
+            area: "closures",
+            source: r"
+function func1(): void {}
+function takesTwo(a: unknown, b: unknown): boolean { return true; }
+const r = takesTwo(func1, func1);
+",
+        },
+        Case {
             name: "callback_cfg_shapes",
             area: "closures",
             source: r"

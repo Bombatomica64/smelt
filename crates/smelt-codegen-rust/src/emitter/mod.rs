@@ -61,6 +61,17 @@ pub(crate) struct EmitContext {
     function_return_types: HashMap<String, TypeId>,
     /// Function parameters that must use an owned callback handle.
     owned_callback_params: HashSet<(FuncId, LocalId)>,
+    /// Per-function-item value accessors collected while erasing
+    /// function-item-as-value wrappers to `SmeltUnknown`.
+    ///
+    /// Maps a crate-unique function item key to the self-contained accessor body
+    /// expression that builds its erased `SmeltUnknown::Function`. After the
+    /// function loop the crate emitter flushes one `__smelt_fn_value_<key>()`
+    /// accessor per entry, each caching a single shared erased value so repeated
+    /// references to the same named function keep JavaScript reference identity.
+    /// A `BTreeMap` keeps the emitted order deterministic for golden tests.
+    pub(crate) function_item_accessors:
+        ::std::cell::RefCell<::std::collections::BTreeMap<usize, String>>,
 }
 
 impl EmitContext {
@@ -143,6 +154,9 @@ impl EmitContext {
             function_param_types,
             function_return_types,
             owned_callback_params,
+            function_item_accessors: ::std::cell::RefCell::new(
+                ::std::collections::BTreeMap::new(),
+            ),
         })
     }
 }

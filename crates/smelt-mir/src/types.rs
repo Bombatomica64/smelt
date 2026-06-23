@@ -136,6 +136,17 @@ pub struct MirClosure {
     pub escapes: bool,
     /// Whether this closure can return through a source-language throw.
     pub can_throw: bool,
+    /// Stable per-function-item key when this closure is a bare
+    /// function-item-as-value wrapper, else `None`.
+    ///
+    /// Carried over from `ClosureExpr::function_item` (the source `ItemId`
+    /// index). When such a wrapper is erased to `SmeltUnknown`, codegen routes
+    /// it through a per-item compile-time accessor (`__smelt_fn_value_<key>()`)
+    /// that lazily builds and caches one shared erased value, so all references
+    /// to the same named function compare equal under JavaScript reference
+    /// identity (`===`). The `ItemId` index is crate-unique, so it is a safe
+    /// accessor key across all references.
+    pub function_item_key: Option<usize>,
 }
 
 /// One explicit MIR closure capture.
