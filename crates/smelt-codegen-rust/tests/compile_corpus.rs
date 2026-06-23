@@ -132,6 +132,31 @@ function erase(value: number): unknown {
 }
 ",
         },
+        Case {
+            name: "erased_function_coercion",
+            area: "smelt_unknown",
+            source: r"
+function eraseCallback(callback: (value: number) => number): unknown {
+  return callback as unknown;
+}
+",
+        },
+        // Exercises the origin-registering `erase_value` `Type::Function` arm
+        // (a dict-of-functions erased to `unknown`), which now routes wrapper
+        // construction through the `smelt_erase_function_identity` reference
+        // identity cache. Keeps that emitted form covered by `cargo check`.
+        Case {
+            name: "erased_function_table_identity",
+            area: "smelt_unknown",
+            source: r"
+function eraseTable(): unknown {
+  const table: Record<string, (value: number) => number> = {
+    a: (value: number) => value + 1,
+  };
+  return table as unknown;
+}
+",
+        },
         // --- nested closures / callbacks -------------------------------------
         Case {
             name: "closure_capture",

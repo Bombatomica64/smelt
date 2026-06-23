@@ -430,6 +430,30 @@ fn emit_source_with_free_function_router(
         writer.line("    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
         writer.line("}");
         writer.blank_line();
+        writer.line("thread_local! {");
+        writer.line("    static SMELT_ERASED_FUNCTION_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Erase a typed callback to `SmeltUnknown::Function` with stable JS reference identity.");
+        writer.line("///");
+        writer.line("/// `source_key` is the address of the source callback `Rc` (`Rc::as_ptr(..) as usize`).");
+        writer.line("/// JavaScript `===` on functions is reference identity, but each erasure would");
+        writer.line("/// otherwise build a fresh wrapper `Rc`, so re-erasing the same source callback");
+        writer.line("/// would compare unequal under `Rc::ptr_eq`. We memoize the erased value per");
+        writer.line("/// source address: the first erasure runs `build` (which also registers the typed");
+        writer.line("/// origin) and caches the result; later erasures of the same source return the");
+        writer.line("/// cached `SmeltUnknown::Function`, so its wrapper `Rc` is identity-stable. The cached");
+        writer.line("/// value transitively owns the source callback `Rc` (the wrapper captures it), so the");
+        writer.line("/// source address cannot be reused by a different live callback while it stays cached.");
+        writer.line("fn smelt_erase_function_identity(source_key: usize, build: impl FnOnce() -> SmeltUnknown) -> SmeltUnknown {");
+        writer.line("    if let Some(existing) = SMELT_ERASED_FUNCTION_IDENTITIES.with(|identities| identities.borrow().get(&source_key).cloned()) {");
+        writer.line("        return existing;");
+        writer.line("    }");
+        writer.line("    let erased = build();");
+        writer.line("    SMELT_ERASED_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(source_key, erased.clone()); });");
+        writer.line("    erased");
+        writer.line("}");
+        writer.blank_line();
         writer.line("impl<K, V> Clone for SmeltRecord<K, V> {");
         writer.line(
             "    fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), order: self.order.clone() } }",

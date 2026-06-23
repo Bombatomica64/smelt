@@ -4081,3 +4081,36 @@ function partitionLike(values: number[]): [number[], number[]] {
     assert!(source.contains("result.0 ="), "{source}");
     assert!(source.contains("result.1 ="), "{source}");
 }
+
+#[test]
+fn emits_the_function_reference_identity_cache_in_the_runtime_prelude() {
+    // Erasing a typed callback to `SmeltUnknown::Function` must be reference
+    // identity stable: JavaScript `===` / structural equality on functions is
+    // reference identity, so erasing the same source callback `Rc` twice has to
+    // yield the same erased wrapper `Rc`. The origin-registering `erase_value`
+    // `Type::Function` arm routes wrapper construction through
+    // `smelt_erase_function_identity`, keyed on the source callback's
+    // `Rc::as_ptr`, so a second crossing of the same source reuses the cached
+    // erasure instead of building a fresh, unequal wrapper. This asserts the
+    // runtime helper backing that memoization is emitted in the prelude.
+    let source = source_for(
+        r#"
+type Callback = (value: number) => number;
+
+export function eraseCallback(callback: Callback): unknown {
+  return callback as unknown;
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "fn smelt_erase_function_identity(source_key: usize, build: impl FnOnce() -> SmeltUnknown) -> SmeltUnknown"
+        ),
+        "the runtime prelude must define the erased-function identity cache helper: {source}"
+    );
+    assert!(
+        source.contains("static SMELT_ERASED_FUNCTION_IDENTITIES"),
+        "the runtime prelude must back the identity cache with a thread-local map: {source}"
+    );
+}

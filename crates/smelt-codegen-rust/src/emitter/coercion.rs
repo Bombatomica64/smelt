@@ -1035,7 +1035,7 @@ impl FunctionEmitter<'_> {
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
                 };
                 Ok(format!(
-                    "{{ let smelt_function_origin = {clone_receiver}.clone(); let smelt_function_value = {value_text}; let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}",
+                    "{{ let smelt_function_origin = {clone_receiver}.clone(); let smelt_function_value = {value_text}; let smelt_function_source_key = ::std::rc::Rc::as_ptr(&smelt_function_value) as *const () as usize; smelt_erase_function_identity(smelt_function_source_key, move || {{ let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}) }}",
                     clone_receiver = value.parenthesized_if_needed()
                 ))
             }
