@@ -517,7 +517,7 @@ impl FunctionEmitter<'_> {
                     "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::Keys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect(), _ => Vec::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::ForInKeys => Ok(format!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter(|key| smelt_is_for_in_object_key(&map, key)).collect(), _ => Vec::new() }}"
@@ -526,10 +526,10 @@ impl FunctionEmitter<'_> {
                     "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(str::to_owned)).collect(), _ => Vec::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::Values => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(_, value)| value).collect(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect(), _ => Vec::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::Entries => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>(), _ => Vec::new() }}"
                 )),
             };
         }
@@ -624,11 +624,11 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
                     if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(_, value)| value).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
                         ))
                     } else {
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(_, value)| value.clone()).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
                         ))
                     }
                 } else if self.dict_uses_js_key_map(*key_ty) {
@@ -646,11 +646,11 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
                     if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
                         ))
                     } else {
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
                         ))
                     }
                 } else if self.dict_uses_js_key_map(*key_ty) {

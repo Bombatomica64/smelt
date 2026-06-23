@@ -198,9 +198,14 @@ impl SmeltObject {
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
-fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && !(object.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(object.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
+fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(object.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(object.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
 /// Return whether a record key is visible to JavaScript `for...in` iteration.
-fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && !(record.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(record.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
+fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(record.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(record.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
+/// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.
+/// Class instances carry a hidden `__smelt_class` marker and map to a distinct
+/// `"__smelt_proto:class"` sentinel so they are not treated as plain objects; arrays,
+/// `null`, and plain objects keep their existing sentinels.
+fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String("__smelt_proto:array".to_owned()), SmeltUnknown::Object(map) if map.contains_key("__smelt_class") => SmeltUnknown::String("__smelt_proto:class".to_owned()), _ => SmeltUnknown::String("__smelt_proto:object".to_owned()) } }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
 impl Eq for SmeltObject {}

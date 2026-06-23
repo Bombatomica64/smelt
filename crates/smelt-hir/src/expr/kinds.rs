@@ -599,6 +599,16 @@ pub enum ExprKind {
     TypeofValue {
         value: ExprId,
     },
+    /// Compute the opaque `Object.getPrototypeOf` sentinel for an erased value.
+    ///
+    /// Lowers to the `smelt_prototype_sentinel` runtime helper, which returns a
+    /// distinct string for arrays, plain objects, and class instances (and `null`
+    /// for null-prototype values), so prototype comparisons can tell a class
+    /// instance apart from a structurally identical plain object.
+    PrototypeSentinel {
+        /// Value whose prototype sentinel is being computed.
+        value: ExprId,
+    },
     UnknownCast {
         value: ExprId,
         target: TypeId,

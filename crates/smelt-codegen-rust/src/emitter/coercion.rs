@@ -1268,8 +1268,14 @@ impl FunctionEmitter<'_> {
         self.record_conversion_stack.borrow_mut().pop();
         let entries = entries_result?.join(" ");
 
+        // Inject a hidden provenance marker so an erased class instance is no longer
+        // indistinguishable from a plain object of the same shape. The marker is
+        // VISIBLE to structural equality (so a class instance is not `==` to an
+        // equal-shape plain object) but INVISIBLE to key enumeration / JSON via the
+        // `__smelt_class` filters, and drives the `"__smelt_proto:class"` sentinel in
+        // `smelt_prototype_sentinel`. See `blocker-logs/plan-class-prototype-2026-06-23.md`.
         Ok(format!(
-            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); {entries} SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }}"
+            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); {entries} smelt_object_entries.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true)); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }}"
         ))
     }
 
@@ -1302,6 +1308,17 @@ impl FunctionEmitter<'_> {
         Ok(format!(
             "match {text}.clone() {{ SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"object\".to_owned() }}"
         ))
+    }
+
+    /// Emits the opaque `Object.getPrototypeOf` sentinel for an erased value.
+    ///
+    /// Defers all prototype discrimination to the `smelt_prototype_sentinel`
+    /// runtime helper so the array/null/plain-object/class branches stay in one
+    /// place. Class instances carry a hidden `__smelt_class` marker and map to a
+    /// distinct sentinel, while non-class values keep their existing sentinels.
+    pub(super) fn prototype_sentinel_text(&self, value: &Operand) -> Result<String, EmitError> {
+        let text = self.operand_text(value)?;
+        Ok(format!("smelt_prototype_sentinel(&({text}))"))
     }
 
     /// Emits a runtime tag check for already-rendered `SmeltUnknown` text.

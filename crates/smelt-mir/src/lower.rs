@@ -1371,6 +1371,17 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::PrototypeSentinel { value } => {
+                let lowered_value = self.lower_expr(*value)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::PrototypeSentinel {
+                        value: lowered_value,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::UnknownCast { value, target } => {
                 let lowered_value = self.lower_expr(*value)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -3721,6 +3732,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::InstanceOf { .. }
             | ExprKind::UnknownIs { .. }
             | ExprKind::TypeofValue { .. }
+            | ExprKind::PrototypeSentinel { .. }
             | ExprKind::Block(_)
             | ExprKind::Lambda { .. }
             | ExprKind::Closure(_)

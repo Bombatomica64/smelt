@@ -289,6 +289,11 @@ fn rvalue_text(value: &Rvalue) -> String {
         } => {
             format!("unknown_is {kind:?} {}", operand_text(unknown_value))
         }
+        Rvalue::PrototypeSentinel {
+            value: unknown_value,
+        } => {
+            format!("prototype_sentinel {}", operand_text(unknown_value))
+        }
         Rvalue::TypeofValue {
             value: unknown_value,
         } => {

@@ -388,61 +388,20 @@ impl ModuleBuilder<'_> {
                 "Object.getPrototypeOf requires exactly one value",
             ));
         };
-        // Distinguish prototypes by runtime kind: arrays and null-prototype values
-        // have a different prototype than plain objects, which `isPlainObject` /
-        // `isDeepEqual` compare against `Object.prototype`. Emit
-        // `value is Array ? "__smelt_proto:array" : value is Null ? null : "__smelt_proto:object"`,
-        // matching the `Object.prototype` sentinel in `object_static_member`.
+        // Distinguish prototypes by runtime kind: arrays, null-prototype values,
+        // and class instances each have a different prototype than a plain object,
+        // which `isPlainObject` / `isDeepEqual` compare against `Object.prototype`.
+        // Defer the discrimination to the `smelt_prototype_sentinel` runtime helper
+        // (lowered from `ExprKind::PrototypeSentinel`) so the array/null/object/class
+        // branches stay colocated in generated Rust. The helper keeps the existing
+        // sentinels (`"__smelt_proto:array"`, `null`, `"__smelt_proto:object"`) for
+        // non-class values and returns `"__smelt_proto:class"` for class instances,
+        // which carry a hidden `__smelt_class` marker (see `class_unknown_object_text`).
         let value = self.argument(value, body)?;
         let span = self.span(call.span.start, call.span.end);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let is_array = body.push_expr(Expr {
-            kind: ExprKind::UnknownIs {
-                value,
-                kind: UnknownKind::Array,
-            },
-            ty: bool_ty,
-            span,
-        });
-        let is_null = body.push_expr(Expr {
-            kind: ExprKind::UnknownIs {
-                value,
-                kind: UnknownKind::Null,
-            },
-            ty: bool_ty,
-            span,
-        });
-        let array_proto = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("__smelt_proto:array".to_owned())),
-            ty: unknown_ty,
-            span,
-        });
-        let null_proto = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
-            ty: unknown_ty,
-            span,
-        });
-        let object_proto = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("__smelt_proto:object".to_owned())),
-            ty: unknown_ty,
-            span,
-        });
-        let null_or_object = body.push_expr(Expr {
-            kind: ExprKind::Conditional {
-                cond: is_null,
-                then_expr: null_proto,
-                else_expr: object_proto,
-            },
-            ty: unknown_ty,
-            span,
-        });
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Conditional {
-                cond: is_array,
-                then_expr: array_proto,
-                else_expr: null_or_object,
-            },
+            kind: ExprKind::PrototypeSentinel { value },
             ty: unknown_ty,
             span,
         })))

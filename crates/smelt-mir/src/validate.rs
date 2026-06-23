@@ -282,6 +282,11 @@ impl Rvalue {
             } => {
                 visit(unknown_value);
             }
+            Self::PrototypeSentinel {
+                value: unknown_value,
+            } => {
+                visit(unknown_value);
+            }
             Self::UnknownCast {
                 value: unknown_value,
                 ..

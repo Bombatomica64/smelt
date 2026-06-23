@@ -537,6 +537,11 @@ pub enum Rvalue {
         /// Value being classified.
         value: Operand,
     },
+    /// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.
+    PrototypeSentinel {
+        /// Value whose prototype sentinel is being computed.
+        value: Operand,
+    },
     /// Extract a typed value from a TypeScript `unknown` value.
     UnknownCast {
         /// Value being extracted.

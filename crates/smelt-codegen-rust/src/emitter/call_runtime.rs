@@ -455,6 +455,9 @@ impl FunctionEmitter<'_> {
             Rvalue::TypeofValue {
                 value: unknown_value,
             } => self.typeof_value_text(unknown_value),
+            Rvalue::PrototypeSentinel {
+                value: unknown_value,
+            } => self.prototype_sentinel_text(unknown_value),
             Rvalue::UnknownCast {
                 value: unknown_value,
                 target,
