@@ -799,6 +799,7 @@ impl ModuleBuilder<'_> {
                 return_ty,
                 captures,
                 body: body_id,
+                function_item: None,
                 span,
             }),
             ty: closure_ty,

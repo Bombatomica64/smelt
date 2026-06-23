@@ -702,7 +702,27 @@ impl FunctionEmitter<'_> {
                 {
                     return self.default_value(dest_ty);
                 }
-                self.closure_text_for_type(*id, dest_ty)
+                // A bare function-item-as-value wrapper carries a stable cache
+                // key. Every reference to the same named function lowers to its
+                // own `ExprKind::Closure`, so without memoization two references
+                // would build two distinct runtime wrappers and compare unequal
+                // under JavaScript reference identity. Wrap the emitted value in
+                // `smelt_function_item_value(key, || EXPR)` so the first
+                // reference builds the wrapper and caches it per item, and later
+                // references return the same cached value. User arrows have no
+                // key and are emitted unchanged, preserving their fresh identity.
+                let function_item_key = self
+                    .mir
+                    .closures
+                    .get(id_index(id.0, "closure id does not fit usize")?)
+                    .and_then(|closure| closure.function_item_key);
+                let closure_text = self.closure_text_for_type(*id, dest_ty)?;
+                match function_item_key {
+                    Some(key) => Ok(format!(
+                        "smelt_function_item_value({key}usize, || {closure_text})"
+                    )),
+                    None => Ok(closure_text),
+                }
             }
             Rvalue::ClosureCall { callee, args } => {
                 let callee_ty = self.operand_ty(callee)?;

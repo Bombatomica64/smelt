@@ -4114,3 +4114,105 @@ export function eraseCallback(callback: Callback): unknown {
         "the runtime prelude must back the identity cache with a thread-local map: {source}"
     );
 }
+
+#[test]
+fn function_item_value_references_share_a_cached_wrapper() {
+    // JavaScript reference identity requires every reference to the same named
+    // function value to be the SAME runtime value. The frontend wraps a
+    // function item used as a value in a fresh forwarding closure per
+    // reference, so the two `func1` arguments below each lower to their own
+    // `ExprKind::Closure`. Both wrappers are tagged with the same source item,
+    // so codegen must route them through one `smelt_function_item_value(<key>,
+    // ..)` cache with a shared key.
+    let source = source_for(
+        r"
+function func1(): void {}
+function takesTwo(a: unknown, b: unknown): boolean { return true; }
+const r = takesTwo(func1, func1);
+",
+    );
+
+    let wrapper_count = source.matches("smelt_function_item_value(").count();
+    assert_eq!(
+        wrapper_count, 2,
+        "both func1 references must route through the per-item cache; got {wrapper_count}\n{source}"
+    );
+    // Both references must use the SAME cache key so they resolve to one wrapper.
+    let key = source
+        .split("smelt_function_item_value(")
+        .nth(1)
+        .and_then(|tail| tail.split("usize").next())
+        .map(str::to_owned)
+        .expect("first cached wrapper has a key");
+    let matching_keys = source
+        .matches(&format!("smelt_function_item_value({key}usize"))
+        .count();
+    assert_eq!(
+        matching_keys, 2,
+        "both func1 references must share cache key {key}\n{source}"
+    );
+    // The runtime helper must be emitted exactly once for the crate.
+    assert!(
+        source.contains(
+            "fn smelt_function_item_value<T: Clone + 'static>(key: usize, build: impl FnOnce() -> T) -> T"
+        ),
+        "{source}"
+    );
+}
+
+#[test]
+fn user_arrow_keeps_fresh_identity() {
+    // A user-written arrow is NOT a bare function-item-as-value wrapper. It must
+    // keep JavaScript's fresh identity (a new closure value each evaluation), so
+    // codegen must NOT route it through the per-item identity cache. The cache
+    // helper is part of the always-emitted prelude, so we assert that no call
+    // SITE wraps the arrow: the only occurrences of the helper name are its
+    // definition/doc lines, never a `smelt_function_item_value(<n>usize` call.
+    let source = source_for(
+        r"
+function takesOne(a: (value: number) => number): boolean { return true; }
+const r = takesOne((x) => x + 1);
+",
+    );
+
+    let body = source
+        .split_once("fn main")
+        .map(|(_prelude, body)| body)
+        .expect("emitted source has a main function");
+    assert!(
+        !body.contains("smelt_function_item_value("),
+        "a user arrow must not be wrapped in the function-item identity cache\n{source}"
+    );
+}
+
+#[test]
+fn user_arrow_forwarding_a_function_only_caches_the_inner_reference() {
+    // When a user arrow forwards to a named function (`(x) => func1(x)`), the
+    // arrow itself stays a fresh closure value, but `func1` used as the callee
+    // is materialized as a function-item value. Only that inner materialization
+    // is cached; the surrounding arrow wrapper is emitted unwrapped.
+    let source = source_for(
+        r"
+function func1(x: number): number { return x; }
+function takesOne(a: (value: number) => number): boolean { return true; }
+const r = takesOne((x) => func1(x));
+",
+    );
+
+    let body = source
+        .split_once("fn main")
+        .map(|(_prelude, body)| body)
+        .expect("emitted source has a main function");
+    // Exactly the single inner `func1` materialization is cached.
+    assert_eq!(
+        body.matches("smelt_function_item_value(").count(),
+        1,
+        "only the inner func1 value should be cached, not the arrow wrapper\n{source}"
+    );
+    // The outer arrow is an unwrapped `Rc::new(|closure_arg_0|` whose closure
+    // body is NOT immediately preceded by the cache call.
+    assert!(
+        body.contains("::std::rc::Rc::new(|closure_arg_0"),
+        "the user arrow must remain a plain closure value\n{source}"
+    );
+}

@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::expr::UnknownKind;
-use crate::ids::{BodyId, LocalId, Span, Symbol, TypeId};
+use crate::ids::{BodyId, ItemId, LocalId, Span, Symbol, TypeId};
 use crate::item::Param;
 
 use super::{BinOp, Literal, UnaryOp};
@@ -193,6 +193,18 @@ pub struct ClosureExpr {
     pub captures: Vec<ClosureCapture>,
     /// HIR body containing the closure implementation.
     pub body: BodyId,
+    /// Source function item when this closure is a bare function-item-as-value
+    /// wrapper (e.g. passing `func1` directly as an argument), else `None`.
+    ///
+    /// JavaScript reference identity requires every reference to the same named
+    /// function value to be the SAME runtime value. The frontend wraps a
+    /// function item used as a value in a fresh forwarding closure per
+    /// reference, so two references to `func1` would otherwise become two
+    /// distinct closure values. Tagging the wrapper with its source item lets
+    /// codegen cache one runtime wrapper per item so all references share it.
+    /// User-written arrows like `(x) => func1(x)` keep `None` and retain fresh
+    /// identity, matching JavaScript semantics.
+    pub function_item: Option<ItemId>,
     /// Source span covering the closure expression.
     pub span: Span,
 }

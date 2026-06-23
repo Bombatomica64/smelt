@@ -39,6 +39,7 @@ fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dy
 
 thread_local! {
     static SMELT_ERASED_FUNCTION_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    static SMELT_FUNCTION_ITEM_VALUES: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
 /// Erase a typed callback to `SmeltUnknown::Function` with stable JS reference identity.
@@ -59,6 +60,26 @@ fn smelt_erase_function_identity(source_key: usize, build: impl FnOnce() -> Smel
     let erased = build();
     SMELT_ERASED_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(source_key, erased.clone()); });
     erased
+}
+
+/// Return a stable runtime value for a named function item used as a value.
+///
+/// JavaScript reference identity (`===`) on functions is reference equality, so
+/// every reference to the same named function value must yield the SAME runtime
+/// value. The frontend wraps a function item used as a value in a fresh forwarding
+/// closure per reference, so two references to `func1` would otherwise build two
+/// distinct wrapper `Rc`s and compare unequal. We memoize the wrapper per function
+/// item: the first reference runs `build` and caches its result keyed on the
+/// crate-unique item key; later references return the cached value, so the wrapper
+/// `Rc` is identity-stable. One function item has exactly one signature, so the
+/// per-key `Box<dyn Any>` downcast can never collide.
+fn smelt_function_item_value<T: Clone + 'static>(key: usize, build: impl FnOnce() -> T) -> T {
+    if let Some(existing) = SMELT_FUNCTION_ITEM_VALUES.with(|values| values.borrow().get(&key).and_then(|value| value.downcast_ref::<T>()).cloned()) {
+        return existing;
+    }
+    let value = build();
+    SMELT_FUNCTION_ITEM_VALUES.with(|values| { values.borrow_mut().insert(key, Box::new(value.clone())); });
+    value
 }
 
 impl<K, V> Clone for SmeltRecord<K, V> {

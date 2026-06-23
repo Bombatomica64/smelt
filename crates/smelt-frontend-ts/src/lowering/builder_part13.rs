@@ -871,6 +871,7 @@ impl ModuleBuilder<'_> {
                 return_ty,
                 captures,
                 body: body_id,
+                function_item: None,
                 span,
             }),
             ty: closure_ty,
@@ -2038,6 +2039,12 @@ impl ModuleBuilder<'_> {
                 return_ty: function.return_ty,
                 captures: Vec::new(),
                 body,
+                // Same bare function-item-as-value wrapper as
+                // `item_function_closure_expression`, reached through the
+                // callback-reference path. Tag it with the source item so all
+                // references to this named function share one cached runtime
+                // wrapper and compare equal under JavaScript `===`.
+                function_item: Some(item),
                 span,
             }),
             ty: function_ty,
@@ -3942,6 +3949,7 @@ impl ModuleBuilder<'_> {
                 return_ty: actual_return_ty,
                 captures,
                 body: body_id,
+                function_item: None,
                 span,
             }),
             ty: closure_ty,
