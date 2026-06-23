@@ -184,6 +184,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.number_static_constant(member, body) {
             return Ok(expr);
         }
+        if let Some(expr) = self.number_predicate_member_expression(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.object_static_function_member(member, body) {
             return Ok(expr);
         }
@@ -520,6 +523,87 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::Literal(Literal::Float(value)),
             ty,
             span: self.span(member.span.start, member.span.end),
+        }))
+    }
+
+    /// Lower a `Number.isNaN` / `Number.isFinite` / `Number.isInteger` member
+    /// reference (used as a value, not called) to a first-class predicate closure.
+    ///
+    /// Utility libraries pass these predicates as callbacks (e.g. Remeda's
+    /// `when(Number.isNaN, …)`). The direct-call form `Number.isNaN(x)` is
+    /// handled by `number_predicate_call`; a bare member reference must become a
+    /// callable `(value) => <NumericPredicate>(value)` value instead of resolving
+    /// `Number` as an ordinary (unresolved) identifier and reading a field on it.
+    fn number_predicate_member_expression(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        outer_body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Number" {
+            return None;
+        }
+        let op = match member.property.name.as_str() {
+            "isFinite" => NumericPredicateOp::IsFinite,
+            "isInteger" => NumericPredicateOp::IsInteger,
+            "isNaN" => NumericPredicateOp::IsNaN,
+            _ => return None,
+        };
+        let span = self.span(member.span.start, member.span.end);
+        let number_ty = self.ctx.krate.types.intern(Type::Float);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let value_name = self.intern_source_name("value");
+        let mut closure_body = Body::new(None, span);
+        let value_local = closure_body.push_local(LocalDecl {
+            name: Some(value_name),
+            ty: number_ty,
+            mutable: false,
+            span,
+        });
+        closure_body.params.push(value_local);
+        let value_expr = closure_body.push_expr(Expr {
+            kind: ExprKind::Local(value_local),
+            ty: number_ty,
+            span,
+        });
+        let result = closure_body.push_expr(Expr {
+            kind: ExprKind::NumericPredicate {
+                op,
+                operand: value_expr,
+            },
+            ty: bool_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Return(Some(result)));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![number_ty],
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: bool_ty,
+            is_async: false,
+            may_throw: false,
+        }));
+        Some(outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: vec![Param {
+                    name: value_name,
+                    local: value_local,
+                    ty: number_ty,
+                    span,
+                }],
+                rest: None,
+                required_params: None,
+                return_ty: bool_ty,
+                captures: Vec::new(),
+                body: body_id,
+                span,
+            }),
+            ty: closure_ty,
+            span,
         }))
     }
 
