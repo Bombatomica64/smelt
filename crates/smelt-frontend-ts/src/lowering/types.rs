@@ -164,6 +164,9 @@ impl ModuleBuilder<'_> {
                 if let Some(rest_ty) = self.tuple_rest_list_type(tuple)? {
                     return Ok(rest_ty);
                 }
+                if let Some(list_ty) = self.leading_rest_tuple_list_type(tuple)? {
+                    return Ok(list_ty);
+                }
                 let mut items = Vec::new();
                 for item in &tuple.element_types {
                     if self.tuple_rest_type_erases_to_empty(item)? {
@@ -809,6 +812,64 @@ return_ty: function.return_ty,
         Ok(Some(self.ctx.krate.types.intern(Type::List(element_ty))))
     }
 
+    /// Lower a tuple whose single rest element is NOT last (e.g. `[...T[], U]`)
+    /// to a homogeneous list.
+    ///
+    /// TypeScript uses leading/middle-rest tuples to model arrays whose leading
+    /// portion is variadic with a fixed tail. HIR has no leading-rest tuple
+    /// shape, and modelling it as a fixed tuple would silently drop the rest
+    /// element (and truncate any literal) because `tuple_rest_type_erases_to_empty`
+    /// discards every `TSRestType`. The useful runtime shape is a list of the
+    /// union of the rest element type and the fixed (non-rest) element types, so
+    /// indexing any position stays well-typed. Trailing-rest and all-rest tuples
+    /// are handled earlier by `homogeneous_tuple_rest_type` / `tuple_rest_list_type`,
+    /// so this only fires for the otherwise-truncated leading/middle-rest shape.
+    fn leading_rest_tuple_list_type(
+        &mut self,
+        tuple: &oxc::ast::ast::TSTupleType<'_>,
+    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
+        let rest_positions: Vec<usize> = tuple
+            .element_types
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| matches!(item, TSTupleElement::TSRestType(_)))
+            .map(|(idx, _)| idx)
+            .collect();
+        if rest_positions.len() != 1 {
+            return Ok(None);
+        }
+        let rest_index = rest_positions[0];
+        if rest_index == tuple.element_types.len() - 1 {
+            return Ok(None); // trailing rest: handled by tuple_rest_list_type
+        }
+        let TSTupleElement::TSRestType(rest) = &tuple.element_types[rest_index] else {
+            return Ok(None);
+        };
+        let rest_ty = self.ts_type_to_hir(&rest.type_annotation)?;
+        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(rest_ty).cloned() else {
+            return Ok(None);
+        };
+        if matches!(self.ctx.krate.types.get(element_ty), Some(Type::Never)) {
+            return Ok(None);
+        }
+        let mut members = vec![element_ty];
+        for (idx, item) in tuple.element_types.iter().enumerate() {
+            if idx == rest_index {
+                continue;
+            }
+            let item_ty = self.tuple_element_type_to_hir(item)?;
+            if !members.contains(&item_ty) {
+                members.push(item_ty);
+            }
+        }
+        let element = if members.len() == 1 {
+            members[0]
+        } else {
+            self.ctx.krate.types.intern(Type::Union(members))
+        };
+        Ok(Some(self.ctx.krate.types.intern(Type::List(element))))
+    }
+
     /// Convert tuple element type to HIR type.
     fn tuple_element_type_to_hir(
         &mut self,
@@ -836,6 +897,9 @@ return_ty: function.return_ty,
                     return Ok(ty);
                 }
                 if let Some(ty) = self.tuple_rest_list_type(tuple)? {
+                    return Ok(ty);
+                }
+                if let Some(ty) = self.leading_rest_tuple_list_type(tuple)? {
                     return Ok(ty);
                 }
                 let mut items = Vec::new();
