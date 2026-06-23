@@ -639,10 +639,31 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Argument::RegExpLiteral(literal) => {
-                let ty = self.ctx.krate.types.intern(Type::String);
-                let value = Self::regex_literal_pattern_text(literal);
+                // A regex literal in argument position is a `RegExp` value, not
+                // its source string — mirror the `Expression::RegExpLiteral`
+                // lowering. (Dedicated string methods like `split`/`replace`
+                // match `RegExpLiteral` in their own handlers and never reach
+                // this generic argument path.) Emitting the source string here
+                // erased a regex passed to a generic/closure callee — e.g.
+                // `isShallowEqual(data, /a/u)` saw a string instead of a regex.
+                let ty = self.regexp_type();
+                let pattern = Self::regex_literal_pattern_text_without_flags(literal);
+                let flags = literal.regex.flags.to_string();
+                let pattern = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(pattern)),
+                    ty: self.ctx.krate.types.intern(Type::String),
+                    span: self.span(literal.span.start, literal.span.end),
+                });
+                let flags = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(flags)),
+                    ty: self.ctx.krate.types.intern(Type::String),
+                    span: self.span(literal.span.start, literal.span.end),
+                });
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(value)),
+                    kind: ExprKind::New {
+                        class: self.intern_type_name("RegExp"),
+                        args: vec![pattern, flags],
+                    },
                     ty,
                     span: self.span(literal.span.start, literal.span.end),
                 }))
