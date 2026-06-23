@@ -19,6 +19,31 @@ fn smelt_next_object_id() -> usize {
 }
 
 thread_local! {
+    /// Map a source list's storage address to a stable erased-array identity.
+    static SMELT_LIST_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+/// Return a stable erased-array id for a source list keyed on its `Vec` address.
+///
+/// Erasing the SAME source list local twice must yield arrays that compare
+/// `===` equal (arrays compare by id). Keying on the live `Vec`'s storage
+/// address lets every erasure of one binding reuse a single id, while a
+/// fresh list (literal or transform result) still gets a fresh id from
+/// `SmeltArray::new`. KNOWN LIMITATION: `Vec::as_ptr` on an EMPTY `Vec`
+/// returns a shared dangling sentinel, so distinct empty list bindings can
+/// collide on one id; acceptable here because the targeted cases are
+/// non-empty.
+fn smelt_list_identity(source_key: usize) -> usize {
+    SMELT_LIST_IDENTITIES.with(|identities| {
+        let mut identities = identities.borrow_mut();
+        if let Some(id) = identities.get(&source_key) { return *id; }
+        let id = smelt_next_object_id();
+        identities.insert(source_key, id);
+        id
+    })
+}
+
+thread_local! {
     static SMELT_FUNCTION_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
@@ -192,6 +217,8 @@ impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values
 impl SmeltArray {
     /// Create an identity-bearing erased JavaScript array.
     fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values } }
+    /// Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.
+    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values } }
     /// Consume an erased array when lowering back to statically typed list storage.
     fn into_vec(self) -> Vec<SmeltUnknown> { self.values }
 }

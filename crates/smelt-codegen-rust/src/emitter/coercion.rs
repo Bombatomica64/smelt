@@ -733,10 +733,26 @@ impl FunctionEmitter<'_> {
             Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
             Some(Type::String) => Ok(format!("SmeltUnknown::String({text})")),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
+                // A bare list local has a stable storage address, so erasing the
+                // SAME source binding twice must reuse one id (arrays compare
+                // `===` by id). Key the identity on the live `Vec`'s address;
+                // a fresh list (literal/transform result) keeps `SmeltArray::new`.
+                if let Some(bare_local) = self.list_local_identity_key(operand)? {
+                    return Ok(format!(
+                        "{{ let smelt_list_id = smelt_list_identity(({bare_local}).as_ptr() as *const () as usize); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, {text}.into())) }}"
+                    ));
+                }
                 Ok(format!("SmeltUnknown::Array({text}.into())"))
             }
             Some(Type::List(item)) => {
                 let value_wrap = self.erase_value_text("value", *item)?;
+                // See the unknown-item arm: a list local reuses a stable id keyed
+                // on its `Vec` address; a fresh list keeps `SmeltArray::new`.
+                if let Some(bare_local) = self.list_local_identity_key(operand)? {
+                    return Ok(format!(
+                        "{{ let smelt_list_id = smelt_list_identity(({bare_local}).as_ptr() as *const () as usize); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, {text}.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}"
+                    ));
+                }
                 Ok(format!(
                     "SmeltUnknown::Array({text}.into_iter().map(|value| {value_wrap}).collect())"
                 ))
@@ -841,6 +857,41 @@ impl FunctionEmitter<'_> {
             Some(Type::Union(_)) => Ok(text),
             Some(Type::Never | Type::Future(_)) | None => Ok("SmeltUnknown::Null".to_owned()),
         }
+    }
+
+    /// Return the BARE name of a source list local being erased, if any.
+    ///
+    /// When a list value crosses into `SmeltUnknown::Array` straight from a
+    /// `Place::Local`, the local's backing `Vec` is still alive and has a stable
+    /// storage address. That address keys [`smelt_list_identity`] so every
+    /// erasure of the one binding reuses a single id (arrays compare `===` by
+    /// id). The returned name is the local WITHOUT the trailing `.clone()` that
+    /// [`Self::operand_text`] adds, because the identity key reads `&local`
+    /// (the live binding) while the erased values come from the cloned text.
+    /// Non-local operands (list literals, transform temporaries) return `None`
+    /// and keep the fresh-id `SmeltArray::new` path, matching JS semantics where
+    /// distinct array expressions are never `===`.
+    fn list_local_identity_key(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+        else {
+            return Ok(None);
+        };
+        // Only real source bindings (params / user `let`/`const`) get stable JS
+        // reference identity. A temp holds a fresh intermediate array (e.g. a
+        // transform/projection result like `Object.entries(..)`), which JS treats
+        // as a new array each time — it keeps the fresh-id `SmeltArray::new` path.
+        if matches!(self.local_decl(*local)?.kind, LocalKind::Temp) {
+            return Ok(None);
+        }
+        // Use the SAME in-scope reference `operand_text` emits, minus the trailing
+        // `.clone()` it appends — the local's *source* name (`local_name`) is not
+        // always the emitted Rust variable (temps/renames), which produced
+        // "cannot find value" errors. The identity key reads the live binding
+        // (via `.as_ptr()`, which auto-(de)refs both `Vec` and `&Vec` locals);
+        // the erased values still come from the cloned text.
+        let text = self.operand_text(operand)?;
+        let bare = text.strip_suffix(".clone()").unwrap_or(text.as_str());
+        Ok(Some(bare.to_owned()))
     }
 
     /// Re-render a typed callback local from its erased callable source when it

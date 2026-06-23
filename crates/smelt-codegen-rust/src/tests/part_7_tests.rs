@@ -4205,3 +4205,60 @@ const r = takesOne((x) => func1(x));
         "the user arrow must remain a plain closure value\n{source}"
     );
 }
+
+#[test]
+fn reuses_a_stable_identity_when_erasing_a_source_list_local() {
+    // Erasing the SAME list local twice must reuse one erased-array id so the
+    // two erasures compare `===` equal (arrays compare by id). The identity is
+    // keyed on the live `Vec`'s storage address via `smelt_list_identity`.
+    let source = source_for(
+        r#"
+const data: number[] = [1, 2, 3];
+const same = (data as unknown) === (data as unknown);
+"#,
+    );
+
+    let body = source
+        .split_once("fn main")
+        .map(|(_prelude, body)| body)
+        .expect("emitted source has a main function");
+
+    assert!(
+        body.contains("smelt_list_identity((data).as_ptr() as *const () as usize)"),
+        "erasing a list local should key its identity on the source Vec address\n{source}"
+    );
+    assert!(
+        body.contains("SmeltArray::with_id(smelt_list_id,"),
+        "erasing a list local should build the array with the cached identity\n{source}"
+    );
+}
+
+#[test]
+fn keeps_a_fresh_identity_when_erasing_a_list_literal() {
+    // A fresh list expression (here a literal) must keep `SmeltArray::new` (via
+    // `.into()`) so distinct array literals are never `===`, matching JS.
+    let source = source_for(
+        r#"
+const other = ([1, 2, 3] as unknown) === ([1, 2, 3] as unknown);
+"#,
+    );
+
+    let body = source
+        .split_once("fn main")
+        .map(|(_prelude, body)| body)
+        .expect("emitted source has a main function");
+
+    assert!(
+        body.contains("SmeltUnknown::Array(vec![")
+            && body.contains("].into())"),
+        "a list literal should erase through the fresh-id `.into()` path\n{source}"
+    );
+    assert!(
+        !body.contains("smelt_list_identity("),
+        "a list literal must not be keyed to a reused identity\n{source}"
+    );
+    assert!(
+        !body.contains("SmeltArray::with_id("),
+        "a list literal must use a fresh `SmeltArray::new` identity\n{source}"
+    );
+}

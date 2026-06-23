@@ -412,6 +412,31 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("thread_local! {");
+        writer.line("    /// Map a source list's storage address to a stable erased-array identity.");
+        writer.line("    static SMELT_LIST_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Return a stable erased-array id for a source list keyed on its `Vec` address.");
+        writer.line("///");
+        writer.line("/// Erasing the SAME source list local twice must yield arrays that compare");
+        writer.line("/// `===` equal (arrays compare by id). Keying on the live `Vec`'s storage");
+        writer.line("/// address lets every erasure of one binding reuse a single id, while a");
+        writer.line("/// fresh list (literal or transform result) still gets a fresh id from");
+        writer.line("/// `SmeltArray::new`. KNOWN LIMITATION: `Vec::as_ptr` on an EMPTY `Vec`");
+        writer.line("/// returns a shared dangling sentinel, so distinct empty list bindings can");
+        writer.line("/// collide on one id; acceptable here because the targeted cases are");
+        writer.line("/// non-empty.");
+        writer.line("fn smelt_list_identity(source_key: usize) -> usize {");
+        writer.line("    SMELT_LIST_IDENTITIES.with(|identities| {");
+        writer.line("        let mut identities = identities.borrow_mut();");
+        writer.line("        if let Some(id) = identities.get(&source_key) { return *id; }");
+        writer.line("        let id = smelt_next_object_id();");
+        writer.line("        identities.insert(source_key, id);");
+        writer.line("        id");
+        writer.line("    })");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("thread_local! {");
         writer.line("    static SMELT_FUNCTION_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
         writer.line("}");
         writer.blank_line();
@@ -596,6 +621,12 @@ fn emit_source_with_free_function_router(
         writer.line("impl SmeltArray {");
         writer.line("    /// Create an identity-bearing erased JavaScript array.");
         writer.line("    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values } }");
+        writer.line(
+            "    /// Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.",
+        );
+        writer.line(
+            "    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values } }",
+        );
         writer.line(
             "    /// Consume an erased array when lowering back to statically typed list storage.",
         );
