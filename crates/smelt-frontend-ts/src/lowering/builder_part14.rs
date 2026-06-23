@@ -2059,8 +2059,42 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
+        // The operand's *own* declared type, BEFORE resolving a type parameter to
+        // its constraint. An erased operand (`Type::TypeParam`/`Type::Unknown`)
+        // whose constraint happens to be a list (e.g. Remeda's
+        // `T extends IterableContainer = readonly unknown[]`) would otherwise hit
+        // the `Type::List` arm below and be returned UNCHANGED — an alias that keeps
+        // the erased type. That alias defeats typed list operations: a later
+        // `[...items].sort(cmp)` stays dynamic and the sort result is discarded
+        // (see blocker-logs/plan-sort-sortby-2026-06-23.md, Family 1, Option B).
+        let raw_value_ty = Self::expr_ty(body, value);
+        let value_ty = self.type_param_constraint_or_self(raw_value_ty);
+        let operand_is_erased = matches!(
+            self.ctx.krate.types.get(raw_value_ty),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        );
         match self.ctx.krate.types.get(value_ty).cloned() {
+            // A spread of an erased operand with a list constraint: construct a
+            // FRESH `List`-typed value instead of returning the erased alias, so the
+            // binding (`const ret = [...items]`) is a real `Vec` and downstream
+            // typed list methods (e.g. in-place `sort`) fire. Reuse the verified
+            // fresh-list idiom `ListConcat(value, [])`, which the multi-spread path
+            // also uses; its emitter materializes a fresh `Vec` for erased operands.
+            Some(Type::List(_)) if operand_is_erased => {
+                let empty = body.push_expr(Expr {
+                    kind: ExprKind::ListLit(Vec::new()),
+                    ty: list_ty,
+                    span: self.span(span.start, span.end),
+                });
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::ListConcat {
+                        left: value,
+                        right: empty,
+                    },
+                    ty: list_ty,
+                    span: self.span(span.start, span.end),
+                }))
+            }
             Some(Type::List(_)) => Ok(value),
             Some(Type::Set(_)) => Ok(body.push_expr(Expr {
                 kind: ExprKind::SetProjection {

@@ -1280,3 +1280,87 @@ const item = values.pop();
     ensure_eq!(pops, 2);
     Ok(())
 }
+
+/// Find a function item by name in a lowered module.
+fn function_by_name<'a>(
+    ctx: &'a HirCtx,
+    module: &'a smelt_hir::Module,
+    name: &str,
+) -> Result<&'a Function, String> {
+    module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Function(function) if ctx.krate.names.get(function.name) == Some(name) => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| format!("missing function {name}"))
+}
+
+#[test]
+fn lowers_erased_spread_into_fresh_list() -> Result<(), String> {
+    // `[...items]` where `items` is an erased type parameter constrained to a
+    // list (Remeda's `T extends IterableContainer`) must construct a FRESH
+    // `List`-typed value, not return the erased alias. Otherwise a following
+    // `.sort(cmp)` stays dynamic and its result is discarded (the sort bug).
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function sortImpl<T extends readonly unknown[]>(
+  items: T,
+  cmp: (a: T[number], b: T[number]) => number,
+): T[number][] {
+  const ret = [...items];
+  ret.sort(cmp);
+  return ret;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_by_name(&ctx, module, "sortImpl")?;
+    let body = function_body(&ctx, function)?;
+
+    // The fresh-list idiom is `ListConcat(items, [])`.
+    let concat = body
+        .exprs
+        .iter()
+        .find(|expr| matches!(expr.kind, ExprKind::ListConcat { .. }))
+        .ok_or_else(|| "erased spread should lower to a fresh-list ListConcat".to_owned())?;
+    // The concat result must be typed `List`, so the `ret` binding is a real
+    // list and the typed in-place `sort` path fires downstream.
+    ensure!(matches!(
+        ctx.krate.types.get(concat.ty),
+        Some(Type::List(_))
+    ));
+    Ok(())
+}
+
+#[test]
+fn lowers_typed_spread_without_fresh_list() -> Result<(), String> {
+    // A spread of a genuinely `List`-typed operand keeps the direct alias path
+    // (no fresh-list ListConcat); only erased operands need the retype.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function copy(items: readonly number[]): number[] {
+  const ret = [...items];
+  return ret;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_by_name(&ctx, module, "copy")?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. }))
+    );
+    Ok(())
+}
