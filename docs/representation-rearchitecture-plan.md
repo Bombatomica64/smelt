@@ -163,6 +163,34 @@ High — touches every Null handling path. The compiler's exhaustive matches hel
 (adding a variant flags all sites), but semantics (loose vs strict equality,
 typeof, JSON) must be reasoned per site. Full-suite gating each step.
 
+### STATUS 2026-06-23 — ATTEMPTED, REVERTED (net-negative when partial)
+Implemented the variant + all match arms (HIR `Literal::Undefined` → MIR
+`Constant::Undefined` → `SmeltUnknown::Undefined`, the full prelude impls, typeof,
+and ~25 emitter coercion templates — the generated remeda crate compiled). But it
+**regressed 30 → 39** (+2 resolved, **11 newly failing**). Reverted.
+
+**Root cause / lesson:** distinct `undefined` is not "lower the literal + add match
+arms" — it requires **consistent undefined-PRODUCTION at every source**, or the
+nullish space splits (literal→`Undefined`, everything else→`Null`) and any test
+comparing two undefineds from different sources breaks. The producers that must
+ALSO yield `Undefined` (not `Null`): missing property access (`obj.missing`),
+out-of-bounds index, optional-absent (`Option::None` erasure / `map_or`), the
+`void` operator, a function with no/`undefined` return, destructuring misses, and
+optional chaining `?.`. Plus the library nullish helpers must treat both
+(`defaultTo`, `isEmptyish`, `isNullish`, `??`, `prop` missing-path → `undefined`).
+Newly-failing in the partial attempt confirmed this: `prop` (×4, missing-path
+returns `Null` but test expects the `undefined` literal), `defaultTo` undefined
+fallback, `isEmptyish` nullish, `clone` undefined, `conditional` default,
+`countBy`, `identity`, `pullObject` (×2). And the type-guard cluster
+(isDefined/isNonNull/isNonNullish/isNot) needs distinct `undefined` AND the
+**promise-distinct** fix together (the all-types array's promise also erases to
+`Null`; `isNonNull(promise)` must be true). 
+
+So B2 is a dedicated **multi-round** effort: (a) add the variant + arms (done,
+on the stalled-agent worktree branch for reference), THEN (b) sweep every
+undefined-PRODUCING site to emit `Undefined`, THEN (c) reconcile the library
+nullish helpers, gating on the full suite each step. Not a single focused pass.
+
 ---
 
 ## Sequencing recommendation
