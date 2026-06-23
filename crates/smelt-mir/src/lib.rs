@@ -352,14 +352,20 @@ async function run(): Promise<number> {
 
     #[test]
     fn move_on_last_use_preserves_loop_carried_values() {
-        // The accumulator is live across the loop back-edge, so its read in the
-        // exit condition must remain a copy; only the dead temporaries move.
+        // `index` is live across the loop back-edge, so its read inside the exit
+        // condition must remain a copy. Only the dead boolean condition
+        // temporary may move into the switch (the Rust emitter reconstructs the
+        // structured loop from either `switch copy` or `switch move`).
         let output = optimized_mir(
             "let total = 0;\nlet index = 0;\nwhile (index < 3) {\n  total = total + index;\n  index = index + 1;\n}\nconsole.log(total);\n",
         );
         assert!(
-            output.contains("switch copy"),
-            "loop header condition must stay a copy so codegen can rebuild the loop:\n{output}"
+            output.contains("copy %1 < 3.0"),
+            "the loop-carried index read in the condition must stay a copy:\n{output}"
+        );
+        assert!(
+            output.contains("switch move"),
+            "the dead boolean condition temporary moves into the switch:\n{output}"
         );
     }
 

@@ -2202,7 +2202,7 @@ const selected: unknown = value ? value : fallback;
     );
 
     assert!(
-        source.contains("if _smelt_tmp_3.clone() { value } else { match fallback"),
+        source.contains("if _smelt_tmp_3 { value } else { match fallback"),
         "{source}"
     );
     assert!(

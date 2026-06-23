@@ -1164,7 +1164,8 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         let Some(Terminator::Switch {
-            cond: Operand::Copy(Place::Local(cond_local)),
+            cond:
+                Operand::Copy(Place::Local(cond_local)) | Operand::Move(Place::Local(cond_local)),
             then_block,
             else_block,
         }) = &block.terminator
@@ -1262,7 +1263,8 @@ impl FunctionEmitter<'_> {
     /// Returns the local that stores a structured switch condition.
     fn switch_cond_local(&self, block: &BasicBlock) -> Result<LocalId, EmitError> {
         let Some(Terminator::Switch {
-            cond: Operand::Copy(Place::Local(cond_local)),
+            cond:
+                Operand::Copy(Place::Local(cond_local)) | Operand::Move(Place::Local(cond_local)),
             ..
         }) = &block.terminator
         else {
@@ -1410,7 +1412,8 @@ impl FunctionEmitter<'_> {
         EmitError,
     > {
         let Some(Terminator::Switch {
-            cond: Operand::Copy(Place::Local(cond_local)),
+            cond:
+                Operand::Copy(Place::Local(cond_local)) | Operand::Move(Place::Local(cond_local)),
             then_block,
             else_block,
         }) = &block.terminator

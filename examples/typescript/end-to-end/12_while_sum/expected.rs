@@ -9,7 +9,7 @@ fn main() {
     let mut sum: f64 = 0.0;
     loop {
     _smelt_tmp_2 = i.clone() < 4.0;
-    if !(_smelt_tmp_2.clone()) { break; }
+    if !(_smelt_tmp_2) { break; }
     _smelt_tmp_3 = sum + i.clone();
     sum = _smelt_tmp_3;
     _smelt_tmp_4 = i + 1.0;

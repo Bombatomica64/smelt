@@ -18,7 +18,7 @@ fn main (FuncId(0)) -> None
   bb1:
     %5 = len copy %0
     %6 = copy %4 < move %5
-    switch copy %6 ? bb2 : bb4
+    switch move %6 ? bb2 : bb4
   bb2:
     %2 = copy %0[copy %4]
     %7 = move %1 + move %2

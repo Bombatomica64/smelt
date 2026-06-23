@@ -167,13 +167,17 @@ fn rewrite_terminator(
         Terminator::Return(operand) | Terminator::Throw(operand) => {
             try_convert(operand, live_after, read_counts, convertible)
         }
-        // `Switch`/`Match` scrutinees are intentionally left as `Copy`. The Rust
-        // emitter reconstructs structured loops by pattern-matching a switch
-        // header of the exact shape `switch copy %local`; rewriting it to `move`
-        // breaks that reconstruction and flattens nested loops. The scrutinee is
-        // always a `bool`/tag (a `Copy` type), so keeping the clone is free at
-        // runtime anyway.
-        Terminator::Switch { .. } | Terminator::Match { .. } => false,
+        // `Switch`/`Match` scrutinees can move on last use. The Rust emitter's
+        // structured-loop reconstruction accepts both `switch copy %local` and
+        // `switch move %local` headers (and re-emits the condition via an
+        // explicit `Copy` when generating the loop), so a moved scrutinee no
+        // longer flattens nested loops.
+        Terminator::Switch { cond, .. } => {
+            try_convert(cond, live_after, read_counts, convertible)
+        }
+        Terminator::Match { scrutinee, .. } => {
+            try_convert(scrutinee, live_after, read_counts, convertible)
+        }
         Terminator::Await { future, .. } => {
             try_convert(future, live_after, read_counts, convertible)
         }

@@ -20,7 +20,7 @@ fn first_outside(value: f64) -> f64 {
     current = _smelt_tmp_3;
     _smelt_tmp_4 = current.clone() > 0.0;
     _smelt_tmp_5 = !(_smelt_tmp_4);
-    if _smelt_tmp_5.clone() {
+    if _smelt_tmp_5 {
     break;
     } else {
     continue;

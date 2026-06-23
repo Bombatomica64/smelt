@@ -272,7 +272,7 @@ console.log(result);
 ",
     );
 
-    assert!(source.contains("if _smelt_tmp_2.clone() {"));
+    assert!(source.contains("if _smelt_tmp_2 {"));
     assert!(source.contains("return a.clone();"));
     assert!(source.contains("return b.clone();"));
 }

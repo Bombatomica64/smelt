@@ -22,7 +22,7 @@ fn main() {
     loop {
     _smelt_tmp_8 = word.chars().count() as f64;
     _smelt_tmp_9 = _smelt_tmp_7.clone() < _smelt_tmp_8;
-    if !(_smelt_tmp_9.clone()) { break; }
+    if !(_smelt_tmp_9) { break; }
     ch = word.chars().nth({ let len = word.chars().count() as i64; let index = _smelt_tmp_7.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).map(|ch| ch.to_string()).expect("index out of bounds").clone();
     _smelt_tmp_10 = joined + &ch;
     joined = _smelt_tmp_10;

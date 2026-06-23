@@ -14,7 +14,7 @@ fn main (FuncId(0)) -> None
     %3 = -3.0
     %2 = move %3
     %4 = !move %1
-    switch copy %4 ? bb1 : bb2
+    switch move %4 ? bb1 : bb2
   bb1:
     %5 = copy %0
     goto bb3
@@ -22,7 +22,7 @@ fn main (FuncId(0)) -> None
     %5 = false
     goto bb3
   bb3:
-    switch copy %5 ? bb4 : bb5
+    switch move %5 ? bb4 : bb5
   bb4:
     %6 = move %0
     goto bb6
