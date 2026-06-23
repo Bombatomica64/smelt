@@ -89,7 +89,7 @@ Fork the repo and submit a pr :)
 | --- | ---: |
 | Functions | 77.86% |
 | Lines | 71.56% |
-| Regions | 70.23% |
+| Regions | 70.22% |
 | Branches | 61.03% |
 
 ### Per Crate
@@ -107,6 +107,7 @@ Fork the repo and submit a pr :)
 | `smelt-stdlib` | 80.95% | 69.71% | 100.00% |
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
 <!-- COVERAGE:END -->
+
 
 
 
