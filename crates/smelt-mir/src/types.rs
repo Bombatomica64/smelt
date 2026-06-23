@@ -635,6 +635,13 @@ pub enum Rvalue {
         /// Numeric radix operand.
         radix: Operand,
     },
+    /// Parse an integer from a string with a numeric radix.
+    ParseIntRadix {
+        /// String operand.
+        operand: Operand,
+        /// Numeric radix operand.
+        radix: Operand,
+    },
     /// Convert a primitive value to another primitive type.
     PrimitiveCast {
         /// Conversion operation to apply.

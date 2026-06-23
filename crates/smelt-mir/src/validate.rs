@@ -815,6 +815,10 @@ impl Rvalue {
                 visit(operand);
                 visit(radix);
             }
+            Self::ParseIntRadix { operand, radix } => {
+                visit(operand);
+                visit(radix);
+            }
             Self::PrimitiveCast { operand, .. } => visit(operand),
             Self::Unary { operand, .. } => visit(operand),
             Self::Struct { fields, .. } => {

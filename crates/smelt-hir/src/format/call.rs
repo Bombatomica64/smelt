@@ -117,6 +117,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*radix)
             )
         }
+        ExprKind::ParseIntRadix { operand, radix } => {
+            format!("parse_int_radix {}, {}", expr_ref(*operand), expr_ref(*radix))
+        }
         ExprKind::PrimitiveCast { op, operand } => {
             let op_name = match op {
                 crate::expr::PrimitiveCastOp::ToBool => "bool",

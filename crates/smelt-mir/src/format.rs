@@ -392,6 +392,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(radix)
             )
         }
+        Rvalue::ParseIntRadix { operand, radix } => {
+            format!(
+                "parse_int_radix {}, {}",
+                operand_text(operand),
+                operand_text(radix)
+            )
+        }
         Rvalue::PrimitiveCast { op, operand } => {
             let op_text = match op {
                 smelt_hir::PrimitiveCastOp::ToBool => "bool",

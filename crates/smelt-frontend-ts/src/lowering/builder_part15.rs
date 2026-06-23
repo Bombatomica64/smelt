@@ -1047,13 +1047,17 @@ return_ty: number_ty,
             return Ok(None);
         };
         if callee.name == "parseInt" {
-            let operand = self.parse_int_operand("parseInt", call, body)?;
+            let (operand, radix) = self.parse_int_operand("parseInt", call, body)?;
             let ty = self.ctx.krate.types.intern(Type::Float);
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::PrimitiveCast {
+            let kind = match radix {
+                Some(radix) => ExprKind::ParseIntRadix { operand, radix },
+                None => ExprKind::PrimitiveCast {
                     op: PrimitiveCastOp::ToInt,
                     operand,
                 },
+            };
+            return Ok(Some(body.push_expr(Expr {
+                kind,
                 ty,
                 span: self.span(call.span.start, call.span.end),
             })));

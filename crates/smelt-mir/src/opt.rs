@@ -710,6 +710,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(operand, aliases, dest)
                 | rewrite_operand_except(radix, aliases, dest)
         }
+        Rvalue::ParseIntRadix { operand, radix } => {
+            rewrite_operand_except(operand, aliases, dest)
+                | rewrite_operand_except(radix, aliases, dest)
+        }
         Rvalue::PrimitiveCast { operand, .. } => rewrite_operand_except(operand, aliases, dest),
         Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),
         Rvalue::Struct { fields, .. } => fields.iter_mut().fold(false, |changed, (_, value)| {

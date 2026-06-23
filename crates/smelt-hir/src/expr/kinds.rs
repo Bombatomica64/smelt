@@ -115,6 +115,11 @@ pub enum ExprKind {
         operand: ExprId,
         radix: ExprId,
     },
+    /// Parse an integer from a string with a JavaScript-style numeric radix.
+    ParseIntRadix {
+        operand: ExprId,
+        radix: ExprId,
+    },
     PrimitiveCast {
         op: PrimitiveCastOp,
         operand: ExprId,

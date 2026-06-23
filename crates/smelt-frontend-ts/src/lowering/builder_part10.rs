@@ -634,13 +634,17 @@ return_ty: string_ty,
         if object.name != "Number" || member.property.name != "parseInt" {
             return Ok(None);
         }
-        let operand = self.parse_int_operand("Number.parseInt", call, body)?;
+        let (operand, radix) = self.parse_int_operand("Number.parseInt", call, body)?;
         let ty = self.ctx.krate.types.intern(Type::Float);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::PrimitiveCast {
+        let kind = match radix {
+            Some(radix) => ExprKind::ParseIntRadix { operand, radix },
+            None => ExprKind::PrimitiveCast {
                 op: PrimitiveCastOp::ToInt,
                 operand,
             },
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind,
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -648,29 +652,37 @@ return_ty: string_ty,
 
     /// Lower and validate TypeScript `parseInt` string and radix arguments.
     ///
-    /// Smelt currently represents integer parsing as a primitive string-to-int
-    /// cast without a radix field. The common decimal radix form is still
-    /// accepted here after checking that the radix expression is numeric.
+    /// Returns the string operand plus an optional numeric radix. A present
+    /// radix is coerced to `Float` (asserting erased `unknown`/type-parameter
+    /// radices) so the `ParseIntRadix` op the callers emit can honor it.
     fn parse_int_operand(
         &mut self,
         source_name: &str,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let argument = match call.arguments.as_slice() {
-            [argument] => argument,
+    ) -> Result<(smelt_hir::ExprId, Option<smelt_hir::ExprId>), SmeltError> {
+        let (argument, radix) = match call.arguments.as_slice() {
+            [argument] => (argument, None),
             [argument, radix] => {
                 let radix_expr = self.argument(radix, body)?;
-                if !matches!(
-                    self.ctx.krate.types.get(Self::expr_ty(body, radix_expr)),
-                    Some(Type::Int | Type::Float | Type::Unknown | Type::TypeParam { .. })
-                ) {
-                    return Err(SmeltError::unsupported(
-                        self.span(call.span.start, call.span.end),
-                        format!("{source_name} requires a numeric radix argument"),
-                    ));
-                }
-                argument
+                let radix_expr = match self.ctx.krate.types.get(Self::expr_ty(body, radix_expr)) {
+                    Some(Type::Int | Type::Float) => radix_expr,
+                    Some(Type::Unknown | Type::TypeParam { .. }) => {
+                        let float_ty = self.ctx.krate.types.intern(Type::Float);
+                        body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value: radix_expr },
+                            ty: float_ty,
+                            span: self.span(radix.span().start, radix.span().end),
+                        })
+                    }
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(call.span.start, call.span.end),
+                            format!("{source_name} requires a numeric radix argument"),
+                        ));
+                    }
+                };
+                (argument, Some(radix_expr))
             }
             _ => {
                 return Err(SmeltError::unsupported(
@@ -680,26 +692,29 @@ return_ty: string_ty,
             }
         };
         let operand = self.argument(argument, body)?;
-        match self.ctx.krate.types.get(Self::expr_ty(body, operand)) {
-            Some(Type::String) => Ok(operand),
+        let operand = match self.ctx.krate.types.get(Self::expr_ty(body, operand)) {
+            Some(Type::String) => operand,
             Some(Type::Optional(inner))
                 if matches!(self.ctx.krate.types.get(*inner), Some(Type::String)) =>
             {
-                Ok(operand)
+                operand
             }
             Some(Type::Unknown | Type::TypeParam { .. }) => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
-                Ok(body.push_expr(Expr {
+                body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: operand },
                     ty: string_ty,
                     span: self.span(argument.span().start, argument.span().end),
-                }))
+                })
             }
-            _ => Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!("{source_name} requires a string argument"),
-            )),
-        }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("{source_name} requires a string argument"),
+                ));
+            }
+        };
+        Ok((operand, radix))
     }
 
     /// Lower direct TypeScript `.toString()` calls with an optional radix argument.

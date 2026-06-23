@@ -403,7 +403,9 @@ const decimalValue = Number.parseInt("42", 10);
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    let parse_count = body
+    // `parseInt("42")` casts to int; `parseInt("42", 10)` honors the radix via
+    // the dedicated `ParseIntRadix` op.
+    let to_int_count = body
         .exprs
         .iter()
         .filter(|expr| {
@@ -416,7 +418,13 @@ const decimalValue = Number.parseInt("42", 10);
             )
         })
         .count();
-    ensure_eq!(parse_count, 2);
+    let radix_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ParseIntRadix { .. }))
+        .count();
+    ensure_eq!(to_int_count, 1);
+    ensure_eq!(radix_count, 1);
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -435,13 +443,11 @@ const shifted = exponent === undefined ? 0 : Number.parseInt(exponent, 10);
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    ensure!(body.exprs.iter().any(|expr| matches!(
-        expr.kind,
-        ExprKind::PrimitiveCast {
-            op: PrimitiveCastOp::ToInt,
-            ..
-        }
-    )));
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ParseIntRadix { .. }))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -3177,6 +3183,8 @@ const floatValue = parseFloat("42.5");
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
+    // `parseInt("42")` casts to int; `parseInt("42", 10)` honors the radix via
+    // `ParseIntRadix`; `parseFloat` casts to float.
     let int_parse_count = body
         .exprs
         .iter()
@@ -3190,7 +3198,13 @@ const floatValue = parseFloat("42.5");
             )
         })
         .count();
-    ensure_eq!(int_parse_count, 2);
+    let radix_parse_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ParseIntRadix { .. }))
+        .count();
+    ensure_eq!(int_parse_count, 1);
+    ensure_eq!(radix_parse_count, 1);
     ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,
         ExprKind::PrimitiveCast {

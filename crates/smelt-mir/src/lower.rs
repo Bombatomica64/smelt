@@ -1672,6 +1672,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ParseIntRadix { operand, radix } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                let lowered_radix = self.lower_expr(*radix)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ParseIntRadix {
+                        operand: lowered_operand,
+                        radix: lowered_radix,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::PrimitiveCast { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -3588,6 +3601,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::NumericRandom
             | ExprKind::NumericRandomInt { .. }
             | ExprKind::NumericToStringRadix { .. }
+            | ExprKind::ParseIntRadix { .. }
             | ExprKind::PrimitiveCast { .. }
             | ExprKind::StringCase { .. }
             | ExprKind::StringNormalize { .. }

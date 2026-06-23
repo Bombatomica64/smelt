@@ -354,6 +354,37 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Parses an integer from a string with a JavaScript-style numeric radix.
+    ///
+    /// Mirrors `Number.parseInt`/`parseInt(str, radix)`: trims leading
+    /// whitespace, accepts an optional sign, consumes the longest valid digit
+    /// prefix in the radix, and yields `NaN` when no digits parse or the radix
+    /// is out of the 2..=36 range. The result is `f64` to match the existing
+    /// `parseInt` destination type.
+    pub(super) fn parse_int_radix_text(
+        &self,
+        operand: &Operand,
+        radix: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(radix)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new(
+                "parseInt(radix) requires a string operand and a numeric radix",
+            ));
+        }
+        let operand_text = self.operand_text(operand)?;
+        let radix_text = self.operand_text(radix)?;
+        let radix_trunc_text = self.numeric_trunc_f64_text(&radix_text);
+        Ok(format!(
+            "{{ let smelt_src = {operand_text}; let smelt_radix = {{ let r = {radix_trunc_text} as i64; if r == 0 {{ 10 }} else {{ r }} }}; if !(2..=36).contains(&smelt_radix) {{ f64::NAN }} else {{ let smelt_trimmed = smelt_src.trim_start(); let (smelt_neg, smelt_rest) = match smelt_trimmed.strip_prefix('-') {{ Some(rest) => (true, rest), None => (false, smelt_trimmed.strip_prefix('+').unwrap_or(smelt_trimmed)) }}; let smelt_prefix: String = smelt_rest.chars().take_while(|c| c.to_digit(smelt_radix as u32).is_some()).collect(); if smelt_prefix.is_empty() {{ f64::NAN }} else {{ i64::from_str_radix(&smelt_prefix, smelt_radix as u32).map(|v| (if smelt_neg {{ -v }} else {{ v }}) as f64).unwrap_or(f64::NAN) }} }} }}"
+        ))
+    }
+
     /// Converts a numeric operand to text usable as an `f64` receiver or argument.
     /// Converts a numeric operand to text usable as an `f64` receiver or argument.
     pub(super) fn float_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
