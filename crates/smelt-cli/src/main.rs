@@ -43,6 +43,7 @@ mod diagnostics;
 mod lowering;
 mod manifest;
 mod pipeline;
+mod probe;
 pub mod stubs;
 mod test_report;
 mod timing;
@@ -160,6 +161,31 @@ fn main() -> CliResult<()> {
                     .into());
             }
         },
+        Command::Probe {
+            run_tests,
+            format,
+            output,
+        } => {
+            let probe_format = match format.as_str() {
+                "json" => probe::ProbeFormat::Json,
+                "md" | "markdown" => probe::ProbeFormat::Markdown,
+                other => {
+                    return Err(format!("unknown --format `{other}`; use `md` or `json`").into());
+                }
+            };
+            let report = probe::probe_report(&probe::ProbeOptions {
+                config: &config,
+                manifest_path: &manifest_path,
+                run_tests,
+                format: probe_format,
+            })?;
+            if let Some(output_path) = output {
+                std::fs::write(output_path, report)?;
+            } else {
+                let mut stdout = io::stdout().lock();
+                write!(stdout, "{report}")?;
+            }
+        }
         Command::RustDiagnostics { .. } | Command::RustTestReport { .. } | Command::DumpSchema => {
             return Ok(());
         }

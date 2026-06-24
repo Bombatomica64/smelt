@@ -54,6 +54,19 @@ cargo run --bin smelt -- rust-test-report \
 SMELT_ROOT=$PWD python3 scripts/probe_blocker_scan.py lib ts src
 ```
 
+## Native single-library probe
+
+`smelt probe` reports the same information for one manifest without the external
+Python scripts — it consumes frontend diagnostic categories directly:
+
+```bash
+# Markdown blocker report (transpile verdict + blockers grouped by category)
+cargo run --bin smelt -- --manifest-path lib/Smelt.toml probe
+
+# Machine-readable JSON, and also run the generated tests when it transpiles
+cargo run --bin smelt -- --manifest-path lib/Smelt.toml probe --format json --run-tests
+```
+
 ## Reproducing the whole report locally
 
 ```bash
