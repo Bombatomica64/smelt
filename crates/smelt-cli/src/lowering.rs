@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use serde::Serialize;
 use smelt_hir::{FileId, ModuleId};
 use smelt_stdlib::DiagnosticCategory;
 
@@ -251,6 +252,48 @@ pub(crate) fn collect_file_diagnostics(
     }))
 }
 
+/// One categorized diagnostic from a whole-crate recoverable lowering, tagged
+/// with the file it came from. Serializes directly for `--message-format json`.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ManifestDiagnostic {
+    /// Source file the diagnostic refers to.
+    pub(crate) file: String,
+    /// Coarse classification used for grouping.
+    pub(crate) category: DiagnosticCategory,
+    /// Stable per-site diagnostic code.
+    pub(crate) code: &'static str,
+    /// Human-readable message.
+    pub(crate) message: String,
+}
+
+/// RAII guard that silences panic backtraces and restores the prior hook on drop.
+///
+/// Used by recoverable/probing lowering where individual-file panics are caught
+/// and reported rather than aborting the process.
+pub(crate) struct QuietPanics {
+    /// The panic hook to restore on drop.
+    previous: Option<Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>>,
+}
+
+impl QuietPanics {
+    /// Install a no-op panic hook, remembering the previous one.
+    pub(crate) fn install() -> Self {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_info| {}));
+        Self {
+            previous: Some(previous),
+        }
+    }
+}
+
+impl Drop for QuietPanics {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous.take() {
+            std::panic::set_hook(previous);
+        }
+    }
+}
+
 /// Recursively collect every TypeScript/Python source file under the manifest
 /// source roots, skipping declaration files and vendored/output directories.
 pub(crate) fn discover_source_files(
@@ -483,9 +526,15 @@ fn lower_ordered_manifest_sources(
     let module_names = manifest_module_names(sources);
 
     for (idx, source) in sources.iter().enumerate() {
-        let (next_krate, module, next_state) = lower_manifest_source(krate, state, source, idx)?;
+        let (next_krate, next_state, outcome) = lower_manifest_source(krate, state, source, idx)?;
         krate = next_krate;
         state = next_state;
+        let module = outcome.map_err(|diagnostics| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{}:\n{diagnostics:#?}", source.path.display()),
+            )
+        })?;
         let file = &source.path;
         if let Ok(module_idx) = usize::try_from(module.0)
             && let Some(module_value) = krate.modules.get_mut(module_idx)
@@ -501,15 +550,86 @@ fn lower_ordered_manifest_sources(
     Ok((krate, modules))
 }
 
-/// Lowers one manifest file with the language-specific frontend.
+/// Lower all manifest sources in dependency order, recovering from per-file
+/// lowering failures so one pass enumerates blockers across the whole crate.
+///
+/// Unlike [`lower_manifest_entries`], a file that fails to lower does not abort
+/// the run: its categorized diagnostics are collected and lowering continues
+/// with the remaining modules (imports into already-lowered modules still
+/// resolve). A frontend panic on a file is reported as an `internal` diagnostic
+/// and stops the pass, since the shared crate cannot be recovered past a panic.
+pub(crate) fn collect_manifest_diagnostics(
+    config: &crate::config::Config,
+    manifest_path: &Path,
+) -> Result<Vec<ManifestDiagnostic>, Box<dyn std::error::Error>> {
+    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let root_sources = manifest_root_paths(config, manifest_dir)?
+        .into_iter()
+        .map(read_manifest_source)
+        .collect::<Result<Vec<_>, _>>()?;
+    let sources = dependency_closure(root_sources)?;
+    let ordered_sources = order_manifest_sources(&sources)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
+        .into_iter()
+        .filter_map(|idx| sources.get(idx))
+        .collect::<Vec<_>>();
+
+    let _quiet = QuietPanics::install();
+    let mut krate = smelt_hir::Crate::new();
+    let mut state = FrontendLoweringState::default();
+    let mut diagnostics = Vec::new();
+    for (idx, source) in ordered_sources.iter().enumerate() {
+        let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            lower_manifest_source(krate, state, source, idx)
+        }));
+        match lowered {
+            Ok(Ok((next_krate, next_state, outcome))) => {
+                krate = next_krate;
+                state = next_state;
+                if let Err(file_diagnostics) = outcome {
+                    diagnostics.extend(file_diagnostics);
+                }
+            }
+            Ok(Err(hard_error)) => return Err(hard_error),
+            Err(_panic) => {
+                diagnostics.push(ManifestDiagnostic {
+                    file: source.path.display().to_string(),
+                    category: DiagnosticCategory::Internal,
+                    code: "smelt::frontend-panic",
+                    message: "frontend panicked while lowering this file; \
+                              remaining modules were not scanned"
+                        .to_owned(),
+                });
+                break;
+            }
+        }
+    }
+    Ok(diagnostics)
+}
+
+/// Lowers one manifest file, returning the (possibly mutated) crate and state
+/// plus either the lowered module or its categorized diagnostics.
+///
+/// The crate and state are returned even when the file has lowering errors, so
+/// a recoverable driver can keep lowering the remaining modules with the
+/// already-lowered modules still resolvable. The outer error is reserved for
+/// unrecoverable failures such as an unknown source extension.
 fn lower_manifest_source(
     krate: smelt_hir::Crate,
     state: FrontendLoweringState,
     source: &ManifestSource,
     idx: usize,
-) -> Result<(smelt_hir::Crate, ModuleId, FrontendLoweringState), Box<dyn std::error::Error>> {
+) -> Result<
+    (
+        smelt_hir::Crate,
+        FrontendLoweringState,
+        Result<ModuleId, Vec<ManifestDiagnostic>>,
+    ),
+    Box<dyn std::error::Error>,
+> {
     let file = &source.path;
     let file_string = file.display().to_string();
+    let file_id = FileId(u32::try_from(idx).unwrap_or(u32::MAX));
     match SourceLang::from_path(&file_string)? {
         SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
             let mut ctx = smelt_frontend_ts::HirCtx {
@@ -530,41 +650,34 @@ fn lower_manifest_source(
                 callable_fields: state.ts_callable_fields,
                 callable_object_aliases: state.ts_callable_object_aliases,
             };
-            let module = smelt_frontend_ts::to_hir_with_path(
-                &source.source,
-                FileId(u32::try_from(idx).map_err(|error| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("too many source files: {error}"),
-                    )
-                })?),
-                &file_string,
-                &mut ctx,
-            )
-            .map_err(|errors| lowering_error(file, &errors))?;
-            Ok((
-                ctx.krate,
-                module,
-                FrontendLoweringState {
-                    ts_export_aliases: ctx.export_aliases,
-                    ts_module_exports: ctx.module_exports,
-                    ts_object_namespaces: ctx.object_namespaces,
-                    ts_object_consts: ctx.object_consts,
-                    ts_object_value_collections: ctx.object_value_collections,
-                    ts_const_collections: ctx.const_collections,
-                    ts_overloads: ctx.overloads,
-                    ts_function_rests: ctx.function_rests,
-                    ts_date_returning_functions: ctx.date_returning_functions,
-                    ts_type_alias_fields: ctx.type_alias_fields,
-                    ts_interface_extends: ctx.interface_extends,
-                    ts_interface_index_values: ctx.interface_index_values,
-                    ts_interface_call_signatures: ctx.interface_call_signatures,
-                    ts_callable_fields: ctx.callable_fields,
-                    ts_callable_object_aliases: ctx.callable_object_aliases,
-                    py_module_namespaces: state.py_module_namespaces,
-                    py_enum_members: state.py_enum_members,
-                },
-            ))
+            let outcome =
+                smelt_frontend_ts::to_hir_with_path(&source.source, file_id, &file_string, &mut ctx)
+                    .map_err(|errors| {
+                        manifest_diagnostics(
+                            &file_string,
+                            errors.iter().map(|e| (e.category, e.code, e.message.clone())),
+                        )
+                    });
+            let next_state = FrontendLoweringState {
+                ts_export_aliases: ctx.export_aliases,
+                ts_module_exports: ctx.module_exports,
+                ts_object_namespaces: ctx.object_namespaces,
+                ts_object_consts: ctx.object_consts,
+                ts_object_value_collections: ctx.object_value_collections,
+                ts_const_collections: ctx.const_collections,
+                ts_overloads: ctx.overloads,
+                ts_function_rests: ctx.function_rests,
+                ts_date_returning_functions: ctx.date_returning_functions,
+                ts_type_alias_fields: ctx.type_alias_fields,
+                ts_interface_extends: ctx.interface_extends,
+                ts_interface_index_values: ctx.interface_index_values,
+                ts_interface_call_signatures: ctx.interface_call_signatures,
+                ts_callable_fields: ctx.callable_fields,
+                ts_callable_object_aliases: ctx.callable_object_aliases,
+                py_module_namespaces: state.py_module_namespaces,
+                py_enum_members: state.py_enum_members,
+            };
+            Ok((ctx.krate, next_state, outcome))
         }
         SourceLang::Python | SourceLang::PythonDeclaration => {
             let mut ctx = smelt_frontend_py::HirCtx {
@@ -572,51 +685,51 @@ fn lower_manifest_source(
                 module_namespaces: state.py_module_namespaces,
                 enum_members: state.py_enum_members,
             };
-            let module = smelt_frontend_py::to_hir_with_path(
-                &source.source,
-                FileId(u32::try_from(idx).map_err(|error| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("too many source files: {error}"),
-                    )
-                })?),
-                &file_string,
-                &mut ctx,
-            )
-            .map_err(|errors| lowering_error(file, &errors))?;
-            Ok((
-                ctx.krate,
-                module,
-                FrontendLoweringState {
-                    ts_export_aliases: state.ts_export_aliases,
-                    ts_module_exports: state.ts_module_exports,
-                    ts_object_namespaces: state.ts_object_namespaces,
-                    ts_object_consts: state.ts_object_consts,
-                    ts_object_value_collections: state.ts_object_value_collections,
-                    ts_const_collections: state.ts_const_collections,
-                    ts_overloads: state.ts_overloads,
-                    ts_function_rests: state.ts_function_rests,
-                    ts_date_returning_functions: state.ts_date_returning_functions,
-                    ts_type_alias_fields: state.ts_type_alias_fields,
-                    ts_interface_extends: state.ts_interface_extends,
-                    ts_interface_index_values: state.ts_interface_index_values,
-                    ts_interface_call_signatures: state.ts_interface_call_signatures,
-                    ts_callable_fields: state.ts_callable_fields,
-                    ts_callable_object_aliases: state.ts_callable_object_aliases,
-                    py_module_namespaces: ctx.module_namespaces,
-                    py_enum_members: ctx.enum_members,
-                },
-            ))
+            let outcome =
+                smelt_frontend_py::to_hir_with_path(&source.source, file_id, &file_string, &mut ctx)
+                    .map_err(|errors| {
+                        manifest_diagnostics(
+                            &file_string,
+                            errors.iter().map(|e| (e.category, e.code, e.message.clone())),
+                        )
+                    });
+            let next_state = FrontendLoweringState {
+                ts_export_aliases: state.ts_export_aliases,
+                ts_module_exports: state.ts_module_exports,
+                ts_object_namespaces: state.ts_object_namespaces,
+                ts_object_consts: state.ts_object_consts,
+                ts_object_value_collections: state.ts_object_value_collections,
+                ts_const_collections: state.ts_const_collections,
+                ts_overloads: state.ts_overloads,
+                ts_function_rests: state.ts_function_rests,
+                ts_date_returning_functions: state.ts_date_returning_functions,
+                ts_type_alias_fields: state.ts_type_alias_fields,
+                ts_interface_extends: state.ts_interface_extends,
+                ts_interface_index_values: state.ts_interface_index_values,
+                ts_interface_call_signatures: state.ts_interface_call_signatures,
+                ts_callable_fields: state.ts_callable_fields,
+                ts_callable_object_aliases: state.ts_callable_object_aliases,
+                py_module_namespaces: ctx.module_namespaces,
+                py_enum_members: ctx.enum_members,
+            };
+            Ok((ctx.krate, next_state, outcome))
         }
     }
 }
 
-/// Formats frontend lowering errors with the source path.
-fn lowering_error(file: &Path, errors: &[impl std::fmt::Debug]) -> io::Error {
-    io::Error::new(
-        io::ErrorKind::InvalidData,
-        format!("{}:\n{errors:#?}", file.display()),
-    )
+/// Build per-file [`ManifestDiagnostic`]s from a frontend's categorized errors.
+fn manifest_diagnostics(
+    file: &str,
+    errors: impl Iterator<Item = (DiagnosticCategory, &'static str, String)>,
+) -> Vec<ManifestDiagnostic> {
+    errors
+        .map(|(category, code, message)| ManifestDiagnostic {
+            file: file.to_owned(),
+            category,
+            code,
+            message,
+        })
+        .collect()
 }
 
 /// Returns the generated Rust function name for a manifest module body.

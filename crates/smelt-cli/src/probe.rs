@@ -106,7 +106,7 @@ fn run_probe(options: &ProbeOptions<'_>) -> CliResult<ProbeResult> {
     // Real-world inputs can panic the frontend; catch panics across the build
     // and per-file scan and report them rather than crashing. Backtraces are
     // silenced for the duration so the report output stays clean.
-    let _quiet = QuietPanics::install();
+    let _quiet = lowering::QuietPanics::install();
 
     // Whole-crate build decides the transpile verdict. A panic counts as a
     // failed transpile attributed to a frontend panic.
@@ -284,31 +284,6 @@ fn first_abort_file(message: &str) -> Option<String> {
         }
     }
     None
-}
-
-/// RAII guard that silences panic backtraces and restores the prior hook on drop.
-struct QuietPanics {
-    /// The panic hook to restore on drop.
-    previous: Option<Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>>,
-}
-
-impl QuietPanics {
-    /// Install a no-op panic hook, remembering the previous one.
-    fn install() -> Self {
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_info| {}));
-        Self {
-            previous: Some(previous),
-        }
-    }
-}
-
-impl Drop for QuietPanics {
-    fn drop(&mut self) {
-        if let Some(previous) = self.previous.take() {
-            std::panic::set_hook(previous);
-        }
-    }
 }
 
 /// Collapse quoted specifics (`` `x` `` and `'x'`) so distinct identifiers map

@@ -33,7 +33,12 @@ pub enum Command {
         hir_debug: bool,
     },
     /// Type-check and validate without emitting any output
-    Check,
+    Check {
+        /// Diagnostic output: `human` (default, fail-fast) or `json` (collect
+        /// every module's categorized diagnostics in one recoverable pass).
+        #[arg(long = "message-format", default_value = "human")]
+        message_format: String,
+    },
     /// Scaffold a new smelt project
     New {
         /// Project name
