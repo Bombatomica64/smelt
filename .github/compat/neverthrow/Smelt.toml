@@ -1,0 +1,19 @@
+[project]
+name = "neverthrow"
+version = "0.0.0"
+description = "neverthrow Smelt probe"
+[sources]
+roots = ["src", "tests"]
+test-prefix = ["**/*.test.ts"]
+entries = ["src/index.ts"]
+[output]
+target = "./dist-smelt"
+crate-name = "neverthrow_probe"
+build = false
+[rust]
+edition = "2024"
+[strict]
+typescript = true
+python = true
+[runtime]
+clone-strategy = "aggressive"

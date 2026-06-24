@@ -1,0 +1,24 @@
+[project]
+name = "toolz"
+version = "0.0.0"
+description = "toolz Smelt probe"
+
+[sources]
+roots = ["."]
+test-prefix = ["toolz/tests/**/test_*.py"]
+entries = ["toolz/__init__.py"]
+
+[output]
+target = "./dist-smelt"
+crate-name = "toolz_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"
