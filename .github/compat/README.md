@@ -5,9 +5,15 @@ TypeScript or Python library's source root + test glob. They are used to probe
 how far Smelt can transpile real-world "bug libraries".
 
 `remeda/` is the curated, passing compat target wired into the
-`Compatibility` GitHub Actions workflow. The others are exploratory probes;
-the most recent results are written up in
-[`blocker-logs/bug-library-probes-2026-06-24.md`](../../blocker-logs/bug-library-probes-2026-06-24.md).
+`Compatibility` GitHub Actions workflow. The others are exploratory probes run
+daily by the [`Library Probes`](../workflows/library-probes.yml) workflow, which
+refreshes the report at
+[`blocker-logs/library-probes.md`](../../blocker-logs/library-probes.md).
+
+The probe set, pinned refs, and per-library source roots live in
+[`libraries.json`](./libraries.json); the driver is
+[`scripts/probe_libraries.py`](../../scripts/probe_libraries.py). Bump a `ref`
+deliberately to re-baseline a probe against a newer library version.
 
 ## Probed libraries
 
@@ -46,4 +52,17 @@ cargo run --bin smelt -- rust-test-report \
 # 4b. If the build aborts at the first unsupported file, enumerate every
 #     blocker class across the whole library:
 SMELT_ROOT=$PWD python3 scripts/probe_blocker_scan.py lib ts src
+```
+
+## Reproducing the whole report locally
+
+```bash
+cargo build --bin smelt
+mkdir -p target/library-probes
+# clone each library at its pinned ref into target/library-probes/<name>, then:
+python3 scripts/probe_libraries.py \
+  --config .github/compat/libraries.json \
+  --fixtures .github/compat \
+  --work-dir target/library-probes \
+  --output blocker-logs/library-probes.md
 ```

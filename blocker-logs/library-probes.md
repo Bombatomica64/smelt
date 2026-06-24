@@ -1,49 +1,34 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-06-24 on branch `claude/remeda-bug-library-probes-oy0h3g`._
+_Generated 2026-06-24 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
-Each library below was downloaded at its default-branch HEAD, given a `Smelt.toml`
-pointing at its source root + test glob, and run through `smelt build`. Where the
-whole-crate build aborts at the first unsupported construct, every source/test file
-was additionally scanned individually with `smelt dump-hir` to enumerate the full set
-of distinct blocker classes (single-file mode cannot resolve cross-file imports, so
-bare `unresolved name/identifier` errors are treated as scan noise and excluded).
+Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
-**Error categories** (as requested):
-- **missing-stdlib** — a JS/Python builtin or library surface Smelt does not model yet
-  (e.g. `Array`, `Number`, `Reflect`, `TextEncoder`, `Proxy`).
-- **non-working Rust** — a frontend/IR lowering gap: Smelt cannot lower the construct
-  into Rust that compiles (missing return-type annotations, `try`/`except`, decorators,
-  callback methods not lowered into closures, non-primitive exported `const`, etc.).
-
-## Reference point
-
-`remeda` (the curated compat target) **transpiles** and its generated `cargo test` runs:
-**1768 passed / 21 failed** (full suite). None of the probes below reach that stage yet.
+**Error categories:**
+- **missing-stdlib** — a JS/Python builtin Smelt does not model yet (`Array`, `Number`, `Reflect`, `TextEncoder`, `Proxy`, ...).
+- **non-working Rust** — a frontend/IR lowering gap: Smelt cannot lower the construct into Rust that compiles (missing return-type annotations, `try`/`except`, decorators, callback methods not lowered into closures, non-primitive exported `const`, ...).
 
 ## Summary
 
-| Library | Lang | Transpile | Tests pass | First abort | Distinct blocker classes | Dominant category |
+| Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **no** | n/a (no crate) | `src/array/at.spec.ts` | 79 | non-working Rust (77 rust / 2 stdlib) |
-| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a (no crate) | `src/typed.ts` | 24 | non-working Rust (22 rust / 2 stdlib) |
-| [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a (no crate) | `src/types/Pattern.ts` | 15 | non-working Rust (15 rust / 0 stdlib) |
-| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a (no crate) | `library/src/utils/_getByteCount/_getByteCount.ts` | 33 | non-working Rust (32 rust / 1 stdlib) |
-| [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a (no crate) | `src/result-async.ts` | 11 | non-working Rust (11 rust / 0 stdlib) |
-| [returns](https://github.com/dry-python/returns) | Py | **no** | n/a (no crate) | `tests/.../test_context.py` | 33 | non-working Rust (33 rust / 0 stdlib) |
-| [result](https://github.com/rustedpy/result) | Py | **no** | n/a (no crate) | `src/result/result.py` | 7 | non-working Rust (7 rust / 0 stdlib) |
-| [more-itertools](https://github.com/more-itertools/more-itertools) | Py | **no** | n/a (no crate) | `more_itertools/recipes.py` | 10 | non-working Rust (10 rust / 0 stdlib) |
-| [funcy](https://github.com/Suor/funcy) | Py | **no** | n/a (no crate) | `funcy/primitives.py` | 14 | non-working Rust (14 rust / 0 stdlib) |
-| [toolz](https://github.com/pytoolz/toolz) | Py | **no** | n/a (no crate) | `toolz/itertoolz.py` | 14 | non-working Rust (14 rust / 0 stdlib) |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **no** | n/a | `src/array/at.spec.ts` | 79 | non-working Rust (77r/2s) |
+| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `src/typed.ts` | 24 | non-working Rust (22r/2s) |
+| [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `src/types/Pattern.ts` | 15 | non-working Rust (15r/0s) |
+| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/utils/_getByteCount/_getByteCount.ts` | 33 | non-working Rust (32r/1s) |
+| [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `src/result-async.ts` | 11 | non-working Rust (11r/0s) |
+| [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `tests/test_context/test_requires_context/test_context.py` | 33 | non-working Rust (33r/0s) |
+| [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `src/result/result.py` | 7 | non-working Rust (7r/0s) |
+| [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `more_itertools/recipes.py` | 10 | non-working Rust (10r/0s) |
+| [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `funcy/primitives.py` | 14 | non-working Rust (14r/0s) |
+| [toolz](https://github.com/pytoolz/toolz) | PY | **no** | n/a | `toolz/itertoolz.py` | 14 | non-working Rust (14r/0s) |
 
-## TypeScript libraries
+## es-toolkit
 
-### es-toolkit
-
-- Source: `toss/es-toolkit` (default branch)
+- Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **no** — `smelt build` aborts at `src/array/at.spec.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1219  ·  files with blockers: 418
+- Files scanned: 1219 · with blockers: 418
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -62,12 +47,12 @@ bare `unresolved name/identifier` errors are treated as scan noise and excluded)
 | 6 | 6 | non-working Rust | method calls are only lowered for class values for now |
 | 6 | 6 | non-working Rust | array concat currently requires exactly one array argument |
 
-### radash
+## radash
 
-- Source: `sodiray/radash` (default branch)
+- Source: `sodiray/radash` @ `4cab1900d08e`
 - Transpile: **no** — `smelt build` aborts at `src/typed.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 19  ·  files with blockers: 13
+- Files scanned: 19 · with blockers: 13
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -86,12 +71,12 @@ bare `unresolved name/identifier` errors are treated as scan noise and excluded)
 | 1 | 1 | non-working Rust | local `X` is not callable (Some(None)) |
 | 1 | 1 | non-working Rust | parseFloat requires a string argument |
 
-### ts-pattern
+## ts-pattern
 
-- Source: `gvergnaud/ts-pattern` (default branch)
+- Source: `gvergnaud/ts-pattern` @ `c92ca435c7e1`
 - Transpile: **no** — `smelt build` aborts at `src/types/Pattern.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 68  ·  files with blockers: 23
+- Files scanned: 68 · with blockers: 22
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -110,12 +95,12 @@ bare `unresolved name/identifier` errors are treated as scan noise and excluded)
 | 1 | 1 | non-working Rust | extended interface `X` is not declared |
 | 1 | 1 | non-working Rust | method calls are only lowered for class values for now |
 
-### valibot
+## valibot
 
-- Source: `fabian-hiller/valibot` (default branch)
+- Source: `fabian-hiller/valibot` @ `1f9b18338ad5`
 - Transpile: **no** — `smelt build` aborts at `library/src/utils/_getByteCount/_getByteCount.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1083  ·  files with blockers: 324
+- Files scanned: 1083 · with blockers: 324
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -134,12 +119,12 @@ bare `unresolved name/identifier` errors are treated as scan noise and excluded)
 | 1 | 1 | non-working Rust | array element kind is not lowered yet: AwaitExpression(AwaitExpression { span: Span { star |
 | 1 | 1 | non-working Rust | local closure return type does not match its annotation: actual Some(Dict(TypeId(1), TypeI |
 
-### neverthrow
+## neverthrow
 
-- Source: `supermacro/neverthrow` (default branch)
+- Source: `supermacro/neverthrow` @ `5ef3a018bda7`
 - Transpile: **no** — `smelt build` aborts at `src/result-async.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 8  ·  files with blockers: 6
+- Files scanned: 8 · with blockers: 6
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -155,14 +140,12 @@ bare `unresolved name/identifier` errors are treated as scan noise and excluded)
 | 1 | 1 | non-working Rust | String.match() requires exactly one RegExp argument |
 | 1 | 1 | non-working Rust | call expression is not lowered yet |
 
-## Python libraries
+## returns
 
-### returns
-
-- Source: `dry-python/returns` (default branch)
-- Transpile: **no** — `smelt build` aborts at `tests/.../test_context.py`
+- Source: `dry-python/returns` @ `04e820c71461`
+- Transpile: **no** — `smelt build` aborts at `tests/test_context/test_requires_context/test_context.py`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 199  ·  files with blockers: 180
+- Files scanned: 199 · with blockers: 180
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -181,12 +164,12 @@ bare `unresolved name/identifier` errors are treated as scan noise and excluded)
 | 11 | 6 | non-working Rust | unsupported expression: ellipsis |
 | 10 | 8 | non-working Rust | function 'X' must have an explicit return type annotation |
 
-### result
+## result
 
-- Source: `rustedpy/result` (default branch)
+- Source: `rustedpy/result` @ `0b855e1e38a0`
 - Transpile: **no** — `smelt build` aborts at `src/result/result.py`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 5  ·  files with blockers: 4
+- Files scanned: 5 · with blockers: 4
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -198,12 +181,12 @@ bare `unresolved name/identifier` errors are treated as scan noise and excluded)
 | 2 | 1 | non-working Rust | Callable first argument must be a list of param types, e.g. [int, str] |
 | 2 | 1 | non-working Rust | unsupported statement: try |
 
-### more-itertools
+## more-itertools
 
-- Source: `more-itertools/more-itertools` (default branch)
+- Source: `more-itertools/more-itertools` @ `5d946b3590bf`
 - Transpile: **no** — `smelt build` aborts at `more_itertools/recipes.py`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 6  ·  files with blockers: 4
+- Files scanned: 6 · with blockers: 4
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -218,12 +201,12 @@ bare `unresolved name/identifier` errors are treated as scan noise and excluded)
 | 1 | 1 | non-working Rust | integer literal out of i64 range |
 | 1 | 1 | non-working Rust | unsupported expression: lambda |
 
-### funcy
+## funcy
 
-- Source: `Suor/funcy` (default branch)
+- Source: `Suor/funcy` @ `9eb04473e31b`
 - Transpile: **no** — `smelt build` aborts at `funcy/primitives.py`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 33  ·  files with blockers: 31
+- Files scanned: 33 · with blockers: 31
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -242,12 +225,12 @@ bare `unresolved name/identifier` errors are treated as scan noise and excluded)
 | 1 | 1 | non-working Rust | all() and any() currently support exactly one bool list argument |
 | 1 | 1 | non-working Rust | unsupported expression: lambda |
 
-### toolz
+## toolz
 
-- Source: `pytoolz/toolz` (default branch)
+- Source: `pytoolz/toolz` @ `568c2b839397`
 - Transpile: **no** — `smelt build` aborts at `toolz/itertoolz.py`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 31  ·  files with blockers: 28
+- Files scanned: 31 · with blockers: 28
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -266,9 +249,9 @@ bare `unresolved name/identifier` errors are treated as scan noise and excluded)
 | 1 | 1 | non-working Rust | dict.update() requires exactly one dict argument |
 | 1 | 1 | non-working Rust | binary operator 'X' is not supported |
 
-## Highest-leverage transpiler gaps (non-working Rust), ranked by libraries affected
+## Highest-leverage transpiler gaps (non-working Rust)
 
-These lowering gaps block more than one probed library; fixing them unlocks the most surface.
+Lowering gaps blocking more than one probed library; fixing these unlocks the most surface.
 
 | Libraries hit | Total occ. | Blocker class |
 | ---: | ---: | --- |
@@ -304,10 +287,9 @@ These lowering gaps block more than one probed library; fixing them unlocks the 
 | 2 (es-toolkit, valibot) | 5 | expect(...).resolves/rejects actual value must be a Promise<T> |
 | 2 (es-toolkit, valibot) | 2 | expect(...).toContain(...) requires a string, array, set, or tuple actual value with a matching expe |
 
-## Missing stdlib builtins observed (TypeScript)
+## Missing stdlib builtins observed
 
 Builtins referenced in `new`/`extends`/callback position that Smelt does not resolve.
-Each is a candidate for the JS stdlib surface.
 
 | Library | Builtins (occurrences) |
 | --- | --- |
@@ -315,10 +297,4 @@ Each is a candidate for the JS stdlib surface.
 | radash | `Proxy`×3, `Reflect`×1 |
 | ts-pattern | `Reflect`×2 |
 | valibot | `TextEncoder`×5, `Number`×1, `isFinite`×1, `Blob`×1, `File`×1 |
-| neverthrow | _none observed_ |
 
-> Python probes are blocked earlier by lowering gaps (untyped signatures, decorators,
-> `try`/`except`, method/attribute calls) than by missing stdlib, so the dominant Python
-> lever is frontend coverage, not stdlib breadth. Smelt also requires fully type-annotated
-> source: `toolz`, `funcy`, and `more-itertools` are not fully annotated and would fail
-> `ty`-strict checking too, so they are partly out of Smelt's stated scope.
