@@ -21,4 +21,5 @@ smelt-frontend-py = { path = "../smelt-frontend-py" }
 smelt-frontend-ts = { path = "../smelt-frontend-ts" }
 smelt-hir = { path = "../smelt-hir" }
 smelt-mir = { path = "../smelt-mir" }
+smelt-stdlib = { path = "../smelt-stdlib" }
 toml = { workspace = true }

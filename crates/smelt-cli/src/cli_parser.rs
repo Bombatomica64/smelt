@@ -116,6 +116,21 @@ pub enum Command {
         output: Option<String>,
     },
 
+    /// Probe how far a manifest transpiles and enumerate blockers by category
+    Probe {
+        /// Also run the generated `cargo test` suite when the crate transpiles.
+        #[arg(long = "run-tests")]
+        run_tests: bool,
+
+        /// Report format: `md` (default) or `json`.
+        #[arg(long, default_value = "md")]
+        format: String,
+
+        /// Optional path to write the report instead of stdout.
+        #[arg(long)]
+        output: Option<String>,
+    },
+
     /// Remove the output target directory
     Clean,
     /// Print the JSON Schema for Smelt.toml

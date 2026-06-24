@@ -10,6 +10,7 @@ use std::{
 };
 
 use smelt_hir::{FileId, ModuleId};
+use smelt_stdlib::DiagnosticCategory;
 
 use crate::manifest::{
     ManifestSource, dependency_closure, order_manifest_sources, read_manifest_source,
@@ -176,6 +177,138 @@ pub(crate) fn lower_single_file(file: &str) -> Result<LoweredCrate, Box<dyn std:
             lower_python_files(&[file.to_owned()])
         }
     }
+}
+
+/// One categorized frontend diagnostic from lowering a single file.
+///
+/// Flattens the per-frontend `SmeltError` types into a shared shape so probe
+/// reporting can group diagnostics without depending on either frontend's
+/// concrete error type.
+#[derive(Debug, Clone)]
+pub(crate) struct FileDiagnostic {
+    /// Coarse classification used for grouping.
+    pub(crate) category: DiagnosticCategory,
+    /// Stable per-site diagnostic code.
+    pub(crate) code: &'static str,
+    /// Human-readable message.
+    pub(crate) message: String,
+}
+
+/// Lower one source file in isolation and return its categorized diagnostics.
+///
+/// Single-file lowering does not resolve cross-file imports, so unresolved
+/// references to other project modules surface here; probe reporting accounts
+/// for that by reading each diagnostic's [`DiagnosticCategory`]. Returns an
+/// empty vector when the file lowers cleanly.
+pub(crate) fn collect_file_diagnostics(
+    file: &str,
+) -> Result<Vec<FileDiagnostic>, Box<dyn std::error::Error>> {
+    let source = fs::read_to_string(file)?;
+    let lang = SourceLang::from_path(file)?;
+    // A frontend panic on one file must not abort the whole probe; treat it as
+    // its own reportable blocker. `catch_unwind` is safe here because the HIR
+    // context is created and dropped entirely inside the closure.
+    let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match lang {
+        SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
+            let mut ctx = smelt_frontend_ts::HirCtx::new();
+            smelt_frontend_ts::to_hir_with_path(&source, FileId(0), file, &mut ctx)
+                .err()
+                .map(|errors| {
+                    errors
+                        .into_iter()
+                        .map(|error| FileDiagnostic {
+                            category: error.category,
+                            code: error.code,
+                            message: error.message,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        }
+        SourceLang::Python | SourceLang::PythonDeclaration => {
+            let mut ctx = smelt_frontend_py::HirCtx::new();
+            smelt_frontend_py::to_hir_with_path(&source, FileId(0), file, &mut ctx)
+                .err()
+                .map(|errors| {
+                    errors
+                        .into_iter()
+                        .map(|error| FileDiagnostic {
+                            category: error.category,
+                            code: error.code,
+                            message: error.message,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        }
+    }));
+    Ok(lowered.unwrap_or_else(|_| {
+        vec![FileDiagnostic {
+            category: DiagnosticCategory::Internal,
+            code: "smelt::frontend-panic",
+            message: "frontend panicked while lowering this file".to_owned(),
+        }]
+    }))
+}
+
+/// Recursively collect every TypeScript/Python source file under the manifest
+/// source roots, skipping declaration files and vendored/output directories.
+pub(crate) fn discover_source_files(
+    config: &crate::config::Config,
+    manifest_dir: &Path,
+) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let roots = config
+        .source_roots()
+        .map_or_else(|| vec![PathBuf::from(".")], <[_]>::to_vec);
+    let mut paths = Vec::new();
+    for root in roots {
+        let absolute_root = resolve_manifest_path(manifest_dir, &root);
+        collect_source_files(&absolute_root, &mut paths)?;
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+/// Recursively gather probe-eligible source files below `dir`.
+fn collect_source_files(
+    dir: &Path,
+    paths: &mut Vec<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    for read_result in fs::read_dir(dir)? {
+        let dir_entry = read_result?;
+        let path = dir_entry.path();
+        let file_type = dir_entry.file_type()?;
+        if file_type.is_dir() {
+            // Skip vendored dependencies and generated output directories.
+            if let Some(name) = path.file_name().and_then(|name| name.to_str())
+                && (name == "node_modules" || name == "__pycache__" || name.starts_with("dist"))
+            {
+                continue;
+            }
+            collect_source_files(&path, paths)?;
+        } else if file_type.is_file() && is_probe_source_file(&path) {
+            paths.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Returns whether `path` is a `.ts`/`.py` source file the probe should lower.
+fn is_probe_source_file(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    if name.ends_with(".d.ts") {
+        return false;
+    }
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("ts" | "py")
+    )
 }
 
 /// Lowers manifest entries in dependency order using one shared HIR crate.

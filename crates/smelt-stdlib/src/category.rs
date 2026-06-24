@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// This is orthogonal to the per-site `code`/`message`: many distinct codes map
 /// to the same category. Reports group by category to answer "is this blocked
 /// on missing stdlib coverage or on an unimplemented lowering?".
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 #[serde(rename_all = "kebab-case")]
 pub enum DiagnosticCategory {
