@@ -147,6 +147,7 @@ fn closure_cfg_has_capture(ctx: &HirCtx, body: &Body, callback: smelt_hir::ExprI
 
 mod basic_tests;
 mod builtins_sets_tests;
+mod category_tests;
 mod class_tests;
 mod collections_a_tests;
 mod collections_b_tests;

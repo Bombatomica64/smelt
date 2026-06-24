@@ -71,8 +71,9 @@ impl ModuleBuilder<'_> {
             && !self.classes.contains_key(class_text)
             && !self.value_imports.contains(class_text)
         {
-            return Err(SmeltError::unsupported(
+            return Err(SmeltError::for_unresolved_name(
                 self.span(class_ident.span.start, class_ident.span.end),
+                class_text,
                 format!("TypeScript instanceof target `{class_text}` is not a lowered class"),
             ));
         }

@@ -121,8 +121,9 @@ impl ModuleBuilder<'_> {
                     span: self.span(new_expr.span.start, new_expr.span.end),
                 }));
             }
-            return Err(SmeltError::unsupported(
+            return Err(SmeltError::for_unresolved_name(
                 self.span(callee.span.start, callee.span.end),
+                callee.name.as_str(),
                 format!("unresolved class `{}`", callee.name),
             ));
         };

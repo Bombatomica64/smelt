@@ -455,7 +455,7 @@ impl ModuleBuilder<'_> {
             .returns
             .as_deref()
             .ok_or_else(|| {
-                SmeltError::unsupported(
+                SmeltError::type_constraint(
                     span,
                     format!("abstract method '{}': return type annotation required", func.name),
                 )
@@ -524,7 +524,7 @@ return_ty,
             func.returns
                 .as_deref()
                 .ok_or_else(|| {
-                    SmeltError::unsupported(
+                    SmeltError::type_constraint(
                         span,
                         format!(
                             "method '{class_name_str}.{method_name_str}' must have an explicit return type annotation"
@@ -581,7 +581,7 @@ return_ty,
                 .annotation
                 .as_deref()
                 .ok_or_else(|| {
-                    SmeltError::unsupported(
+                    SmeltError::type_constraint(
                         self.span(p.range),
                         format!(
                             "parameter '{param_name_str}' in '{class_name_str}.{method_name_str}' must have a type annotation"

@@ -321,7 +321,7 @@ impl ModuleBuilder<'_> {
                 .annotation
                 .as_deref()
                 .ok_or_else(|| {
-                    SmeltError::unsupported(
+                    SmeltError::type_constraint(
                         self.span(param.range),
                         "nested closure parameters must have explicit type annotations",
                     )
@@ -348,7 +348,7 @@ impl ModuleBuilder<'_> {
                 .annotation
                 .as_deref()
                 .ok_or_else(|| {
-                    SmeltError::unsupported(
+                    SmeltError::type_constraint(
                         self.span(vararg.range),
                         "*args nested closure parameters must have explicit type annotations",
                     )
