@@ -179,7 +179,7 @@ pub trait SmeltJsStrictEq {
     fn js_strict_eq(&self, other: &Self) -> bool;
 }
 impl SmeltJsStrictEq for SmeltUnknown {
-    fn js_strict_eq(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Null, SmeltUnknown::Null) => true, (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right, (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), _ => false } }
+    fn js_strict_eq(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Null, SmeltUnknown::Null) => true, (SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true, (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right, (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), _ => false } }
 }
 impl SmeltJsStrictEq for String { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 impl SmeltJsStrictEq for bool { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
@@ -248,6 +248,7 @@ fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::F
 
 pub enum SmeltUnknown {
     Null,
+    Undefined,
     Bool(bool),
     Number(f64),
     String(String),
@@ -261,6 +262,7 @@ impl Clone for SmeltUnknown {
     fn clone(&self) -> Self {
         match self {
             Self::Null => Self::Null,
+            Self::Undefined => Self::Undefined,
             Self::Bool(value) => Self::Bool(*value),
             Self::Number(value) => Self::Number(*value),
             Self::String(value) => Self::String(value.clone()),
@@ -285,6 +287,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
 fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
     match (left, right) {
         (SmeltUnknown::Null, SmeltUnknown::Null) => true,
+        (SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true,
         (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right,
         (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right || (left.is_nan() && right.is_nan()),
         (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right,
@@ -310,6 +313,7 @@ fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mu
 fn smelt_unknown_structural_hash<H: ::std::hash::Hasher>(value: &SmeltUnknown, state: &mut H, seen: &mut ::std::collections::HashSet<usize>) {
     match value {
         SmeltUnknown::Null => 0_u8.hash(state),
+        SmeltUnknown::Undefined => 8_u8.hash(state),
         SmeltUnknown::Bool(value) => { 1_u8.hash(state); value.hash(state); }
         SmeltUnknown::Number(value) => { 2_u8.hash(state); if value.is_nan() { f64::NAN.to_bits().hash(state); } else { value.to_bits().hash(state); } }
         SmeltUnknown::String(value) => { 3_u8.hash(state); value.hash(state); }
@@ -339,6 +343,7 @@ impl ::std::fmt::Debug for SmeltUnknown {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match self {
             Self::Null => formatter.write_str("Null"),
+            Self::Undefined => formatter.write_str("Undefined"),
             Self::Bool(value) => formatter.debug_tuple("Bool").field(value).finish(),
             Self::Number(value) => formatter.debug_tuple("Number").field(value).finish(),
             Self::String(value) => formatter.debug_tuple("String").field(value).finish(),
@@ -370,7 +375,7 @@ impl SmeltUnknown {
             Self::String(value) => value.chars().count(),
             Self::Array(value) => value.len(),
             Self::Object(value) => value.len(),
-            Self::Null | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) => 0,
+            Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) => 0,
         }
     }
     /// Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.
@@ -399,7 +404,7 @@ impl SmeltUnknown {
             Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => f64::NAN },
             Self::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),
             Self::Bool(value) => if *value { 1.0 } else { 0.0 },
-            Self::Null | Self::Symbol(_) | Self::Array(_) | Self::Function(_) => f64::NAN,
+            Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Function(_) => f64::NAN,
         };
         chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| "Invalid Date".to_owned())
     }
@@ -434,6 +439,7 @@ impl ::std::fmt::Display for SmeltUnknown {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match self {
             Self::Null => formatter.write_str("null"),
+            Self::Undefined => formatter.write_str("undefined"),
             Self::Bool(value) => write!(formatter, "{value}"),
             Self::Number(value) => write!(formatter, "{value}"),
             Self::String(value) => formatter.write_str(value),
@@ -484,7 +490,7 @@ impl PartialOrd<f64> for SmeltUnknown {
             Self::Number(value) => value.partial_cmp(other),
             Self::String(value) => value.parse::<f64>().ok().and_then(|number| number.partial_cmp(other)),
             Self::Bool(value) => (if *value { 1.0 } else { 0.0 }).partial_cmp(other),
-            Self::Null | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) => None,
+            Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) => None,
         }
     }
 }
@@ -517,6 +523,7 @@ fn smelt_unknown_date_value(value: &SmeltUnknown) -> f64 {
 fn smelt_unknown_rank(value: &SmeltUnknown) -> u8 {
     match value {
         SmeltUnknown::Null => 0,
+        SmeltUnknown::Undefined => 8,
         SmeltUnknown::Bool(_) => 1,
         SmeltUnknown::Number(_) => 2,
         SmeltUnknown::String(_) => 3,
@@ -579,25 +586,25 @@ impl SmeltFromUnknown for SmeltUnknown {
 
 impl SmeltFromUnknown for bool {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }
+        match value { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }
     }
 }
 
 impl SmeltFromUnknown for f64 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }
+        match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }
     }
 }
 
 impl SmeltFromUnknown for i64 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => 0_i64 }
+        match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => 0_i64 }
     }
 }
 
 impl SmeltFromUnknown for String {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }
+        match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }
     }
 }
 
@@ -686,13 +693,13 @@ impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {
 
 impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!("__smelt_symbol:{value}"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
+        SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!("__smelt_symbol:{value}"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
     }
 }
 
 impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone, T: IntoSmeltUnknown + Clone {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!("__smelt_symbol:{value}"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
+        SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!("__smelt_symbol:{value}"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
     }
 }
 

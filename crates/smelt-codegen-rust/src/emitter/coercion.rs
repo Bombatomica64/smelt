@@ -1306,7 +1306,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn typeof_value_text(&self, value: &Operand) -> Result<String, EmitError> {
         let text = self.operand_text(value)?;
         Ok(format!(
-            "match {text}.clone() {{ SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"object\".to_owned() }}"
+            "match {text}.clone() {{ SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"object\".to_owned() }}"
         ))
     }
 
@@ -1396,16 +1396,16 @@ impl FunctionEmitter<'_> {
             // `vi.fn<(x) => void>` transformer into runtime panics.
             Some(Type::None) => Ok(format!("{{ let _ = {text}.clone(); () }}")),
             Some(Type::Bool) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }}"
+                "match {text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }}"
             )),
             Some(Type::Float) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+                "match {text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }}"
             )),
             Some(Type::Int) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => 0_i64 }}"
+                "match {text}.clone() {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => 0_i64 }}"
             )),
             Some(Type::String) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
+                "match {text}.clone() {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
             )),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!(
