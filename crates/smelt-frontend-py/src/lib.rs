@@ -82,16 +82,23 @@ use lowering::ModuleBuilder;
 use ruff_python_ast::{Mod, ModModule};
 use ruff_python_parser::{Mode, ParseOptions, parse};
 use smelt_hir::{Crate as HirCrate, FileId, Language, Module, ModuleId, SourceFile, Span};
+use smelt_stdlib::DiagnosticCategory;
 
 // ---------------------------------------------------------------------------
 // Public API — kept in lockstep with smelt-frontend-ts.
 // ---------------------------------------------------------------------------
 
 /// Diagnostic produced by parsing or lowering.
+///
+/// The `code` is a stable per-site identifier; the `category` is the coarse
+/// machine bucket (see [`DiagnosticCategory`]) decided where the error is
+/// raised, so tooling can group failures without parsing `message`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SmeltError {
     /// Stable diagnostic code.
     pub code: &'static str,
+    /// Coarse classification used by reports and tooling.
+    pub category: DiagnosticCategory,
     /// Source range the diagnostic refers to.
     pub span: Span,
     /// Human-readable message.
@@ -101,10 +108,24 @@ pub struct SmeltError {
 }
 
 impl SmeltError {
-    /// Create an "unsupported construct" error with the given message.
+    /// Create an "unsupported construct" error (an unimplemented lowering).
     pub(crate) fn unsupported(span: Span, message: impl Into<String>) -> Self {
         Self {
             code: "smelt::unsupported-py",
+            category: DiagnosticCategory::UnsupportedLowering,
+            span,
+            message: message.into(),
+            note: None,
+        }
+    }
+
+    /// Create a diagnostic for source that violates Smelt's typed-subset
+    /// requirements (categorized [`DiagnosticCategory::TypeConstraint`]), e.g.
+    /// a missing required type annotation. The fix is in the source.
+    pub(crate) fn type_constraint(span: Span, message: impl Into<String>) -> Self {
+        Self {
+            code: "smelt::unsupported-py",
+            category: DiagnosticCategory::TypeConstraint,
             span,
             message: message.into(),
             note: None,
@@ -115,6 +136,7 @@ impl SmeltError {
     fn parse(span: Span, message: impl Into<String>) -> Self {
         Self {
             code: "smelt::parse-error-py",
+            category: DiagnosticCategory::Parse,
             span,
             message: message.into(),
             note: None,
@@ -125,6 +147,7 @@ impl SmeltError {
     pub(crate) fn no_metaclass(span: Span, class_name: &str) -> Self {
         Self {
             code: "smelt::no-metaclass",
+            category: DiagnosticCategory::UnsupportedLowering,
             span,
             message: format!("class '{class_name}': metaclasses are not supported"),
             note: Some(
@@ -139,6 +162,7 @@ impl SmeltError {
     pub(crate) fn django_unsupported(span: Span, class_name: &str) -> Self {
         Self {
             code: "smelt::django-unsupported",
+            category: DiagnosticCategory::UnsupportedLowering,
             span,
             message: format!(
                 "class '{class_name}' inherits from a Django model — Django ORM is not supported"
@@ -154,6 +178,7 @@ impl SmeltError {
     pub(crate) fn no_multiple_inheritance(span: Span, class_name: &str) -> Self {
         Self {
             code: "smelt::no-multiple-inheritance",
+            category: DiagnosticCategory::UnsupportedLowering,
             span,
             message: format!("class '{class_name}': multiple inheritance is not supported"),
             note: Some(
@@ -168,6 +193,7 @@ impl SmeltError {
     pub(crate) fn unsupported_decorator(span: Span, class_name: &str, decorator: &str) -> Self {
         Self {
             code: "smelt::unsupported-py",
+            category: DiagnosticCategory::UnsupportedLowering,
             span,
             message: format!("class '{class_name}': decorator '@{decorator}' is not supported"),
             note: Some(

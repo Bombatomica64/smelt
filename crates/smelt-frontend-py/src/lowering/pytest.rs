@@ -131,7 +131,7 @@ impl ModuleBuilder<'_> {
             Some(annotation) => self.annotation_to_hir(annotation)?,
             None if self.is_pytest_test_function(func) => self.intern_type(Type::None),
             None => {
-                return Err(SmeltError::unsupported(
+                return Err(SmeltError::type_constraint(
                     self.span(func.range),
                     format!("function '{name_str}' must have an explicit return type annotation"),
                 ));
@@ -214,7 +214,7 @@ impl ModuleBuilder<'_> {
                 .annotation
                 .as_deref()
                 .ok_or_else(|| {
-                    SmeltError::unsupported(
+                    SmeltError::type_constraint(
                         self.span(p.range),
                         format!(
                             "parameter '{param_name_str}' must have an explicit type annotation"
@@ -247,7 +247,7 @@ impl ModuleBuilder<'_> {
                 .annotation
                 .as_deref()
                 .ok_or_else(|| {
-                    SmeltError::unsupported(
+                    SmeltError::type_constraint(
                         self.span(vararg.range),
                         format!("parameter '*{param_name_str}' must have an explicit type annotation"),
                     )

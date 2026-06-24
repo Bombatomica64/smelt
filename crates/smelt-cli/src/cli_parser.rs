@@ -33,7 +33,12 @@ pub enum Command {
         hir_debug: bool,
     },
     /// Type-check and validate without emitting any output
-    Check,
+    Check {
+        /// Diagnostic output: `human` (default, fail-fast) or `json` (collect
+        /// every module's categorized diagnostics in one recoverable pass).
+        #[arg(long = "message-format", default_value = "human")]
+        message_format: String,
+    },
     /// Scaffold a new smelt project
     New {
         /// Project name
@@ -112,6 +117,21 @@ pub enum Command {
         suppress_warnings: bool,
 
         /// Optional path to write the Markdown report instead of stdout.
+        #[arg(long)]
+        output: Option<String>,
+    },
+
+    /// Probe how far a manifest transpiles and enumerate blockers by category
+    Probe {
+        /// Also run the generated `cargo test` suite when the crate transpiles.
+        #[arg(long = "run-tests")]
+        run_tests: bool,
+
+        /// Report format: `md` (default) or `json`.
+        #[arg(long, default_value = "md")]
+        format: String,
+
+        /// Optional path to write the report instead of stdout.
         #[arg(long)]
         output: Option<String>,
     },

@@ -5023,8 +5023,9 @@ impl ModuleBuilder<'_> {
                             ty: self.ctx.krate.types.intern(Type::Unknown),
                         });
                     }
-                    return Err(SmeltError::unsupported(
+                    return Err(SmeltError::for_unresolved_name(
                         self.span(identifier.span.start, identifier.span.end),
+                        identifier.name.as_str(),
                         format!("unresolved callback identifier `{}`", identifier.name),
                     ));
                 };
@@ -5140,8 +5141,9 @@ impl ModuleBuilder<'_> {
                                     ty: self.ctx.krate.types.intern(Type::Unknown),
                                 }
                             } else {
-                                return Err(SmeltError::unsupported(
+                                return Err(SmeltError::for_unresolved_name(
                                     self.span(identifier.span.start, identifier.span.end),
+                                    identifier.name.as_str(),
                                     format!("unresolved callback identifier `{}`", identifier.name),
                                 ));
                             }
@@ -5901,8 +5903,9 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let Some(local) = self.locals.get(target.name.as_str()).copied() else {
-                    return Err(SmeltError::unsupported(
+                    return Err(SmeltError::for_unresolved_name(
                         self.span(target.span.start, target.span.end),
+                        target.name.as_str(),
                         format!("unresolved callback assignment target `{}`", target.name),
                     ));
                 };
