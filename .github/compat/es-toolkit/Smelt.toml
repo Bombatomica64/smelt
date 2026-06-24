@@ -1,0 +1,24 @@
+[project]
+name = "es-toolkit"
+version = "0.0.0"
+description = "es-toolkit Smelt probe"
+
+[sources]
+roots = ["src"]
+test-prefix = ["array/**/*.spec.ts", "function/**/*.spec.ts", "math/**/*.spec.ts", "object/**/*.spec.ts", "predicate/**/*.spec.ts", "promise/**/*.spec.ts", "string/**/*.spec.ts", "util/**/*.spec.ts", "error/**/*.spec.ts"]
+entries = ["src/index.ts"]
+
+[output]
+target = "./dist-smelt"
+crate-name = "es_toolkit_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"

@@ -317,7 +317,7 @@ const bag: Record<string, unknown> = value as Record<string, unknown>;
         source.contains("SmeltUnknown::Null => String::new()"),
         "{source}"
     );
-    assert!(source.contains("SmeltUnknown::Null => false"), "{source}");
+    assert!(source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => false"), "{source}");
     assert!(
         source.contains("value.parse::<f64>().unwrap_or(f64::NAN)"),
         "{source}"
@@ -2411,7 +2411,7 @@ function fallback(value: unknown): boolean {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value"),
+        source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value"),
         "{source}"
     );
 }
@@ -2447,7 +2447,7 @@ function truthy(value: unknown): boolean {
 "#,
     );
 
-    assert!(source.contains("SmeltUnknown::Null => false"));
+    assert!(source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => false"));
     assert!(source.contains(
         "SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true"
     ));
