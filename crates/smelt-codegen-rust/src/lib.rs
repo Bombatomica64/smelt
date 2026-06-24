@@ -576,6 +576,26 @@ fn emit_source_with_free_function_router(
         writer.line("impl SmeltJsKeyEq for i64 { fn same_js_key(&self, other: &Self) -> bool { self == other } }");
         writer.line("impl SmeltJsKeyEq for f64 { fn same_js_key(&self, other: &Self) -> bool { (self.is_nan() && other.is_nan()) || self == other } }");
         writer.blank_line();
+        // The fourth equality kind: JavaScript strict equality (`===`/`!==`).
+        // Distinct from the other three — objects/arrays/functions compare by
+        // REFERENCE identity (id/ptr), primitives by value, and `NaN !== NaN`
+        // (unlike `same_js_key`'s SameValueZero and `Object.is`'s SameValue, which
+        // both treat NaN as equal). `+0 === -0` holds because `f64 ==` is true for
+        // them. Unlike `PartialEq` (`smelt_unknown_structural_eq`, intentionally
+        // deep for `isDeepEqual`), this never recurses into object/array contents.
+        // A trait (not an inherent method) with primitive impls so erased operands
+        // that lower to a concrete `String`/`bool`/number still resolve the method.
+        writer.line("pub trait SmeltJsStrictEq {");
+        writer.line("    fn js_strict_eq(&self, other: &Self) -> bool;");
+        writer.line("}");
+        writer.line("impl SmeltJsStrictEq for SmeltUnknown {");
+        writer.line("    fn js_strict_eq(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Null, SmeltUnknown::Null) => true, (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right, (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), _ => false } }");
+        writer.line("}");
+        writer.line("impl SmeltJsStrictEq for String { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }");
+        writer.line("impl SmeltJsStrictEq for bool { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }");
+        writer.line("impl SmeltJsStrictEq for i64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }");
+        writer.line("impl SmeltJsStrictEq for f64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }");
+        writer.blank_line();
         writer.line("#[derive(Debug)]");
         writer.line("pub struct SmeltObject {");
         writer.line("    id: usize,");

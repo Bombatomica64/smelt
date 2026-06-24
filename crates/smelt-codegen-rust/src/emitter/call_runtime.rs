@@ -1178,6 +1178,8 @@ impl FunctionEmitter<'_> {
                 | smelt_hir::BinOp::NotEq
                 | smelt_hir::BinOp::StrictEq
                 | smelt_hir::BinOp::StrictNotEq
+                | smelt_hir::BinOp::JsStrictEq
+                | smelt_hir::BinOp::JsStrictNotEq
         ) {
             return self.optional_equality_text(op, lhs, rhs, lhs_inner, rhs_inner);
         }
@@ -1226,6 +1228,8 @@ impl FunctionEmitter<'_> {
                 | smelt_hir::BinOp::NotEq
                 | smelt_hir::BinOp::StrictEq
                 | smelt_hir::BinOp::StrictNotEq
+                | smelt_hir::BinOp::JsStrictEq
+                | smelt_hir::BinOp::JsStrictNotEq
         ) {
             return Ok(None);
         }
@@ -1244,6 +1248,10 @@ impl FunctionEmitter<'_> {
         let strict = matches!(
             op,
             smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
+        );
+        let js_strict = matches!(
+            op,
+            smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq
         );
         let text = if lhs_is_none && rhs_is_none {
             "true".to_owned()
@@ -1264,16 +1272,25 @@ impl FunctionEmitter<'_> {
             } else {
                 self.erase(rhs)?
             };
-            if strict {
+            if js_strict {
+                // JavaScript `===`/`!==` on erased values: reference identity for
+                // objects/arrays/functions, value for primitives, NaN-unequal.
+                format!("{lhs_text}.js_strict_eq(&{rhs_text})")
+            } else if strict {
+                // `Object.is` / `a === b || Object.is(a,b)` SameValueZero idiom:
+                // NaN-equal, reference objects.
                 format!("{lhs_text}.same_js_key(&{rhs_text})")
             } else {
+                // Loose/structural `==`/`!=` on erased values: SmeltUnknown's
+                // structural `Eq` (deep), which the `toEqual`/`toStrictEqual`
+                // matchers and `isDeepEqual` depend on.
                 format!("{lhs_text} == {rhs_text}")
             }
         } else {
             return Ok(None);
         };
         Ok(Some(
-            if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq) {
+            if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq) {
                 format!("!({text})")
             } else {
                 text
@@ -1290,7 +1307,7 @@ impl FunctionEmitter<'_> {
         lhs_inner: Option<TypeId>,
         rhs_inner: Option<TypeId>,
     ) -> Result<Option<String>, EmitError> {
-        let negate = matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq);
+        let negate = matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq);
         let strict = matches!(
             op,
             smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
@@ -1354,6 +1371,8 @@ impl FunctionEmitter<'_> {
             op,
             smelt_hir::BinOp::Eq
                 | smelt_hir::BinOp::NotEq
+                | smelt_hir::BinOp::JsStrictEq
+                | smelt_hir::BinOp::JsStrictNotEq
                 | smelt_hir::BinOp::Lt
                 | smelt_hir::BinOp::Lte
                 | smelt_hir::BinOp::Gt
@@ -1400,6 +1419,8 @@ impl FunctionEmitter<'_> {
                 | smelt_hir::BinOp::NotEq
                 | smelt_hir::BinOp::StrictEq
                 | smelt_hir::BinOp::StrictNotEq
+                | smelt_hir::BinOp::JsStrictEq
+                | smelt_hir::BinOp::JsStrictNotEq
         ) {
             return Ok(None);
         }
@@ -1420,7 +1441,7 @@ impl FunctionEmitter<'_> {
             "false".to_owned()
         };
         Ok(Some(
-            if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq) {
+            if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq) {
                 format!("!({equal_text})")
             } else {
                 equal_text
@@ -1561,6 +1582,8 @@ impl FunctionEmitter<'_> {
                 | smelt_hir::BinOp::NotEq
                 | smelt_hir::BinOp::StrictEq
                 | smelt_hir::BinOp::StrictNotEq
+                | smelt_hir::BinOp::JsStrictEq
+                | smelt_hir::BinOp::JsStrictNotEq
         ) {
             return Ok(None);
         }
@@ -1572,7 +1595,7 @@ impl FunctionEmitter<'_> {
         if self.equality_shapes_are_definitely_incompatible(lhs_ty, rhs_ty) {
             let text = "false".to_owned();
             return Ok(Some(
-                if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq) {
+                if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq) {
                     format!("!({text})")
                 } else {
                     text

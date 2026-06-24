@@ -6670,8 +6670,12 @@ impl ModuleBuilder<'_> {
             BinaryOperator::Multiplication => Ok(BinOp::Mul),
             BinaryOperator::Division => Ok(BinOp::Div),
             BinaryOperator::Remainder => Ok(BinOp::Rem),
-            BinaryOperator::StrictEquality | BinaryOperator::Equality => Ok(BinOp::Eq),
-            BinaryOperator::StrictInequality | BinaryOperator::Inequality => Ok(BinOp::NotEq),
+            // `===`/`!==` keep JS reference semantics (`JsStrictEq`); `==`/`!=`
+            // stay structural (`Eq`). See builder_part08's mapping.
+            BinaryOperator::StrictEquality => Ok(BinOp::JsStrictEq),
+            BinaryOperator::Equality => Ok(BinOp::Eq),
+            BinaryOperator::StrictInequality => Ok(BinOp::JsStrictNotEq),
+            BinaryOperator::Inequality => Ok(BinOp::NotEq),
             BinaryOperator::LessThan => Ok(BinOp::Lt),
             BinaryOperator::LessEqualThan => Ok(BinOp::Lte),
             BinaryOperator::GreaterThan => Ok(BinOp::Gt),

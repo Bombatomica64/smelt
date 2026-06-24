@@ -633,8 +633,15 @@ impl ModuleBuilder<'_> {
                     BinaryOperator::Multiplication => BinOp::Mul,
                     BinaryOperator::Division => BinOp::Div,
                     BinaryOperator::Remainder => BinOp::Rem,
-                    BinaryOperator::StrictEquality | BinaryOperator::Equality => BinOp::Eq,
-                    BinaryOperator::StrictInequality | BinaryOperator::Inequality => BinOp::NotEq,
+                    // `===`/`!==` carry JS reference-identity semantics for
+                    // erased objects (`BinOp::JsStrictEq`), distinct from `==`'s
+                    // structural/deep `BinOp::Eq` that the deep-equality matchers
+                    // and `isDeepEqual` rely on. (`x === null`, `typeof x === …`,
+                    // and the `=== || Object.is` idiom are intercepted earlier.)
+                    BinaryOperator::StrictEquality => BinOp::JsStrictEq,
+                    BinaryOperator::Equality => BinOp::Eq,
+                    BinaryOperator::StrictInequality => BinOp::JsStrictNotEq,
+                    BinaryOperator::Inequality => BinOp::NotEq,
                     BinaryOperator::LessThan => BinOp::Lt,
                     BinaryOperator::LessEqualThan => BinOp::Lte,
                     BinaryOperator::GreaterThan => BinOp::Gt,

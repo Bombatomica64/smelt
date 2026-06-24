@@ -2335,6 +2335,8 @@ return_ty: function.return_ty,
                 | BinOp::NotEq
                 | BinOp::StrictEq
                 | BinOp::StrictNotEq
+                | BinOp::JsStrictEq
+                | BinOp::JsStrictNotEq
                 | BinOp::Lt
                 | BinOp::Lte
                 | BinOp::Gt

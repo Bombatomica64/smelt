@@ -1788,12 +1788,17 @@ function isNotOne(value: unknown): boolean {
 "#,
     );
 
+    // `===`/`!==` on erased values use JS strict equality (`js_strict_eq`):
+    // reference identity for objects, value for primitives, NaN-unequal — NOT
+    // SmeltUnknown's structural `==` (which `==`/`!=` and `isDeepEqual` use).
     assert!(
-        source.contains("value.clone() == SmeltUnknown::String(\"trailing\".to_owned())"),
+        source.contains(
+            "value.clone().js_strict_eq(&SmeltUnknown::String(\"trailing\".to_owned()))"
+        ),
         "{source}"
     );
     assert!(
-        source.contains("!(value.clone() == SmeltUnknown::Number(1.0 as f64))"),
+        source.contains("!(value.clone().js_strict_eq(&SmeltUnknown::Number(1.0 as f64)))"),
         "{source}"
     );
 }
