@@ -1,0 +1,24 @@
+[project]
+name = "valibot"
+version = "0.0.0"
+description = "valibot Smelt probe"
+
+[sources]
+roots = ["library/src"]
+test-prefix = ["**/*.test.ts"]
+entries = ["library/src/index.ts"]
+
+[output]
+target = "./dist-smelt"
+crate-name = "valibot_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"
