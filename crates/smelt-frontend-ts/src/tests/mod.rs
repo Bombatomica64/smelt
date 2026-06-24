@@ -177,6 +177,21 @@ fn assert_unsupported_ts(errors: &[SmeltError], needle: &str) -> Result<(), Stri
     Ok(())
 }
 
+/// Assert that the first error contains `needle` and carries the given category.
+fn assert_category(
+    errors: &[SmeltError],
+    needle: &str,
+    category: smelt_stdlib::DiagnosticCategory,
+) -> Result<(), String> {
+    let error = errors
+        .first()
+        .ok_or_else(|| "expected at least one lowering error".to_owned())?;
+    ensure!(error.message.contains(needle));
+    ensure_eq!(error.category, category);
+    Ok(())
+}
+
+mod category_tests;
 mod part01_tests;
 mod part02_tests;
 mod part03_tests;

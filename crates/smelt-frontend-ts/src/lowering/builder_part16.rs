@@ -209,8 +209,9 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
-            return Err(SmeltError::unsupported(
+            return Err(SmeltError::for_unresolved_name(
                 self.span(start, end),
+                name,
                 format!("unresolved identifier `{name}`"),
             ));
         };
