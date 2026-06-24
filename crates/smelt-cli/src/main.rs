@@ -130,7 +130,20 @@ fn main() -> CliResult<()> {
             .ok_or("manifest path contains invalid UTF-8")?,
     )?;
     match args.command {
-        Command::Check => pipeline::check_manifest(&config, &manifest_path)?,
+        Command::Check { message_format } => match message_format.as_str() {
+            "human" => pipeline::check_manifest(&config, &manifest_path)?,
+            "json" => {
+                let diagnostics =
+                    lowering::collect_manifest_diagnostics(&config, &manifest_path)?;
+                let mut stdout = io::stdout().lock();
+                writeln!(stdout, "{}", serde_json::to_string_pretty(&diagnostics)?)?;
+            }
+            other => {
+                return Err(
+                    format!("unknown --message-format `{other}`; use `human` or `json`").into(),
+                );
+            }
+        },
         Command::Build { hir, hir_debug } => {
             if hir || hir_debug {
                 let (krate, modules) = lowering::lower_manifest_entries(&config, &manifest_path)?;
