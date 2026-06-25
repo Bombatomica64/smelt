@@ -43,6 +43,7 @@ pub(super) fn literal_text(literal: &Literal) -> String {
         }
         Literal::String(value) => format!("\"{value}\""),
         Literal::Symbol(value) => format!("symbol({value:?})"),
+        Literal::Undefined => "undefined".to_owned(),
         Literal::None => "none".to_owned(),
     }
 }

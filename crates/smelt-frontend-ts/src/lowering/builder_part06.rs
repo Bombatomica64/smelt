@@ -238,7 +238,7 @@ impl ModuleBuilder<'_> {
         )
     }
 
-    /// Lower nullish zero-argument matchers to a `None` equality check.
+    /// Lower nullish zero-argument matchers to strict singleton checks.
     fn expect_to_be_none_statement(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -280,12 +280,18 @@ impl ModuleBuilder<'_> {
             });
         }
         let none_ty = self.ctx.krate.types.intern(Type::None);
+        let literal = if matcher_name == "toBeUndefined" {
+            Literal::Undefined
+        } else {
+            Literal::None
+        };
         let expected = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
+            kind: ExprKind::Literal(literal),
             ty: none_ty,
             span: self.span(call.span.start, call.span.end),
         });
-        let mut failed = self.comparison_expr(BinOp::NotEq, actual, expected, call.span, body);
+        let mut failed =
+            self.comparison_expr(BinOp::JsStrictNotEq, actual, expected, call.span, body);
         if inverted {
             failed = self.unary_bool_expr(UnaryOp::Not, failed, call.span, body);
         }

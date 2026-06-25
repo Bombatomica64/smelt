@@ -698,7 +698,7 @@ impl FunctionEmitter<'_> {
                     ))
                 }
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(format!(
-                    "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_text} {{ SmeltUnknown::Number(value) => Some(value), SmeltUnknown::Null => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"
+                    "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_text} {{ SmeltUnknown::Number(value) => Some(value), SmeltUnknown::Null | SmeltUnknown::Undefined => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"
                 )),
                 _ => Err(EmitError::new(
                     "string split limit must be numeric or optional numeric",

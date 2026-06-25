@@ -32,6 +32,7 @@ pub(super) fn constant_text(constant: &Constant) -> String {
                 RustExpr::string_literal(value).into_string()
             )
         }
+        Constant::Undefined => "()".to_owned(),
         Constant::None => "()".to_owned(),
     }
 }

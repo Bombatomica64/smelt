@@ -70,7 +70,10 @@ impl FunctionEmitter<'_> {
         if self.is_erased_class_type(target) {
             return self.erase(operand);
         }
-        if matches!(operand, Operand::Const(Constant::None)) {
+        if matches!(
+            operand,
+            Operand::Const(Constant::None | Constant::Undefined)
+        ) {
             return self.default_value(target);
         }
         if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
@@ -589,8 +592,11 @@ impl FunctionEmitter<'_> {
             )
         {
             let mapped_value = self.value_at_type_text("value", source, *inner)?;
+            if self.optional_inner_preserves_erased_singletons(*inner) {
+                return Ok(format!("Some({mapped_value})"));
+            }
             return Ok(format!(
-                "match {value_text}.clone() {{ SmeltUnknown::Null => None, value => Some({mapped_value}) }}"
+                "match {value_text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }}"
             ));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target)
@@ -725,6 +731,9 @@ impl FunctionEmitter<'_> {
 
     /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
     pub(super) fn erase(&self, operand: &Operand) -> Result<String, EmitError> {
+        if matches!(operand, Operand::Const(Constant::Undefined)) {
+            return Ok("SmeltUnknown::Undefined".to_owned());
+        }
         let text = self.operand_text(operand)?;
         match self.mir.types.get(self.operand_ty(operand)?) {
             Some(Type::Unknown | Type::TypeParam { .. }) => Ok(text),
@@ -865,7 +874,8 @@ impl FunctionEmitter<'_> {
                 Ok(format!("SmeltUnknown::Function({adapter})"))
             }
             Some(Type::Union(_)) => Ok(text),
-            Some(Type::Never | Type::Future(_)) | None => Ok("SmeltUnknown::Null".to_owned()),
+            Some(Type::Future(_)) => Ok(self.promise_unknown_sentinel_text()),
+            Some(Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
         }
     }
 
@@ -1117,7 +1127,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Union(_)) => Ok(value_text.to_owned()),
-            Some(Type::Future(_)) => Ok("SmeltUnknown::Null".to_owned()),
+            Some(Type::Future(_)) => Ok(self.promise_unknown_sentinel_text()),
         }
     }
 
@@ -1130,6 +1140,11 @@ impl FunctionEmitter<'_> {
     /// `SmeltUnknown::Null` by hand; they ask for the null tag by intent.
     pub(super) fn null_value_text(&self) -> String {
         "SmeltUnknown::Null".to_owned()
+    }
+
+    /// Return the erased sentinel used for Promise/Future values at dynamic boundaries.
+    pub(super) fn promise_unknown_sentinel_text(&self) -> String {
+        "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_promise\".to_owned(), SmeltUnknown::Bool(true))])))".to_owned()
     }
 
     /// Box an iterator of already-rendered `String` values into a `SmeltUnknown`
@@ -1329,6 +1344,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let pattern = match kind {
             smelt_hir::UnknownKind::Null => "SmeltUnknown::Null",
+            smelt_hir::UnknownKind::Undefined => "SmeltUnknown::Undefined",
             smelt_hir::UnknownKind::Bool => "SmeltUnknown::Bool(_)",
             smelt_hir::UnknownKind::Number => "SmeltUnknown::Number(_)",
             smelt_hir::UnknownKind::String => "SmeltUnknown::String(_)",
@@ -1340,6 +1356,11 @@ impl FunctionEmitter<'_> {
             smelt_hir::UnknownKind::Object => {
                 return Ok(format!(
                     "matches!({text}, SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Null)"
+                ));
+            }
+            smelt_hir::UnknownKind::Promise => {
+                return Ok(format!(
+                    "matches!({text}, SmeltUnknown::Object(value) if value.contains_key(\"__smelt_promise\"))"
                 ));
             }
         };
@@ -1409,18 +1430,18 @@ impl FunctionEmitter<'_> {
             )),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!(
-                    "match {text}.clone() {{ SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}"
+                    "match {text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}"
                 ))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
                 Ok(format!(
-                    "match {text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}"
+                    "match {text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}"
                 ))
             }
             Some(Type::List(item)) => {
                 let item_text = self.extract_value_text("value", *item)?;
                 Ok(format!(
-                    "match {text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), _ => panic!(\"unknown iterator did not return array\") }}, _ => panic!(\"unknown is not array\") }}, _ => panic!(\"unknown is not array\") }}"
+                    "match {text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return array\") }}, _ => panic!(\"unknown is not array\") }}, _ => panic!(\"unknown is not array\") }}"
                 ))
             }
             Some(Type::Dict(key, item))
@@ -1459,8 +1480,11 @@ impl FunctionEmitter<'_> {
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.extract_value_text(text, *inner)?;
+                if self.optional_inner_preserves_erased_singletons(*inner) {
+                    return Ok(format!("Some({inner_text})"));
+                }
                 Ok(format!(
-                    "if matches!({text}.clone(), SmeltUnknown::Null) {{ None }} else {{ Some({inner_text}) }}"
+                    "if smelt_unknown_is_nullish(&{text}.clone()) {{ None }} else {{ Some({inner_text}) }}"
                 ))
             }
             Some(Type::Tuple(items)) => {
@@ -1625,6 +1649,15 @@ impl FunctionEmitter<'_> {
             "{{ let mut smelt_call_args = Vec::new(); {} smelt_call_args }}",
             statements.join(" ")
         ))
+    }
+
+    /// Return whether `Option<T>` stores erased values that can carry explicit
+    /// JavaScript singleton tags.
+    pub(super) fn optional_inner_preserves_erased_singletons(&self, inner: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(inner),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(inner)
     }
 
     // Converts an awaited future operand without cloning it.

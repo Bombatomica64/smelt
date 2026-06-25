@@ -904,6 +904,22 @@ impl FunctionEmitter<'_> {
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\"))"
             ));
         }
+        if class_name == "Promise"
+            && matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            )
+        {
+            let value_text = self.operand_text(value)?;
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                return Ok(format!(
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_promise\"))"
+                ));
+            }
+            return Ok(format!(
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_promise\"))"
+            ));
+        }
         let result = match self.mir.types.get(value_ty) {
             Some(Type::Class { name, .. }) => self.class_extends_or_equals(*name, class),
             _ => false,

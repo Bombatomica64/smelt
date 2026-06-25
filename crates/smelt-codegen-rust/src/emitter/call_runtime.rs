@@ -533,9 +533,7 @@ impl FunctionEmitter<'_> {
             Rvalue::NumericToStringRadix { operand, radix } => {
                 self.numeric_to_string_radix_text(operand, radix)
             }
-            Rvalue::ParseIntRadix { operand, radix } => {
-                self.parse_int_radix_text(operand, radix)
-            }
+            Rvalue::ParseIntRadix { operand, radix } => self.parse_int_radix_text(operand, radix),
             Rvalue::PrimitiveCast { op, operand } => {
                 self.primitive_cast_text(*op, operand, dest_ty)
             }
@@ -1253,12 +1251,38 @@ impl FunctionEmitter<'_> {
             op,
             smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq
         );
+        let strict_nullish = strict || js_strict;
+        let nullish_pattern = |operand: &Operand| {
+            if strict_nullish {
+                if matches!(operand, Operand::Const(Constant::Undefined)) {
+                    "SmeltUnknown::Undefined"
+                } else {
+                    "SmeltUnknown::Null"
+                }
+            } else {
+                "SmeltUnknown::Null | SmeltUnknown::Undefined"
+            }
+        };
         let text = if lhs_is_none && rhs_is_none {
-            "true".to_owned()
+            if strict_nullish {
+                (matches!(lhs, Operand::Const(Constant::Undefined))
+                    == matches!(rhs, Operand::Const(Constant::Undefined)))
+                .to_string()
+            } else {
+                "true".to_owned()
+            }
         } else if lhs_is_erased && rhs_is_none {
-            format!("matches!({}, SmeltUnknown::Null)", self.operand_text(lhs)?)
+            format!(
+                "matches!({}, {})",
+                self.operand_text(lhs)?,
+                nullish_pattern(rhs)
+            )
         } else if rhs_is_erased && lhs_is_none {
-            format!("matches!({}, SmeltUnknown::Null)", self.operand_text(rhs)?)
+            format!(
+                "matches!({}, {})",
+                self.operand_text(rhs)?,
+                nullish_pattern(lhs)
+            )
         } else if lhs_is_none || rhs_is_none {
             "false".to_owned()
         } else if lhs_is_erased || rhs_is_erased {
@@ -1290,7 +1314,12 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         Ok(Some(
-            if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq) {
+            if matches!(
+                op,
+                smelt_hir::BinOp::NotEq
+                    | smelt_hir::BinOp::StrictNotEq
+                    | smelt_hir::BinOp::JsStrictNotEq
+            ) {
                 format!("!({text})")
             } else {
                 text
@@ -1307,11 +1336,21 @@ impl FunctionEmitter<'_> {
         lhs_inner: Option<TypeId>,
         rhs_inner: Option<TypeId>,
     ) -> Result<Option<String>, EmitError> {
-        let negate = matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq);
+        let negate = matches!(
+            op,
+            smelt_hir::BinOp::NotEq
+                | smelt_hir::BinOp::StrictNotEq
+                | smelt_hir::BinOp::JsStrictNotEq
+        );
         let strict = matches!(
             op,
             smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
         );
+        let js_strict = matches!(
+            op,
+            smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq
+        );
+        let strict_nullish = strict || js_strict;
         if strict
             && let (Some(left_inner), Some(right_inner)) = (lhs_inner, rhs_inner)
             && let (Some(Type::Dict(left_key, _)), Some(Type::Dict(right_key, _))) = (
@@ -1328,10 +1367,24 @@ impl FunctionEmitter<'_> {
             );
             return Ok(Some(if negate { format!("!({text})") } else { text }));
         }
-        let text = if lhs_inner.is_some() && self.operand_ty(rhs)? == self.none_ty {
-            format!("{}.is_none()", self.operand_text(lhs)?)
-        } else if rhs_inner.is_some() && self.operand_ty(lhs)? == self.none_ty {
-            format!("{}.is_none()", self.operand_text(rhs)?)
+        let text = if let Some(inner) = lhs_inner
+            && self.operand_ty(rhs)? == self.none_ty
+        {
+            let lhs_text = self.operand_text(lhs)?;
+            if self.optional_inner_preserves_erased_singletons(inner) {
+                self.optional_erased_singleton_equality_text(&lhs_text, rhs, strict_nullish)?
+            } else {
+                format!("{lhs_text}.is_none()")
+            }
+        } else if let Some(inner) = rhs_inner
+            && self.operand_ty(lhs)? == self.none_ty
+        {
+            let rhs_text = self.operand_text(rhs)?;
+            if self.optional_inner_preserves_erased_singletons(inner) {
+                self.optional_erased_singleton_equality_text(&rhs_text, lhs, strict_nullish)?
+            } else {
+                format!("{rhs_text}.is_none()")
+            }
         } else if let Some(inner) = lhs_inner
             && rhs_inner.is_none()
         {
@@ -1352,6 +1405,36 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         Ok(Some(if negate { format!("!({text})") } else { text }))
+    }
+
+    /// Emits equality between `Option<SmeltUnknown>`-like storage and a JS
+    /// nullish singleton.
+    fn optional_erased_singleton_equality_text(
+        &self,
+        option_text: &str,
+        singleton: &Operand,
+        strict_nullish: bool,
+    ) -> Result<String, EmitError> {
+        let pattern = if strict_nullish {
+            if matches!(singleton, Operand::Const(Constant::Undefined)) {
+                "SmeltUnknown::Undefined"
+            } else {
+                "SmeltUnknown::Null"
+            }
+        } else {
+            "SmeltUnknown::Null | SmeltUnknown::Undefined"
+        };
+        let missing_matches =
+            !strict_nullish || matches!(singleton, Operand::Const(Constant::Undefined));
+        if missing_matches {
+            Ok(format!(
+                "{option_text}.as_ref().map_or(true, |value| matches!(value, {pattern}))"
+            ))
+        } else {
+            Ok(format!(
+                "{option_text}.as_ref().is_some_and(|value| matches!(value, {pattern}))"
+            ))
+        }
     }
 
     /// Emits numeric comparisons after coercing both operands to a shared scalar.
@@ -1441,7 +1524,12 @@ impl FunctionEmitter<'_> {
             "false".to_owned()
         };
         Ok(Some(
-            if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq) {
+            if matches!(
+                op,
+                smelt_hir::BinOp::NotEq
+                    | smelt_hir::BinOp::StrictNotEq
+                    | smelt_hir::BinOp::JsStrictNotEq
+            ) {
                 format!("!({equal_text})")
             } else {
                 equal_text
@@ -1595,7 +1683,12 @@ impl FunctionEmitter<'_> {
         if self.equality_shapes_are_definitely_incompatible(lhs_ty, rhs_ty) {
             let text = "false".to_owned();
             return Ok(Some(
-                if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq) {
+                if matches!(
+                    op,
+                    smelt_hir::BinOp::NotEq
+                        | smelt_hir::BinOp::StrictNotEq
+                        | smelt_hir::BinOp::JsStrictNotEq
+                ) {
                     format!("!({text})")
                 } else {
                     text
@@ -2103,7 +2196,7 @@ impl FunctionEmitter<'_> {
             let optional_text = self.value_at_type(optional, optional_ty)?;
             let fallback_text = self.value_at_type(fallback, optional_ty)?;
             let coalesced = format!(
-                "match {optional_text} {{ SmeltUnknown::Null => {fallback_text}, value => value }}"
+                "match {optional_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => {fallback_text}, value => value }}"
             );
             if matches!(
                 self.mir.types.get(dest_ty),
@@ -2147,7 +2240,7 @@ impl FunctionEmitter<'_> {
                     let fallback_text = self.value_at_type(fallback, fallback_ty)?;
                     let mapped_value = self.value_at_type_text("value", fallback_ty, *inner)?;
                     let fallback_option = format!(
-                        "match {fallback_text} {{ SmeltUnknown::Null => None, value => Some({mapped_value}) }}"
+                        "match {fallback_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }}"
                     );
                     if matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
                     {

@@ -3459,9 +3459,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
                 )
             } else {
-                format!(
-                    "{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
-                )
+                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}")
             }
         } else if self.class_has_no_known_fields(source.return_ty) {
             if source.may_throw {
@@ -3521,9 +3519,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
                 )
             } else {
-                format!(
-                    "{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
-                )
+                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}")
             }
         } else if self.class_has_no_known_fields(source.return_ty) {
             if source.may_throw {
@@ -3548,7 +3544,7 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn operand_ty(&self, operand: &Operand) -> Result<TypeId, EmitError> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => self.place_ty(place),
-            Operand::Const(Constant::None) => Ok(self.none_ty),
+            Operand::Const(Constant::None | Constant::Undefined) => Ok(self.none_ty),
             Operand::Const(Constant::Bool(_)) => self.type_id(Type::Bool),
             Operand::Const(Constant::Int(_)) => self.type_id(Type::Int),
             Operand::Const(Constant::Float(_)) => self.type_id(Type::Float),
@@ -3752,9 +3748,9 @@ impl<'mir> FunctionEmitter<'mir> {
     /// survive as a value so the runtime dispatcher can branch on `typeof`.
     pub(super) fn type_accepts_erased_function(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(
-                Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_),
-            ) => true,
+            Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                true
+            }
             Some(Type::Optional(inner)) => self.type_accepts_erased_function(*inner),
             _ => self.is_erased_class_type(ty),
         }

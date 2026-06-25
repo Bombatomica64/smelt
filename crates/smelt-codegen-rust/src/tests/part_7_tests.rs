@@ -317,7 +317,10 @@ const bag: Record<string, unknown> = value as Record<string, unknown>;
         source.contains("SmeltUnknown::Null => String::new()"),
         "{source}"
     );
-    assert!(source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => false"), "{source}");
+    assert!(
+        source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => false"),
+        "{source}"
+    );
     assert!(
         source.contains("value.parse::<f64>().unwrap_or(f64::NAN)"),
         "{source}"
@@ -1792,9 +1795,8 @@ function isNotOne(value: unknown): boolean {
     // reference identity for objects, value for primitives, NaN-unequal — NOT
     // SmeltUnknown's structural `==` (which `==`/`!=` and `isDeepEqual` use).
     assert!(
-        source.contains(
-            "value.clone().js_strict_eq(&SmeltUnknown::String(\"trailing\".to_owned()))"
-        ),
+        source
+            .contains("value.clone().js_strict_eq(&SmeltUnknown::String(\"trailing\".to_owned()))"),
         "{source}"
     );
     assert!(
@@ -2394,7 +2396,7 @@ function fallback<T>(value: T, fallbackValue: T): T | undefined {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Null => fallback_value.clone()"),
+        source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => fallback_value.clone()"),
         "{source}"
     );
 }
@@ -2431,7 +2433,7 @@ function read(options?: Options): number {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Null => None, value => Some("),
+        source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some("),
         "{source}"
     );
     assert!(source.contains(".or(match"), "{source}");
@@ -3587,7 +3589,7 @@ function latest(flag: boolean): number | undefined {
 "#,
     );
 
-    assert!(source.contains("matches!(found.clone(), SmeltUnknown::Null)"));
+    assert!(source.contains("matches!(found.clone(), SmeltUnknown::Undefined)"));
     assert!(!source.contains("!(false)"));
 }
 
@@ -4257,8 +4259,7 @@ const other = ([1, 2, 3] as unknown) === ([1, 2, 3] as unknown);
         .expect("emitted source has a main function");
 
     assert!(
-        body.contains("SmeltUnknown::Array(vec![")
-            && body.contains("].into())"),
+        body.contains("SmeltUnknown::Array(vec![") && body.contains("].into())"),
         "a list literal should erase through the fresh-id `.into()` path\n{source}"
     );
     assert!(

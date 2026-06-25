@@ -1716,7 +1716,7 @@ impl ModuleBuilder<'_> {
         if unary.operator == UnaryOperator::Void {
             let ty = self.ctx.krate.types.intern(Type::None);
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
+                kind: ExprKind::Literal(Literal::Undefined),
                 ty,
                 span: self.span(unary.span.start, unary.span.end),
             }));
@@ -2526,6 +2526,16 @@ impl ModuleBuilder<'_> {
                 ));
             };
             return self.expression_with_hint(argument, body, type_hint);
+        }
+        if matches!(&property.value, Expression::Identifier(identifier) if identifier.name == "undefined")
+            && type_hint.is_none()
+        {
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Undefined),
+                ty,
+                span: self.span(property.value.span().start, property.value.span().end),
+            }));
         }
         self.expression_with_hint(&property.value, body, type_hint)
     }

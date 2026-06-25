@@ -439,6 +439,8 @@ pub enum Constant {
     String(String),
     /// JavaScript symbol constant.
     Symbol(String),
+    /// JavaScript `undefined` constant.
+    Undefined,
     /// `None`.
     None,
 }

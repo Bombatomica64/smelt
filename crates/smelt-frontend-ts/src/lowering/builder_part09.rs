@@ -434,9 +434,16 @@ impl ModuleBuilder<'_> {
         ) {
             return Ok(None);
         }
-        let Some(value_expr) = Self::nullish_comparison_value(&binary.left, &binary.right) else {
+        let Some((value_expr, nullish_expr)) =
+            Self::nullish_comparison_parts(&binary.left, &binary.right)
+        else {
             return Ok(None);
         };
+        let is_undefined_comparison = Self::is_undefined_expression(nullish_expr);
+        let is_strict = matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::StrictInequality
+        );
         let value = self.expression(value_expr, body)?;
         let Some(value_expression) = body
             .exprs
@@ -459,17 +466,20 @@ impl ModuleBuilder<'_> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::Unknown) {
             let none = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
+                kind: ExprKind::Literal(if is_undefined_comparison {
+                    Literal::Undefined
+                } else {
+                    Literal::None
+                }),
                 ty: self.ctx.krate.types.intern(Type::None),
                 span: self.span(binary.span.start, binary.span.end),
             });
-            let op = if matches!(
-                binary.operator,
-                BinaryOperator::StrictInequality | BinaryOperator::Inequality
-            ) {
-                BinOp::NotEq
-            } else {
-                BinOp::Eq
+            let op = match binary.operator {
+                BinaryOperator::StrictEquality => BinOp::JsStrictEq,
+                BinaryOperator::StrictInequality => BinOp::JsStrictNotEq,
+                BinaryOperator::Equality => BinOp::Eq,
+                BinaryOperator::Inequality => BinOp::NotEq,
+                _ => unreachable!("nullish comparison operators are filtered above"),
             };
             return Ok(Some(self.comparison_expr(
                 op,
@@ -479,14 +489,46 @@ impl ModuleBuilder<'_> {
                 body,
             )));
         }
-        let check = body.push_expr(Expr {
-            kind: ExprKind::UnknownIs {
-                value,
-                kind: UnknownKind::Null,
-            },
-            ty: bool_ty,
-            span: self.span(binary.span.start, binary.span.end),
-        });
+        let check = if is_strict {
+            body.push_expr(Expr {
+                kind: ExprKind::UnknownIs {
+                    value,
+                    kind: if is_undefined_comparison {
+                        UnknownKind::Undefined
+                    } else {
+                        UnknownKind::Null
+                    },
+                },
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            })
+        } else {
+            let null_check = body.push_expr(Expr {
+                kind: ExprKind::UnknownIs {
+                    value,
+                    kind: UnknownKind::Null,
+                },
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            });
+            let undefined_check = body.push_expr(Expr {
+                kind: ExprKind::UnknownIs {
+                    value,
+                    kind: UnknownKind::Undefined,
+                },
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            });
+            body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::Or,
+                    lhs: null_check,
+                    rhs: undefined_check,
+                },
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            })
+        };
         let negated = matches!(
             binary.operator,
             BinaryOperator::StrictInequality | BinaryOperator::Inequality
@@ -502,15 +544,15 @@ impl ModuleBuilder<'_> {
         Ok(Some(check))
     }
 
-    /// Return the non-nullish operand for `value == null/undefined` comparisons.
-    fn nullish_comparison_value<'a>(
+    /// Return the compared value and singleton for `value == null/undefined`.
+    fn nullish_comparison_parts<'a>(
         left: &'a Expression<'a>,
         right: &'a Expression<'a>,
-    ) -> Option<&'a Expression<'a>> {
+    ) -> Option<(&'a Expression<'a>, &'a Expression<'a>)> {
         if Self::is_nullish_expression(left) {
-            Some(right)
+            Some((right, left))
         } else if Self::is_nullish_expression(right) {
-            Some(left)
+            Some((left, right))
         } else {
             None
         }
@@ -519,7 +561,12 @@ impl ModuleBuilder<'_> {
     /// Return whether an expression is JavaScript `null` or `undefined`.
     fn is_nullish_expression(expression: &Expression<'_>) -> bool {
         matches!(expression, Expression::NullLiteral(_))
-            || matches!(expression, Expression::Identifier(identifier) if identifier.name == "undefined")
+            || Self::is_undefined_expression(expression)
+    }
+
+    /// Return whether an expression is the JavaScript `undefined` identifier.
+    fn is_undefined_expression(expression: &Expression<'_>) -> bool {
+        matches!(expression, Expression::Identifier(identifier) if identifier.name == "undefined")
     }
 
     /// Lower TypeScript type assertions against `unknown` as checked extractions.

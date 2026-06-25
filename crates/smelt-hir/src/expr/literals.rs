@@ -15,6 +15,8 @@ pub enum Literal {
     String(String),
     /// A JavaScript symbol literal lowered as an opaque runtime value.
     Symbol(String),
+    /// The `undefined` literal value.
+    Undefined,
     /// The None/null literal.
     None,
 }
@@ -24,6 +26,8 @@ pub enum Literal {
 pub enum UnknownKind {
     /// JavaScript `null`.
     Null,
+    /// JavaScript `undefined`.
+    Undefined,
     /// Boolean value.
     Bool,
     /// Number value.
@@ -38,4 +42,6 @@ pub enum UnknownKind {
     Array,
     /// Object value.
     Object,
+    /// Promise value represented by the erased runtime sentinel.
+    Promise,
 }

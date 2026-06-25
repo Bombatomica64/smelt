@@ -52,7 +52,7 @@ impl ModuleBuilder<'_> {
         if name == "undefined" {
             let ty = self.ctx.krate.types.intern(Type::None);
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
+                kind: ExprKind::Literal(Literal::Undefined),
                 ty,
                 span: self.span(start, end),
             }));

@@ -99,9 +99,56 @@ test("optional unknown", () => {
 "#,
     );
 
-    assert!(source.contains(".is_none()"), "{source}");
+    assert!(
+        source.contains(".as_ref().map_or(true, |value| matches!(value, SmeltUnknown::Undefined))"),
+        "{source}"
+    );
     assert!(
         !source.contains("expect(\"optional value was absent after narrowing\")"),
+        "{source}"
+    );
+}
+
+#[test]
+fn erases_explicit_undefined_literal_to_undefined_tag() {
+    let source = source_for(
+        r#"
+function value(): unknown {
+  return undefined;
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::Undefined"), "{source}");
+}
+
+#[test]
+fn erases_void_operator_to_undefined_tag() {
+    let source = source_for(
+        r#"
+function value(): unknown {
+  return void 0;
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::Undefined"), "{source}");
+}
+
+#[test]
+fn keeps_null_literal_erasure_as_null_tag() {
+    let source = source_for(
+        r#"
+function value(): unknown {
+  return null;
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::Null"), "{source}");
+    assert!(source.contains("return SmeltUnknown::Null;"), "{source}");
+    assert!(
+        !source.contains("return SmeltUnknown::Undefined;"),
         "{source}"
     );
 }

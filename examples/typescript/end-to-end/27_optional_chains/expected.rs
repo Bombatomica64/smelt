@@ -284,6 +284,11 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     }
 }
 
+fn smelt_unknown_is_nullish(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) }
+fn smelt_unknown_is_undefined(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Undefined) }
+fn smelt_missing_property_value() -> SmeltUnknown { SmeltUnknown::Undefined }
+fn smelt_missing_index_value() -> SmeltUnknown { SmeltUnknown::Undefined }
+
 fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
     match (left, right) {
         (SmeltUnknown::Null, SmeltUnknown::Null) => true,

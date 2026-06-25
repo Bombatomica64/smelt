@@ -922,7 +922,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             },
             Expression::Identifier(identifier) if identifier.name == "undefined" => {
                 ConstCollectionItem {
-                    value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::None)),
+                    value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::Undefined)),
                     ty: self.ctx.krate.types.intern(Type::None),
                 }
             }
@@ -2449,6 +2449,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 },
                 ty,
             ));
+        }
+        if matches!(expression, Expression::Identifier(identifier) if identifier.name == "undefined")
+        {
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok((ObjectConstValue::Literal(Literal::Undefined), ty));
         }
         if let Ok(literal) = self.literal_const_expression(expression) {
             return Ok((ObjectConstValue::Literal(literal.literal), literal.ty));

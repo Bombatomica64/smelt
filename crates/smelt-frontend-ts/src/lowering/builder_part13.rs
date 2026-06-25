@@ -4936,7 +4936,7 @@ impl ModuleBuilder<'_> {
                 }
                 if identifier.name == "undefined" {
                     return Ok(CallbackExpr {
-                        kind: CallbackExprKind::Literal(Literal::None),
+                        kind: CallbackExprKind::Literal(Literal::Undefined),
                         ty: self.ctx.krate.types.intern(Type::None),
                     });
                 }
@@ -6044,6 +6044,7 @@ impl ModuleBuilder<'_> {
                             "Function" => UnknownKind::Function,
                             "String" => UnknownKind::String,
                             "Number" => UnknownKind::Number,
+                            "Promise" => UnknownKind::Promise,
                             _ => UnknownKind::Object,
                         };
                         return Ok(CallbackExpr {
@@ -6552,9 +6553,16 @@ impl ModuleBuilder<'_> {
         ) {
             return Ok(None);
         }
-        let Some(value_expr) = Self::nullish_comparison_value(&binary.left, &binary.right) else {
+        let Some((value_expr, nullish_expr)) =
+            Self::nullish_comparison_parts(&binary.left, &binary.right)
+        else {
             return Ok(None);
         };
+        let is_undefined_comparison = Self::is_undefined_expression(nullish_expr);
+        let is_strict = matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::StrictInequality
+        );
         let value = self.callback_expression(value_expr, params, body)?;
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let is_inequality = matches!(
@@ -6562,12 +6570,41 @@ impl ModuleBuilder<'_> {
             BinaryOperator::StrictInequality | BinaryOperator::Inequality
         );
         if self.ctx.krate.types.get(value.ty) == Some(&Type::Unknown) {
-            let check = CallbackExpr {
-                kind: CallbackExprKind::UnknownIs {
-                    value: Box::new(value),
-                    kind: UnknownKind::Null,
-                },
-                ty: bool_ty,
+            let check = if is_strict {
+                CallbackExpr {
+                    kind: CallbackExprKind::UnknownIs {
+                        value: Box::new(value),
+                        kind: if is_undefined_comparison {
+                            UnknownKind::Undefined
+                        } else {
+                            UnknownKind::Null
+                        },
+                    },
+                    ty: bool_ty,
+                }
+            } else {
+                let null_check = CallbackExpr {
+                    kind: CallbackExprKind::UnknownIs {
+                        value: Box::new(value.clone()),
+                        kind: UnknownKind::Null,
+                    },
+                    ty: bool_ty,
+                };
+                let undefined_check = CallbackExpr {
+                    kind: CallbackExprKind::UnknownIs {
+                        value: Box::new(value),
+                        kind: UnknownKind::Undefined,
+                    },
+                    ty: bool_ty,
+                };
+                CallbackExpr {
+                    kind: CallbackExprKind::Binary {
+                        op: BinOp::Or,
+                        lhs: Box::new(null_check),
+                        rhs: Box::new(undefined_check),
+                    },
+                    ty: bool_ty,
+                }
             };
             if is_inequality {
                 return Ok(Some(CallbackExpr {
@@ -6581,17 +6618,23 @@ impl ModuleBuilder<'_> {
             return Ok(Some(check));
         }
         let none_ty = self.ctx.krate.types.intern(Type::None);
-        let op = if is_inequality {
-            BinOp::NotEq
-        } else {
-            BinOp::Eq
+        let op = match binary.operator {
+            BinaryOperator::StrictEquality => BinOp::JsStrictEq,
+            BinaryOperator::StrictInequality => BinOp::JsStrictNotEq,
+            BinaryOperator::Equality => BinOp::Eq,
+            BinaryOperator::Inequality => BinOp::NotEq,
+            _ => unreachable!("callback nullish comparison operators are filtered above"),
         };
         Ok(Some(CallbackExpr {
             kind: CallbackExprKind::Binary {
                 op,
                 lhs: Box::new(value),
-                rhs: Box::new(CallbackExpr {
-                    kind: CallbackExprKind::Literal(Literal::None),
+            rhs: Box::new(CallbackExpr {
+                    kind: CallbackExprKind::Literal(if is_undefined_comparison {
+                        Literal::Undefined
+                    } else {
+                        Literal::None
+                    }),
                     ty: none_ty,
                 }),
             },

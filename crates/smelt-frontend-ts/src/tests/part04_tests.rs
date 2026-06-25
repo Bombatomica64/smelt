@@ -1169,7 +1169,7 @@ const missing = undefined;
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::None)))
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Undefined)))
     );
     Ok(())
 }

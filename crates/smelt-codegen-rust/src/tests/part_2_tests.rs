@@ -286,7 +286,12 @@ function absent<ResultDate extends Date>(
 "#,
     );
 
-    assert!(source.contains("result.clone().is_none()"), "{source}");
+    assert!(
+        source.contains(
+            "result.clone().as_ref().map_or(true, |value| matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined))"
+        ),
+        "{source}"
+    );
     assert!(
         !source.contains("Some(SmeltUnknown::Number(value))"),
         "{source}"

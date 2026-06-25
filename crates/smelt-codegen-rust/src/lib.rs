@@ -412,11 +412,14 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("thread_local! {");
-        writer.line("    /// Map a source list's storage address to a stable erased-array identity.");
+        writer
+            .line("    /// Map a source list's storage address to a stable erased-array identity.");
         writer.line("    static SMELT_LIST_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
         writer.line("}");
         writer.blank_line();
-        writer.line("/// Return a stable erased-array id for a source list keyed on its `Vec` address.");
+        writer.line(
+            "/// Return a stable erased-array id for a source list keyed on its `Vec` address.",
+        );
         writer.line("///");
         writer.line("/// Erasing the SAME source list local twice must yield arrays that compare");
         writer.line("/// `===` equal (arrays compare by id). Keying on the live `Vec`'s storage");
@@ -625,9 +628,7 @@ fn emit_source_with_free_function_router(
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
         writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\")) }");
-        writer.line(
-            "/// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.",
-        );
+        writer.line("/// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.");
         writer.line(
             "/// Class instances carry a hidden `__smelt_class` marker and map to a distinct",
         );
@@ -732,6 +733,12 @@ fn emit_source_with_free_function_router(
         writer.line("        value => value,");
         writer.line("    }");
         writer.line("}");
+        writer.blank_line();
+        writer.line("fn smelt_unknown_is_nullish(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) }");
+        writer.line("fn smelt_unknown_is_undefined(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Undefined) }");
+        writer
+            .line("fn smelt_missing_property_value() -> SmeltUnknown { SmeltUnknown::Undefined }");
+        writer.line("fn smelt_missing_index_value() -> SmeltUnknown { SmeltUnknown::Undefined }");
         writer.blank_line();
         writer.line("fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {");
         writer.line("    match (left, right) {");
