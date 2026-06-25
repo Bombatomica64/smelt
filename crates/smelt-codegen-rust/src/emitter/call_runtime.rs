@@ -1252,6 +1252,10 @@ impl FunctionEmitter<'_> {
             smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq
         );
         let strict_nullish = strict || js_strict;
+        // Pick the erased nullish tag for a `None`-typed literal: the `undefined`
+        // literal matches `Undefined`, every other `None`-typed operand (the
+        // `null` literal or a unit value) matches `Null`. Used by the
+        // erased-vs-none arms where the none side is essentially always a literal.
         let nullish_pattern = |operand: &Operand| {
             if strict_nullish {
                 if matches!(operand, Operand::Const(Constant::Undefined)) {
@@ -1263,11 +1267,25 @@ impl FunctionEmitter<'_> {
                 "SmeltUnknown::Null | SmeltUnknown::Undefined"
             }
         };
+        // `null` and `undefined` are byte-identical in MIR (both `Type::None`), so
+        // the JS nullish kind can only be proven from an explicit literal:
+        // `Constant::None` is `null`, `Constant::Undefined` is `undefined`. Two
+        // `None`-typed operands therefore strict-differ ONLY when one is provably
+        // the `null` literal and the other provably the `undefined` literal. In
+        // every other case — including a unit temporary produced by an
+        // `undefined`-valued expression such as `clone(undefined)` compared
+        // against the `undefined` literal — they share the same nullish value and
+        // strict-equal. (The old code keyed on "is undefined?", so a non-literal
+        // unit actual wrongly differed from the `undefined` literal.)
+        let provably_null =
+            |operand: &Operand| matches!(operand, Operand::Const(Constant::None));
+        let provably_undefined =
+            |operand: &Operand| matches!(operand, Operand::Const(Constant::Undefined));
         let text = if lhs_is_none && rhs_is_none {
             if strict_nullish {
-                (matches!(lhs, Operand::Const(Constant::Undefined))
-                    == matches!(rhs, Operand::Const(Constant::Undefined)))
-                .to_string()
+                let distinct = (provably_null(lhs) && provably_undefined(rhs))
+                    || (provably_undefined(lhs) && provably_null(rhs));
+                (!distinct).to_string()
             } else {
                 "true".to_owned()
             }
