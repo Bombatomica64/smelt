@@ -55,7 +55,7 @@ This validated cleanly in attempt 2 — `isDeepEqual` flipped correct with zero
 type-system churn. The remaining cost is **breadth of producers + reconciliation**,
 not difficulty.
 
-## Phase 1 — `SmeltUnknown::Undefined` variant + all match arms (NET-NEUTRAL) ✅ shippable
+## Phase 1 — `SmeltUnknown::Undefined` variant + all match arms (NET-NEUTRAL) ✅ landed
 
 Add the runtime variant and every match arm so the generated crate compiles and
 behaves identically (nothing produces `Undefined` yet). Per-site semantics:
@@ -74,14 +74,30 @@ behaves identically (nothing produces `Undefined` yet). Per-site semantics:
 
 Sites: prelude in `crates/smelt-codegen-rust/src/lib.rs`; emitter templates in
 `emitter/{coercion,types,strings,strings_io,call_runtime,core}.rs`. The generated
-crate's `#![allow(dead_code)]` covers the never-constructed variant. **Gate:
-generated crate compiles, full report unchanged (21), `cargo test` + `clippy`
-green** (update the codegen unit goldens that assert `typeof`/truthiness/to-string).
+crate's `#![allow(dead_code)]` covers the never-constructed variant. This landed
+on `main` in `8da1b8ab` (`Distinct undefined — spec + Phase 1
+(SmeltUnknown::Undefined variant)`). **Gate was: generated crate compiles, full
+report unchanged (21), `cargo test` + `clippy` green** (update the codegen unit
+goldens that assert `typeof`/truthiness/to-string).
 
 ## Phase 2 — the producer (`Constant::Undefined`) + reconciliation (ATOMIC)
 
 Land all of these together; report-gate the whole batch (never ship a partial
 producer — it regresses, see table above):
+
+Before flipping any producer, add small central codegen helpers/templates so the
+atomic producer change is reviewable rather than a broad hand edit:
+
+- `is_nullish_unknown(value)`: `Null | Undefined` for loose nullish operations.
+- `is_undefined_unknown(value)`: strict `Undefined` tag check.
+- `missing_property_value()` / `missing_index_value()`: the canonical generated
+  runtime value for JS missing lookups.
+- `erase_constant(Constant::Undefined)` or equivalent single erasure path so
+  `Constant::None` keeps emitting `SmeltUnknown::Null` while `Undefined` emits
+  `SmeltUnknown::Undefined`.
+
+These helpers may land before Phase 2 if they are behavior-neutral. The producer
+flip still lands atomically behind the report gate.
 
 Producers (each must yield `Undefined`, not `Null`):
 1. `undefined` literal/identifier (`builder_part16.rs`) → `Literal::Undefined`;
@@ -91,6 +107,14 @@ Producers (each must yield `Undefined`, not `Null`):
    field-access fallbacks).
 3. out-of-bounds index; optional-absent erasure; optional-chaining `?.`
    short-circuit; `void`; function with no/`undefined` return; destructuring miss.
+
+Sweep stale `SmeltUnknown::Null` fallback sites as part of the same change. In
+particular, audit generated runtime helpers and emitter templates that use
+`unwrap_or(SmeltUnknown::Null)`, `map_or(SmeltUnknown::Null, ...)`, or `_ =>
+SmeltUnknown::Null` for missing object fields, missing array/string elements,
+call arguments, optional property access, regex capture absence, and failed
+dynamic calls. Keep real JS `null` producers as `Null`; only missing/undefined
+producers switch to `Undefined`.
 
 Library / operator reconciliation (treat `Undefined` like `Null` for *loose*
 nullish, but distinct for *strict*):
@@ -106,12 +130,36 @@ nullish, but distinct for *strict*):
   (`builder_part09.rs`), adding `UnknownKind::Undefined` and a loose-nullish (both)
   check distinct from the two strict-tag checks.
 
+Conversion authority:
+
+- `ToNumber` / `Number(...)`: `Null => 0.0`, `Undefined => NaN`.
+- integer conversions derived from unknown numeric coercion may map both
+  non-numeric outcomes to `0_i64` after the NaN step, but the f64 coercion must
+  preserve the JS distinction.
+- truthiness: both falsy.
+- string conversion: `Null => ""` only for the existing optional/array-join
+  special cases; generic unknown-to-string keeps `Undefined => "undefined"` and
+  the established null behavior for that emitter path.
+
 ## Gating discipline
 
 Every step lands green on `cargo run … rust-test-report --full` +
 `cargo test` + `cargo clippy`, regenerating `third_party/remeda` first. Never
 commit a net-negative step. Phase 2 is one atomic change (or a sequence where
 each commit is ≥ net-neutral).
+
+Golden / focused test checklist for Phase 2:
+
+- missing object property produces `Undefined`, while present `null` remains
+  `Null`.
+- out-of-bounds array/string index produces `Undefined`.
+- `void expr` and source `undefined` literals/identifiers produce `Undefined`.
+- `typeof undefined === "undefined"` and `typeof null === "object"`.
+- strict equality keeps `null !== undefined`; loose `== null` / `!= null` treats
+  both as nullish.
+- `??`, `isNullish`, `isDefined`, `isNonNull`, and `isNonNullish` split or merge
+  the two according to JS/Remeda semantics.
+- `Array.prototype.join` renders `null` and `undefined` items as empty strings.
 
 ## State / pointers
 
