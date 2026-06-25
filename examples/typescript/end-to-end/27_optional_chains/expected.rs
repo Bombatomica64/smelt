@@ -275,7 +275,9 @@ impl Clone for SmeltUnknown {
 }
 
 fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
-    match map.get(field).unwrap_or(SmeltUnknown::Null) {
+    // A missing property reads as JS `undefined`, distinct from an
+    // explicit `null` value (`obj.missing === undefined`, `!== null`).
+    match map.get(field).unwrap_or(SmeltUnknown::Undefined) {
         SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
             Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!("{}", error)),
             _ => SmeltUnknown::Null,
@@ -634,7 +636,7 @@ impl SmeltIntoF64 for SmeltUnknown {
 
 impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Option<T> {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        self.map_or(SmeltUnknown::Null, IntoSmeltUnknown::into_smelt_unknown)
+        self.map_or(SmeltUnknown::Undefined, IntoSmeltUnknown::into_smelt_unknown)
     }
 }
 
@@ -789,9 +791,9 @@ impl SmeltRegExp {
         if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }
         if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }
         let mut object = ::std::collections::HashMap::new();
-        for index in 0..captures.len() { if let Some(value) = captures.get(index) { object.insert(index.to_string(), SmeltUnknown::String(value.as_str().to_owned())); } else { object.insert(index.to_string(), SmeltUnknown::Null); } }
+        for index in 0..captures.len() { if let Some(value) = captures.get(index) { object.insert(index.to_string(), SmeltUnknown::String(value.as_str().to_owned())); } else { object.insert(index.to_string(), SmeltUnknown::Undefined); } }
         let mut groups = ::std::collections::HashMap::new();
-        for name in regex.capture_names().flatten() { let value = captures.name(name).map_or(SmeltUnknown::Null, |value| SmeltUnknown::String(value.as_str().to_owned())); groups.insert(name.to_owned(), value.clone()); let mut snake = String::new(); for (index, ch) in name.chars().enumerate() { if ch.is_ascii_uppercase() { if index > 0 { snake.push('_'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); } } groups.insert(snake, value); }
+        for name in regex.capture_names().flatten() { let value = captures.name(name).map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.as_str().to_owned())); groups.insert(name.to_owned(), value.clone()); let mut snake = String::new(); for (index, ch) in name.chars().enumerate() { if ch.is_ascii_uppercase() { if index > 0 { snake.push('_'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); } } groups.insert(snake, value); }
         object.insert("groups".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));
         object.insert("index".to_owned(), SmeltUnknown::Number((start + matched.start()) as f64));
         object.insert("input".to_owned(), SmeltUnknown::String(haystack.to_owned()));

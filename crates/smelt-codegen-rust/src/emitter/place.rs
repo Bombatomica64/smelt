@@ -67,7 +67,7 @@ impl FunctionEmitter<'_> {
                         ));
                     }
                     return Ok(format!(
-                        "match {base_text}.clone() {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Null }}"
+                        "match {base_text}.clone() {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                     ));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -86,7 +86,7 @@ impl FunctionEmitter<'_> {
                         ));
                     }
                     return Ok(format!(
-                        "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Null }}"
+                        "match {base_text}.clone().unwrap_or(SmeltUnknown::Undefined) {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                     ));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -104,7 +104,7 @@ impl FunctionEmitter<'_> {
                 {
                     let wrapped = self.erase_value_text("value", *inner)?;
                     return Ok(format!(
-                        "{}.clone().map_or(SmeltUnknown::Null, |value| {wrapped})",
+                        "{}.clone().map_or(SmeltUnknown::Undefined, |value| {wrapped})",
                         self.local_value_text(*base)?
                     ));
                 }

@@ -837,7 +837,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_value_text("value", *inner)?;
                 Ok(format!(
-                    "{text}.clone().map_or(SmeltUnknown::Null, |value| {value_wrap})"
+                    "{text}.clone().map_or(SmeltUnknown::Undefined, |value| {value_wrap})"
                 ))
             }
             Some(Type::Function(_)) => {
@@ -1084,7 +1084,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_value_text("value", *inner)?;
                 Ok(format!(
-                    "{}.clone().map_or(SmeltUnknown::Null, |value| {value_wrap})",
+                    "{}.clone().map_or(SmeltUnknown::Undefined, |value| {value_wrap})",
                     value.parenthesized_if_needed()
                 ))
             }

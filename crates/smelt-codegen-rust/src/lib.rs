@@ -725,7 +725,9 @@ fn emit_source_with_free_function_router(
         }
         writer.blank_line();
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
-        writer.line("    match map.get(field).unwrap_or(SmeltUnknown::Null) {");
+        writer.line("    // A missing property reads as JS `undefined`, distinct from an");
+        writer.line("    // explicit `null` value (`obj.missing === undefined`, `!== null`).");
+        writer.line("    match map.get(field).unwrap_or(SmeltUnknown::Undefined) {");
         writer.line("        SmeltUnknown::Object(getter) if getter.contains_key(\"__smelt_get\") => match getter.get(\"__smelt_get\") {");
         writer.line("            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{}\", error)),");
         writer.line("            _ => SmeltUnknown::Null,");
@@ -1305,7 +1307,9 @@ fn emit_source_with_free_function_router(
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
                     fn_writer.line(
-                        "self.map_or(SmeltUnknown::Null, IntoSmeltUnknown::into_smelt_unknown)",
+                        // An absent optional erases to JS `undefined` (missing
+                        // element / optional / `?.`), distinct from explicit `null`.
+                        "self.map_or(SmeltUnknown::Undefined, IntoSmeltUnknown::into_smelt_unknown)",
                     );
                 });
             },
@@ -1585,9 +1589,9 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }");
                 fn_writer.line("if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }");
                 fn_writer.line("let mut object = ::std::collections::HashMap::new();");
-                fn_writer.line("for index in 0..captures.len() { if let Some(value) = captures.get(index) { object.insert(index.to_string(), SmeltUnknown::String(value.as_str().to_owned())); } else { object.insert(index.to_string(), SmeltUnknown::Null); } }");
+                fn_writer.line("for index in 0..captures.len() { if let Some(value) = captures.get(index) { object.insert(index.to_string(), SmeltUnknown::String(value.as_str().to_owned())); } else { object.insert(index.to_string(), SmeltUnknown::Undefined); } }");
                 fn_writer.line("let mut groups = ::std::collections::HashMap::new();");
-                fn_writer.line("for name in regex.capture_names().flatten() { let value = captures.name(name).map_or(SmeltUnknown::Null, |value| SmeltUnknown::String(value.as_str().to_owned())); groups.insert(name.to_owned(), value.clone()); let mut snake = String::new(); for (index, ch) in name.chars().enumerate() { if ch.is_ascii_uppercase() { if index > 0 { snake.push('_'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); } } groups.insert(snake, value); }");
+                fn_writer.line("for name in regex.capture_names().flatten() { let value = captures.name(name).map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.as_str().to_owned())); groups.insert(name.to_owned(), value.clone()); let mut snake = String::new(); for (index, ch) in name.chars().enumerate() { if ch.is_ascii_uppercase() { if index > 0 { snake.push('_'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); } } groups.insert(snake, value); }");
                 fn_writer.line("object.insert(\"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));");
                 fn_writer.line("object.insert(\"index\".to_owned(), SmeltUnknown::Number((start + matched.start()) as f64));");
                 fn_writer.line("object.insert(\"input\".to_owned(), SmeltUnknown::String(haystack.to_owned()));");
@@ -2218,7 +2222,7 @@ fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId) -> Result<
         Some(Type::String) => format!("SmeltUnknown::String({value_text})"),
         Some(Type::Optional(inner)) => {
             let inner_text = record_field_unknown_text(mir, "value", *inner)?;
-            format!("{value_text}.map_or(SmeltUnknown::Null, |value| {inner_text})")
+            format!("{value_text}.map_or(SmeltUnknown::Undefined, |value| {inner_text})")
         }
         Some(Type::List(item) | Type::Set(item)) => {
             let item_text = record_field_unknown_text(mir, "value", *item)?;
