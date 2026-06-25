@@ -288,6 +288,23 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(target),
         ) && source_item != target_item
         {
+            // A `List<None>` erased element-wise would become `Null`, but an
+            // `[undefined, …]` literal must erase to `Undefined` (the type lost
+            // the distinction; only the defining constants carry it). Recover it
+            // from the def-site so genuine `null` arrays keep the `Null` path.
+            let target_item_is_erased = matches!(
+                self.mir.types.get(*target_item),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) || self.is_erased_class_type(*target_item);
+            if matches!(self.mir.types.get(*source_item), Some(Type::None))
+                && target_item_is_erased
+                && self.list_local_all_undefined_constants(operand)?
+            {
+                return Ok(format!(
+                    "{}.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()",
+                    self.operand_text(operand)?
+                ));
+            }
             let value_text = if matches!(self.mir.types.get(*source_item), Some(Type::List(_)))
                 && (matches!(
                     self.mir.types.get(*target_item),
@@ -912,6 +929,53 @@ impl FunctionEmitter<'_> {
         let text = self.operand_text(operand)?;
         let bare = text.strip_suffix(".clone()").unwrap_or(text.as_str());
         Ok(Some(bare.to_owned()))
+    }
+
+    /// Report whether a `Type::None` list operand was defined by an array
+    /// literal whose elements are *all* the `undefined` literal.
+    ///
+    /// `null` and `undefined` both collapse to MIR `Type::None`, so a
+    /// `List<None>` carries no type-level hint about which JS singleton it
+    /// holds; the distinction survives only as the per-element
+    /// [`Constant::Undefined`] (see `specs/distinct-undefined.md`). When such a
+    /// list is later erased to `List<Unknown>` the generic per-type erase would
+    /// pick `SmeltUnknown::Null` for every element — wrong for an
+    /// `[undefined, …]` literal, which must compare equal to the `undefined`
+    /// any other producer yields (e.g. a debouncer's initial cached `result`).
+    ///
+    /// We recover the lost distinction by inspecting the operand's *defining*
+    /// `Rvalue::List` (mirroring [`Self::erased_call_assignment_text`]): if every
+    /// element is the `undefined` constant, the whole list erases to
+    /// `Undefined`. Mixed or all-`null` literals keep the historical `Null`
+    /// erasure, so genuine `null` arrays are untouched.
+    fn list_local_all_undefined_constants(&self, operand: &Operand) -> Result<bool, EmitError> {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+        else {
+            return Ok(false);
+        };
+        let mut defining_list = None;
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                if let Statement::Assign { dest, value } = statement
+                    && dest == local
+                {
+                    // A reassignment of the same local would make the erasure
+                    // ambiguous; only trust a single defining list literal.
+                    if let Rvalue::List(items) = value {
+                        defining_list = Some(items);
+                    } else {
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+        let Some(items) = defining_list else {
+            return Ok(false);
+        };
+        Ok(!items.is_empty()
+            && items
+                .iter()
+                .all(|item| matches!(item, Operand::Const(Constant::Undefined))))
     }
 
     /// Re-render a typed callback local from its erased callable source when it
