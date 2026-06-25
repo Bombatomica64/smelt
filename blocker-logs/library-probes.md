@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-06-24 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-06-25 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -13,15 +13,15 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
 | [es-toolkit](https://github.com/toss/es-toolkit) | TS | **no** | n/a | `src/array/at.spec.ts` | 79 | non-working Rust (77r/2s) |
-| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `src/typed.ts` | 24 | non-working Rust (22r/2s) |
-| [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `src/types/Pattern.ts` | 15 | non-working Rust (15r/0s) |
-| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/utils/_getByteCount/_getByteCount.ts` | 33 | non-working Rust (32r/1s) |
-| [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `src/result-async.ts` | 11 | non-working Rust (11r/0s) |
+| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/typed.ts` | 24 | non-working Rust (22r/2s) |
+| [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/types/Pattern.ts` | 15 | non-working Rust (15r/0s) |
+| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/utils/_getByteCount/_getByteCount.ts` | 33 | non-working Rust (32r/1s) |
+| [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 11 | non-working Rust (11r/0s) |
 | [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `tests/test_context/test_requires_context/test_context.py` | 33 | non-working Rust (33r/0s) |
-| [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `src/result/result.py` | 7 | non-working Rust (7r/0s) |
-| [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `more_itertools/recipes.py` | 10 | non-working Rust (10r/0s) |
-| [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `funcy/primitives.py` | 14 | non-working Rust (14r/0s) |
-| [toolz](https://github.com/pytoolz/toolz) | PY | **no** | n/a | `toolz/itertoolz.py` | 14 | non-working Rust (14r/0s) |
+| [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `home/runner/work/smelt/smelt/src/result/result.py` | 7 | non-working Rust (7r/0s) |
+| [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `home/runner/work/smelt/smelt/more_itertools/recipes.py` | 10 | non-working Rust (10r/0s) |
+| [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `home/runner/work/smelt/smelt/funcy/primitives.py` | 14 | non-working Rust (14r/0s) |
+| [toolz](https://github.com/pytoolz/toolz) | PY | **no** | n/a | `home/runner/work/smelt/smelt/toolz/itertoolz.py` | 14 | non-working Rust (14r/0s) |
 
 ## es-toolkit
 
@@ -50,7 +50,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## radash
 
 - Source: `sodiray/radash` @ `4cab1900d08e`
-- Transpile: **no** — `smelt build` aborts at `src/typed.ts`
+- Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/typed.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
 - Files scanned: 19 · with blockers: 13
 
@@ -74,9 +74,9 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## ts-pattern
 
 - Source: `gvergnaud/ts-pattern` @ `c92ca435c7e1`
-- Transpile: **no** — `smelt build` aborts at `src/types/Pattern.ts`
+- Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/types/Pattern.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 68 · with blockers: 22
+- Files scanned: 68 · with blockers: 23
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -98,7 +98,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## valibot
 
 - Source: `fabian-hiller/valibot` @ `1f9b18338ad5`
-- Transpile: **no** — `smelt build` aborts at `library/src/utils/_getByteCount/_getByteCount.ts`
+- Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/library/src/utils/_getByteCount/_getByteCount.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
 - Files scanned: 1083 · with blockers: 324
 
@@ -122,7 +122,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## neverthrow
 
 - Source: `supermacro/neverthrow` @ `5ef3a018bda7`
-- Transpile: **no** — `smelt build` aborts at `src/result-async.ts`
+- Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/result-async.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
 - Files scanned: 8 · with blockers: 6
 
@@ -167,7 +167,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## result
 
 - Source: `rustedpy/result` @ `0b855e1e38a0`
-- Transpile: **no** — `smelt build` aborts at `src/result/result.py`
+- Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/result/result.py`
 - Tests passing: **n/a** (no Rust crate emitted)
 - Files scanned: 5 · with blockers: 4
 
@@ -184,7 +184,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## more-itertools
 
 - Source: `more-itertools/more-itertools` @ `5d946b3590bf`
-- Transpile: **no** — `smelt build` aborts at `more_itertools/recipes.py`
+- Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/more_itertools/recipes.py`
 - Tests passing: **n/a** (no Rust crate emitted)
 - Files scanned: 6 · with blockers: 4
 
@@ -204,7 +204,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## funcy
 
 - Source: `Suor/funcy` @ `9eb04473e31b`
-- Transpile: **no** — `smelt build` aborts at `funcy/primitives.py`
+- Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/funcy/primitives.py`
 - Tests passing: **n/a** (no Rust crate emitted)
 - Files scanned: 33 · with blockers: 31
 
@@ -228,7 +228,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## toolz
 
 - Source: `pytoolz/toolz` @ `568c2b839397`
-- Transpile: **no** — `smelt build` aborts at `toolz/itertoolz.py`
+- Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/toolz/itertoolz.py`
 - Tests passing: **n/a** (no Rust crate emitted)
 - Files scanned: 31 · with blockers: 28
 
