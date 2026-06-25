@@ -166,3 +166,55 @@ Golden / focused test checklist for Phase 2:
 - Full attempt-2 working tree preserved on branch `wip/distinct-undefined-grind`.
 - Investigation: `blocker-logs/plan-nullish-promise-2026-06-23.md` (producer/site map).
 - Baseline: 21 failing (`blocker-logs/remeda-after-jsstricteq-2026-06-23.md`).
+
+## Remaining regression tail (9, after `c4d6b257`/`b8250c64` — at 23 failing)
+
+These 9 are distinct-`undefined` regressions still open after the producer sweep.
+They are NOT simple "flip Null→Undefined" producers — each is a subtle
+interaction. Root-cause analysis for follow-up:
+
+1. **`clone::edge_cases_undefined`** — matcher-lowering, not a producer.
+   `expect(clone(undefined)).toBeUndefined()`: `clone(undefined)` is `None`-typed,
+   and `expect_to_be_none_statement` (builder_part06) lowers `actual !== undefined`
+   via `BinOp::JsStrictNotEq` against a `Literal::Undefined`. For a `None`-typed
+   actual the comparison collapses to a wrong constant (`!(false)` in generated),
+   and the actual is discarded (`let _ = clone(...); ()`). Fix: in
+   `unknown_binary_text`/the none-vs-none equality path, a `None`-typed value
+   strictly-equals `undefined` (and the `Literal::Undefined` expected should not be
+   treated as plain `None`). Audit the `lhs_is_none`/`rhs_is_none` arms for the new
+   `JsStrict*` ops + `Literal::Undefined`.
+
+2. **`sortedIndexBy` / `sortedLastIndexBy` ::binary_search…indexed_empty_array (2)**
+   — the indexed-callback adapter converts the optional index arg
+   `arg1: Option<f64>` via `map_or(SmeltUnknown::Undefined, …)` (was `Null`). The
+   binary-search/indexed comparator on an empty array now sees `undefined` where it
+   expected `null`. Determine whether the index should ever be absent here (it
+   shouldn't for a real index) — likely the adapter should pass the concrete index,
+   or this specific Optional-erase site should stay `Null`. Narrow the optional→
+   undefined change away from callback-index args.
+
+3. **`truncate::regex_separator_matches_after_maxlength`** — fallout from the
+   regex-capture→`undefined` change. truncate inspects a regex match/captures; a
+   capture that is now `undefined` (vs `null`) changes a `=== undefined` / truthy
+   branch. Diff generated `truncate.rs` regex handling vs the matched-capture
+   expectation.
+
+4. **`debounce::should_debounce_a_function_177` /
+   `funnel_remeda_debounce::…_615` (2)** — debounce timing/cached-value. The cached
+   `result` (initially `undefined`) and the `result !== undefined` gate now compare
+   the `Undefined` tag; a producer in the timer/cached-value path likely still emits
+   `Null`, or the leading/trailing invoke path mishandles the new tag. Trace the
+   cached-value lifecycle in generated `debounce.rs`.
+
+5. **`funnel_reference_batch::showcase_{error_handling,results_as_array,results_as_object}` (3)**
+   — async funnel that stores `new Promise((resolve,reject)=>…)` and awaits later.
+   These also broke under the earlier promise-marker attempt; the
+   undefined-producer changes perturbed a value in the await/store-resolve flow.
+   Entangled with Cluster B (promise representation) in
+   `specs/remeda-deep-clusters.md`; likely needs the awaitable+inspectable promise
+   handle, not a producer flip.
+
+**Net:** 14 pre-existing deep-cluster failures (see remeda-deep-clusters.md) + these
+9 = 23. Distinct-`undefined` is currently ~net-neutral vs the old 21 baseline
+(6 undefined wins vs ~9 regressions) but is a correctness win (null≠undefined). The
+high-value producer sweep is done; this tail is subtle per-test work.
