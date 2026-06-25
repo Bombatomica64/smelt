@@ -177,7 +177,15 @@ impl FunctionEmitter<'_> {
                         let base_text = self.local_mut_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_text}.len()"), index)?;
-                        let missing = self.default_value(*item_ty)?;
+                        // JS out-of-bounds element access is `undefined`, not `null`.
+                        let missing = if matches!(
+                            self.mir.types.get(*item_ty),
+                            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                        ) {
+                            "SmeltUnknown::Undefined".to_owned()
+                        } else {
+                            self.default_value(*item_ty)?
+                        };
                         Ok(format!(
                             "{base_text}.get({index_text}).cloned().unwrap_or({missing})"
                         ))

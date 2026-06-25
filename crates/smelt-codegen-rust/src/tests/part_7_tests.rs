@@ -2008,7 +2008,7 @@ function maybe(flag: boolean): unknown {
         "{source}"
     );
     assert!(
-        source.contains("map_or(SmeltUnknown::Null, IntoSmeltUnknown::into_smelt_unknown)"),
+        source.contains("map_or(SmeltUnknown::Undefined, IntoSmeltUnknown::into_smelt_unknown)"),
         "{source}"
     );
 }
