@@ -412,12 +412,24 @@ impl FunctionEmitter<'_> {
                     && next_index == function.params.len()
                     && args.len() >= rest_index
                     && !(args.len() == next_index && {
+                        // A single list argument that exactly fills the trailing
+                        // erased-list slot is the parameter's own value, not one
+                        // rest element. Pass it straight through (element-wise
+                        // erased by `value_at_type`) instead of wrapping it in
+                        // `vec![array]`. This must accept *any* list element
+                        // type, not just `List<Unknown>`: e.g. `mergeAll(objects)`
+                        // takes a single `object[]` parameter, and a concretely
+                        // typed argument such as `[{ a: 1 }, …] as const` (a
+                        // `List<Record>`) must still bind to `objects` directly.
+                        // Genuine variadic rest functions pre-pack their
+                        // arguments into a `ListLit` in the frontend, so this
+                        // pass-through does not affect them.
                         let Some(arg) = args.get(rest_index) else {
                             return Err(EmitError::new("call is missing rest argument"));
                         };
                             matches!(
                                 self.mir.types.get(self.operand_ty(arg)?),
-                                Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                                Some(Type::List(_))
                             )
                     })
                 {
