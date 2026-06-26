@@ -771,7 +771,19 @@ impl FunctionEmitter<'_> {
                 Ok(format!("SmeltUnknown::Array({text}.into())"))
             }
             Some(Type::List(item)) => {
-                let value_wrap = self.erase_value_text("value", *item)?;
+                // A `List<None>` erases its elements to `Null`, but an
+                // `[undefined, …]` literal must erase to `Undefined` (the type
+                // lost the distinction; only the defining constants carry it).
+                // Recover it from the def-site so genuine `null` arrays keep the
+                // `Null` path. This mirrors the same recovery in `value_at_type`
+                // for the `List<None> -> List<Unknown>` coercion shape.
+                let value_wrap = if matches!(self.mir.types.get(*item), Some(Type::None))
+                    && self.list_local_all_undefined_constants(operand)?
+                {
+                    "SmeltUnknown::Undefined".to_owned()
+                } else {
+                    self.erase_value_text("value", *item)?
+                };
                 // See the unknown-item arm: a list local reuses a stable id keyed
                 // on its `Vec` address; a fresh list keeps `SmeltArray::new`.
                 if let Some(bare_local) = self.list_local_identity_key(operand)? {
