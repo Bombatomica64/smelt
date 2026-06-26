@@ -1,5 +1,24 @@
 # Cluster A — Reference identity for typed arrays (+ function singletons)
 
+## Phase 2 implementation status (2026-06-26) — WIP on branch `wip/smelt-list-cluster-a`
+Phase 0 (function singletons → mergeDeep) is **landed** on main. Phase 2 (the
+`SmeltList<T>` switch for the 6 array tests) was **started and parked on the
+branch `wip/smelt-list-cluster-a`** (pushed). That branch has the `SmeltList<T>`
+prelude type (the simpler `{id, Vec}` + `Deref<Vec<T>>` design, see below) and the
+`Type::List → SmeltList<T>` lowering switch in `types.rs`. The codegen crate
+compiles; the **generated remeda crate does not** — measured **571 errors**
+(524 E0308 `Vec`-vs-`SmeltList`, 44 E0277, 1 E0282, 1 E0631). They are NOT 571
+independent sites — they trace to a handful of root-cause emitter templates that
+still need to emit/convert `SmeltList`:
+- list-literal construction `vec![{items}]` → `SmeltList::from(vec![…])` (`list.rs:407`, empty-list `list.rs:225`, `core.rs` Rvalue::List, `tuple.rs:128` if tuples share).
+- erased-list **extraction** `match … { Array(v) => v.into_vec()/…collect::<Vec<_>>(), Null=>Vec::new(), … }` must yield `SmeltList` (`coercion.rs:1509` List(Unknown), `:1514` List(String), the generic List(item) arm, and `value_at_type` `:654/:699`).
+- **erase** must carry the list id: `SmeltArray::with_id(<list>.id(), …)` instead of re-`smelt_list_identity(as_ptr)` (`coercion.rs:791/848/852/1142`).
+- `.collect::<Vec<_>>()` at function arg/return boundaries → `.collect()` (FromIterator) or `.into()`.
+- `===`/`toBe` comparison: `strict_identity_text` List arm (`call_runtime.rs:1634`) → `{lhs}.id() == {rhs}.id()`.
+Then a second wave: the generated TEST crate, then runtime correctness, then full-suite
+verification. Estimated multi-hour dedicated effort with regen + `cargo test --no-run` on the
+generated crate after each template fix. Resume from the branch.
+
 Design plan (read-only investigation, 2026-06-26) for the 9 remeda tests that
 fail on JS reference identity. **Key finding: these 9 do NOT share one
 mechanism — there are 5 distinct ones.** Sequence the cheap, isolated wins first.
