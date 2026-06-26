@@ -743,10 +743,17 @@ impl<'hir> LoweringCtx<'hir> {
                 let Some(dest) = self.locals.get(&hir_local).copied() else {
                     return Err(self.error("let pattern references an unknown local", None));
                 };
+                // An uninitialized `let` binding holds `undefined` in JS, not
+                // `null`. When the type is erased to `SmeltUnknown` this distinction
+                // is observable: code that later guards the binding with
+                // `x !== undefined` (e.g. `truncate`'s regex-separator loop) must
+                // see the `Undefined` tag, not `Null`. Typed targets coerce both
+                // constants to the same `default_value`, so this only changes the
+                // erased case, where `Undefined` is the JS-correct sentinel.
                 let lowered_value = value
                     .map(|expr| self.lower_expr(expr))
                     .transpose()?
-                    .unwrap_or(Operand::Const(Constant::None));
+                    .unwrap_or(Operand::Const(Constant::Undefined));
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::Use(lowered_value),
