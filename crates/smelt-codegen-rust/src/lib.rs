@@ -703,6 +703,9 @@ fn emit_source_with_free_function_router(
         writer.line("impl<T: PartialEq> Eq for SmeltList<T> {}");
         writer.line("impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { self.values.hash(state); } }");
         writer.line("impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }");
+        writer.line("impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.values } }");
+        // Erasing a typed list to a `SmeltUnknown::Array` preserves its JS reference identity.
+        writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values) } }");
         writer.blank_line();
         writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
         writer.line("fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }");
@@ -745,8 +748,8 @@ fn emit_source_with_free_function_router(
             writer.blank_line();
             writer.line("impl SmeltErasedFunction {");
             writer.line("    /// Invoke an erased JavaScript callable through a reentrant handle.");
-            writer.line("    fn call(&self, args: Vec<SmeltUnknown>) -> SmeltUnknown {");
-            writer.line("        (self.callback)(args)");
+            writer.line("    fn call(&self, args: impl Into<Vec<SmeltUnknown>>) -> SmeltUnknown {");
+            writer.line("        (self.callback)(args.into())");
             writer.line("    }");
             writer.line(
                 "    /// Restore an erased callable value without dropping callable-object fields.",

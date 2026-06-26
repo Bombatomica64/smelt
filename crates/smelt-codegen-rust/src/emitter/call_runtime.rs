@@ -85,6 +85,23 @@ impl FunctionEmitter<'_> {
         value: &Rvalue,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
+        let text = self.rvalue_text_for_dest_inner(value, dest_ty)?;
+        // List-producing operations (concat/slice/flat/map/copy/…) emit a bare
+        // `Vec`, but `Type::List` now lowers to the identity-bearing `SmeltList`.
+        // Coerce through `Into` at this single choke point: it is a no-op when the
+        // rvalue already produced a `SmeltList` (the blanket `From<T> for T`) and
+        // wraps a fresh-identity list otherwise (`From<Vec<T>>`).
+        if matches!(self.mir.types.get(dest_ty), Some(Type::List(_))) {
+            return Ok(format!("Into::<SmeltList<_>>::into({text})"));
+        }
+        Ok(text)
+    }
+
+    fn rvalue_text_for_dest_inner(
+        &self,
+        value: &Rvalue,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         match value {
             Rvalue::Use(operand)
                 if matches!(
