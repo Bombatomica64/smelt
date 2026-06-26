@@ -313,6 +313,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         closures::widen_throwing_closure_types(&mut mir);
         passes::throwing::propagate_throwing_functions(&mut mir);
         closures::widen_throwing_closure_types(&mut mir);
+        crate::promote_erased_mutated_records(&mut mir);
         crate::normalize_operational_types(&mut mir);
         Ok(mir)
     } else {

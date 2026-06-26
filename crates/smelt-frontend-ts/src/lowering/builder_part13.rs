@@ -4897,6 +4897,7 @@ impl ModuleBuilder<'_> {
     /// Return whether compact callback lowering should retry as a normal closure.
     fn should_fallback_to_closure_body_for_callback(error: &SmeltError) -> bool {
         error.message == "callback expression kind is not supported yet"
+            || error.message == "callback member assignment needs closure-body lowering"
             || error.message
                 == "callback expression statements must be followed by a return or throw"
             || error.message == "callback side-effect blocks only support expression statements"
@@ -5889,7 +5890,17 @@ impl ModuleBuilder<'_> {
                             | AssignmentTarget::ComputedMemberExpression(_)
                     ) && assign.operator == AssignmentOperator::Assign
                     {
-                        return self.callback_expression(&assign.right, params, body);
+                        // A member-target store (`obj[k] = v` / `obj.k = v`) mutates the
+                        // receiver, but the side-effect-free callback expression IR cannot
+                        // represent the store — only its right-hand value. Bail so the caller
+                        // re-lowers this arrow through full closure-body lowering, which keeps
+                        // the mutation. (Previously the store was silently dropped, leaving
+                        // mutating reducers like `(acc, x) => { acc[x] = x; return acc; }` as
+                        // identity functions.)
+                        return Err(SmeltError::unsupported(
+                            self.span(assign.span.start, assign.span.end),
+                            "callback member assignment needs closure-body lowering",
+                        ));
                     }
                     return Err(SmeltError::unsupported(
                         self.span(assign.span.start, assign.span.end),

@@ -925,11 +925,11 @@ impl FunctionEmitter<'_> {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
                 return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_promise\"))"
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Promise(_)))"
                 ));
             }
             return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_promise\"))"
+                "matches!({value_text}.clone(), SmeltUnknown::Promise(_))"
             ));
         }
         let result = match self.mir.types.get(value_ty) {

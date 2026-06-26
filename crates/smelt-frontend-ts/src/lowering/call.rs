@@ -1990,7 +1990,14 @@ impl<'builder> ModuleBuilder<'builder> {
                 0
             }
         });
-        fixed_arity * 100 + fixed_score + rest_score
+        // Specificity rewards parameters whose declared type actually constrains
+        // the argument, not the mere existence of a fixed slot. A leading generic
+        // fixed parameter (e.g. data-first `sortBy(array: T, ...rules)`) is no more
+        // specific than a variadic of a concrete union (data-last `sortBy(...rules)`),
+        // so weight by the count of *specific* fixed params. This keeps TypeScript's
+        // first-declared-overload-wins behaviour for purry data-last/data-first pairs
+        // while still preferring overloads with genuinely concrete fixed parameters.
+        fixed_score * 100 + rest_score
     }
 
     /// Reject fixed tuple-rest overloads for variable-length spread tails.
@@ -2040,6 +2047,42 @@ impl<'builder> ModuleBuilder<'builder> {
 
     /// Return whether an overload parameter contributes useful shape
     /// information beyond accepting any value.
+    /// Return whether a call argument is a syntactically empty array literal `[]`.
+    fn argument_is_empty_array_literal(argument: &Argument<'_>) -> bool {
+        matches!(argument, Argument::ArrayExpression(array) if array.elements.is_empty())
+    }
+
+    /// Return whether an empty array literal `[]` is assignable to `ty`.
+    ///
+    /// `[]` inhabits collection-shaped types (arrays/lists, sets, dictionaries)
+    /// and fully-erased/generic positions, but never a function, a non-empty
+    /// fixed tuple, or a union that lacks a collection member. This mirrors
+    /// TypeScript assignability and prevents an empty literal from vacuously
+    /// matching an element type whose only structural member is a tuple.
+    fn type_accepts_empty_array_literal(&self, ty: smelt_hir::TypeId) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(
+                Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::List(_)
+                | Type::Set(_)
+                | Type::Dict(..),
+            ) => true,
+            Some(Type::Tuple(items)) => items.is_empty(),
+            Some(Type::Optional(inner)) => self.type_accepts_empty_array_literal(*inner),
+            Some(Type::Union(items)) => items
+                .clone()
+                .into_iter()
+                .any(|item| self.type_accepts_empty_array_literal(item)),
+            _ => false,
+        }
+    }
+
     fn overload_param_is_specific(&self, ty: smelt_hir::TypeId) -> bool {
         !matches!(
             self.ctx
@@ -2144,6 +2187,17 @@ impl<'builder> ModuleBuilder<'builder> {
                         } else {
                             item_ty
                         };
+                        // An empty array literal (`[]`) is only assignable to a
+                        // collection-shaped element type. Without this guard its
+                        // `Unknown` element type lets it vacuously satisfy a
+                        // tuple/union element (e.g. an `OrderRule` rest), which
+                        // would steal a genuine data-first call (`firstBy([], rule)`)
+                        // into the variadic data-last overload.
+                        if Self::argument_is_empty_array_literal(argument)
+                            && !self.type_accepts_empty_array_literal(expected)
+                        {
+                            return false;
+                        }
                         self.infer_overload_type(expected, *actual, &mut rest_substitutions)
                     })
             }

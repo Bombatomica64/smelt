@@ -57,6 +57,8 @@
     reason = "optimizer match arms reuse domain variable names in independent scopes"
 )]
 
+/// Promote erased-and-mutated record locals to an erased value representation.
+mod erased_record_promote;
 /// Compact MIR formatting utilities.
 mod format;
 /// HIR-to-MIR lowering pipeline.
@@ -70,6 +72,7 @@ mod types;
 /// MIR validation and diagnostics.
 mod validate;
 
+pub use erased_record_promote::promote_erased_mutated_records;
 pub use format::format_compact;
 pub use lower::{LowerError, lower_hir};
 pub use type_normalize::normalize_operational_types;
