@@ -586,7 +586,7 @@ impl FunctionEmitter<'_> {
             }
             Type::None => Ok("()".to_owned()),
             Type::List(item) => Ok(format!(
-                "Vec<{}>",
+                "SmeltList<{}>",
                 self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
             Type::Set(item) if self.type_is_hash_set_key_safe(*item) => Ok(format!(
@@ -708,7 +708,7 @@ impl FunctionEmitter<'_> {
             Type::Unknown => Ok(self.null_value_text()),
             Type::Never => Ok(self.null_value_text()),
             Type::None => Ok("()".to_owned()),
-            Type::List(_) => Ok("Vec::new()".to_owned()),
+            Type::List(_) => Ok("SmeltList::new(Vec::new())".to_owned()),
             Type::Set(item) if self.type_is_hash_set_key_safe(*item) => {
                 Ok("::std::collections::HashSet::new()".to_owned())
             }

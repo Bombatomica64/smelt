@@ -669,6 +669,41 @@ fn emit_source_with_free_function_router(
         writer.line("impl ::std::ops::Deref for SmeltArray { type Target = [SmeltUnknown]; fn deref(&self) -> &Self::Target { &self.values } }");
         writer.line("impl IntoIterator for SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.values.into_iter() } }");
         writer.blank_line();
+        // Identity-bearing statically-typed list. Mirrors `SmeltArray` but is
+        // generic and `Deref`s to its backing `Vec<T>`, so the overwhelming
+        // majority of list read/mutate sites keep compiling unchanged; only
+        // construction, conversion, and `===`/`toBe` identity comparison need
+        // to be aware of it. `Clone` shares the `id` (JS reference identity is
+        // preserved across the internal value clones the emitter inserts) while
+        // deep-cloning the values (value semantics match the historical `Vec`).
+        writer.line("#[derive(Debug)]");
+        writer.line("pub struct SmeltList<T> {");
+        writer.line("    id: usize,");
+        writer.line("    values: Vec<T>,");
+        writer.line("}");
+        writer.line("impl<T: Clone> Clone for SmeltList<T> { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }");
+        writer.line("#[allow(dead_code)]");
+        writer.line("impl<T> SmeltList<T> {");
+        writer.line("    /// Create an identity-bearing typed list with a fresh JS reference identity.");
+        writer.line("    fn new(values: Vec<T>) -> Self { Self { id: smelt_next_object_id(), values } }");
+        writer.line("    /// Reuse a caller-supplied identity so an erase/extract round-trip stays `===` equal.");
+        writer.line("    fn with_id(id: usize, values: Vec<T>) -> Self { Self { id, values } }");
+        writer.line("    /// JS reference identity of this list.");
+        writer.line("    fn id(&self) -> usize { self.id }");
+        writer.line("    /// Consume the list, yielding the backing storage.");
+        writer.line("    fn into_vec(self) -> Vec<T> { self.values }");
+        writer.line("}");
+        writer.line("impl<T> From<Vec<T>> for SmeltList<T> { fn from(values: Vec<T>) -> Self { Self::new(values) } }");
+        writer.line("impl<T> ::std::iter::FromIterator<T> for SmeltList<T> { fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self { Self::new(iter.into_iter().collect()) } }");
+        writer.line("impl<T> ::std::ops::Deref for SmeltList<T> { type Target = Vec<T>; fn deref(&self) -> &Vec<T> { &self.values } }");
+        writer.line("impl<T> ::std::ops::DerefMut for SmeltList<T> { fn deref_mut(&mut self) -> &mut Vec<T> { &mut self.values } }");
+        writer.line("impl<T> IntoIterator for SmeltList<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { self.values.into_iter() } }");
+        writer.line("impl<'smelt_list, T> IntoIterator for &'smelt_list SmeltList<T> { type Item = &'smelt_list T; type IntoIter = ::std::slice::Iter<'smelt_list, T>; fn into_iter(self) -> Self::IntoIter { self.values.iter() } }");
+        writer.line("impl<T: PartialEq> PartialEq for SmeltList<T> { fn eq(&self, other: &Self) -> bool { self.values == other.values } }");
+        writer.line("impl<T: PartialEq> Eq for SmeltList<T> {}");
+        writer.line("impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { self.values.hash(state); } }");
+        writer.line("impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }");
+        writer.blank_line();
         writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
         writer.line("fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }");
         writer.blank_line();
