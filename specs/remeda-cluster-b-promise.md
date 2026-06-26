@@ -99,3 +99,46 @@ Emitter: `coercion.rs:906` (erase), `:1437-1441` (tag_check), `call.rs:919-934` 
   `smelt_drain_promise_tasks` caps at 64 iters (`lib.rs:892`) — verify self-driving task + awaiter don't starve.
 - Exhaustive-match churn (10th variant) — Phase 1 isolates.
 - `isDeepEqual`: two distinct promises deep-UNequal (identity arm), never structurally recurse.
+
+## Attempt 2026-06-26 (reverted) — concrete failure modes for the next pass
+A full Phase 1+2 implementation was built and reverted. It compiled the codegen crate
+and the e2e golden, but the **generated remeda crate's TEST harness** had 11 compile
+errors (a worktree agent can't compile the generated crate, so these slipped through —
+**the next attempt MUST regen + `cargo test --no-run` the generated crate in the loop**).
+Two categories:
+
+1. **Exhaustive-match churn is bigger than the prelude.** The emitter emits ~15 INLINE
+   `match SmeltUnknown {…}` coercion templates (NOT just prelude helpers) that enumerate
+   every variant: to-number (`place.rs:414`, `types.rs:128/136/142/232`, `strings_io.rs:129`,
+   `call_runtime.rs:1042/2724`, `coercion.rs:1511`), to-i64 (`coercion.rs:1514`), truthiness
+   (`types.rs:70/255`, `coercion.rs:1508`), to-string (`strings.rs:479/500/668/759`,
+   `coercion.rs:1517`, `core.rs:2893` property-key), and the `primitive_none` fragment
+   (`call_runtime.rs:2747`). Each needs a `SmeltUnknown::Promise(_)` arm (treat like Object:
+   NaN / 0 / true / "[object Promise]" / None). Templates with a trailing `_ =>` (the
+   `extract`-to-Vec iterators `coercion.rs:1521/1526/1532`, field-access `call_runtime.rs:2467`)
+   are already exhaustive — skip. **This sweep was completed and is correct**; the generated
+   crate's library + the 27_optional_chains e2e golden then compiled cleanly. The golden
+   refresh: only `27_optional_chains/expected.rs` embeds the enum; rebuild it via a temp
+   project (name=example-app, crate-name=example_app, clone-strategy=aggressive) and diff —
+   the delta should be ONLY Promise additions.
+
+2. **Three real codegen-emission bugs (the actual blockers — unsolved):**
+   - **`?` on a `Future` — `funnel_reference_batch_test.rs:262/268` (E0277/E0282).** The
+     erasure `from_future(Box::pin(async move { Ok((<future>).await?…) }))` or the flatten
+     emits a `?`/type-inference shape that applies `?` to `Pin<Box<dyn Future>>` directly
+     (not to its awaited `Result`), and needs a type annotation. The `<future>` operand
+     rendering + the wrapper interact badly when the funnel `.call()` body already produces a
+     future.
+   - **Move out of an `Fn` closure — `funnel_reference_batch_test.rs:387/393` (E0507).**
+     `smelt_callback` (a captured var in an `Fn` closure) is consumed by-value by the
+     flatten/`smelt_await` path; must borrow/clone instead.
+   - **`use of moved value: data` — `isShallowEqual_test.rs:456/463`, `isStrictEqual_test.rs:340`
+     (E0382).** The new erasure arm renders the operand as a **bare move** (because
+     `type_contains_noncloneable(Type::Future)` is true), so a value erased twice double-moves.
+     This breaks NON-target tests from compiling → takes the whole crate down. The erasure must
+     clone (or the value must be a `SmeltPromise`, which IS Clone) at the erasure site rather
+     than move the underlying future.
+
+Recommendation: do the inline-template sweep first (Phase 1, mechanical, proven), commit it
+behavior-neutral; then fix the 3 emission bugs ONE at a time with regen + `cargo test --no-run`
+on the generated remeda crate after each, before attempting the funnel runtime behavior.
