@@ -2890,7 +2890,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {
                 Ok(format!(
-                    "{{ fn smelt_property_key(value: SmeltUnknown) -> String {{ match value {{ SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{{value}}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }} }} smelt_property_key({value_text}) }}"
+                    "{{ fn smelt_property_key(value: SmeltUnknown) -> String {{ match value {{ SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{{value}}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }} }} smelt_property_key({value_text}) }}"
                 ))
             }
             _ => Ok("\"[object Object]\".to_owned()".to_owned()),
@@ -3486,6 +3486,9 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}")
             }
+        } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
+            let value = self.erase_value_text(&call, source.return_ty)?;
+            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
         } else if self.class_has_no_known_fields(source.return_ty) {
             if source.may_throw {
                 call
@@ -3546,6 +3549,9 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}")
             }
+        } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
+            let value = self.erase_value_text(&call, source.return_ty)?;
+            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
         } else if self.class_has_no_known_fields(source.return_ty) {
             if source.may_throw {
                 call
