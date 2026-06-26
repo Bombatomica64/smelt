@@ -33,6 +33,19 @@ Target tests:
    lowered to bare `closure_arg_0.clone()`) + erased `toBe` lowered to structural `==`.
    Not fully fixable by array identity — **defer**.
 
+## REVISED representation decision (2026-06-26) — simpler than Rc<RefCell>
+The 6 target array tests (tap×2, isShallowEqual×2, forEach, reduce) need identity via a
+**shared id**, NOT aliased shared mutation (that's mapWithFeedback / Cluster F, deferred).
+So model `SmeltList<T>` directly on the existing `SmeltArray` (lib.rs:646-670): a plain
+`{ id: usize, values: Vec<T> }` where `Clone` copies the id and deep-clones the values, with
+**`Deref<Target=[T]>` + `DerefMut`**. This keeps the ~140 read sites (`.iter()`, `.len()`,
+`[i]`, slicing) compiling UNTOUCHED — only construction (`vec![..] -> SmeltList::from`),
+`ListCopy`/spread (mint fresh id), erase/extract (carry id), and `===`/`toBe` comparison
+(compare id) need edits. Value semantics are identical to today's `Vec::clone` (deep), so no
+immutability-test regressions; the only new behavior is id-based reference equality (strictly
+more correct than the current hardcoded `"false"`). The full `Rc<RefCell<Vec>>` version below
+is deferred to whenever Cluster F (aliased mutation: mapWithFeedback) is tackled.
+
 ## Chosen representation (for mechanisms 1 & 2)
 
 `SmeltList<T> = { id: usize, values: Rc<RefCell<Vec<T>>> }`, mirroring
