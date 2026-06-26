@@ -3082,12 +3082,12 @@ impl<'mir> FunctionEmitter<'mir> {
                 {
                     if self.mir.types.get(*item_ty) == Some(&Type::Unknown) {
                         return Ok(format!(
-                            "smelt_args.iter().skip({index}).cloned().collect::<Vec<_>>()"
+                            "smelt_args.iter().skip({index}).cloned().collect::<SmeltList<_>>()"
                         ));
                     }
                     let item_text = self.extract_value_text("value", *item_ty)?;
                     return Ok(format!(
-                        "smelt_args.iter().skip({index}).cloned().map(|value| {item_text}).collect::<Vec<_>>()"
+                        "smelt_args.iter().skip({index}).cloned().map(|value| {item_text}).collect::<SmeltList<_>>()"
                     ));
                 }
                 let item = format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
