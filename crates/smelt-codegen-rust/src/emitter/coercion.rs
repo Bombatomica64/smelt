@@ -651,7 +651,7 @@ impl FunctionEmitter<'_> {
         {
             let item_text = self.value_at_type_text("value", *source_item, *target_item)?;
             return Ok(format!(
-                "{{ let smelt_l = {value_text}.clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {item_text}).collect::<Vec<_>>()) }}"
+                "{value_text}.clone().into_iter().map(|value| {item_text}).collect::<SmeltList<_>>()"
             ));
         }
         if let Some(Type::List(target_item)) = self.mir.types.get(target)

@@ -133,7 +133,7 @@ impl FunctionEmitter<'_> {
                     Some(Type::Function(function))
                         if function.rest == Some(0) && function.params.len() == 1 =>
                     {
-                        format!("({executor_text})(vec![smelt_resolve, smelt_reject]);")
+                        format!("({executor_text})(SmeltList::from(vec![smelt_resolve, smelt_reject]));")
                     }
                     _ => format!("({executor_text})(smelt_resolve, smelt_reject);"),
                 };

@@ -3055,7 +3055,22 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             default_adjusted_return_text
         };
-        let closure = format!("move |smelt_args: Vec<SmeltUnknown>| {return_text}");
+        // Match the adapter's parameter to its cast target: a pure-rest callback
+        // whose first param is a list is `Fn(SmeltList<..>)`, not `Fn(Vec<..>)`.
+        // The body reads `smelt_args` only through `.iter()`/`.get()`/`.skip()`,
+        // which work on `SmeltList` via `Deref`.
+        let smelt_args_ty = if matches!(
+            target_function
+                .params
+                .first()
+                .map(|param| self.mir.types.get(*param)),
+            Some(Some(Type::List(_)))
+        ) {
+            "SmeltList<SmeltUnknown>"
+        } else {
+            "Vec<SmeltUnknown>"
+        };
+        let closure = format!("move |smelt_args: {smelt_args_ty}| {return_text}");
         Ok(Some(if borrowed {
             format!("&mut {closure}")
         } else if is_borrowed_param {
@@ -3199,7 +3214,7 @@ impl<'mir> FunctionEmitter<'mir> {
                             text.push_str(&format!("smelt_forwarded_args.push({item_text}); "));
                         }
                     }
-                    text.push_str("smelt_forwarded_args }");
+                    text.push_str("Into::<SmeltList<_>>::into(smelt_forwarded_args) }");
                     return Ok(text);
                 }
                 if let Some(target_param) = target_function.params.get(index) {

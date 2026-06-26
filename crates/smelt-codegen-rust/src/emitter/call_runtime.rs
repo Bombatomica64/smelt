@@ -92,6 +92,11 @@ impl FunctionEmitter<'_> {
         // rvalue already produced a `SmeltList` (the blanket `From<T> for T`) and
         // wraps a fresh-identity list otherwise (`From<Vec<T>>`).
         if matches!(self.mir.types.get(dest_ty), Some(Type::List(_))) {
+            // `Default::default()` is an ambiguous `Into` source (both Vec and
+            // SmeltList satisfy it); emit the SmeltList default directly.
+            if text == "Default::default()" {
+                return Ok("SmeltList::default()".to_owned());
+            }
             return Ok(format!("Into::<SmeltList<_>>::into({text})"));
         }
         Ok(text)
@@ -143,12 +148,19 @@ impl FunctionEmitter<'_> {
                     return Ok(self.erase_array_text(&items_text));
                 }
                 if let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) {
+                    let item_ty = *item_ty;
                     let items_text = items
                         .iter()
-                        .map(|item| self.value_at_type(&self.list_literal_operand(item), *item_ty))
+                        .map(|item| self.value_at_type(&self.list_literal_operand(item), item_ty))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    return Ok(format!("SmeltList::from(vec![{items_text}])"));
+                    // Annotate the backing Vec with the element type so heterogeneous
+                    // closures coerce to the shared `Rc<dyn Fn>` element (the dest
+                    // annotation used to drive this before `Type::List` became SmeltList).
+                    let elem_text = self.type_text_with_impl_trait(item_ty, false)?;
+                    return Ok(format!(
+                        "SmeltList::from({{ let smelt_list_items: Vec<{elem_text}> = vec![{items_text}]; smelt_list_items }})"
+                    ));
                 }
                 let items_text = items
                     .iter()
@@ -727,7 +739,7 @@ impl FunctionEmitter<'_> {
                     // being mistaken for a spread and flattened into its elements.
                     let smelt_call_args = format!("vec![{}]", rendered_args.join(", "));
                     let call_text = format!(
-                        "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args = {smelt_call_args}; let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
+                        "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into({smelt_call_args}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
                     );
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
@@ -891,7 +903,7 @@ impl FunctionEmitter<'_> {
                     return self.value_at_type_text(&call_text, function.return_ty, dest_ty);
                 }
                 let call_text = format!(
-                    "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args = {args_text}; let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
+                    "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_text}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
                 );
                 if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                     return Ok(call_text);
@@ -2373,7 +2385,7 @@ impl FunctionEmitter<'_> {
             .map(|arg| self.value_at_type(arg, *item))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        Ok(Some(vec![format!("vec![{items}]")]))
+        Ok(Some(vec![format!("SmeltList::from(vec![{items}])")]))
     }
 
     /// Emits `Object.assign` when the target is a callable JavaScript value.
