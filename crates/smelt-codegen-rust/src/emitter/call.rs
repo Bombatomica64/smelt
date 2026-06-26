@@ -25,7 +25,7 @@ impl FunctionEmitter<'_> {
                 {
                     let list = self.await_operand_text(arg)?;
                     return Ok(format!(
-                        "Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, Box<dyn std::error::Error>>(__smelt_values) }})"
+                        "Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, Box<dyn std::error::Error>>(__smelt_values.into()) }})"
                     ));
                 }
                 let rendered_args = args
