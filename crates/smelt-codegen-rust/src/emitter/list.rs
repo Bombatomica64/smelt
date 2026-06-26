@@ -578,7 +578,7 @@ impl FunctionEmitter<'_> {
         {
             let depth_text = self.flat_depth_text(depth)?;
             return Ok(format!(
-                "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, depth: i64) -> Vec<SmeltUnknown> {{ if depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = ({depth_text}).max(0.0).floor() as i64; smelt_flat_values({}.clone(), smelt_flat_depth) }}",
+                "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, depth: i64) -> Vec<SmeltUnknown> {{ if depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = ({depth_text}).max(0.0).floor() as i64; smelt_flat_values({}.clone().into_vec(), smelt_flat_depth) }}",
                 self.operand_text(list)?
             ));
         }

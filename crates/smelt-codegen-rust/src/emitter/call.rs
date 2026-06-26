@@ -459,7 +459,7 @@ impl FunctionEmitter<'_> {
                         .map(|arg| self.erase(arg))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    rendered_args.push(format!("vec![{rest_items}]"));
+                    rendered_args.push(format!("SmeltList::from(vec![{rest_items}])"));
                     for param in function.params.iter().skip(next_index) {
                         rendered_args.push(self.default_value(self.local_decl(*param)?.ty)?);
                     }

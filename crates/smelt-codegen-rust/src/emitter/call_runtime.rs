@@ -1648,6 +1648,15 @@ impl FunctionEmitter<'_> {
                     self.operand_text(rhs)?
                 )
             }
+            (Some(Type::List(_)), Some(Type::List(_))) => {
+                // Typed lists are identity-bearing (`SmeltList`), so reference
+                // equality compares the JS reference id rather than giving up.
+                format!(
+                    "{}.id() == {}.id()",
+                    self.operand_text(lhs)?,
+                    self.operand_text(rhs)?
+                )
+            }
             (
                 Some(Type::List(_) | Type::Set(_) | Type::Tuple(_) | Type::Class { .. }),
                 Some(Type::List(_) | Type::Set(_) | Type::Tuple(_) | Type::Class { .. }),
