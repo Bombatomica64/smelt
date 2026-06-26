@@ -318,12 +318,20 @@ impl ModuleBuilder<'_> {
         };
         if let Some(implementation) = call.arguments.first() {
             let value = self.argument(implementation, body)?;
-            if Self::expr_ty(body, value) == function_ty {
+            // A `vi.fn<(...) => void>(impl)` annotation only constrains the mock's
+            // declared shape for type-checking; at runtime JS still returns the
+            // wrapped implementation's value through callers like `map`. Asserting
+            // `impl` straight to a `=> void` (lowered to `Type::None`) function type
+            // would erase that return value at value-consuming call sites, so when
+            // the declared return is `void` we keep the declared params/arity (which
+            // drive call tracking) but recover the implementation's real return type.
+            let assert_ty = self.vitest_mock_assert_ty(function_ty, Self::expr_ty(body, value));
+            if Self::expr_ty(body, value) == assert_ty {
                 return Ok(Some(value));
             }
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value },
-                ty: function_ty,
+                ty: assert_ty,
                 span: self.span(implementation.span().start, implementation.span().end),
             })));
         }
@@ -332,6 +340,42 @@ impl ModuleBuilder<'_> {
             ty: function_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Pick the function type a `vi.fn<T>(impl)` mock should assert its
+    /// implementation to.
+    ///
+    /// The declared annotation `T` fixes the mock's parameter shape (and thus its
+    /// call-tracking arity), but a `=> void` return only means "callers ignore the
+    /// result" at the type level — in JS the mock still forwards the wrapped
+    /// implementation's runtime value. When the declared return is `void`
+    /// (`Type::None`) and the implementation is itself a function with a concrete
+    /// return type, we rebuild the declared signature with the implementation's
+    /// return type so value-consuming call sites (e.g. `map`) keep that value
+    /// instead of receiving `()`. In every other case the declared type is used
+    /// unchanged.
+    fn vitest_mock_assert_ty(
+        &mut self,
+        declared_ty: smelt_hir::TypeId,
+        impl_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        let Some(Type::Function(declared)) = self.ctx.krate.types.get(declared_ty) else {
+            return declared_ty;
+        };
+        let declared = declared.clone();
+        if self.ctx.krate.types.get(declared.return_ty) != Some(&Type::None) {
+            return declared_ty;
+        }
+        let Some(Type::Function(implementation)) = self.ctx.krate.types.get(impl_ty) else {
+            return declared_ty;
+        };
+        let impl_return_ty = implementation.return_ty;
+        if self.ctx.krate.types.get(impl_return_ty) == Some(&Type::None) {
+            return declared_ty;
+        }
+        let mut adjusted = declared;
+        adjusted.return_ty = impl_return_ty;
+        self.ctx.krate.types.intern(Type::Function(adjusted))
     }
 
     /// Lower Vitest `vi.spyOn(target, "method")` calls as mock handles.
