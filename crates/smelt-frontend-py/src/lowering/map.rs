@@ -303,19 +303,7 @@ impl ModuleBuilder<'_> {
             if let Some(expr) = self.const_item_expression(item_id, body, span)? {
                 return Ok(expr);
             }
-            let ty = match self.item_ref(item_id) {
-                Item::Function(f) => f.return_ty,
-                Item::Class(c) => {
-                    let sym = c.name;
-                    self.intern_type(Type::Class {
-                        name: sym,
-                        args: vec![],
-                    })
-                }
-                Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {
-                    self.intern_type(Type::None)
-                }
-            };
+            let ty = self.item_expr_type(item_id);
             return Ok(body.push_expr(HirExpr {
                 kind: ExprKind::Item(item_id),
                 ty,

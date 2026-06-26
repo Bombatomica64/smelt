@@ -141,6 +141,77 @@ result: int = httpx.add(2, 3)
 }
 
 #[test]
+fn function_item_references_keep_callable_type() -> TestResult {
+    let source = py!(r#"
+def add(a: int, b: int) -> int:
+    return a + b
+
+alias = add
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    let item_expr = module_body
+        .exprs
+        .iter()
+        .find(|expr| matches!(expr.kind, ExprKind::Item(_)))
+        .ok_or_else(|| "expected function item expression".to_owned())?;
+    ensure(
+        matches!(ctx.krate.types.get(item_expr.ty), Some(Type::Function(function)) if function.params.len() == 2),
+        "expected bare function reference to carry a function type",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn callable_field_call_lowers_as_closure_call() -> TestResult {
+    let source = py!(r#"
+from typing import Callable
+
+class Box:
+    callback: Callable[[int], int]
+
+box: Box = Box()
+value: int = box.callback(41)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    ensure(
+        module_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })),
+        "expected function-typed field call to lower as a closure call",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn callable_index_call_lowers_as_closure_call() -> TestResult {
+    let source = py!(r#"
+from typing import Callable
+
+callbacks: dict[str, Callable[[int], int]] = {}
+value: int = callbacks["next"](41)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    ensure(
+        module_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })),
+        "expected function-typed index call to lower as a closure call",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn constructed_module_constant_exports_class_instance() -> TestResult {
     let source = py!(r#"
 class NullFile:
