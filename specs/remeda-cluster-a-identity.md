@@ -109,3 +109,31 @@ Deferred per `plan-function-constant-identity` Part 2 + `docs/representation-rea
 - **R4** `Rc<RefCell>` `BorrowMutError` on self-referential index assign `list[i]=list[j]` — audit AssignPlace{Index}.
 - **R5** removing the `as_ptr`-keyed thread-local must not regress current `list_local_identity_key` passers.
 - **R6** keep id OUT of `Hash`/structural eq (HashSet membership uses structural; `===` uses id — four distinct equalities, `lib.rs:582-600`).
+
+## Phase 2 progress UPDATE (2026-06-26, branch wip/smelt-list-cluster-a)
+Drove the SmeltList switch from 571 generated-crate errors down to: **generated LIB
+compiles (0 errors)**; test harness has **4 remaining errors**, all E0507
+"cannot move out of `smelt_callback`, a captured variable in an `Fn` closure" in
+`funnel_reference_batch_test.rs:262/268/387/393` — an async callback moved into an
+`async move` block inside an `Fn` closure (NOT one of the 6 array-identity targets;
+this is Cluster-B/funnel async machinery surfaced by the rest-arg/closure changes).
+Fix direction: clone the captured callback before the `async move` (the inner
+callback-call emission should emit `(smelt_callback.clone())(...)` or bind a clone).
+
+Landed emitter changes (all committed on the branch): SmeltList<T> prelude type
+(Deref<Vec>, Clone shares id, From/FromIterator/IntoIterator/serde/PartialEq);
+Type::List→SmeltList lowering; extraction wraps to SmeltList carrying source id;
+value_at_type/value_at_type_text List coercions; list-literal construction with
+annotated temp (closure→dyn coercion); rvalue_text_for_dest Into-choke-point +
+Default guard; From<SmeltList> for Vec & SmeltArray (erase id-carry); call() takes
+impl Into; rest-arg/executor/ClosureCall packing → SmeltList; async-adapter param
+matches cast target; strict_identity List arm → id-compare.
+
+CAUTION — regen staleness: the mtime-preserving emitter left stale generated files
+across rapid iterations several times. Use `rm -rf third_party/remeda/dist-smelt/src`
+before each regen, and rebuild the smelt binary, to get reliable measurements.
+
+REMAINING after the 4 compile fixes: (1) test harness compiles; (2) run
+rust-test-report — confirm tap×2/isShallowEqual×2/forEach/reduce flip to passing;
+(3) full 1776-test regression check; (4) cargo test + clippy on the smelt repo;
+(5) merge branch → main.
