@@ -131,7 +131,7 @@ impl FunctionEmitter<'_> {
                         .map(|item| self.value_at_type(&self.list_literal_operand(item), *item_ty))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    return Ok(format!("vec![{items_text}]"));
+                    return Ok(format!("SmeltList::from(vec![{items_text}])"));
                 }
                 let items_text = items
                     .iter()

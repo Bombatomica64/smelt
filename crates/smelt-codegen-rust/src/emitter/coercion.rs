@@ -301,8 +301,8 @@ impl FunctionEmitter<'_> {
                 && self.list_local_all_undefined_constants(operand)?
             {
                 return Ok(format!(
-                    "{}.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()",
-                    self.operand_text(operand)?
+                    "{{ let smelt_l = {op}; SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
+                    op = self.operand_text(operand)?
                 ));
             }
             let value_text = if matches!(self.mir.types.get(*source_item), Some(Type::List(_)))
@@ -316,8 +316,8 @@ impl FunctionEmitter<'_> {
                 self.value_at_type_text("value", *source_item, *target_item)?
             };
             return Ok(format!(
-                "{}.into_iter().map(|value| {value_text}).collect::<Vec<_>>()",
-                self.operand_text(operand)?
+                "{{ let smelt_l = {op}; SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
+                op = self.operand_text(operand)?
             ));
         }
         if let Some(Type::List(target_item)) = self.mir.types.get(target)
@@ -331,7 +331,7 @@ impl FunctionEmitter<'_> {
             )
         {
             return Ok(format!(
-                "vec![{}]",
+                "SmeltList::from(vec![{}])",
                 self.value_at_type(operand, *target_item)?
             ));
         }
@@ -340,7 +340,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(target),
         ) && matches!(self.mir.types.get(*target_item), Some(Type::Function(_)))
         {
-            return Ok("Vec::new()".to_owned());
+            return Ok("SmeltList::new(Vec::new())".to_owned());
         }
         if let (Some(Type::Dict(_, source_value)), Some(Type::List(target_item))) = (
             self.mir.types.get(self.operand_ty(operand)?),
@@ -348,7 +348,7 @@ impl FunctionEmitter<'_> {
         ) {
             let value_text = self.value_at_type_text("value", *source_value, *target_item)?;
             return Ok(format!(
-                "{}.into_iter().map(|(_, value)| {value_text}).collect::<Vec<_>>()",
+                "{}.into_iter().map(|(_, value)| {value_text}).collect::<SmeltList<_>>()",
                 self.operand_text(operand)?
             ));
         }
@@ -651,7 +651,7 @@ impl FunctionEmitter<'_> {
         {
             let item_text = self.value_at_type_text("value", *source_item, *target_item)?;
             return Ok(format!(
-                "{value_text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>()"
+                "{{ let smelt_l = {value_text}.clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {item_text}).collect::<Vec<_>>()) }}"
             ));
         }
         if let Some(Type::List(target_item)) = self.mir.types.get(target)
@@ -665,7 +665,7 @@ impl FunctionEmitter<'_> {
             )
         {
             let item_text = self.value_at_type_text(value_text, source, *target_item)?;
-            return Ok(format!("vec![{item_text}]"));
+            return Ok(format!("SmeltList::from(vec![{item_text}])"));
         }
         if let (Some(Type::List(source_item)), Some(Type::Tuple(target_items))) =
             (self.mir.types.get(source), self.mir.types.get(target))
@@ -696,7 +696,7 @@ impl FunctionEmitter<'_> {
         {
             let item_text = self.value_at_type_text("value", *source_value, *target_item)?;
             return Ok(format!(
-                "{value_text}.into_iter().map(|(_, value)| {item_text}).collect::<Vec<_>>()"
+                "{value_text}.into_iter().map(|(_, value)| {item_text}).collect::<SmeltList<_>>()"
             ));
         }
         if let (Some(Type::List(source_item)), Some(Type::Dict(target_key, target_value))) =
@@ -1506,18 +1506,18 @@ impl FunctionEmitter<'_> {
             )),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!(
-                    "match {text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}"
+                    "{{ let smelt_src = {text}.clone(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}) }}"
                 ))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
                 Ok(format!(
-                    "match {text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}"
+                    "{{ let smelt_src = {text}.clone(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}) }}"
                 ))
             }
             Some(Type::List(item)) => {
                 let item_text = self.extract_value_text("value", *item)?;
                 Ok(format!(
-                    "match {text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return array\") }}, _ => panic!(\"unknown is not array\") }}, _ => panic!(\"unknown is not array\") }}"
+                    "{{ let smelt_src = {text}.clone(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return array\") }}, _ => panic!(\"unknown is not array\") }}, _ => panic!(\"unknown is not array\") }}) }}"
                 ))
             }
             Some(Type::Dict(key, item))
