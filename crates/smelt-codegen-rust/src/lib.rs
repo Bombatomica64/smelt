@@ -717,10 +717,39 @@ fn emit_source_with_free_function_router(
                 "    /// Restore an erased callable value without dropping callable-object fields.",
             );
             writer.line("    fn into_smelt_unknown(self) -> SmeltUnknown {");
+            writer.line("        // Erasing the SAME callback twice must yield `SmeltUnknown::Function`");
+            writer.line("        // values that share one OUTER `Rc`, because reference identity");
+            writer.line("        // (`Rc::ptr_eq` in `same_js_key`/`smelt_unknown_structural_eq`) compares");
+            writer.line("        // that outer `Rc`. A nullary function-item constant (`doNothing()`)");
+            writer.line("        // routes through one cached `SmeltErasedFunction`, so two calls share");
+            writer.line("        // the inner callback `Rc`; key a `Weak` outer cache on its address so");
+            writer.line("        // both erasures resolve to one `SmeltUnknown::Function` while both are");
+            writer.line("        // alive (e.g. inside one `toStrictEqual`). A `Weak` avoids pinning the");
+            writer.line("        // callback alive; a successful upgrade proves the address is still the");
+            writer.line("        // same callback, so it is a true hit. Callable objects");
+            writer.line("        // (`object: Some(_)`) are per-instance and skip the cache.");
+            writer.line("        if self.object.is_none() {");
+            writer.line("            let key = ::std::rc::Rc::as_ptr(&self.callback) as *const () as usize;");
+            writer.line("            if let Some(callable) = SMELT_ERASED_FUNCTION_VALUES.with(|cache| cache.borrow().get(&key).and_then(::std::rc::Weak::upgrade)) {");
+            writer.line("                return SmeltUnknown::Function(callable);");
+            writer.line("            }");
+            writer.line("            let callback = self.callback.clone();");
+            writer.line("            let callable: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((callback)(args)));");
+            writer.line("            SMELT_ERASED_FUNCTION_VALUES.with(|cache| { cache.borrow_mut().insert(key, ::std::rc::Rc::downgrade(&callable)); });");
+            writer.line("            return SmeltUnknown::Function(callable);");
+            writer.line("        }");
             writer.line("        let callback = self.callback.clone();");
             writer.line("        let callable = SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((callback)(args))));");
             writer.line("        if let Some(object) = self.object { object.insert(\"__smelt_call\".to_owned(), callable); SmeltUnknown::Object(object) } else { callable }");
             writer.line("    }");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("thread_local! {");
+            writer.line("    /// Cache the OUTER `SmeltUnknown::Function` `Rc` derived from each erased");
+            writer.line("    /// callback, keyed on the inner callback `Rc` address, as a `Weak` so");
+            writer.line("    /// repeated erasures of one shared `SmeltErasedFunction` keep reference");
+            writer.line("    /// identity while alive without pinning transient callbacks.");
+            writer.line("    static SMELT_ERASED_FUNCTION_VALUES: ::std::cell::RefCell<::std::collections::HashMap<usize, ::std::rc::Weak<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
             writer.line("}");
         }
         writer.blank_line();
@@ -1761,6 +1790,18 @@ fn emit_source_with_free_function_router(
     for (key, body) in context.function_item_accessors.borrow().iter() {
         out.push_str(&format!(
             "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
+        ));
+    }
+
+    // Flush the per-function-item accessors for the CONCRETE `SmeltErasedFunction`
+    // type. Each caches ONE `SmeltErasedFunction` so repeated calls of a nullary
+    // function-item constant (`doNothing()`/`constant()`) return clones sharing
+    // one inner callback `Rc`, keeping JavaScript function-singleton identity.
+    // A non-empty collector means a closure was lowered to `SmeltErasedFunction`,
+    // so `needs_erased_function` is necessarily true and the struct is emitted.
+    for (key, body) in context.function_item_erased_fn_accessors.borrow().iter() {
+        out.push_str(&format!(
+            "\nfn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{\n    thread_local! {{ static SMELT_FN_ERASED: ::std::cell::OnceCell<SmeltErasedFunction> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_ERASED.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
         ));
     }
 

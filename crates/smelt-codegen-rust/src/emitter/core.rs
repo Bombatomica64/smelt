@@ -2433,6 +2433,18 @@ impl<'mir> FunctionEmitter<'mir> {
         if !self.is_erased_unknown_rest_function(target_function) || target_function.may_throw {
             return Ok(None);
         }
+        // The source is ALREADY lowered to `SmeltErasedFunction` (the exact
+        // predicate `types.rs` uses to choose that Rust type). Re-wrapping it
+        // into a fresh `SmeltErasedFunction` would mint a new callback `Rc`,
+        // breaking function reference identity (`Rc::ptr_eq`) for singletons
+        // like `doNothing()`. Pass it through unchanged: the caller falls to
+        // `{text}.clone()`, which shares the inner `Rc`.
+        if let Some(Type::Function(source)) = self.mir.types.get(self.operand_ty(operand)?)
+            && self.is_erased_unknown_rest_function(source)
+            && !source.may_throw
+        {
+            return Ok(None);
+        }
         let Some(callback) = self.smelt_erased_function_callback_text(operand, target)? else {
             return Ok(None);
         };
@@ -2911,6 +2923,19 @@ impl<'mir> FunctionEmitter<'mir> {
             self.mir.types.get(*rest_item),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
         ) {
+            return Ok(None);
+        }
+        // When producing an owned value (not a borrowed `&` argument) and the
+        // source is ALREADY a `SmeltErasedFunction` of the same erased-rest
+        // shape as the target, re-wrapping would mint a fresh callback `Rc` and
+        // break function reference identity. Fall through so the caller emits
+        // `{text}.clone()` (shares the inner `Rc`). The borrowed path keeps its
+        // existing adapter behaviour. Mirrors the guard in
+        // `erased_rest_function_value_text`.
+        if !borrowed
+            && self.is_erased_unknown_rest_function(source)
+            && !source.may_throw
+        {
             return Ok(None);
         }
         let function_text = self.operand_text(operand)?;

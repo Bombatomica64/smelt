@@ -72,6 +72,20 @@ pub(crate) struct EmitContext {
     /// A `BTreeMap` keeps the emitted order deterministic for golden tests.
     pub(crate) function_item_accessors:
         ::std::cell::RefCell<::std::collections::BTreeMap<usize, String>>,
+    /// Per-function-item accessors for the CONCRETE `SmeltErasedFunction` type
+    /// (as opposed to the `SmeltUnknown` value held in `function_item_accessors`).
+    ///
+    /// A nullary function-item constant lowered to a typed `SmeltErasedFunction`
+    /// context (e.g. Remeda's `doNothing`/`constant`) would otherwise build a
+    /// FRESH `SmeltErasedFunction` — and thus a fresh callback `Rc` — on every
+    /// call, so two calls never satisfy `Rc::ptr_eq`. JavaScript instead returns
+    /// the same function singleton. Routing the build through a per-item
+    /// `__smelt_fn_erased_<key>()` accessor (caching one `SmeltErasedFunction`)
+    /// makes every call return clones that share one inner callback `Rc`. Maps a
+    /// crate-unique function item key to the self-contained `SmeltErasedFunction
+    /// { .. }` factory expression. A `BTreeMap` keeps emitted order deterministic.
+    pub(crate) function_item_erased_fn_accessors:
+        ::std::cell::RefCell<::std::collections::BTreeMap<usize, String>>,
 }
 
 impl EmitContext {
@@ -155,6 +169,9 @@ impl EmitContext {
             function_return_types,
             owned_callback_params,
             function_item_accessors: ::std::cell::RefCell::new(
+                ::std::collections::BTreeMap::new(),
+            ),
+            function_item_erased_fn_accessors: ::std::cell::RefCell::new(
                 ::std::collections::BTreeMap::new(),
             ),
         })

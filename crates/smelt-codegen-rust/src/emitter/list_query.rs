@@ -717,9 +717,28 @@ impl FunctionEmitter<'_> {
                 let length = source_closure
                     .required_params
                     .unwrap_or_else(|| source_closure.rest.unwrap_or(source_closure.params.len()));
-                return Ok(format!(
+                let erased_function = format!(
                     "SmeltErasedFunction {{ callback: {{ let smelt_callback = ::std::rc::Rc::new({adjusted_closure}); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}) }}, length: {length}.0, object: None }}"
-                ));
+                );
+                // A bare function-item-as-value wrapper carries a stable item
+                // key. Building this `SmeltErasedFunction` inline would mint a
+                // fresh callback `Rc` on every call, so two calls of the same
+                // named function constant (e.g. `doNothing()`) would never be
+                // `Rc::ptr_eq`. JavaScript returns one shared singleton instead.
+                // Route the build through a per-item accessor that caches ONE
+                // `SmeltErasedFunction`; every call returns clones sharing one
+                // inner callback `Rc`. User arrows have no key and keep the
+                // inline fresh build (each arrow expression is a distinct
+                // function in JavaScript).
+                if let Some(key) = source_closure.function_item_key {
+                    self.context
+                        .function_item_erased_fn_accessors
+                        .borrow_mut()
+                        .entry(key)
+                        .or_insert(erased_function);
+                    return Ok(format!("__smelt_fn_erased_{key}()"));
+                }
+                return Ok(erased_function);
             }
             return Ok(callback_text);
         }

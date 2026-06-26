@@ -4167,6 +4167,74 @@ const r = takesTwo(func1, func1);
 }
 
 #[test]
+fn function_item_erased_fn_references_share_one_accessor() {
+    // A named function item used as a value in a TYPED erased-rest function
+    // context (e.g. Remeda's `doNothing`) lowers to a concrete
+    // `SmeltErasedFunction`, not the `SmeltUnknown` erased value. Building it
+    // inline mints a fresh callback `Rc` per evaluation, so two references would
+    // never be `Rc::ptr_eq`. JavaScript returns one shared singleton. Both
+    // references below carry the same source item key, so codegen must route the
+    // build through one per-item `__smelt_fn_erased_<key>()` accessor (with a
+    // `OnceCell<SmeltErasedFunction>` cache) emitted exactly once for the crate.
+    let source = source_for(
+        r"
+function doesNothing(...args: unknown[]): void {}
+function takesTwo(a: (...args: unknown[]) => void, b: (...args: unknown[]) => void): boolean { return true; }
+const r = takesTwo(doesNothing, doesNothing);
+",
+    );
+
+    // Both arguments live in `fn main`; both must call the SAME accessor. Scope
+    // the call count to the `main` body only (up to the accessor's own
+    // definition appended after the function loop) so the `fn __smelt_fn_erased_`
+    // header is not miscounted as a call site.
+    let main_body = source
+        .split_once("fn main")
+        .map(|(_prelude, body)| body)
+        .and_then(|body| body.split_once("\nfn __smelt_fn_erased_"))
+        .map(|(main_body, _accessors)| main_body)
+        .expect("emitted source has a main function and an erased-fn accessor definition");
+    let first_call = main_body
+        .match_indices("__smelt_fn_erased_")
+        .next()
+        .map(|(index, _)| index)
+        .expect("a function-item erased-fn accessor call is emitted");
+    let key = main_body[first_call + "__smelt_fn_erased_".len()..]
+        .split('(')
+        .next()
+        .map(str::to_owned)
+        .expect("the accessor call has a key");
+    let accessor_call = format!("__smelt_fn_erased_{key}()");
+    let call_count = main_body.matches(&accessor_call).count();
+    assert_eq!(
+        call_count, 2,
+        "both doesNothing references must call the same accessor {accessor_call}; got {call_count}\n{source}"
+    );
+
+    // The accessor must be defined exactly once, lazily caching ONE
+    // `SmeltErasedFunction` behind a `OnceCell` so every call shares one inner
+    // callback `Rc`.
+    let definition = format!("fn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{");
+    assert_eq!(
+        source.matches(&definition).count(),
+        1,
+        "the erased-fn accessor must be defined exactly once\n{source}"
+    );
+    let accessor_def = source
+        .split_once(&definition)
+        .map(|(_, tail)| tail)
+        .expect("the accessor definition is emitted");
+    assert!(
+        accessor_def.contains("::std::cell::OnceCell"),
+        "the accessor must cache its value in a OnceCell\n{source}"
+    );
+    assert!(
+        accessor_def.contains("SmeltErasedFunction {"),
+        "the accessor must build a SmeltErasedFunction value\n{source}"
+    );
+}
+
+#[test]
 fn user_arrow_does_not_route_through_an_accessor() {
     // A user-written arrow is NOT a bare function-item-as-value wrapper. It must
     // keep JavaScript's fresh identity (a new closure value each evaluation), so
