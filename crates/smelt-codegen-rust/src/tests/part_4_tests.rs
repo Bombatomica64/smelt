@@ -271,7 +271,7 @@ def run() -> int:
 "#,
     );
 
-    assert!(source.contains("|closure_arg_0: Vec<i64>|"));
+    assert!(source.contains("|closure_arg_0: SmeltList<i64>|"));
     assert!(
         source.contains("usize::try_from(normalized).expect(\"negative index out of bounds\")")
     );
@@ -301,7 +301,7 @@ chosen: int = pick(value=5, **extras)
 "#,
     );
 
-    assert!(source.contains("fn sum_values(values: Vec<i64>) -> i64"));
+    assert!(source.contains("fn sum_values(values: SmeltList<i64>) -> i64"));
     assert!(source.contains("vec![2, 3, 4]"));
     assert!(source.contains("fn pick(kwargs: ::std::collections::HashMap<String, i64>) -> i64"));
     assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
@@ -494,8 +494,8 @@ values: list[int] = json.loads(text)
 "#,
     );
 
-    assert!(ts_source.contains("serde_json::from_str::<Vec<f64>>(&"));
-    assert!(py_source.contains("serde_json::from_str::<Vec<i64>>(&"));
+    assert!(ts_source.contains("serde_json::from_str::<SmeltList<f64>>(&"));
+    assert!(py_source.contains("serde_json::from_str::<SmeltList<i64>>(&"));
     assert!(ts_source.contains(".expect(\"JSON parse failed\")"));
     assert!(py_source.contains(".expect(\"JSON parse failed\")"));
 }

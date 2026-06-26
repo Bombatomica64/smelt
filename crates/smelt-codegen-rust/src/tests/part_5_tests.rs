@@ -501,7 +501,7 @@ const merged = left.concat(right);
     );
 
     assert!(source.contains(".iter().cloned().chain("));
-    assert!(source.contains(".collect::<Vec<_>>();"));
+    assert!(source.contains(".collect::<Vec<_>>()"));
 }
 
 #[test]
@@ -551,7 +551,7 @@ function sliceOptional(start?: number, end?: number): string {
     assert!(source.contains(".iter().skip(0usize).take("));
     assert!(source.contains("let index = 1.0 as i64"));
     assert!(source.contains("clamp(0, len) as usize"));
-    assert!(source.contains(".cloned().collect::<Vec<_>>();"));
+    assert!(source.contains(".cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".chars().skip(0usize).take("));
     assert!(source.matches("if index < 0").count() >= 2);
     assert!(source.contains(".collect::<String>();"));

@@ -11,7 +11,7 @@ fn identity(value: SmeltUnknown) -> SmeltUnknown {
     return value.clone();
 }
 
-fn passthrough(values: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> {
+fn passthrough(values: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown> {
     return values.clone();
 }
 

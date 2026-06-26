@@ -207,6 +207,15 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
         })
 }
 
+/// Returns true when generated Rust needs the identity-bearing `SmeltList<T>`
+/// type. That is any program using a `Type::List` (which lowers to `SmeltList`),
+/// plus every program needing `SmeltUnknown` (its erase/extract seam and the
+/// `From<SmeltList>`/`IntoSmeltUnknown` impls reference `SmeltList`).
+#[must_use]
+pub(crate) fn needs_smelt_list(mir: &Mir) -> bool {
+    needs_unknown_type(mir) || mir.types.all().iter().any(|ty| matches!(ty, Type::List(_)))
+}
+
 /// Returns true when generated Rust uses Tokio APIs.
 #[must_use]
 pub(crate) fn needs_tokio(mir: &Mir) -> bool {

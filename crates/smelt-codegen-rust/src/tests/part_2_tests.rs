@@ -333,7 +333,7 @@ last_text: str = word[-3:]
     assert!(source.contains(".iter().skip(0usize).take("));
     assert!(source.contains("let index = 1 as i64"));
     assert!(source.contains("clamp(0, len) as usize"));
-    assert!(source.contains(".cloned().collect::<Vec<_>>();"));
+    assert!(source.contains(".cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".chars().skip(0usize).take("));
     assert!(source.matches("if index < 0").count() >= 2);
     assert!(source.contains(".collect::<String>();"));

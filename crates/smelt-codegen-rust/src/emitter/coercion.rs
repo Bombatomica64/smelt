@@ -301,7 +301,7 @@ impl FunctionEmitter<'_> {
                 && self.list_local_all_undefined_constants(operand)?
             {
                 return Ok(format!(
-                    "{{ let smelt_l = {op}; SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
+                    "{{ let smelt_l = ({op}).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
                     op = self.operand_text(operand)?
                 ));
             }
@@ -316,7 +316,7 @@ impl FunctionEmitter<'_> {
                 self.value_at_type_text("value", *source_item, *target_item)?
             };
             return Ok(format!(
-                "{{ let smelt_l = {op}; SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
+                "{{ let smelt_l = ({op}).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
                 op = self.operand_text(operand)?
             ));
         }
@@ -759,15 +759,10 @@ impl FunctionEmitter<'_> {
             Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
             Some(Type::String) => Ok(format!("SmeltUnknown::String({text})")),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
-                // A bare list local has a stable storage address, so erasing the
-                // SAME source binding twice must reuse one id (arrays compare
-                // `===` by id). Key the identity on the live `Vec`'s address;
-                // a fresh list (literal/transform result) keeps `SmeltArray::new`.
-                if let Some(bare_local) = self.list_local_identity_key(operand)? {
-                    return Ok(format!(
-                        "{{ let smelt_list_id = smelt_list_identity(({bare_local}).as_ptr() as *const () as usize); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, {text}.into())) }}"
-                    ));
-                }
+                // `From<SmeltList<SmeltUnknown>> for SmeltArray` carries the list's
+                // own JS reference id, so erasing the same binding twice reuses one
+                // id (arrays compare `===` by id) and an erase/extract round-trip
+                // stays identity-stable.
                 Ok(format!("SmeltUnknown::Array({text}.into())"))
             }
             Some(Type::List(item)) => {
@@ -784,15 +779,12 @@ impl FunctionEmitter<'_> {
                 } else {
                     self.erase_value_text("value", *item)?
                 };
-                // See the unknown-item arm: a list local reuses a stable id keyed
-                // on its `Vec` address; a fresh list keeps `SmeltArray::new`.
-                if let Some(bare_local) = self.list_local_identity_key(operand)? {
-                    return Ok(format!(
-                        "{{ let smelt_list_id = smelt_list_identity(({bare_local}).as_ptr() as *const () as usize); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, {text}.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}"
-                    ));
-                }
+                // The typed list carries its own JS reference id (`SmeltList`),
+                // so erasing to `SmeltUnknown::Array` reuses it directly — this is
+                // what preserves `===`/`.toBe` identity across an erase/extract
+                // round-trip (e.g. `tap`/`forEach` returning their input).
                 Ok(format!(
-                    "SmeltUnknown::Array({text}.into_iter().map(|value| {value_wrap}).collect())"
+                    "{{ let smelt_l = {text}; SmeltUnknown::Array(SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}"
                 ))
             }
             Some(Type::Dict(key, item))
@@ -1094,8 +1086,11 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::List(item)) => {
                 let value_wrap = self.erase_value_text("value", *item)?;
+                // Carry the list's own JS reference id across erasure (so an
+                // erase/extract round-trip stays identity-stable, e.g. the array
+                // a forEach/reduce callback receives `===` the input array).
                 Ok(format!(
-                    "SmeltUnknown::Array({}.into_iter().map(|value| {value_wrap}).collect())",
+                    "{{ let smelt_l = {}; SmeltUnknown::Array(SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}",
                     value.parenthesized_if_needed()
                 ))
             }

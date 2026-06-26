@@ -2073,10 +2073,6 @@ impl ModuleBuilder<'_> {
         // (see blocker-logs/plan-sort-sortby-2026-06-23.md, Family 1, Option B).
         let raw_value_ty = Self::expr_ty(body, value);
         let value_ty = self.type_param_constraint_or_self(raw_value_ty);
-        let operand_is_erased = matches!(
-            self.ctx.krate.types.get(raw_value_ty),
-            Some(Type::Unknown | Type::TypeParam { .. })
-        );
         match self.ctx.krate.types.get(value_ty).cloned() {
             // A spread of an erased operand with a list constraint: construct a
             // FRESH `List`-typed value instead of returning the erased alias, so the
@@ -2084,7 +2080,13 @@ impl ModuleBuilder<'_> {
             // typed list methods (e.g. in-place `sort`) fire. Reuse the verified
             // fresh-list idiom `ListConcat(value, [])`, which the multi-spread path
             // also uses; its emitter materializes a fresh `Vec` for erased operands.
-            Some(Type::List(_)) if operand_is_erased => {
+            // A `[...list]` spread is a NEW array in JS, never an alias of its
+            // source. Build it via the verified fresh-list idiom
+            // `ListConcat(value, [])` (also used by the multi-spread path): it
+            // coerces element types, materializes a fresh `Vec` for an erased
+            // operand, and (via the empty-concat `fresh_copy`) mints a fresh
+            // reference id for a concrete list — so the result never `===` source.
+            Some(Type::List(_)) => {
                 let empty = body.push_expr(Expr {
                     kind: ExprKind::ListLit(Vec::new()),
                     ty: list_ty,
@@ -2099,7 +2101,6 @@ impl ModuleBuilder<'_> {
                     span: self.span(span.start, span.end),
                 }))
             }
-            Some(Type::List(_)) => Ok(value),
             Some(Type::Set(_)) => Ok(body.push_expr(Expr {
                 kind: ExprKind::SetProjection {
                     op: SetProjectionOp::Values,

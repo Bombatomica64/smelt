@@ -8,25 +8,25 @@ expression: emitted
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
 fn main() {
-    let _smelt_tmp_3: Vec<i64> = vec![1, 2, 3];
-    let values: Vec<i64> = _smelt_tmp_3.clone();
+    let _smelt_tmp_3: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![1, 2, 3]; smelt_list_items }));
+    let values: SmeltList<i64> = Into::<SmeltList<_>>::into(_smelt_tmp_3.clone());
     let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: i64| {
     let _smelt_tmp_1: i64 = closure_arg_0.clone() * 2;
     _smelt_tmp_1.clone()
     });
-    let _smelt_tmp_5: Vec<i64> = { let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
+    let _smelt_tmp_5: SmeltList<i64> = Into::<SmeltList<_>>::into({ let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
     let _smelt_tmp_1: i64 = closure_arg_0.clone() * 2;
     _smelt_tmp_1.clone()
-    }); values.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone()) }).collect::<Vec<_>>() };
-    let doubled: Vec<i64> = _smelt_tmp_5.clone();
+    }); values.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone()) }).collect::<Vec<_>>() });
+    let doubled: SmeltList<i64> = Into::<SmeltList<_>>::into(_smelt_tmp_5.clone());
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: i64| {
     let _smelt_tmp_1: bool = closure_arg_0.clone() > 1;
     _smelt_tmp_1.clone()
     });
-    let _smelt_tmp_7: Vec<i64> = { let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
+    let _smelt_tmp_7: SmeltList<i64> = Into::<SmeltList<_>>::into({ let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
     let _smelt_tmp_1: bool = closure_arg_0.clone() > 1;
     _smelt_tmp_1.clone()
-    }); values.iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone()) { Some(item.clone()) } else { None }).collect::<Vec<_>>() };
-    let positives: Vec<i64> = _smelt_tmp_7.clone();
+    }); values.iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone()) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
+    let positives: SmeltList<i64> = Into::<SmeltList<_>>::into(_smelt_tmp_7.clone());
     return;
 }

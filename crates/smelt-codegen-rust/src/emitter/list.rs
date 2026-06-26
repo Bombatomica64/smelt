@@ -131,15 +131,17 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
+        // `concat` (and spread) always yields a NEW array, so even concatenating
+        // an empty list produces a fresh reference identity, not an alias.
         if matches!(self.mir.types.get(*left_item), Some(Type::Never))
             && self.is_empty_list_operand(left)?
         {
-            return Ok(format!("{}.clone()", self.operand_text(right)?));
+            return Ok(format!("{}.fresh_copy()", self.operand_text(right)?));
         }
         if matches!(self.mir.types.get(*right_item), Some(Type::Never))
             && self.is_empty_list_operand(right)?
         {
-            return Ok(format!("{}.clone()", self.operand_text(left)?));
+            return Ok(format!("{}.fresh_copy()", self.operand_text(left)?));
         }
         let has_never_item = matches!(self.mir.types.get(*left_item), Some(Type::Never))
             || matches!(self.mir.types.get(*right_item), Some(Type::Never));
@@ -511,7 +513,9 @@ impl FunctionEmitter<'_> {
                 "list copy destination must match the receiver list type",
             ));
         }
-        Ok(format!("{}.clone()", self.operand_text(list)?))
+        // A JS array copy produces a NEW reference, so mint a fresh id rather
+        // than sharing the source list's identity (`SmeltList::clone` shares it).
+        Ok(format!("{}.fresh_copy()", self.operand_text(list)?))
     }
 
     /// Converts an array `with` operation to Rust text.

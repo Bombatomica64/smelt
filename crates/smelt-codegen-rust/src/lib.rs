@@ -343,6 +343,7 @@ fn emit_source_with_free_function_router(
     let needs_regex =
         stdlib::backend_dependencies(mir).contains(&smelt_stdlib::BackendDependency::Regex);
     let needs_unknown = stdlib::needs_unknown_type(mir);
+    let needs_smelt_list = stdlib::needs_smelt_list(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
     let needs_date_timezone_offset = stdlib::needs_date_timezone_offset_runtime(mir);
@@ -391,6 +392,58 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
     }
+    if needs_smelt_list {
+        // Identity-bearing statically-typed list — `Type::List` lowers to this.
+        // `Deref`s to its backing `Vec<T>`; `Clone` shares the JS reference id
+        // (so internal value-copies keep identity) while deep-cloning values.
+        // Emitted whenever a list is used, independent of `SmeltUnknown`; the
+        // `SmeltUnknown`-dependent impls (erase/From<SmeltArray>/serde) live in
+        // the `needs_unknown` block. `smelt_next_object_id` lives here too because
+        // `SmeltList::new` mints a fresh id (and `needs_unknown` implies this gate).
+        writer.line("thread_local! {");
+        writer.line("    static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("#[allow(dead_code)]");
+        writer.line("fn smelt_next_object_id() -> usize {");
+        writer.line("    SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("pub struct SmeltList<T> {");
+        writer.line("    id: usize,");
+        writer.line("    values: Vec<T>,");
+        writer.line("}");
+        // Debug forwards to the backing Vec so `console.log([1,2,3])` prints
+        // `[1.0, 2.0, 3.0]`, not the `SmeltList { .. }` wrapper.
+        writer.line("impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltList<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.values.fmt(formatter) } }");
+        writer.line("impl<T: Clone> Clone for SmeltList<T> { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }");
+        writer.line("#[allow(dead_code)]");
+        writer.line("impl<T> SmeltList<T> {");
+        writer.line("    /// Create an identity-bearing typed list with a fresh JS reference identity.");
+        writer.line("    fn new(values: Vec<T>) -> Self { Self { id: smelt_next_object_id(), values } }");
+        writer.line("    /// Reuse a caller-supplied identity so an erase/extract round-trip stays `===` equal.");
+        writer.line("    fn with_id(id: usize, values: Vec<T>) -> Self { Self { id, values } }");
+        writer.line("    /// A JS array copy (`[...a]`, `slice`): same contents, a NEW reference identity.");
+        writer.line("    fn fresh_copy(&self) -> Self where T: Clone { Self::new(self.values.clone()) }");
+        writer.line("    /// JS reference identity of this list.");
+        writer.line("    fn id(&self) -> usize { self.id }");
+        writer.line("    /// Consume the list, yielding the backing storage.");
+        writer.line("    fn into_vec(self) -> Vec<T> { self.values }");
+        writer.line("}");
+        writer.line("impl<T> From<Vec<T>> for SmeltList<T> { fn from(values: Vec<T>) -> Self { Self::new(values) } }");
+        writer.line("impl<T> ::std::iter::FromIterator<T> for SmeltList<T> { fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self { Self::new(iter.into_iter().collect()) } }");
+        writer.line("impl<T> ::std::ops::Deref for SmeltList<T> { type Target = Vec<T>; fn deref(&self) -> &Vec<T> { &self.values } }");
+        writer.line("impl<T> ::std::ops::DerefMut for SmeltList<T> { fn deref_mut(&mut self) -> &mut Vec<T> { &mut self.values } }");
+        writer.line("impl<T> IntoIterator for SmeltList<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { self.values.into_iter() } }");
+        writer.line("impl<'smelt_list, T> IntoIterator for &'smelt_list SmeltList<T> { type Item = &'smelt_list T; type IntoIter = ::std::slice::Iter<'smelt_list, T>; fn into_iter(self) -> Self::IntoIter { self.values.iter() } }");
+        writer.line("impl<T: PartialEq> PartialEq for SmeltList<T> { fn eq(&self, other: &Self) -> bool { self.values == other.values } }");
+        writer.line("impl<T: PartialEq> Eq for SmeltList<T> {}");
+        writer.line("impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { self.values.hash(state); } }");
+        writer.line("impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }");
+        writer.line("impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.values } }");
+        writer.blank_line();
+    }
+
     if needs_unknown {
         writer.line("use ::std::hash::Hash;");
         writer.blank_line();
@@ -403,14 +456,8 @@ fn emit_source_with_free_function_router(
         writer.line("    order: ::std::rc::Rc<::std::cell::RefCell<Vec<K>>>,");
         writer.line("}");
         writer.blank_line();
-        writer.line("thread_local! {");
-        writer.line("    static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("fn smelt_next_object_id() -> usize {");
-        writer.line("    SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })");
-        writer.line("}");
-        writer.blank_line();
+        // `smelt_next_object_id` is emitted in the `needs_smelt_list` block above
+        // (which `needs_unknown` always implies), so it is in scope here.
         writer.line("thread_local! {");
         writer
             .line("    /// Map a source list's storage address to a stable erased-array identity.");
@@ -669,45 +716,15 @@ fn emit_source_with_free_function_router(
         writer.line("impl ::std::ops::Deref for SmeltArray { type Target = [SmeltUnknown]; fn deref(&self) -> &Self::Target { &self.values } }");
         writer.line("impl IntoIterator for SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.values.into_iter() } }");
         writer.blank_line();
-        // Identity-bearing statically-typed list. Mirrors `SmeltArray` but is
-        // generic and `Deref`s to its backing `Vec<T>`, so the overwhelming
-        // majority of list read/mutate sites keep compiling unchanged; only
-        // construction, conversion, and `===`/`toBe` identity comparison need
-        // to be aware of it. `Clone` shares the `id` (JS reference identity is
-        // preserved across the internal value clones the emitter inserts) while
-        // deep-cloning the values (value semantics match the historical `Vec`).
-        writer.line("#[derive(Debug)]");
-        writer.line("pub struct SmeltList<T> {");
-        writer.line("    id: usize,");
-        writer.line("    values: Vec<T>,");
-        writer.line("}");
-        writer.line("impl<T: Clone> Clone for SmeltList<T> { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }");
-        writer.line("#[allow(dead_code)]");
-        writer.line("impl<T> SmeltList<T> {");
-        writer.line("    /// Create an identity-bearing typed list with a fresh JS reference identity.");
-        writer.line("    fn new(values: Vec<T>) -> Self { Self { id: smelt_next_object_id(), values } }");
-        writer.line("    /// Reuse a caller-supplied identity so an erase/extract round-trip stays `===` equal.");
-        writer.line("    fn with_id(id: usize, values: Vec<T>) -> Self { Self { id, values } }");
-        writer.line("    /// JS reference identity of this list.");
-        writer.line("    fn id(&self) -> usize { self.id }");
-        writer.line("    /// Consume the list, yielding the backing storage.");
-        writer.line("    fn into_vec(self) -> Vec<T> { self.values }");
-        writer.line("}");
-        writer.line("impl<T> From<Vec<T>> for SmeltList<T> { fn from(values: Vec<T>) -> Self { Self::new(values) } }");
-        writer.line("impl<T> ::std::iter::FromIterator<T> for SmeltList<T> { fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self { Self::new(iter.into_iter().collect()) } }");
-        writer.line("impl<T> ::std::ops::Deref for SmeltList<T> { type Target = Vec<T>; fn deref(&self) -> &Vec<T> { &self.values } }");
-        writer.line("impl<T> ::std::ops::DerefMut for SmeltList<T> { fn deref_mut(&mut self) -> &mut Vec<T> { &mut self.values } }");
-        writer.line("impl<T> IntoIterator for SmeltList<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { self.values.into_iter() } }");
-        writer.line("impl<'smelt_list, T> IntoIterator for &'smelt_list SmeltList<T> { type Item = &'smelt_list T; type IntoIter = ::std::slice::Iter<'smelt_list, T>; fn into_iter(self) -> Self::IntoIter { self.values.iter() } }");
-        writer.line("impl<T: PartialEq> PartialEq for SmeltList<T> { fn eq(&self, other: &Self) -> bool { self.values == other.values } }");
-        writer.line("impl<T: PartialEq> Eq for SmeltList<T> {}");
-        writer.line("impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { self.values.hash(state); } }");
-        writer.line("impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }");
-        writer.line("impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.values } }");
+        // `SmeltList<T>` itself is defined in the `needs_smelt_list` block above.
+        // These impls depend on `SmeltArray`/`SmeltUnknown`, so they live here.
         // Erasing a typed list to a `SmeltUnknown::Array` preserves its JS reference identity.
         writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values) } }");
-        writer.line("impl<T: serde::Serialize> serde::Serialize for SmeltList<T> { fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> { serde::Serialize::serialize(&self.values, serializer) } }");
-        writer.line("impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for SmeltList<T> { fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> { <Vec<T> as serde::Deserialize>::deserialize(deserializer).map(SmeltList::new) } }");
+        // serde impls only when the crate actually links serde (JSON contexts).
+        if needs_serde_json {
+            writer.line("impl<T: serde::Serialize> serde::Serialize for SmeltList<T> { fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> { serde::Serialize::serialize(&self.values, serializer) } }");
+            writer.line("impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for SmeltList<T> { fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> { <Vec<T> as serde::Deserialize>::deserialize(deserializer).map(SmeltList::new) } }");
+        }
         writer.blank_line();
         writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
         writer.line("fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }");
@@ -1302,6 +1319,10 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("SmeltUnknown::Null");
             });
         });
+        writer.blank_line();
+        // Erasing a typed list yields an identity-bearing `SmeltUnknown::Array`,
+        // carrying the list's reference id and erasing each element in turn.
+        writer.line("impl<T: IntoSmeltUnknown> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id, self.values.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }");
         writer.blank_line();
         writer.block("pub trait SmeltFromUnknown", |trait_writer| {
             trait_writer.line("fn smelt_from_unknown(value: SmeltUnknown) -> Self;");

@@ -334,7 +334,7 @@ const total = sum(2, 3, 4);
 "#,
     );
 
-    assert!(source.contains("|closure_arg_0: Vec<f64>|"), "{source}");
+    assert!(source.contains("|closure_arg_0: SmeltList<f64>|"), "{source}");
     assert!(source.contains("vec![2.0, 3.0, 4.0]"));
     assert!(source.contains("closure_arg_0.get("), "{source}");
     assert!(
@@ -354,7 +354,7 @@ const total = sum(2, 3, 4);
 "#,
     );
 
-    assert!(source.contains("fn sum(values: Vec<f64>) -> f64"));
+    assert!(source.contains("fn sum(values: SmeltList<f64>) -> f64"));
     assert!(source.contains("vec![2.0, 3.0, 4.0]"));
 }
 

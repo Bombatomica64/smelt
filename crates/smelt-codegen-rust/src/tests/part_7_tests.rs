@@ -429,7 +429,7 @@ export function entries(...args: readonly unknown[]): unknown {
     );
     assert!(
         source.contains(
-            "SmeltUnknown::Array(_smelt_tmp_2.clone().into_iter().map(|value| SmeltUnknown::Array"
+            "SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Array"
         ),
         "Object.entries callback should return entry arrays, not a null placeholder: {source}"
     );
@@ -1367,7 +1367,7 @@ export function wrapConcrete(): unknown {
     );
 
     assert!(
-        source.contains("smelt_args.iter().skip(1).cloned().collect::<Vec<_>>()"),
+        source.contains("smelt_args.iter().skip(1).cloned().collect::<SmeltList<_>>()"),
         "{source}"
     );
     assert!(!source.contains("SmeltUnknown::Array(arg1)"), "{source}");
@@ -1706,7 +1706,7 @@ function passthrough(values: readonly unknown[]): readonly unknown[] {
     assert!(source.contains("pub enum SmeltUnknown"));
     assert!(source.contains("String(String),"));
     assert!(source.contains("fn identity(value: SmeltUnknown) -> SmeltUnknown"));
-    assert!(source.contains("fn passthrough(values: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>"));
+    assert!(source.contains("fn passthrough(values: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown>"));
 }
 
 #[test]
@@ -1854,7 +1854,7 @@ function widen(values: string[]): unknown[] {
 
     assert!(
         source.contains(
-            "values.clone().into_iter().map(|value| SmeltUnknown::String(value)).collect::<Vec<_>>()"
+            "smelt_l.into_iter().map(|value| SmeltUnknown::String(value)).collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -2550,7 +2550,7 @@ function group(values: string[]): Record<string, string[]> {
     );
 
     assert!(
-        source.contains(".cloned().unwrap_or(Vec::new())"),
+        source.contains(".cloned().unwrap_or(SmeltList::new(Vec::new()))"),
         "{source}"
     );
     assert!(
@@ -3137,7 +3137,7 @@ function sorted<T extends IterableContainer<number>>(data: T): unknown {
     // staying an erased alias. That concrete binding is what lets the following
     // `.sort(cmp)` take the typed in-place path rather than the dynamic path
     // whose sorted result is discarded.
-    assert!(source.contains(": Vec<f64> = match data"), "{source}");
+    assert!(source.contains(": SmeltList<f64> ="), "{source}");
     assert!(source.contains(".sort_by(|left, right|"), "{source}");
 }
 
@@ -3223,7 +3223,7 @@ export function run(): unknown {
     assert!(
         source.contains(
             "(identity)(SmeltUnknown::String(\"hello\".to_owned()), _smelt_tmp_2.clone())"
-        ) && source.contains("_smelt_tmp_2 = vec![];"),
+        ) && source.contains("_smelt_tmp_2 = Into::<SmeltList<_>>::into(SmeltList::from("),
         "normal closure calls should preserve fixed arguments and pack an empty rest vector: {source}"
     );
 }
@@ -3370,7 +3370,7 @@ function choose(flag: boolean): unknown[] {
     );
 
     assert!(
-        source.contains("let mut values: Vec<SmeltUnknown> = Vec::new();"),
+        source.contains("let mut values: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::new(Vec::new()));"),
         "{source}"
     );
 }
@@ -4287,8 +4287,9 @@ const r = takesOne((x) => func1(x));
 #[test]
 fn reuses_a_stable_identity_when_erasing_a_source_list_local() {
     // Erasing the SAME list local twice must reuse one erased-array id so the
-    // two erasures compare `===` equal (arrays compare by id). The identity is
-    // keyed on the live `Vec`'s storage address via `smelt_list_identity`.
+    // two erasures compare `===` equal (arrays compare by id). The typed list
+    // (`SmeltList`) carries its own reference id, and a `.clone()` shares it, so
+    // each erasure reuses the list's `id()` rather than an address-keyed sidecar.
     let source = source_for(
         r#"
 const data: number[] = [1, 2, 3];
@@ -4302,12 +4303,12 @@ const same = (data as unknown) === (data as unknown);
         .expect("emitted source has a main function");
 
     assert!(
-        body.contains("smelt_list_identity((data).as_ptr() as *const () as usize)"),
-        "erasing a list local should key its identity on the source Vec address\n{source}"
+        body.contains("let smelt_l = data.clone();"),
+        "erasing a list local should bind it to read its reference id\n{source}"
     );
     assert!(
-        body.contains("SmeltArray::with_id(smelt_list_id,"),
-        "erasing a list local should build the array with the cached identity\n{source}"
+        body.contains("SmeltArray::with_id(smelt_l.id(),"),
+        "erasing a list local should build the array with the list's own identity\n{source}"
     );
 }
 

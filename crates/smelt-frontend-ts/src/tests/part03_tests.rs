@@ -1339,9 +1339,10 @@ function sortImpl<T extends readonly unknown[]>(
 }
 
 #[test]
-fn lowers_typed_spread_without_fresh_list() -> Result<(), String> {
-    // A spread of a genuinely `List`-typed operand keeps the direct alias path
-    // (no fresh-list ListConcat); only erased operands need the retype.
+fn lowers_typed_spread_to_fresh_list() -> Result<(), String> {
+    // A spread `[...items]` is a NEW array in JS (`[...items] !== items`), so even
+    // a genuinely `List`-typed operand lowers through the fresh-list idiom
+    // `ListConcat(items, [])` rather than aliasing the source.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -1357,8 +1358,7 @@ function copy(items: readonly number[]): number[] {
     let body = function_body(&ctx, function)?;
 
     ensure!(
-        !body
-            .exprs
+        body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. }))
     );

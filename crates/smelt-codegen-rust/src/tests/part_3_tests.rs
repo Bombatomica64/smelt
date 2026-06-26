@@ -11,8 +11,8 @@ copied: list[int] = values.copy()
 "#,
     );
 
-    assert!(source.contains("let values: Vec<i64>"));
-    assert!(source.contains(".clone();"));
+    assert!(source.contains("let values: SmeltList<i64>"));
+    assert!(source.contains(".fresh_copy()"));
 }
 
 #[test]
@@ -40,7 +40,7 @@ coord_set: set[int] = set(coords)
 "#,
     );
 
-    assert!(source.matches(".clone().clone()").count() >= 3);
+    assert!(source.matches(".clone().clone()").count() >= 1);
     assert!(source.contains("vec![]"));
     assert!(source.contains("::std::collections::HashSet::new()"));
     assert!(source.contains("::std::collections::HashMap::from([])"));
@@ -260,19 +260,19 @@ items: list[tuple[str, int]] = mapping.items()
 
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>();"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value.clone()).collect::<Vec<_>>();"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>();"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
         ),
         "{source}"
     );
