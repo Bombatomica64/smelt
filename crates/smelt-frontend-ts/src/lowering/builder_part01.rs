@@ -1020,6 +1020,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     })?;
                 params.push(ty);
             }
+            let mut min_rest = 0;
             if let Some(rest) = &function.params.rest {
                 let annotation = rest.type_annotation.as_ref().ok_or_else(|| {
                     SmeltError::unsupported(
@@ -1027,6 +1028,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "overload rest parameters must have explicit type annotations",
                     )
                 })?;
+                min_rest = Self::rest_parameter_min_arity(&annotation.type_annotation);
                 let rest_ty = self.ts_type_to_hir(&annotation.type_annotation)?;
                 params.push(self.type_param_constraint_or_self(rest_ty));
             }
@@ -1049,6 +1051,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .rest
                     .as_ref()
                     .map(|_| function.params.items.len()),
+                min_rest,
                 required_params: Some(
                     function
                         .params

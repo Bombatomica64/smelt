@@ -2127,16 +2127,26 @@ impl<'builder> ModuleBuilder<'builder> {
                     self.infer_overload_type(*expected, *actual, &mut rest_substitutions)
                 })
             }
-            Some(Type::List(item_ty)) => rest_args.iter().zip(rest_arguments).all(
-                |(actual, argument)| {
-                    let expected = if matches!(argument, Argument::SpreadElement(_)) {
-                        rest_ty
-                    } else {
-                        item_ty
-                    };
-                    self.infer_overload_type(expected, *actual, &mut rest_substitutions)
-                },
-            ),
+            // A `Type::List` rest models both `...rest: T[]` (accepts an empty
+            // tail) and `...rest: NonEmptyArray<T>` (`[T, ...T[]]`, requires at
+            // least one element). `min_rest` carries the required-prefix arity
+            // erased during type lowering, so a required-prefix rest must see at
+            // least that many rest arguments instead of matching an empty tail
+            // vacuously. A leading spread argument can stand in for the required
+            // prefix (its runtime length is unknown), so it bypasses the count.
+            Some(Type::List(item_ty)) => {
+                let rest_supplied_by_spread =
+                    matches!(rest_arguments.first(), Some(Argument::SpreadElement(_)));
+                (rest_supplied_by_spread || rest_args.len() >= signature.min_rest)
+                    && rest_args.iter().zip(rest_arguments).all(|(actual, argument)| {
+                        let expected = if matches!(argument, Argument::SpreadElement(_)) {
+                            rest_ty
+                        } else {
+                            item_ty
+                        };
+                        self.infer_overload_type(expected, *actual, &mut rest_substitutions)
+                    })
+            }
             _ => false,
         };
         if rest_matches {
@@ -2161,6 +2171,7 @@ impl<'builder> ModuleBuilder<'builder> {
             type_params: signature.type_params,
             params,
             rest: signature.rest,
+            min_rest: signature.min_rest,
             required_params: signature.required_params,
             return_ty,
             is_async: signature.is_async,

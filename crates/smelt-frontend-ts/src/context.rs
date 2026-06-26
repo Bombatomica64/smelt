@@ -66,6 +66,15 @@ pub struct OverloadSignature {
     pub params: Vec<TypeId>,
     /// Source index of a rest parameter, when this overload declares one.
     pub rest: Option<usize>,
+    /// Minimum number of arguments the rest parameter requires.
+    ///
+    /// `0` for an ordinary `...rest: T[]` (which accepts an empty tail), and
+    /// `1` (or more) when the rest parameter was declared with a required
+    /// prefix such as `NonEmptyArray<T>` (`[T, ...T[]]`). The frontend lowers
+    /// `[T, ...T[]]` to a plain `Type::List(T)`, erasing the min-arity, so this
+    /// field preserves it for overload selection: a `NonEmptyArray` rest must
+    /// not match an empty rest tail vacuously.
+    pub min_rest: usize,
     /// Number of leading parameters counted by JavaScript `Function.length`.
     pub required_params: Option<usize>,
     /// Return type promised by this overload.

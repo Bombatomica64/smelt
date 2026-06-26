@@ -765,6 +765,67 @@ return_ty: function.return_ty,
         Ok(Some(self.ctx.krate.types.intern(Type::List(element_ty))))
     }
 
+    /// Return how many leading arguments a rest parameter's source type requires.
+    ///
+    /// HIR lowers both `...rest: T[]` and `...rest: NonEmptyArray<T>` (i.e.
+    /// `[T, ...T[]]`) to the same `Type::List(T)`, erasing the required-prefix
+    /// arity. Overload selection still needs that arity so a `NonEmptyArray`
+    /// rest does not match an empty rest tail vacuously, so this inspects the
+    /// *source* annotation:
+    ///
+    /// * `NonEmptyArray<T>` (by name) and a required-prefix tuple `[A, B, ...T[]]`
+    ///   return the number of required leading elements (`>= 1`).
+    /// * Plain `T[]`, `Array<T>`, `ReadonlyArray<T>`, and all-rest tuples
+    ///   `[...T[]]` accept an empty tail and return `0`.
+    ///
+    /// `Readonly`/`Required`/parenthesized wrappers are transparent, matching how
+    /// `ts_type_to_hir` already unwraps them.
+    fn rest_parameter_min_arity(ty: &TSType<'_>) -> usize {
+        match ty {
+            TSType::TSParenthesizedType(parenthesized) => {
+                Self::rest_parameter_min_arity(&parenthesized.type_annotation)
+            }
+            TSType::TSTypeOperatorType(operator)
+                if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Readonly =>
+            {
+                Self::rest_parameter_min_arity(&operator.type_annotation)
+            }
+            TSType::TSTypeReference(reference) => match &reference.type_name {
+                // `NonEmptyArray<T>` is `[T, ...T[]]`: at least one element.
+                TSTypeName::IdentifierReference(name) if name.name.as_str() == "NonEmptyArray" => 1,
+                // `Readonly<…>`/`Required<…>` are transparent wrappers.
+                TSTypeName::IdentifierReference(name)
+                    if matches!(name.name.as_str(), "Readonly" | "Required") =>
+                {
+                    reference
+                        .type_arguments
+                        .as_ref()
+                        .and_then(|args| args.params.first())
+                        .map_or(0, Self::rest_parameter_min_arity)
+                }
+                _ => 0,
+            },
+            // A tuple type's required-prefix length, e.g. `[A, B, ...T[]]` => 2.
+            // All-rest tuples (`[...T[]]`) and fixed tuples without a rest tail
+            // are not required-prefix rests for this purpose, so they yield 0.
+            TSType::TSTupleType(tuple) => {
+                let has_rest_tail = matches!(
+                    tuple.element_types.last(),
+                    Some(TSTupleElement::TSRestType(_))
+                );
+                if !has_rest_tail {
+                    return 0;
+                }
+                tuple
+                    .element_types
+                    .iter()
+                    .take_while(|item| !matches!(item, TSTupleElement::TSRestType(_)))
+                    .count()
+            }
+            _ => 0,
+        }
+    }
+
     /// Lower tuple aliases with a non-`never` rest tail to list metadata.
     fn tuple_rest_list_type(
         &mut self,
