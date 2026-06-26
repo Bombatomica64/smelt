@@ -115,6 +115,20 @@ struct FunctionVariadics {
     kwarg: Option<KwArgParam>,
 }
 
+/// Static Python callable signature used for call argument lowering.
+struct CallableCallSignature<'a> {
+    /// Parameter types in lowered call order.
+    params: &'a [TypeId],
+    /// Positional vararg metadata when source `*args` are packed.
+    vararg: Option<VarArgParam>,
+    /// Keyword vararg metadata when source `**kwargs` are packed.
+    kwarg: Option<KwArgParam>,
+    /// Default argument expressions in lowered parameter order.
+    defaults: &'a [Option<smelt_hir::ExprId>],
+    /// Diagnostic label for this kind of callable.
+    label: &'a str,
+}
+
 /// A closure expression prepared for a callback-consuming Python API.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ClosureCallback {

@@ -459,6 +459,21 @@ fn emit_source_with_free_function_router(
         // `smelt_next_object_id` is emitted in the `needs_smelt_list` block above
         // (which `needs_unknown` always implies), so it is in scope here.
         writer.line("thread_local! {");
+        writer.line("    static SMELT_PROMISE_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Return a stable erased promise id for a source future local.");
+        writer.line("fn smelt_promise_identity(source_key: usize) -> usize {");
+        writer.line("    SMELT_PROMISE_IDENTITIES.with(|identities| {");
+        writer.line("        let mut identities = identities.borrow_mut();");
+        writer.line("        if let Some(id) = identities.get(&source_key) { return *id; }");
+        writer.line("        let id = smelt_next_object_id();");
+        writer.line("        identities.insert(source_key, id);");
+        writer.line("        id");
+        writer.line("    })");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("thread_local! {");
         writer
             .line("    /// Map a source list's storage address to a stable erased-array identity.");
         writer.line("    static SMELT_LIST_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
@@ -565,7 +580,7 @@ fn emit_source_with_free_function_router(
         writer.line("    fn eq(&self, other: &::std::collections::HashMap<K, V>) -> bool { self.values.borrow().eq(other) }");
         writer.line("}");
         writer.blank_line();
-        writer.line("#[derive(Clone, Debug)]");
+        writer.line("#[derive(Clone)]");
         writer.line("pub struct SmeltJsMap<K, V> {");
         writer.line("    entries: Vec<(K, V)>,");
         writer.line("}");
@@ -618,7 +633,7 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("impl SmeltJsKeyEq for SmeltUnknown {");
-        writer.line("    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), _ => self == other } }");
+        writer.line("    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => self == other } }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl SmeltJsKeyEq for String { fn same_js_key(&self, other: &Self) -> bool { self == other } }");
@@ -639,7 +654,7 @@ fn emit_source_with_free_function_router(
         writer.line("    fn js_strict_eq(&self, other: &Self) -> bool;");
         writer.line("}");
         writer.line("impl SmeltJsStrictEq for SmeltUnknown {");
-        writer.line("    fn js_strict_eq(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Null, SmeltUnknown::Null) => true, (SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true, (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right, (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), _ => false } }");
+        writer.line("    fn js_strict_eq(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Null, SmeltUnknown::Null) => true, (SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true, (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right, (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => false } }");
         writer.line("}");
         writer.line("impl SmeltJsStrictEq for String { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }");
         writer.line("impl SmeltJsStrictEq for bool { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }");
@@ -683,7 +698,7 @@ fn emit_source_with_free_function_router(
             "/// `\"__smelt_proto:class\"` sentinel so they are not treated as plain objects; arrays,",
         );
         writer.line("/// `null`, and plain objects keep their existing sentinels.");
-        writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".to_owned()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".to_owned()), _ => SmeltUnknown::String(\"__smelt_proto:object\".to_owned()) } }");
+        writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".to_owned()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"__smelt_proto:promise\".to_owned()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".to_owned()), _ => SmeltUnknown::String(\"__smelt_proto:object\".to_owned()) } }");
         writer.blank_line();
         writer.line("impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }");
         writer.line("impl Eq for SmeltObject {}");
@@ -725,6 +740,41 @@ fn emit_source_with_free_function_router(
             writer.line("impl<T: serde::Serialize> serde::Serialize for SmeltList<T> { fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> { serde::Serialize::serialize(&self.values, serializer) } }");
             writer.line("impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for SmeltList<T> { fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> { <Vec<T> as serde::Deserialize>::deserialize(deserializer).map(SmeltList::new) } }");
         }
+        writer.line("type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;");
+        writer.blank_line();
+        writer.line("#[derive(Clone)]");
+        writer.line("pub struct SmeltPromise {");
+        writer.line("    id: usize,");
+        writer.line("    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, String>>>>,");
+        writer.line("    future: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromiseFuture>>>,");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("impl SmeltPromise {");
+        writer.line("    /// Create a pending erased promise identity with shared settle state.");
+        writer.line("    fn pending() -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
+        writer.line("    /// Create a pending promise with a preassigned identity.");
+        writer.line("    fn pending_with_id(id: usize) -> Self { Self { id, state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
+        writer.line("    /// Create an already-fulfilled erased promise value.");
+        writer.line("    fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
+        writer.line("    /// Store a live future behind a cloneable erased promise handle.");
+        writer.line("    fn from_future(future: SmeltPromiseFuture) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(future))) } }");
+        writer.line("    /// Await the stored future once and share its settled result with clones.");
+        writer.line("    async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {");
+        writer.line("        if self.state.borrow().is_none() {");
+        writer.line("            if let Some(future) = self.future.borrow_mut().take() {");
+        writer.line("                let settled = future.await.map_err(|error| error.to_string());");
+        writer.line("                *self.state.borrow_mut() = Some(settled);");
+        writer.line("            }");
+        writer.line("        }");
+        writer.line("        loop {");
+        writer.line("            if let Some(result) = self.state.borrow().clone() {");
+        writer.line("                return result.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error).into());");
+        writer.line("            }");
+        writer.line("            tokio::task::yield_now().await;");
+        writer.line("        }");
+        writer.line("    }");
+        writer.line("}");
+        writer.line("impl ::std::fmt::Debug for SmeltPromise { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltPromise\").field(\"id\", &self.id).finish() } }");
         writer.blank_line();
         writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
         writer.line("fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }");
@@ -739,6 +789,7 @@ fn emit_source_with_free_function_router(
             unknown_writer.line("Array(SmeltArray),");
             unknown_writer.line("Object(SmeltObject),");
             unknown_writer.line("Function(::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>),");
+            unknown_writer.line("Promise(SmeltPromise),");
         });
         writer.blank_line();
         writer.block("impl Clone for SmeltUnknown", |impl_writer| {
@@ -753,6 +804,7 @@ fn emit_source_with_free_function_router(
                     match_writer.line("Self::Array(values) => Self::Array(values.clone()),");
                     match_writer.line("Self::Object(values) => Self::Object(values.clone()),");
                     match_writer.line("Self::Function(value) => Self::Function(value.clone()),");
+                    match_writer.line("Self::Promise(value) => Self::Promise(value.clone()),");
                 });
             });
         });
@@ -845,6 +897,7 @@ fn emit_source_with_free_function_router(
         writer.line("        (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.len() == right.len() && left.iter().zip(right.iter()).all(|(left, right)| smelt_unknown_structural_eq(left, right, seen)),");
         writer.line("        (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => smelt_object_structural_eq(left, right, seen),");
         writer.line("        (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right),");
+        writer.line("        (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id,");
         writer.line("        _ => false,");
         writer.line("    }");
         writer.line("}");
@@ -876,6 +929,7 @@ fn emit_source_with_free_function_router(
         writer.line("        SmeltUnknown::Array(values) => { 5_u8.hash(state); values.len().hash(state); for value in values.iter() { smelt_unknown_structural_hash(value, state, seen); } }");
         writer.line("        SmeltUnknown::Object(values) => { 6_u8.hash(state); smelt_object_structural_hash(values, state, seen); }");
         writer.line("        SmeltUnknown::Function(function) => { 7_u8.hash(state); ::std::rc::Rc::as_ptr(function).hash(state); }");
+        writer.line("        SmeltUnknown::Promise(promise) => { 9_u8.hash(state); promise.id.hash(state); }");
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
@@ -908,6 +962,7 @@ fn emit_source_with_free_function_router(
                         match_writer.line("Self::Array(values) => formatter.debug_tuple(\"Array\").field(values).finish(),");
                         match_writer.line("Self::Object(values) => formatter.debug_tuple(\"Object\").field(values).finish(),");
                         match_writer.line("Self::Function(_) => formatter.write_str(\"Function(<closure>)\"),");
+                        match_writer.line("Self::Promise(value) => formatter.debug_tuple(\"Promise\").field(value).finish(),");
                     });
                 },
             );
@@ -1086,7 +1141,7 @@ fn emit_source_with_free_function_router(
                     match_writer.line("Self::String(value) => value.chars().count(),");
                     match_writer.line("Self::Array(value) => value.len(),");
                     match_writer.line("Self::Object(value) => value.len(),");
-                    match_writer.line("Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) => 0,");
+                    match_writer.line("Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => 0,");
                 });
             });
             impl_writer.line("/// Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.");
@@ -1115,7 +1170,7 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("    Self::Object(value) => match value.get(\"__smelt_date\") { Some(Self::Number(value)) => value, _ => f64::NAN },");
                 fn_writer.line("    Self::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),");
                 fn_writer.line("    Self::Bool(value) => if *value { 1.0 } else { 0.0 },");
-                fn_writer.line("    Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Function(_) => f64::NAN,");
+                fn_writer.line("    Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Function(_) | Self::Promise(_) => f64::NAN,");
                 fn_writer.line("};");
                 fn_writer.line("chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| \"Invalid Date\".to_owned())");
             });
@@ -1164,6 +1219,7 @@ fn emit_source_with_free_function_router(
                         match_writer.line("Self::Symbol(value) => formatter.write_str(value),");
                         match_writer.line("Self::Array(_) | Self::Object(_) => formatter.write_str(\"[object Object]\"),");
                         match_writer.line("Self::Function(_) => formatter.write_str(\"function () { [native code] }\"),");
+                        match_writer.line("Self::Promise(_) => formatter.write_str(\"[object Promise]\"),");
                     });
                 },
             );
@@ -1217,7 +1273,7 @@ fn emit_source_with_free_function_router(
                         match_writer.line("Self::Number(value) => value.partial_cmp(other),");
                         match_writer.line("Self::String(value) => value.parse::<f64>().ok().and_then(|number| number.partial_cmp(other)),");
                         match_writer.line("Self::Bool(value) => (if *value { 1.0 } else { 0.0 }).partial_cmp(other),");
-                        match_writer.line("Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) => None,");
+                        match_writer.line("Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Promise(_) => None,");
                     });
                 },
             );
@@ -1276,6 +1332,7 @@ fn emit_source_with_free_function_router(
                     match_writer.line("SmeltUnknown::Array(_) => 5,");
                     match_writer.line("SmeltUnknown::Object(_) => 6,");
                     match_writer.line("SmeltUnknown::Function(_) => 7,");
+                    match_writer.line("SmeltUnknown::Promise(_) => 9,");
                 });
             },
         );
@@ -1341,7 +1398,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }");
+                    fn_writer.line("match value { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }");
                 },
             );
         });
@@ -1350,7 +1407,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }");
+                    fn_writer.line("match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }");
                 },
             );
         });
@@ -1359,7 +1416,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => 0_i64 }");
+                    fn_writer.line("match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }");
                 },
             );
         });
@@ -1368,7 +1425,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }");
+                    fn_writer.line("match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }");
                 },
             );
         });
@@ -1487,7 +1544,7 @@ fn emit_source_with_free_function_router(
             "impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
+                    fn_writer.line("SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
                 });
             },
         );
@@ -1496,7 +1553,7 @@ fn emit_source_with_free_function_router(
             "impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone, T: IntoSmeltUnknown + Clone",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
+                    fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
                 });
             },
         );
@@ -2112,6 +2169,7 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     match_writer.line("Self::Array(values) => serde::Serialize::serialize(&values.values, serializer),");
                     match_writer.line("Self::Object(values) => serde::Serialize::serialize(&values.iter().filter(|(key, _)| key != \"__smelt_class\").collect::<::std::collections::HashMap<_, _>>(), serializer),");
                     match_writer.line("Self::Function(_) => serializer.serialize_str(\"function () { [native code] }\"),");
+                    match_writer.line("Self::Promise(_) => serializer.serialize_str(\"[object Promise]\"),");
                 });
             },
         );

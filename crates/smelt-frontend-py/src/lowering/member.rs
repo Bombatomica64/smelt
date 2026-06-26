@@ -29,7 +29,7 @@ impl ModuleBuilder<'_> {
         };
         let callee = body.push_expr(HirExpr {
             kind: ExprKind::Item(item_id),
-            ty: return_ty,
+            ty: self.item_expr_type(item_id),
             span: self.span(attr.range),
         });
         let args = call
@@ -173,10 +173,11 @@ impl ModuleBuilder<'_> {
                 })))
             }
             Item::Function(function) => {
-                let return_ty = function.return_ty;
+                let function_item = function.clone();
+                let return_ty = function_item.return_ty;
                 let callee = body.push_expr(HirExpr {
                     kind: ExprKind::Item(item_id),
-                    ty: return_ty,
+                    ty: self.function_item_type(&function_item),
                     span: self.span(attr.range),
                 });
                 let args = call
@@ -211,7 +212,10 @@ impl ModuleBuilder<'_> {
     /// Return the HIR type to attach when an item appears as an expression.
     fn item_expr_type(&mut self, item_id: ItemId) -> TypeId {
         match self.item_ref(item_id) {
-            Item::Function(function) => function.return_ty,
+            Item::Function(function) => {
+                let function_item = function.clone();
+                self.function_item_type(&function_item)
+            }
             Item::Class(class) => {
                 let sym = class.name;
                 self.intern_type(Type::Class {
@@ -226,6 +230,19 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
+    }
+
+    /// Return the first-class function type for a HIR function item reference.
+    fn function_item_type(&mut self, function: &Function) -> TypeId {
+        self.intern_type(Type::Function(FunctionType {
+            params: function.params.iter().map(|param| param.ty).collect(),
+            rest: function.rest,
+            required_params: function.required_params,
+            mutable_params: Vec::new(),
+            return_ty: function.return_ty,
+            is_async: function.is_async,
+            may_throw: false,
+        }))
     }
 
     /// Inline an importable constant expression into the current body when supported.

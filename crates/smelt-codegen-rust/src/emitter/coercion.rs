@@ -895,7 +895,14 @@ impl FunctionEmitter<'_> {
                 Ok(format!("SmeltUnknown::Function({adapter})"))
             }
             Some(Type::Union(_)) => Ok(text),
-            Some(Type::Future(_)) => Ok(self.promise_unknown_sentinel_text()),
+            Some(Type::Future(item)) => {
+                if let Some(bare_local) = self.future_local_identity_key(operand)? {
+                    return Ok(format!(
+                        "{{ let smelt_promise_id = smelt_promise_identity(&({bare_local}) as *const _ as *const () as usize); SmeltUnknown::Promise(SmeltPromise::pending_with_id(smelt_promise_id)) }}"
+                    ));
+                }
+                self.promise_future_unknown_text(&text, *item)
+            }
             Some(Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
         }
     }
@@ -930,6 +937,31 @@ impl FunctionEmitter<'_> {
         // "cannot find value" errors. The identity key reads the live binding
         // (via `.as_ptr()`, which auto-(de)refs both `Vec` and `&Vec` locals);
         // the erased values still come from the cloned text.
+        let text = self.operand_text(operand)?;
+        let bare = text.strip_suffix(".clone()").unwrap_or(text.as_str());
+        Ok(Some(bare.to_owned()))
+    }
+
+    /// Return the BARE name of a source future local being erased, if any.
+    ///
+    /// Future values cannot be cloned. When the same future local is erased
+    /// more than once for identity-only operations, moving it into every
+    /// `SmeltPromise::from_future` wrapper would double-move the future. Key a
+    /// pending promise identity on the live local address instead; expression
+    /// futures still move into an awaitable promise wrapper.
+    fn future_local_identity_key(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+        else {
+            return Ok(None);
+        };
+        if matches!(self.local_decl(*local)?.kind, LocalKind::Temp)
+            || !matches!(
+                self.mir.types.get(self.local_decl(*local)?.ty),
+                Some(Type::Future(_))
+            )
+        {
+            return Ok(None);
+        }
         let text = self.operand_text(operand)?;
         let bare = text.strip_suffix(".clone()").unwrap_or(text.as_str());
         Ok(Some(bare.to_owned()))
@@ -1178,6 +1210,9 @@ impl FunctionEmitter<'_> {
                             "{{ {call_text}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null) }}"
                         )
                     }
+                } else if matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_))) {
+                    let value = self.erase_value_text(&call_text, function.return_ty)?;
+                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
                 } else if self.class_has_no_known_fields(function.return_ty) {
                     if function.may_throw {
                         call_text
@@ -1198,7 +1233,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Union(_)) => Ok(value_text.to_owned()),
-            Some(Type::Future(_)) => Ok(self.promise_unknown_sentinel_text()),
+            Some(Type::Future(item)) => self.promise_future_unknown_text(value_text, *item),
         }
     }
 
@@ -1213,9 +1248,22 @@ impl FunctionEmitter<'_> {
         "SmeltUnknown::Null".to_owned()
     }
 
-    /// Return the erased sentinel used for Promise/Future values at dynamic boundaries.
-    pub(super) fn promise_unknown_sentinel_text(&self) -> String {
-        "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_promise\".to_owned(), SmeltUnknown::Bool(true))])))".to_owned()
+    /// Wrap a live concrete future in an erased, cloneable promise handle.
+    ///
+    /// The source future remains the only owner of the async computation; the
+    /// `SmeltPromise` stores it behind shared state so erased identity and later
+    /// awaits observe the same resolved value. The concrete future expression is
+    /// evaluated before the `async move` block so callback captures owned by an
+    /// outer `Fn` closure are not moved into the returned promise task.
+    pub(super) fn promise_future_unknown_text(
+        &self,
+        future_text: &str,
+        item_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let value_text = self.erase_value_text("smelt_value", item_ty)?;
+        Ok(format!(
+            "{{ let smelt_future = {future_text}; SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move {{ let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value_text}) }}))) }}"
+        ))
     }
 
     /// Box an iterator of already-rendered `String` values into a `SmeltUnknown`
@@ -1392,7 +1440,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn typeof_value_text(&self, value: &Operand) -> Result<String, EmitError> {
         let text = self.operand_text(value)?;
         Ok(format!(
-            "match {text}.clone() {{ SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"object\".to_owned() }}"
+            "match {text}.clone() {{ SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\".to_owned() }}"
         ))
     }
 
@@ -1488,16 +1536,16 @@ impl FunctionEmitter<'_> {
             // `vi.fn<(x) => void>` transformer into runtime panics.
             Some(Type::None) => Ok(format!("{{ let _ = {text}.clone(); () }}")),
             Some(Type::Bool) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }}"
+                "match {text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}"
             )),
             Some(Type::Float) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+                "match {text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
             )),
             Some(Type::Int) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => 0_i64 }}"
+                "match {text}.clone() {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}"
             )),
             Some(Type::String) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
+                "match {text}.clone() {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
             )),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!(

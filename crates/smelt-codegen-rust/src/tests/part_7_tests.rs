@@ -788,7 +788,9 @@ const number = +value;
     assert!(source.contains("SmeltUnknown::Null => 0.0"), "{source}");
     assert!(source.contains("smelt_text.is_empty() { 0.0 }"), "{source}");
     assert!(
-        source.contains("SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN"),
+        source.contains(
+            "SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN"
+        ),
         "{source}"
     );
 }
@@ -2451,7 +2453,7 @@ function truthy(value: unknown): boolean {
 
     assert!(source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => false"));
     assert!(source.contains(
-        "SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true"
+        "SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true"
     ));
 }
 
@@ -3877,7 +3879,7 @@ function mapType(values: unknown[]): string[] {
     );
     assert!(
         source.contains(
-            "SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"object\""
+            "SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\""
         ),
         "{source}"
     );

@@ -279,63 +279,31 @@ impl ModuleBuilder<'_> {
                         }));
                     }
                     Item::Function(f) => {
-                        let return_ty = f.return_ty;
+                        let function = f.clone();
+                        let return_ty = function.return_ty;
                         let callee = body.push_expr(HirExpr {
                             kind: ExprKind::Item(item_id),
-                            ty: return_ty,
+                            ty: self.function_item_type(&function),
                             span,
                         });
                         let variadics = self.function_variadics.get(name_str).copied();
-                        if variadics.and_then(|v| v.kwarg).is_none()
-                            && !call.arguments.keywords.is_empty()
-                        {
-                            return Err(SmeltError::unsupported(
-                                span,
-                                "function keyword arguments require a **kwargs parameter",
-                            ));
-                        }
-                        let vararg_meta = variadics.and_then(|v| v.vararg);
-                        let kwarg_meta = variadics.and_then(|v| v.kwarg);
-                        let packed_param_start = vararg_meta
-                            .map(|meta| meta.index)
-                            .or_else(|| kwarg_meta.map(|meta| meta.index))
-                            .unwrap_or(f.params.len());
-                        if vararg_meta.is_none() && call.arguments.args.len() > packed_param_start {
-                            return Err(SmeltError::unsupported(
-                                span,
-                                "function argument count does not match parameters",
-                            ));
-                        }
-                        let mut args = call
-                            .arguments
-                            .args
+                        let params = function
+                            .params
                             .iter()
-                            .take(packed_param_start)
-                            .map(|a| self.expression(a, body))
-                            .collect::<Result<Vec<_>, _>>()?;
-                        if let Some(meta) = vararg_meta {
-                            let packed_args = call
-                                .arguments
-                                .args
-                                .iter()
-                                .skip(meta.index)
-                                .map(|arg| self.expression(arg, body))
-                                .collect::<Result<Vec<_>, _>>()?;
-                            let rest_ty = self.intern_type(Type::List(meta.item_ty));
-                            args.push(body.push_expr(HirExpr {
-                                kind: ExprKind::ListLit(packed_args),
-                                ty: rest_ty,
-                                span,
-                            }));
-                        }
-                        if let Some(meta) = kwarg_meta {
-                            args.push(self.kwargs_argument(
-                                &call.arguments.keywords,
-                                meta.value_ty,
-                                span,
-                                body,
-                            )?);
-                        }
+                            .map(|param| param.ty)
+                            .collect::<Vec<_>>();
+                        let defaults = vec![None; params.len()];
+                        let args = self.callable_call_args(
+                            call,
+                            body,
+                            &CallableCallSignature {
+                                params: &params,
+                                vararg: variadics.and_then(|v| v.vararg),
+                                kwarg: variadics.and_then(|v| v.kwarg),
+                                defaults: &defaults,
+                                label: "function",
+                            },
+                        )?;
                         return Ok(body.push_expr(HirExpr {
                             kind: ExprKind::Call { callee, args },
                             ty: return_ty,
@@ -345,6 +313,10 @@ impl ModuleBuilder<'_> {
                     Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {}
                 }
             }
+        }
+
+        if let Some(expr) = self.callable_expression_call(call, body)? {
+            return Ok(expr);
         }
 
         Err(SmeltError::unsupported(
@@ -371,38 +343,103 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let callback_meta = self.local_callbacks.get(name).cloned();
-        let vararg_meta = callback_meta.as_ref().and_then(|callback| callback.vararg);
-        let kwarg_meta = callback_meta.as_ref().and_then(|callback| callback.kwarg);
-        let supplied_arg_count = call.arguments.args.len();
-        if kwarg_meta.is_none() && !call.arguments.keywords.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(call.range),
-                "closure keyword arguments require a **kwargs closure parameter",
-            ));
-        }
         let defaults = callback_meta
             .as_ref()
             .map_or_else(|| vec![None; function.params.len()], |callback| {
                 callback.defaults.clone()
             });
-        let packed_param_start = vararg_meta
+        let callee = self.identifier_expression(name, call.func.range(), body)?;
+        let args = self.callable_call_args(
+            call,
+            body,
+            &CallableCallSignature {
+                params: &function.params,
+                vararg: callback_meta.as_ref().and_then(|callback| callback.vararg),
+                kwarg: callback_meta.as_ref().and_then(|callback| callback.kwarg),
+                defaults: &defaults,
+                label: "closure",
+            },
+        )?;
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: function.return_ty,
+            span: self.span(call.range),
+        })))
+    }
+
+    /// Lower a call whose callee expression has a statically known function type.
+    fn callable_expression_call(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if matches!(call.func.as_ref(), Expr::Name(_)) {
+            return Ok(None);
+        }
+        let callee = self.expression(&call.func, body)?;
+        let callee_ty = Self::expr_ty(body, callee);
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() else {
+            return Ok(None);
+        };
+        let defaults = vec![None; function.params.len()];
+        let args = self.callable_call_args(
+            call,
+            body,
+            &CallableCallSignature {
+                params: &function.params,
+                vararg: None,
+                kwarg: None,
+                defaults: &defaults,
+                label: "callable expression",
+            },
+        )?;
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: function.return_ty,
+            span: self.span(call.range),
+        })))
+    }
+
+    /// Lower and validate Python call arguments for a statically typed callable.
+    fn callable_call_args(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        signature: &CallableCallSignature<'_>,
+    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+        let span = self.span(call.range);
+        let supplied_arg_count = call.arguments.args.len();
+        if signature.kwarg.is_none() && !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "{} keyword arguments require a **kwargs parameter",
+                    signature.label
+                ),
+            ));
+        }
+        let packed_param_start = signature
+            .vararg
             .map(|meta| meta.index)
-            .or_else(|| kwarg_meta.map(|meta| meta.index))
-            .unwrap_or(function.params.len());
-        let required_arg_count = defaults
+            .or_else(|| signature.kwarg.map(|meta| meta.index))
+            .unwrap_or(signature.params.len());
+        let required_arg_count = signature
+            .defaults
             .iter()
             .take(packed_param_start)
             .position(Option::is_some)
             .unwrap_or(packed_param_start);
         if supplied_arg_count < required_arg_count
-            || (vararg_meta.is_none() && supplied_arg_count > packed_param_start)
+            || (signature.vararg.is_none() && supplied_arg_count > packed_param_start)
         {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
-                "closure call argument count does not match closure parameters",
+                span,
+                format!(
+                    "{} call argument count does not match parameters",
+                    signature.label
+                ),
             ));
         }
-        let callee = self.identifier_expression(name, call.func.range(), body)?;
         let mut args = call
             .arguments
             .args
@@ -411,15 +448,18 @@ impl ModuleBuilder<'_> {
             .map(|arg| self.expression(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..packed_param_start {
-            let Some(default) = defaults.get(index).and_then(|default| *default) else {
+            let Some(default) = signature.defaults.get(index).and_then(|default| *default) else {
                 return Err(SmeltError::unsupported(
-                    self.span(call.range),
-                    "closure call argument count does not match closure parameters",
+                    span,
+                    format!(
+                        "{} call argument count does not match parameters",
+                        signature.label
+                    ),
                 ));
             };
             args.push(default);
         }
-        if let Some(meta) = vararg_meta {
+        if let Some(meta) = signature.vararg {
             let packed_args = call
                 .arguments
                 .args
@@ -431,30 +471,24 @@ impl ModuleBuilder<'_> {
             args.push(body.push_expr(HirExpr {
                 kind: ExprKind::ListLit(packed_args),
                 ty: rest_ty,
-                span: self.span(call.range),
+                span,
             }));
         }
-        if let Some(meta) = kwarg_meta {
-            args.push(self.kwargs_argument(
-                &call.arguments.keywords,
-                meta.value_ty,
-                self.span(call.range),
-                body,
-            )?);
+        if let Some(meta) = signature.kwarg {
+            args.push(self.kwargs_argument(&call.arguments.keywords, meta.value_ty, span, body)?);
         }
-        for (arg, expected) in args.iter().zip(&function.params) {
+        for (arg, expected) in args.iter().zip(signature.params) {
             if Self::expr_ty(body, *arg) != *expected {
                 return Err(SmeltError::unsupported(
-                    self.span(call.range),
-                    "closure call argument type does not match closure parameter",
+                    span,
+                    format!(
+                        "{} call argument type does not match parameter",
+                        signature.label
+                    ),
                 ));
             }
         }
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::ClosureCall { callee, args },
-            ty: function.return_ty,
-            span: self.span(call.range),
-        })))
+        Ok(args)
     }
 
     /// Packs Python keyword arguments into the lowered `**kwargs` dictionary argument.
