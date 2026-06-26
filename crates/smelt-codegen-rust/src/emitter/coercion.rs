@@ -1473,14 +1473,15 @@ impl FunctionEmitter<'_> {
             }
             smelt_hir::UnknownKind::Array => "SmeltUnknown::Array(_)",
             smelt_hir::UnknownKind::Object => {
+                // `typeof x === "object"` is true for plain objects, arrays,
+                // `null`, and built-in object wrappers such as promises (whose
+                // own representation is the dedicated `Promise` variant).
                 return Ok(format!(
-                    "matches!({text}, SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Null)"
+                    "matches!({text}, SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Null | SmeltUnknown::Promise(_))"
                 ));
             }
             smelt_hir::UnknownKind::Promise => {
-                return Ok(format!(
-                    "matches!({text}, SmeltUnknown::Object(value) if value.contains_key(\"__smelt_promise\"))"
-                ));
+                return Ok(format!("matches!({text}, SmeltUnknown::Promise(_))"));
             }
         };
         Ok(format!("matches!({text}, {pattern})"))
