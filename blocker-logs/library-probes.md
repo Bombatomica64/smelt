@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-06-26 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-06-27 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -18,10 +18,10 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/utils/_getByteCount/_getByteCount.ts` | 33 | non-working Rust (32r/1s) |
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 11 | non-working Rust (11r/0s) |
 | [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `tests/test_context/test_requires_context/test_context.py` | 33 | non-working Rust (33r/0s) |
-| [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `home/runner/work/smelt/smelt/src/result/result.py` | 7 | non-working Rust (7r/0s) |
+| [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `home/runner/work/smelt/smelt/src/result/result.py` | 8 | non-working Rust (8r/0s) |
 | [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `home/runner/work/smelt/smelt/more_itertools/recipes.py` | 10 | non-working Rust (10r/0s) |
-| [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `home/runner/work/smelt/smelt/funcy/primitives.py` | 14 | non-working Rust (14r/0s) |
-| [toolz](https://github.com/pytoolz/toolz) | PY | **no** | n/a | `home/runner/work/smelt/smelt/toolz/itertoolz.py` | 14 | non-working Rust (14r/0s) |
+| [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `home/runner/work/smelt/smelt/funcy/primitives.py` | 15 | non-working Rust (15r/0s) |
+| [toolz](https://github.com/pytoolz/toolz) | PY | **no** | n/a | `home/runner/work/smelt/smelt/toolz/itertoolz.py` | 15 | non-working Rust (15r/0s) |
 
 ## es-toolkit
 
@@ -149,17 +149,17 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 662 | 152 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
+| 610 | 141 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
 | 51 | 38 | non-working Rust | class 'X': decorator 'X' is not supported |
 | 44 | 31 | non-working Rust | callback expression is not supported yet |
 | 37 | 27 | non-working Rust | class 'X': multiple inheritance is not supported |
 | 26 | 18 | non-working Rust | class 'X': unsupported class body statement 'X' |
 | 25 | 10 | non-working Rust | subscript access requires a list, set, dict, tuple, or string |
+| 21 | 14 | non-working Rust | unknown class field `X` |
 | 19 | 8 | non-working Rust | Callable first argument must be a list of param types, e.g. [int, str] |
 | 18 | 10 | non-working Rust | parameter 'X' must have an explicit type annotation |
 | 17 | 11 | non-working Rust | nested closure bodies need a single return expression |
 | 16 | 11 | non-working Rust | pytest.mark.parametrize names must be a string literal |
-| 14 | 10 | non-working Rust | unknown class field `X` |
 | 13 | 7 | non-working Rust | pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals |
 | 11 | 6 | non-working Rust | unsupported expression: ellipsis |
 | 10 | 8 | non-working Rust | function 'X' must have an explicit return type annotation |
@@ -173,9 +173,10 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 46 | 3 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
+| 43 | 3 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
 | 7 | 2 | non-working Rust | async nested closures need async closure-body lowering |
 | 6 | 2 | non-working Rust | callback expression is not supported yet |
+| 3 | 2 | non-working Rust | unknown class field `X` |
 | 3 | 1 | non-working Rust | nested closure bodies need a single return expression |
 | 2 | 1 | non-working Rust | class 'X': unsupported class body statement 'X' |
 | 2 | 1 | non-working Rust | Callable first argument must be a list of param types, e.g. [int, str] |
@@ -194,7 +195,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 157 | 2 | non-working Rust | method 'X' must have an explicit return type annotation |
 | 12 | 2 | non-working Rust | parameter 'X' in 'X' must have a type annotation |
 | 6 | 2 | non-working Rust | class 'X': unsupported class body statement 'X' |
-| 6 | 3 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
+| 4 | 3 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
 | 3 | 2 | non-working Rust | class 'X': decorator 'X' is not supported |
 | 3 | 2 | non-working Rust | unsupported statement: try |
 | 2 | 1 | non-working Rust | class 'X': multiple inheritance is not supported |
@@ -211,10 +212,11 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
 | 202 | 21 | non-working Rust | function 'X' must have an explicit return type annotation |
-| 153 | 16 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
+| 148 | 16 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
 | 39 | 5 | non-working Rust | nested closure return type must be explicit |
 | 13 | 4 | non-working Rust | nested class definitions are not yet supported |
 | 6 | 4 | non-working Rust | parameter 'X' in 'X' must have a type annotation |
+| 4 | 1 | non-working Rust | attribute access is only supported on class instances |
 | 4 | 3 | non-working Rust | pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals |
 | 3 | 2 | non-working Rust | unsupported statement: try |
 | 3 | 2 | non-working Rust | parameter 'X' must have an explicit type annotation |
@@ -223,7 +225,6 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 1 | 1 | non-working Rust | set(value) currently requires a set, list, or homogeneous tuple value |
 | 1 | 1 | non-working Rust | class 'X': unsupported class body statement 'X' |
 | 1 | 1 | non-working Rust | all() and any() currently support exactly one bool list argument |
-| 1 | 1 | non-working Rust | unsupported expression: lambda |
 
 ## toolz
 
@@ -234,8 +235,8 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 144 | 17 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
 | 118 | 17 | non-working Rust | function 'X' must have an explicit return type annotation |
+| 90 | 15 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
 | 27 | 5 | non-working Rust | nested closure return type must be explicit |
 | 8 | 5 | non-working Rust | nested class definitions are not yet supported |
 | 5 | 2 | non-working Rust | unsupported statement: del |
@@ -247,7 +248,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 2 | 2 | non-working Rust | class 'X': decorator 'X' is not supported |
 | 2 | 2 | non-working Rust | unsupported expression: lambda |
 | 1 | 1 | non-working Rust | dict.update() requires exactly one dict argument |
-| 1 | 1 | non-working Rust | binary operator 'X' is not supported |
+| 1 | 1 | non-working Rust | sorted() currently supports exactly one list argument |
 
 ## Highest-leverage transpiler gaps (non-working Rust)
 
@@ -255,7 +256,7 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 
 | Libraries hit | Total occ. | Blocker class |
 | ---: | ---: | --- |
-| 5 (funcy, more-itertools, result, returns, toolz) | 1011 | only calls to top-level functions, class constructors, and print() are supported |
+| 5 (funcy, more-itertools, result, returns, toolz) | 895 | only calls to top-level functions, class constructors, and print() are supported |
 | 5 (funcy, more-itertools, result, returns, toolz) | 40 | class 'X': unsupported class body statement 'X' |
 | 5 (es-toolkit, neverthrow, radash, ts-pattern, valibot) | 31 | callback method `X` is not lowered into closure bodies yet |
 | 4 (funcy, more-itertools, returns, toolz) | 515 | function 'X' must have an explicit return type annotation |
@@ -277,6 +278,7 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 2 (result, returns) | 50 | callback expression is not supported yet |
 | 2 (more-itertools, returns) | 39 | class 'X': multiple inheritance is not supported |
 | 2 (es-toolkit, radash) | 33 | function expression rest parameters are not lowered in object values yet |
+| 2 (result, returns) | 24 | unknown class field `X` |
 | 2 (result, returns) | 21 | Callable first argument must be a list of param types, e.g. [int, str] |
 | 2 (funcy, toolz) | 21 | nested class definitions are not yet supported |
 | 2 (result, returns) | 20 | nested closure bodies need a single return expression |
