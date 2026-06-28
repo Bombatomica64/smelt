@@ -36,13 +36,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            target
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-compat-cargo-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: build
 
       - name: Checkout compatibility repo
         run: |

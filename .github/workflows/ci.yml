@@ -18,6 +18,13 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install nightly Rust (for branch coverage)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
 
       - name: Install native GUI libraries
         run: |
@@ -25,19 +32,18 @@ jobs:
           sudo apt-get install --yes libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            target
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          # Distinct cache lane: this job builds with coverage instrumentation,
+          # so its artifacts must not be shared with the plain-build workflows.
+          shared-key: coverage
+          # Cache cargo-installed binaries (cargo-llvm-cov) too.
+          cache-bin: true
 
       - name: Install coverage tool
-        run: |
-          rustup component add llvm-tools-preview
-          rustup toolchain install nightly --component llvm-tools-preview
-          cargo install cargo-llvm-cov --locked || echo "already installed"
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       - name: Test with coverage
         run: |
