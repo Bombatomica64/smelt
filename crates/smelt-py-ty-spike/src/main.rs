@@ -42,10 +42,11 @@ fn main() -> Result<()> {
     // With none, fall back to the built-in SAMPLE_PY one-file project.
     let mut args = std::env::args().skip(1);
     let (dir, sample) = match (args.next(), args.next()) {
-        (Some(root), Some(rel)) => {
+        // `<root> <file>`: check one file. `<root>` alone: scan the whole tree.
+        (Some(root), maybe_rel) => {
             let root = std::path::PathBuf::from(root);
-            let file = root.join(rel);
-            (root, file)
+            let target = maybe_rel.map_or_else(|| root.clone(), |rel| root.join(rel));
+            (root, target)
         }
         _ => {
             let dir = std::env::temp_dir().join("smelt-ty-spike");
@@ -61,6 +62,14 @@ fn main() -> Result<()> {
     let metadata =
         ProjectMetadata::discover(&root, &system).context("discover ty project metadata")?;
     let db = ProjectDatabase::use_defaults(metadata, system);
+
+    // Directory mode: scan every `.py` file under the sample's directory and
+    // aggregate diagnostics by ty rule id, so genuine type errors can be told
+    // apart from environment noise (e.g. `unresolved-import` when third-party
+    // dependencies are not installed).
+    if sample.is_dir() {
+        return scan_directory(&db, &sample);
+    }
 
     let sample_path = to_system_path(sample)?;
     let file = system_path_to_file(&db, &sample_path).context("resolve file in ty db")?;
@@ -104,6 +113,82 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Scan every `.py` file under `root`, aggregating ty diagnostics by rule id.
+fn scan_directory(db: &ProjectDatabase, root: &std::path::Path) -> Result<()> {
+    let mut py_files = Vec::new();
+    collect_py_files(root, &mut py_files);
+    py_files.sort();
+
+    let mut by_rule: std::collections::BTreeMap<String, (usize, String)> =
+        std::collections::BTreeMap::new();
+    let mut checked = 0usize;
+    let mut total = 0usize;
+
+    for path in &py_files {
+        let Ok(system_path) = to_system_path(path.clone()) else {
+            continue;
+        };
+        let Ok(file) = system_path_to_file(db, &system_path) else {
+            continue;
+        };
+        let Ok(diagnostics) = check_file(db, file) else {
+            continue;
+        };
+        checked += 1;
+        for diagnostic in diagnostics.iter() {
+            total += 1;
+            let rule = diagnostic.id().to_string();
+            let entry = by_rule
+                .entry(rule)
+                .or_insert_with(|| (0, diagnostic.primary_message().to_string()));
+            entry.0 += 1;
+        }
+    }
+
+    println!(
+        "== ty over {} ({checked} .py files checked) ==",
+        root.file_name().and_then(|n| n.to_str()).unwrap_or("?")
+    );
+    println!("{total} diagnostics, grouped by rule:\n");
+    // `unresolved-import` (and friends) are environment noise when third-party
+    // dependencies are not installed; everything else is a real finding.
+    let noise = ["unresolved-import", "unresolved-attribute", "unresolved-reference"];
+    let mut real = 0usize;
+    for (rule, (count, sample)) in &by_rule {
+        let tag = if noise.contains(&rule.as_str()) {
+            "env-noise"
+        } else {
+            real += count;
+            "REAL"
+        };
+        println!("[{tag:>9}] {count:>5}  {rule}");
+        println!("            e.g. {sample}");
+    }
+    println!("\nreal type findings (excluding unresolved-import noise): {real}");
+    Ok(())
+}
+
+/// Recursively gather `.py` files, skipping vendored / virtualenv directories.
+fn collect_py_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let skip = matches!(
+                path.file_name().and_then(|n| n.to_str()),
+                Some(".git" | ".venv" | "venv" | "node_modules" | "__pycache__" | "site-packages")
+            );
+            if !skip {
+                collect_py_files(&path, out);
+            }
+        } else if path.extension().and_then(|e| e.to_str()) == Some("py") {
+            out.push(path);
+        }
+    }
 }
 
 /// Read the source-language identifier of a simple `Name` assignment target.

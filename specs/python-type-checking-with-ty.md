@@ -164,3 +164,55 @@ to map/suppress them in Smelt's diagnostics policy.
 
 So: not a dream — ty runs on the real probe repos today and yields usable types.
 What's missing is the integration + mapping layer, not the checker.
+
+### Against full applications — and a mypy reality check
+
+Libraries are the easy case (small, dependency-free, heavily typed). The spike
+also has a **directory mode** (`smelt-py-ty-spike <project-root>`) that scans
+every `.py` file and buckets diagnostics by ty rule id, splitting
+`unresolved-*` (environment noise) from real findings. Run against two real apps
+whose third-party dependencies are **not installed**:
+
+| App | files | total | `unresolved-*` (noise) | other ("real") |
+| --- | ---: | ---: | ---: | ---: |
+| `psf/black` (`src/black`) | 25 | 31 | 22 | **9** |
+| `httpie/cli` (pkg dir) | 78 | 519 | 365 | 154 |
+| `httpie/cli` (project root) | 133 | 952 | 266 | 686 |
+
+Two things jump out:
+
+1. **Most volume is dependency cascade, not bugs.** With deps absent, every
+   `import requests`/`click` becomes `Unknown`, and operations on those values
+   then trip `unsupported-operator` (309 on httpie), `not-subscriptable` (93),
+   `unresolved-attribute` (138)… The dependency-free `result` library produced
+   only 3 findings precisely *because* it has nothing to fail to resolve. **A ty
+   integration is useless without resolving the project's own modules + its
+   third-party deps** (installed env or vendored stubs) — same precondition mypy
+   has.
+
+2. **Even with the cascade removed, ty currently over-reports.** `black` is
+   heavily typed and CI-enforced. Running **mypy** on the same 25 files
+   (`mypy --ignore-missing-imports`) →
+
+   ```
+   Success: no issues found in 25 source files
+   ```
+
+   …yet ty flags **9** (`invalid-argument-type` ×3, `invalid-raise` ×2,
+   `invalid-return-type`, `invalid-yield`, `invalid-assignment`,
+   `invalid-ignore-comment`). On type-clean code those are **ty false
+   positives** — ty is younger and stricter/buggier than mypy on real apps.
+
+**Takeaways for Smelt:**
+
+- ty's **type inference** (the types of expressions) is the valuable, working
+  part and is what a Smelt frontend should consume.
+- ty's **diagnostics are not yet a trustworthy "real error" oracle** — they have
+  false positives and are meaningless without dependency resolution. Don't
+  surface them verbatim as Smelt errors yet.
+- mypy is more accurate today but is a Python **subprocess** needing a venv +
+  installed deps — not embeddable as a Rust library the way ty is. The trade is
+  accuracy/maturity (mypy) vs in-process Rust embedding + inference API (ty).
+- The earlier "only return-type mismatches, promising!" was an artifact of
+  testing one tiny dependency-free library; full apps need deps resolved before
+  any conclusion about ty's accuracy holds.
