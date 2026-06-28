@@ -10,7 +10,30 @@ on:
     branches: [ main ]
 
 jobs:
-  build-test-coverage:
+  # Slow tier: compile the emitted-Rust corpus. This is a plain (non-instrumented)
+  # build on stable, so it runs as its own job in parallel with coverage and shares
+  # the "build" cache lane with the other plain-build workflows. It does not need the
+  # nightly toolchain, cargo-llvm-cov, or the GUI native libs (it only builds
+  # smelt-codegen-rust and its dependencies, not smelt-gui).
+  corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+
+      - name: Compile emitted-Rust corpus (slow tier)
+        run: |
+          cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored
+
+  coverage:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,10 +71,6 @@ jobs:
       - name: Test with coverage
         run: |
           cargo +nightly llvm-cov --workspace --branch --lcov --output-path lcov.info
-
-      - name: Compile emitted-Rust corpus (slow tier)
-        run: |
-          cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored
 
       - name: Coverage summary (JSON)
         run: |
