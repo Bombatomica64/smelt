@@ -128,3 +128,39 @@ This confirms the two capabilities Smelt needs, from a single embedded library:
 **Conclusion:** embedding `ty` as a Python type source is feasible and the API is
 reasonable. The remaining effort is not the embedding but the
 `ty` → Smelt-HIR **type-mapping layer** (see risks above).
+
+### Against a real probe library
+
+Smelt's daily `library-probes` CI already exercises **5 Python libraries**
+(`returns`, `result`, `more-itertools`, `funcy`, `toolz`) alongside 5 TS ones —
+see `.github/compat/libraries.json`. So this isn't hypothetical: there's a real
+Python corpus a ty-backed frontend would run against.
+
+Pointing the spike at `rustedpy/result`'s `src/result/result.py` (the pinned
+probe ref) — `smelt-py-ty-spike <project-root> src/result/result.py` — gives:
+
+```
+== ty diagnostics ==
+3 diagnostic(s):
+- Return type does not match returned value
+- Return type does not match returned value
+- Return type does not match returned value
+
+== inferred types (top-level bindings) ==
+T : TypeVar      E : TypeVar      U : TypeVar      F : TypeVar
+P : ParamSpec    R : TypeVar      TBE : TypeVar
+Result : <types.UnionType special-form 'Ok[T] | Err[E]'>
+OkErr  : tuple[<class 'Ok'>, <class 'Err'>]
+```
+
+ty resolves the library's full type-level vocabulary — `TypeVar`s, a `ParamSpec`,
+the `Result = Ok[T] | Err[E]` union alias, and the `OkErr` class tuple — exactly
+the generic machinery Smelt's annotation-only path struggles with. The 3
+diagnostics are `ty` being stricter than the source's own tooling (`result`
+passes mypy/pyright), so they are candidates for ty false-positives or genuine
+edge cases to triage — a reminder that **ty is still maturing**: adopting it
+means inheriting its current inaccuracies on advanced generics and deciding how
+to map/suppress them in Smelt's diagnostics policy.
+
+So: not a dream — ty runs on the real probe repos today and yields usable types.
+What's missing is the integration + mapping layer, not the checker.

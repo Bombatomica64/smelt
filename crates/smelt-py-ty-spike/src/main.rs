@@ -38,11 +38,23 @@ bad: int = "not an int"
 "#;
 
 fn main() -> Result<()> {
-    // ty's `OsSystem` reads real files, so materialize a one-file project.
-    let dir = std::env::temp_dir().join("smelt-ty-spike");
-    std::fs::create_dir_all(&dir).context("create spike project dir")?;
-    let sample = dir.join("sample.py");
-    std::fs::write(&sample, SAMPLE_PY).context("write sample.py")?;
+    // With two args, check a real project: <project-root> <file-relative-to-root>.
+    // With none, fall back to the built-in SAMPLE_PY one-file project.
+    let mut args = std::env::args().skip(1);
+    let (dir, sample) = match (args.next(), args.next()) {
+        (Some(root), Some(rel)) => {
+            let root = std::path::PathBuf::from(root);
+            let file = root.join(rel);
+            (root, file)
+        }
+        _ => {
+            let dir = std::env::temp_dir().join("smelt-ty-spike");
+            std::fs::create_dir_all(&dir).context("create spike project dir")?;
+            let sample = dir.join("sample.py");
+            std::fs::write(&sample, SAMPLE_PY).context("write sample.py")?;
+            (dir, sample)
+        }
+    };
 
     let root = to_system_path(dir)?;
     let system = OsSystem::new(&root);
@@ -51,14 +63,18 @@ fn main() -> Result<()> {
     let db = ProjectDatabase::use_defaults(metadata, system);
 
     let sample_path = to_system_path(sample)?;
-    let file = system_path_to_file(&db, &sample_path).context("resolve sample.py in ty db")?;
+    let file = system_path_to_file(&db, &sample_path).context("resolve file in ty db")?;
 
     println!("== ty diagnostics ==");
     match check_file(&db, file) {
-        Ok(diagnostics) if diagnostics.is_empty() => println!("(none)"),
+        Ok(diagnostics) if diagnostics.is_empty() => println!("(none — file type-checks clean)"),
         Ok(diagnostics) => {
-            for diagnostic in diagnostics.iter() {
+            println!("{} diagnostic(s):", diagnostics.len());
+            for diagnostic in diagnostics.iter().take(12) {
                 println!("- {}", diagnostic.primary_message());
+            }
+            if diagnostics.len() > 12 {
+                println!("  … {} more", diagnostics.len() - 12);
             }
         }
         Err(fatal) => println!("checker error: {}", fatal.primary_message()),
