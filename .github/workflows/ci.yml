@@ -109,3 +109,43 @@ jobs:
             coverage-lines.svg
             coverage-regions.svg
             coverage-branches.svg
+
+  # Build a release `smelt` binary on every push to main and publish it to a
+  # rolling "smelt-nightly" prerelease. The slower compat/library-probes
+  # workflows download this instead of compiling smelt from source, saving the
+  # ~1-2 min smelt build each run. Interim measure until smelt is on crates.io.
+  # Runs in its own parallel job, so it adds no wall-clock to coverage/corpus.
+  publish-smelt:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Own lane: a release build must not share the debug-profile target
+          # cache used by the corpus/compat/probes "build" lane.
+          shared-key: release-bin
+
+      - name: Build release smelt
+        run: cargo build --release --bin smelt
+
+      - name: Publish to rolling smelt-nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create the rolling prerelease once; ignore the error if it exists.
+          gh release create smelt-nightly \
+            --prerelease \
+            --title "smelt nightly (main)" \
+            --notes "Rolling build of the smelt CLI from the latest main commit. Auto-updated by CI." \
+            2>/dev/null || true
+          # --clobber overwrites the asset so the tag always holds the newest binary.
+          gh release upload smelt-nightly target/release/smelt --clobber
