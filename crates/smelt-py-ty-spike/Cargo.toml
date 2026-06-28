@@ -1,0 +1,31 @@
+[package]
+name = "smelt-py-ty-spike"
+version.workspace = true
+edition.workspace = true
+publish = false
+autoexamples = false
+
+# SPIKE / FEASIBILITY ONLY. This crate is intentionally kept OUT of
+# `default-members` so the heavy `ty` dependency tree (salsa, vendored typeshed,
+# the ty semantic model) does not affect the normal `cargo build`. It exists to
+# evaluate using Astral's `ty` as a real Python type-checker / type source for
+# Smelt's Python frontend. See `specs/python-type-checking-with-ty.md`.
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1"
+
+# `ty` and the ruff parser crates are not published to crates.io, so they are
+# pulled from the upstream git repo pinned to the SAME revision already used by
+# `smelt-frontend-py` (`ruff_python_parser`/`ruff_python_ast`/`ruff_text_size`),
+# which keeps the workspace on one ruff checkout.
+ruff_db = { git = "https://github.com/astral-sh/ruff", rev = "6c88390f7d49068c6fc2a0102145c3bdd5318e35", features = ["os"] }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev = "6c88390f7d49068c6fc2a0102145c3bdd5318e35" }
+ty_project = { git = "https://github.com/astral-sh/ruff", rev = "6c88390f7d49068c6fc2a0102145c3bdd5318e35" }
+ty_python_semantic = { git = "https://github.com/astral-sh/ruff", rev = "6c88390f7d49068c6fc2a0102145c3bdd5318e35" }
+
+[[bin]]
+name = "smelt-py-ty-spike"
+path = "src/main.rs"
