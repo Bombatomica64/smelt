@@ -76,7 +76,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `gvergnaud/ts-pattern` @ `c92ca435c7e1`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/types/Pattern.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 68 · with blockers: 23
+- Files scanned: 68 · with blockers: 22
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
