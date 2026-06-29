@@ -4427,3 +4427,120 @@ function run(): unknown {
         "the closure body should call the resolved callback value\n{source}"
     );
 }
+
+#[test]
+fn lowers_array_at_inside_callback_body() {
+    // `data.at(i)` called inside a `.map` callback body must lower through the
+    // same optional-index path used in statement position (es-toolkit
+    // `src/array/at.spec.ts`), rather than failing closure-body lowering.
+    let source = source_for(
+        r#"
+const data = [10, 20, 30];
+const indices = [0, 1, 2];
+const out = indices.map(i => data.at(i));
+"#,
+    );
+
+    assert!(
+        source.contains(".get(") || source.contains("optional"),
+        "array .at inside a callback should lower to a checked optional index\n{source}"
+    );
+}
+
+#[test]
+fn lowers_array_join_inside_callback_body() {
+    // `parts.join('-')` inside a callback body lowers to the same `StringJoin`
+    // the direct path emits.
+    let source = source_for(
+        r#"
+const rows: string[][] = [["a", "b"], ["c", "d"]];
+const joined = rows.map(parts => parts.join("-"));
+"#,
+    );
+
+    assert!(
+        source.contains(".join(&\"-\".to_owned())"),
+        "array .join inside a callback should lower to a Rust join\n{source}"
+    );
+}
+
+#[test]
+fn lowers_array_join_default_separator_inside_callback_body() {
+    // A bare `.join()` inside a callback body defaults to the `","` separator,
+    // matching the statement-position lowering.
+    let source = source_for(
+        r#"
+const rows: number[][] = [[1, 2], [3, 4]];
+const joined = rows.map(parts => parts.join());
+"#,
+    );
+
+    assert!(
+        source.contains(".join(&\",\".to_owned())"),
+        "array .join() inside a callback should default to a comma separator\n{source}"
+    );
+}
+
+#[test]
+fn lowers_map_has_inside_callback_body() {
+    // A typed `Map` receiver's `.has(key)` inside a callback body lowers to the
+    // same `contains_key` check the direct `map_has_call` path emits (es-toolkit
+    // `src/map/every.spec.ts`).
+    let source = source_for(
+        r#"
+export function every<K, V>(
+  map: Map<K, V>,
+  doesMatch: (value: V, key: K, map: Map<K, V>) => boolean
+): boolean {
+  for (const [key, value] of map) {
+    if (!doesMatch(value, key, map)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+const m = new Map<string, number>();
+const r = every(m, (value, key, originalMap) => originalMap.has(key) && value > 0);
+"#,
+    );
+
+    assert!(
+        source.contains("contains_key"),
+        "Map .has inside a callback should lower to a contains_key check\n{source}"
+    );
+}
+
+#[test]
+fn lowers_string_starts_with_inside_callback_body() {
+    // `value.startsWith(prefix)` inside a callback body lowers to the same
+    // prefix test the direct `string_affix_call` path emits.
+    let source = source_for(
+        r#"
+const words = ["apple", "banana"];
+const flags = words.map(word => word.startsWith("a"));
+"#,
+    );
+
+    assert!(
+        source.contains("starts_with"),
+        "string .startsWith inside a callback should lower to a starts_with test\n{source}"
+    );
+}
+
+#[test]
+fn lowers_string_ends_with_on_erased_callback_receiver() {
+    // An erased (`unknown`) callback receiver reaching the string-only
+    // `endsWith` method is coerced to a string before the suffix test.
+    let source = source_for(
+        r#"
+declare const values: unknown[];
+const flags = values.map(value => value.endsWith("x"));
+"#,
+    );
+
+    assert!(
+        source.contains("ends_with"),
+        "string .endsWith on an erased callback receiver should still lower to ends_with\n{source}"
+    );
+}

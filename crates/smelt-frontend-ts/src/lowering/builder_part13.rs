@@ -1481,6 +1481,70 @@ impl ModuleBuilder<'_> {
                     span,
                 }))
             }
+            "has" if args.len() == 1
+                && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Dict(_, _))) =>
+            {
+                // `Map.prototype.has` inside a callback body mirrors the direct
+                // `map_has_call` lowering: a `DictContainsKey` over the Map receiver
+                // (Maps are represented internally as `Type::Dict`).
+                let key = *args.first().ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback Map.has call requires one argument")
+                })?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::DictContainsKey {
+                        dict: receiver,
+                        key,
+                    },
+                    ty,
+                    span,
+                }))
+            }
+            "at" if args.len() == 1 => {
+                self.callback_at_call_to_body_expr(receiver, receiver_ty, args, ty, body, span)
+            }
+            "join" if args.len() <= 1
+                && (self.callback_method_receiver_is_list_like(receiver_ty)
+                    || matches!(
+                        self.ctx.krate.types.get(receiver_ty),
+                        Some(Type::Unknown | Type::TypeParam { .. })
+                    )) =>
+            {
+                self.callback_join_call_to_body_expr(receiver, receiver_ty, args, ty, body, span)
+            }
+            "startsWith" | "starts_with" | "endsWith" | "ends_with"
+                if args.len() == 1
+                    && matches!(
+                        self.ctx.krate.types.get(receiver_ty),
+                        Some(Type::String | Type::Unknown | Type::TypeParam { .. })
+                    ) =>
+            {
+                // `String.prototype.startsWith`/`endsWith` is unambiguous, so an
+                // erased or type-param receiver is coerced to a string (matching
+                // the direct `string_affix_call` lowering) before testing.
+                let op = if matches!(method_text.as_str(), "startsWith" | "starts_with") {
+                    StringAffixOp::StartsWith
+                } else {
+                    StringAffixOp::EndsWith
+                };
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let haystack = Self::callback_coerce_to_string(receiver, string_ty, body, span);
+                let needle = *args.first().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        span,
+                        "callback string prefix/suffix test requires one argument",
+                    )
+                })?;
+                let needle = Self::callback_coerce_to_string(needle, string_ty, body, span);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::StringAffix {
+                        op,
+                        haystack,
+                        needle,
+                    },
+                    ty,
+                    span,
+                }))
+            }
             "includes" if args.len() == 1
                 && self.list_surface_type(receiver_ty).is_some() =>
             {
@@ -1948,6 +2012,139 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         }))
+    }
+
+    /// Coerce a callback-body expression to `String` when it is not already one.
+    ///
+    /// Erased (`unknown`) and type-param receivers reaching string-only methods
+    /// (such as `startsWith`/`endsWith`) are routed through a `TypeAssert` to the
+    /// string type, mirroring the direct `string_affix_call` coercion.
+    fn callback_coerce_to_string(
+        value: smelt_hir::ExprId,
+        string_ty: smelt_hir::TypeId,
+        body: &mut Body,
+        span: Span,
+    ) -> smelt_hir::ExprId {
+        if Self::expr_ty(body, value) == string_ty {
+            value
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value },
+                ty: string_ty,
+                span,
+            })
+        }
+    }
+
+    /// Lower `.at(index)` on arrays and strings inside a callback body.
+    ///
+    /// Mirrors the direct `collection_at_call` lowering: array/string `.at`
+    /// returns `undefined` for out-of-range positions, modelled with
+    /// `OptionalIndex` so generated Rust uses checked normalized indexes. The
+    /// receiver/argument are already lowered HIR expressions in callback bodies,
+    /// so we only re-derive the optional element type and route through the same
+    /// `ExprKind` the statement-position path emits.
+    fn callback_at_call_to_body_expr(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        receiver_ty: smelt_hir::TypeId,
+        args: &[smelt_hir::ExprId],
+        ty: smelt_hir::TypeId,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let item_ty = match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(receiver_ty))
+        {
+            Some(Type::List(item_ty)) => *item_ty,
+            Some(Type::Tuple(_)) => {
+                let (_, item_ty) = self.list_surface_type(receiver_ty).ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback array at requires a list receiver")
+                })?;
+                item_ty
+            }
+            Some(Type::String) => self.ctx.krate.types.intern(Type::String),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "callback array/string at receiver is not lowered into closure bodies yet",
+                ));
+            }
+        };
+        let index = *args.first().ok_or_else(|| {
+            SmeltError::unsupported(span, "callback array/string at requires one index argument")
+        })?;
+        let optional_ty = self.ctx.krate.types.intern(Type::Optional(item_ty));
+        let value = body.push_expr(Expr {
+            kind: ExprKind::OptionalIndex { receiver, index },
+            ty: optional_ty,
+            span,
+        });
+        if ty == optional_ty {
+            Ok(value)
+        } else {
+            Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value },
+                ty,
+                span,
+            }))
+        }
+    }
+
+    /// Lower `Array.prototype.join` inside a callback body.
+    ///
+    /// Mirrors the direct `string_join_call`/`finish_string_join_call` lowering:
+    /// a `StringJoin` over the receiver with an optional separator argument that
+    /// defaults to `","`. The receiver/argument are already lowered HIR
+    /// expressions, so unknown/type-param receivers are coerced to a list
+    /// surface through a `TypeAssert` before joining.
+    fn callback_join_call_to_body_expr(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        receiver_ty: smelt_hir::TypeId,
+        args: &[smelt_hir::ExprId],
+        ty: smelt_hir::TypeId,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let items = if self.callback_method_receiver_is_list_like(receiver_ty) {
+            receiver
+        } else {
+            // Coerce erased/type-param receivers to an unknown-element list so the
+            // join lowering has a concrete list surface to operate on.
+            let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: receiver },
+                ty: list_ty,
+                span,
+            })
+        };
+        let separator = args.first().copied().unwrap_or_else(|| {
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(",".to_owned())),
+                ty: string_ty,
+                span,
+            })
+        });
+        let value = body.push_expr(Expr {
+            kind: ExprKind::StringJoin { items, separator },
+            ty: string_ty,
+            span,
+        });
+        if ty == string_ty {
+            Ok(value)
+        } else {
+            Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value },
+                ty,
+                span,
+            }))
+        }
     }
 
     /// Resolve a callback function symbol back to its normal HIR item.
