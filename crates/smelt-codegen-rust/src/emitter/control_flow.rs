@@ -186,6 +186,17 @@ impl FunctionEmitter<'_> {
                 if matches!(value, Rvalue::Closure { .. }) && !self.local_has_uses(*dest) {
                     return Ok(());
                 }
+                // A `Function`-typed `ClosureCall` result whose only consumer
+                // erases it back to `SmeltUnknown` is re-rendered at the erase
+                // site; the typed-callback binding would be a dead store that
+                // re-evaluates the call. Suppress it (mirrors the call-terminator
+                // path in `emit_call_terminator_statement`).
+                if matches!(value, Rvalue::ClosureCall { .. })
+                    && self.function_call_result_dead_when_erased(*dest)?
+                {
+                    self.mark_local_declared(*dest);
+                    return Ok(());
+                }
                 let raw_rendered_value = self.rvalue_text_for_dest(value, local.ty)?;
                 let mut rendered_value =
                     if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
@@ -577,6 +588,16 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
         let name = self.local_name(dest)?;
+        // A `Function`-typed call result whose only consumer erases it back to
+        // `SmeltUnknown` re-renders the call at the erase site (see
+        // `coercion::erased_call_assignment_text`). Emitting the typed-callback
+        // binding here would be a dead store that also evaluates the call a
+        // second time, double-moving its arguments. Suppress it so the single
+        // re-inlined erase is the lone evaluation.
+        if self.function_call_result_dead_when_erased(dest)? {
+            self.mark_local_declared(dest);
+            return Ok(());
+        }
         if !self.local_has_uses(dest) && self.mir.types.get(local.ty) == Some(&Type::None) {
             let mut call_text = self.call_text(callee, args)?;
             if args.is_empty() && call_text.ends_with("(Vec::new())") {
