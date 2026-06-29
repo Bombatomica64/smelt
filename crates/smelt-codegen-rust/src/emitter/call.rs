@@ -1041,6 +1041,33 @@ impl FunctionEmitter<'_> {
                 "matches!({value_text}.clone(), SmeltUnknown::Promise(_))"
             ));
         }
+        // `AbortController`/`AbortSignal` erase to marker-bearing records (see
+        // `abort_controller_constructor_expression`). They are recognized by
+        // their `__smelt_abortcontroller` / `__smelt_abortsignal` markers on the
+        // erased object, whether the static value type is dynamic (`unknown`,
+        // generics, unions) or the erased abort class itself.
+        let abort_marker = match class_name {
+            "AbortController" => Some("__smelt_abortcontroller"),
+            "AbortSignal" => Some("__smelt_abortsignal"),
+            _ => None,
+        };
+        if let Some(marker) = abort_marker {
+            let value_is_dynamic = matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            );
+            if value_is_dynamic || self.is_erased_class_type(value_ty) {
+                let value_text = self.operand_text(value)?;
+                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                    return Ok(format!(
+                        "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{marker}\"))"
+                    ));
+                }
+                return Ok(format!(
+                    "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{marker}\"))"
+                ));
+            }
+        }
         let result = match self.mir.types.get(value_ty) {
             Some(Type::Class { name, .. }) => self.class_extends_or_equals(*name, class),
             _ => false,

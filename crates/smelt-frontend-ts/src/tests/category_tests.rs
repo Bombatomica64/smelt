@@ -30,14 +30,46 @@ fn unresolved_user_symbol_is_unresolved_reference() -> Result<(), String> {
 /// stdlib and left as an explicit blocker (not erased through `SmeltUnknown`).
 #[test]
 fn new_unresolved_builtin_class_is_missing_stdlib() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let errors = lowering_errors(ts!("const c = new AbortController();"), &mut ctx)?;
-    assert_category(&errors, "AbortController", DiagnosticCategory::MissingStdlib)?;
     // `SharedArrayBuffer` is still unmodeled and must remain an explicit
-    // missing-stdlib blocker rather than being erased through `SmeltUnknown`.
+    // missing-stdlib blocker rather than being erased through `SmeltUnknown`
+    // (`ArrayBuffer`, `Blob`, boxed `Number`, and `AbortController` are now modeled).
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(ts!("const s = new SharedArrayBuffer(8);"), &mut ctx)?;
     assert_category(&errors, "SharedArrayBuffer", DiagnosticCategory::MissingStdlib)
+}
+
+/// `new AbortController()` lowers to a concrete, marker-bearing record carrying a
+/// shared `signal` (itself a `__smelt_abortsignal` record with a mutable
+/// `aborted` flag), giving it a distinct identity and shared cancellation state
+/// instead of erasing it to a shapeless `SmeltUnknown`.
+#[test]
+fn new_abort_controller_lowers_to_concrete_marker_record() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const c = new AbortController();"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    for marker in [
+        "__smelt_abortcontroller",
+        "__smelt_abortsignal",
+        "aborted",
+        "signal",
+    ] {
+        ensure!(
+            body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::Literal(Literal::String(text)) if text == marker
+            )),
+            "expected the AbortController record to carry the `{marker}` key",
+        );
+    }
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            (&expr.kind, ctx.krate.types.get(expr.ty)),
+            (ExprKind::DictLit(_), Some(Type::Dict(_, _)))
+        )),
+        "expected `new AbortController()` to lower to concrete records (DictLit + Dict type)",
+    );
+    Ok(())
 }
 
 /// `new ArrayBuffer(n)` lowers to a concrete record carrying the dedicated

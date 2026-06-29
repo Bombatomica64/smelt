@@ -95,6 +95,8 @@ impl ModuleBuilder<'_> {
                     | "ArrayBuffer"
                     | "Blob"
                     | "Number"
+                    | "AbortController"
+                    | "AbortSignal"
                     | "Error"
                     | "EvalError"
                     | "RangeError"

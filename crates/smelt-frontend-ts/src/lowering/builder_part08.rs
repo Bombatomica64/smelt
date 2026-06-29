@@ -74,6 +74,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "Proxy" && !self.classes.contains_key("Proxy") {
             return self.proxy_constructor_expression(new_expr, body);
         }
+        if callee.name == "AbortController" && !self.classes.contains_key("AbortController") {
+            return self.abort_controller_constructor_expression(new_expr, body);
+        }
         if Self::is_numeric_typed_array_constructor(callee.name.as_str()) {
             return self.numeric_typed_array_constructor_expression(new_expr, body);
         }
@@ -693,6 +696,111 @@ impl ModuleBuilder<'_> {
             let _ = self.argument(handler_argument, body)?;
         }
         Ok(target)
+    }
+
+    /// Lower `new AbortController()` to a concrete, marker-bearing record whose
+    /// `signal` shares a mutable `aborted` flag with the controller.
+    ///
+    /// JavaScript `AbortController` is a host cancellation primitive used by
+    /// es-toolkit's `debounce`/`throttle`: the controller exposes a `signal`,
+    /// `controller.abort()` flips `signal.aborted` to `true`, and
+    /// `signal.addEventListener('abort', cb)` registers callbacks fired by
+    /// `abort()`. Rather than erase it to a shapeless `SmeltUnknown` (which would
+    /// lose identity and shared mutability), model it as two records:
+    ///
+    /// - the controller carries a dedicated `__smelt_abortcontroller` marker and
+    ///   a `signal` field;
+    /// - the signal carries a `__smelt_abortsignal` marker, a mutable `aborted`
+    ///   flag (false at construction), and a `__smelt_abort_listeners` array that
+    ///   `addEventListener` appends to and `abort()` drains.
+    ///
+    /// Both records erase to `SmeltUnknown::Object`, whose backing storage is a
+    /// shared `Rc<RefCell<..>>`; cloning the controller (or reading its `signal`)
+    /// keeps the same backing store, so `controller.abort()` is observed through
+    /// any binding that read `controller.signal` earlier. The method behaviors
+    /// (`abort`, `addEventListener`, ...) are surfaced as runtime-helper-bound
+    /// closures when those fields are read (see the erased-object field path in
+    /// `place.rs` and `smelt_abort_method`); `instanceof AbortController` /
+    /// `instanceof AbortSignal` use the markers (see `instance_of_text`).
+    fn abort_controller_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+
+        // Push a `Bool`/`String` literal expression and return its id. Kept as
+        // local helpers (not methods) so the constructor reads top-to-bottom.
+        let string_literal = |target: &mut Body, value: &str| {
+            target.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(value.to_owned())),
+                ty: string_ty,
+                span,
+            })
+        };
+        let signal_marker_key = string_literal(body, "__smelt_abortsignal");
+        let aborted_key = string_literal(body, "aborted");
+        let listeners_key = string_literal(body, "__smelt_abort_listeners");
+        let controller_marker_key = string_literal(body, "__smelt_abortcontroller");
+        let signal_key = string_literal(body, "signal");
+
+        let bool_literal = |target: &mut Body, value: bool| {
+            target.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(value)),
+                ty: bool_ty,
+                span,
+            })
+        };
+        let signal_marker_value = bool_literal(body, true);
+        let aborted_value = bool_literal(body, false);
+        let controller_marker_value = bool_literal(body, true);
+
+        // The shared signal record: marker, mutable `aborted` flag, listeners.
+        let listeners_value = body.push_expr(Expr {
+            kind: ExprKind::ListLit(Vec::new()),
+            ty: list_ty,
+            span,
+        });
+        let signal_object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![
+                (signal_marker_key, signal_marker_value),
+                (aborted_key, aborted_value),
+                (listeners_key, listeners_value),
+            ]),
+            ty: dict_ty,
+            span,
+        });
+        let signal_unknown = body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: signal_object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        });
+
+        // The controller record: marker plus the shared signal.
+        let controller_object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![
+                (controller_marker_key, controller_marker_value),
+                (signal_key, signal_unknown),
+            ]),
+            ty: dict_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: controller_object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
     }
 
     /// Lower a thrown expression to the string message carried by HIR throws.

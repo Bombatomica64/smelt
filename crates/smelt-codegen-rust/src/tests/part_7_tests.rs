@@ -4544,3 +4544,46 @@ const flags = values.map(value => value.endsWith("x"));
         "string .endsWith on an erased callback receiver should still lower to ends_with\n{source}"
     );
 }
+
+#[test]
+fn emits_abort_controller_concrete_cancellation_model() {
+    // `new AbortController()` emits two marker-bearing records sharing a mutable
+    // `aborted` flag; `controller.abort()` routes through the runtime helper that
+    // flips the flag and fires listeners; `instanceof` checks the markers.
+    let source = source_for(
+        r#"
+const controller = new AbortController();
+const signal = controller.signal;
+signal.addEventListener("abort", () => {});
+controller.abort();
+const aborted = signal.aborted;
+const isController = controller instanceof AbortController;
+const isSignal = signal instanceof AbortSignal;
+"#,
+    );
+
+    assert!(
+        source.contains("__smelt_abortcontroller") && source.contains("__smelt_abortsignal"),
+        "AbortController/AbortSignal records must carry their identity markers\n{source}"
+    );
+    assert!(
+        source.contains("smelt_abort_method"),
+        "abort/addEventListener reads must route through the runtime abort method helper\n{source}"
+    );
+    assert!(
+        source.contains("smelt_abort_signal_fire"),
+        "the runtime prelude must define the abort-firing helper\n{source}"
+    );
+    assert!(
+        source.contains(
+            "matches!(controller.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_abortcontroller\"))"
+        ),
+        "instanceof AbortController must check the controller marker\n{source}"
+    );
+    assert!(
+        source.contains(
+            "matches!(signal.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_abortsignal\"))"
+        ),
+        "instanceof AbortSignal must check the signal marker\n{source}"
+    );
+}
