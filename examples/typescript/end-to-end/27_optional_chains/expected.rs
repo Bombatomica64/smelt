@@ -948,22 +948,22 @@ fn main() {
     let _smelt_tmp_11: Option<f64>;
     let _smelt_tmp_12: Option<String>;
     let _smelt_tmp_6: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0]; smelt_list_items }));
-    let mut _smelt_tmp_7: User = User::new("Ada".to_owned(), _smelt_tmp_6.clone());
-    present = Some(_smelt_tmp_7.clone());
+    let mut _smelt_tmp_7: User = User::new("Ada".to_owned(), _smelt_tmp_6);
+    present = Some(_smelt_tmp_7);
     missing = None::<User>;
     _smelt_tmp_8 = present.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
-    name = _smelt_tmp_8.clone();
-    _smelt_tmp_9 = missing.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
-    absent_name = _smelt_tmp_9.clone();
+    name = _smelt_tmp_8;
+    _smelt_tmp_9 = missing.as_ref().map(|_smelt_value| _smelt_value.name.clone());
+    absent_name = _smelt_tmp_9;
     _smelt_tmp_10 = present.clone().as_ref().map(|_smelt_value| _smelt_value.scores.clone());
-    _smelt_tmp_11 = _smelt_tmp_10.clone().as_ref().and_then(|_smelt_value| ({ let len = _smelt_value.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).ok() }).and_then(|index| _smelt_value.get(index).cloned()));
-    score = _smelt_tmp_11.clone();
-    _smelt_tmp_12 = present.clone().as_ref().map(|_smelt_value| _smelt_value.label());
-    label = _smelt_tmp_12.clone();
-    let _ = { println!("{:?}", name.clone()); };
-    let _ = { println!("{:?}", absent_name.clone()); };
-    let _ = { println!("{:?}", score.clone()); };
-    let _ = { println!("{:?}", label.clone()); };
+    _smelt_tmp_11 = _smelt_tmp_10.as_ref().and_then(|_smelt_value| ({ let len = _smelt_value.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).ok() }).and_then(|index| _smelt_value.get(index).cloned()));
+    score = _smelt_tmp_11;
+    _smelt_tmp_12 = present.as_ref().map(|_smelt_value| _smelt_value.label());
+    label = _smelt_tmp_12;
+    let _ = { println!("{:?}", name); };
+    let _ = { println!("{:?}", absent_name); };
+    let _ = { println!("{:?}", score); };
+    let _ = { println!("{:?}", label); };
     return;
 }
 

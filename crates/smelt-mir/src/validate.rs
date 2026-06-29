@@ -557,8 +557,8 @@ impl Rvalue {
             }
             Self::ListSorted { list, key, .. } => {
                 visit(list);
-                if let Some(key) = key {
-                    visit(key);
+                if let Some(sort_key) = key {
+                    visit(sort_key);
                 }
             }
             Self::ListZip { left, right } => {
@@ -588,11 +588,11 @@ impl Rvalue {
                 ..
             } => {
                 visit(list);
-                if let Some(comparator) = comparator {
-                    visit(comparator);
+                if let Some(sort_comparator) = comparator {
+                    visit(sort_comparator);
                 }
-                if let Some(key) = key {
-                    visit(key);
+                if let Some(sort_key) = key {
+                    visit(sort_key);
                 }
             }
             Self::ListPop { list } => {
@@ -939,6 +939,9 @@ impl Rvalue {
             } => {
                 visit(unknown_value);
             }
+            Self::PrototypeSentinel { value } => {
+                visit(value);
+            }
             Self::UnknownCast {
                 value: unknown_value,
                 ..
@@ -1209,8 +1212,8 @@ impl Rvalue {
             }
             Self::ListSorted { list, key, .. } => {
                 visit(list);
-                if let Some(key) = key {
-                    visit(key);
+                if let Some(sort_key) = key {
+                    visit(sort_key);
                 }
             }
             Self::ListZip { left, right } => {
@@ -1240,11 +1243,11 @@ impl Rvalue {
                 ..
             } => {
                 visit(list);
-                if let Some(comparator) = comparator {
-                    visit(comparator);
+                if let Some(sort_comparator) = comparator {
+                    visit(sort_comparator);
                 }
-                if let Some(key) = key {
-                    visit(key);
+                if let Some(sort_key) = key {
+                    visit(sort_key);
                 }
             }
             Self::ListPop { list } => {

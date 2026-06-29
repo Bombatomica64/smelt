@@ -43,9 +43,9 @@ impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { li
 
 fn main() {
     let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![5.0, 8.0, 13.0]; smelt_list_items }));
-    let values: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_2.clone());
+    let values: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_2);
     let _smelt_tmp_3: ::std::collections::HashMap<String, String> = ::std::collections::HashMap::from([("first".to_owned(), "Ada".to_owned()), ("second".to_owned(), "Grace".to_owned())]);
-    let names: ::std::collections::HashMap<String, String> = _smelt_tmp_3.clone();
+    let names: ::std::collections::HashMap<String, String> = _smelt_tmp_3;
     let _ = { println!("{} {}", values.get({ let len = values.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(0.0).clone(), names.get(&"second".to_owned().clone()).cloned().unwrap_or(String::new()).clone()); };
     return;
 }

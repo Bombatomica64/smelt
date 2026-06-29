@@ -43,7 +43,7 @@ impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { li
 
 fn main() {
     let _smelt_tmp_1: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
-    let values: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_1.clone());
-    let _ = { println!("{:?}", values.clone()); };
+    let values: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_1);
+    let _ = { println!("{:?}", values); };
     return;
 }

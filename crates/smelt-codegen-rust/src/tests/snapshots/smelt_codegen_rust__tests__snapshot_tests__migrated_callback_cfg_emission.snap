@@ -16,7 +16,7 @@ fn plus_one(values: SmeltList<f64>) -> SmeltList<f64> {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + 1.0;
     _smelt_tmp_3.clone()
     }); let smelt_array = values.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });
-    return _smelt_tmp_2.clone();
+    return _smelt_tmp_2;
 }
 
 fn lower(values: SmeltList<String>) -> SmeltList<String> {
@@ -28,7 +28,7 @@ fn lower(values: SmeltList<String>) -> SmeltList<String> {
     let _smelt_tmp_3: SmeltUnknown = SmeltUnknown::String(closure_arg_0.clone().to_lowercase());
     _smelt_tmp_3.clone()
     }); let smelt_array = values.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });
-    return { let smelt_l = (_smelt_tmp_2.clone()).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }).collect::<Vec<_>>()) };
+    return { let smelt_l = (_smelt_tmp_2).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }).collect::<Vec<_>>()) };
 }
 
 fn spread(values: SmeltList<f64>, args: SmeltList<f64>, func: &dyn Fn(SmeltList<f64>) -> f64) -> SmeltList<f64> {
@@ -50,7 +50,7 @@ fn spread(values: SmeltList<f64>, args: SmeltList<f64>, func: &dyn Fn(SmeltList<
     _smelt_tmp_7.clone()
     }
 }); let smelt_array = values.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });
-    return _smelt_tmp_4.clone();
+    return _smelt_tmp_4;
 }
 
 fn collect_indices(values: SmeltList<f64>) -> SmeltList<f64> {
@@ -61,21 +61,21 @@ fn collect_indices(values: SmeltList<f64>) -> SmeltList<f64> {
     let mut _smelt_tmp_9: f64;
     let mut _smelt_tmp_10: f64;
     let _smelt_tmp_5: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
-    let mut indices: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_5.clone());
+    let mut indices: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_5);
     let mut __for_each_index: f64 = 0.0;
     let mut _smelt_tmp_6: f64 = 0.0;
     loop {
     _smelt_tmp_7 = values.len() as f64;
-    _smelt_tmp_8 = _smelt_tmp_6.clone() < _smelt_tmp_7.clone();
-    if !(_smelt_tmp_8.clone()) { break; }
+    _smelt_tmp_8 = _smelt_tmp_6.clone() < _smelt_tmp_7;
+    if !(_smelt_tmp_8) { break; }
     _value = values.get({ let len = values.len() as i64; let index = _smelt_tmp_6.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(0.0).clone();
     index = __for_each_index.clone();
-    _smelt_tmp_9 = __for_each_index.clone() + 1.0;
-    __for_each_index = _smelt_tmp_9.clone();
-    _smelt_tmp_10 = { indices.push(index.clone()); indices.len() as f64 };
+    _smelt_tmp_9 = __for_each_index + 1.0;
+    __for_each_index = _smelt_tmp_9;
+    _smelt_tmp_10 = { indices.push(index); indices.len() as f64 };
     _smelt_tmp_6 = _smelt_tmp_6.clone() + 1.0;
     }
-    return indices.clone();
+    return indices;
 }
 
 fn iso(values: SmeltList<SmeltUnknown>) -> SmeltList<String> {
@@ -89,7 +89,7 @@ fn iso(values: SmeltList<SmeltUnknown>) -> SmeltList<String> {
     let _smelt_tmp_4: SmeltUnknown = SmeltUnknown::String(_smelt_tmp_3.clone());
     _smelt_tmp_4.clone()
     }); let smelt_array = values.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });
-    return { let smelt_l = (_smelt_tmp_2.clone()).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }).collect::<Vec<_>>()) };
+    return { let smelt_l = (_smelt_tmp_2).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }).collect::<Vec<_>>()) };
 }
 
 fn main() {
