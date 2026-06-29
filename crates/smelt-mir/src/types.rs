@@ -1544,6 +1544,34 @@ pub enum Terminator {
     Unreachable,
 }
 
+impl Terminator {
+    /// Return the control-flow successor blocks of this terminator.
+    ///
+    /// Exception handlers count as successors so dataflow analyses see the
+    /// throwing edge of a `Call`/`Await`. `Return`, `Throw`, and `Unreachable`
+    /// have none.
+    #[must_use]
+    pub fn successors(&self) -> Vec<BlockId> {
+        match self {
+            Self::Goto(target) => vec![*target],
+            Self::Call { target, unwind, .. } | Self::Await { target, unwind, .. } => unwind
+                .iter()
+                .map(|handler| handler.catch_block)
+                .chain(std::iter::once(*target))
+                .collect(),
+            Self::Switch {
+                then_block,
+                else_block,
+                ..
+            } => vec![*then_block, *else_block],
+            Self::Match { arms, default, .. } => {
+                arms.iter().map(|arm| arm.target).chain(*default).collect()
+            }
+            Self::Return(_) | Self::Throw(_) | Self::Unreachable => Vec::new(),
+        }
+    }
+}
+
 /// MIR edge for source-language exceptions from throwing calls.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ExceptionHandler {

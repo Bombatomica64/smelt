@@ -8,8 +8,8 @@ pub(crate) use __smelt_module_source_main::*;
 
 fn main() {
     let value: f64 = 4.0;
-    let _smelt_tmp_1: f64 = value.clone() + 1.0;
+    let _smelt_tmp_1: f64 = value + 1.0;
     let _smelt_tmp_2: f64 = add(2.0, 3.0);
-    let _ = { println!("{} {} {}", "sum".to_owned(), _smelt_tmp_1.clone(), _smelt_tmp_2.clone()); };
+    let _ = { println!("{} {} {}", "sum".to_owned(), _smelt_tmp_1, _smelt_tmp_2); };
     return;
 }

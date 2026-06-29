@@ -38,26 +38,26 @@ fn main (FuncId(2)) -> None
     %16 temp: None
   bb0:
     %6 = [3.0]
-    %7 = call fn0("Ada", copy %6) -> bb1
+    %7 = call fn0("Ada", move %6) -> bb1
   bb1:
-    %0 = copy %7
+    %0 = move %7
     %1 = none
     %8 = copy %0?.field1
-    %2 = copy %8
-    %9 = copy %1?.field1
-    %3 = copy %9
+    %2 = move %8
+    %9 = move %1?.field1
+    %3 = move %9
     %10 = copy %0?.field2
-    %11 = copy %10?.[0.0]
-    %4 = copy %11
-    %12 = copy %0?.method3()
-    %5 = copy %12
-    %13 = call @console_log(copy %2) -> bb2
+    %11 = move %10?.[0.0]
+    %4 = move %11
+    %12 = move %0?.method3()
+    %5 = move %12
+    %13 = call @console_log(move %2) -> bb2
   bb2:
-    %14 = call @console_log(copy %3) -> bb3
+    %14 = call @console_log(move %3) -> bb3
   bb3:
-    %15 = call @console_log(copy %4) -> bb4
+    %15 = call @console_log(move %4) -> bb4
   bb4:
-    %16 = call @console_log(copy %5) -> bb5
+    %16 = call @console_log(move %5) -> bb5
   bb5:
     return none
 

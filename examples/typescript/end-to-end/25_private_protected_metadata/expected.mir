@@ -26,10 +26,10 @@ fn main (FuncId(2)) -> None
   bb0:
     %1 = call fn0("s", 1.0) -> bb1
   bb1:
-    %0 = copy %1
-    %2 = call fn1(copy %0) -> bb2
+    %0 = move %1
+    %2 = call fn1(move %0) -> bb2
   bb2:
-    %3 = call @console_log(copy %2) -> bb3
+    %3 = call @console_log(move %2) -> bb3
   bb3:
     return none
 

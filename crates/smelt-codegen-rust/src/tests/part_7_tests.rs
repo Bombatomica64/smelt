@@ -669,7 +669,7 @@ export function collect(): Set<number> {
     );
 
     assert!(
-        source.contains("match value.clone().clone()")
+        source.contains("match value")
             && (source.contains("results.push(") || source.contains("results.insert(")),
         "{source}"
     );
@@ -927,7 +927,7 @@ const defaulted = throttle(() => {});
         "{source}"
     );
     assert!(
-        source.contains(", 1.0, _smelt_tmp_3.clone())"),
+        source.contains(", 1.0, _smelt_tmp_3)"),
         "explicit object argument should remain in the call: {source}"
     );
 }
@@ -1130,7 +1130,7 @@ export const localize: Localize = {
     );
 
     assert!(
-        source.contains("number.clone().to_string() + &match suffix.clone()"),
+        source.contains("number.to_string() + &match suffix"),
         "{source}"
     );
     assert!(
@@ -1656,7 +1656,7 @@ function apply(isTwoDigitYear: boolean, year: number, date: number): number {
         .or_else(|| source.find("normalized_two_digit_year: f64 ="))
         .unwrap_or_else(|| panic!("{source}"));
     let setter = source
-        .find("let normalized_year = (normalized_two_digit_year.clone() as i32)")
+        .find("let normalized_year = (normalized_two_digit_year as i32)")
         .unwrap_or_else(|| panic!("{source}"));
     assert!(normalized < setter, "{source}");
     assert!(source.contains(" as f64"), "{source}");
@@ -1927,7 +1927,7 @@ function countPresent(values: string[]): Record<string, number> {
     );
 
     assert!(source.contains("loop {"), "{source}");
-    assert!(source.contains("return out.clone();"), "{source}");
+    assert!(source.contains("return out;"), "{source}");
 }
 
 #[test]
@@ -2211,7 +2211,7 @@ const selected: unknown = value ? value : fallback;
     );
 
     assert!(
-        source.contains("if _smelt_tmp_3.clone() { value.clone() } else { match fallback"),
+        source.contains("if _smelt_tmp_3.clone() { value } else { match fallback"),
         "{source}"
     );
     assert!(
@@ -3224,7 +3224,7 @@ export function run(): unknown {
 
     assert!(
         source.contains(
-            "(identity)(SmeltUnknown::String(\"hello\".to_owned()), _smelt_tmp_2.clone())"
+            "(identity)(SmeltUnknown::String(\"hello\".to_owned()), _smelt_tmp_2)"
         ) && source.contains("_smelt_tmp_2 = Into::<SmeltList<_>>::into(SmeltList::from("),
         "normal closure calls should preserve fixed arguments and pack an empty rest vector: {source}"
     );
@@ -3451,7 +3451,7 @@ function parts(value: string): string[] | undefined {
         source.contains("SmeltRegExp::new(\"a+|b\".to_owned(), \"g\".to_owned())"),
         "{source}"
     );
-    assert!(source.contains("tokens.clone().match_string(&"), "{source}");
+    assert!(source.contains("tokens.match_string(&"), "{source}");
 }
 
 #[test]
@@ -3721,7 +3721,7 @@ export function run(options?: Options): void {
 "#,
     );
 
-    assert!(source.contains(".clone().map(|value|"), "{source}");
+    assert!(source.contains(".map(|value|"), "{source}");
     assert!(!source.contains("map_or(None::<"), "{source}");
 }
 

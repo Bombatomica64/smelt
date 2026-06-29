@@ -123,7 +123,9 @@ mod tests {
         assert!(output.contains("fn main (FuncId(0)) -> None"));
         assert!(output.contains("%0 user count: Float"));
         assert!(output.contains("%0 = 42.0"));
-        assert!(output.contains("%1 = call @console_log(copy %0) -> bb1"));
+        // `count` is dead after the log call, so move-on-last-use rewrites the
+        // final `copy %0` into a `move` (dropping a defensive clone in codegen).
+        assert!(output.contains("%1 = call @console_log(move %0) -> bb1"));
         assert!(output.contains("return none"));
     }
 
@@ -143,7 +145,9 @@ mod tests {
         opt::optimize(&mut mir);
         let output = format_compact(&mir);
 
-        assert!(output.contains("%2 = call @console_log(copy %0) -> bb1"));
+        // Copy propagation resolves the alias to `%0`; move-on-last-use then
+        // turns the final use into a `move` since `%0` is dead afterwards.
+        assert!(output.contains("%2 = call @console_log(move %0) -> bb1"));
     }
 
     #[test]
@@ -322,6 +326,56 @@ async function run(): Promise<number> {
                 .iter()
                 .any(|error| error.message.contains("definitely defined")),
             "expected definite-assignment error, got {errors:?}"
+        );
+    }
+
+    /// Optimize a TypeScript snippet and return its formatted MIR.
+    fn optimized_mir(source: &str) -> String {
+        let mut ctx = HirCtx::new();
+        ok_or_panic(to_hir(source, FileId(0), &mut ctx), "HIR");
+        let mut mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
+        opt::optimize(&mut mir);
+        assert!(validate(&mir).is_empty());
+        format_compact(&mir)
+    }
+
+    #[test]
+    fn move_on_last_use_keeps_earlier_uses_as_copy() {
+        // `value` is read by two separate calls; only the final read may move.
+        let output = optimized_mir("const value = \"hi\";\nconsole.log(value);\nconsole.log(value);\n");
+        assert!(
+            output.contains("@console_log(copy %0)"),
+            "first use must stay a copy:\n{output}"
+        );
+        assert!(
+            output.contains("@console_log(move %0)"),
+            "final use must become a move:\n{output}"
+        );
+    }
+
+    #[test]
+    fn move_on_last_use_preserves_loop_carried_values() {
+        // The accumulator is live across the loop back-edge, so its read in the
+        // exit condition must remain a copy; only the dead temporaries move.
+        let output = optimized_mir(
+            "let total = 0;\nlet index = 0;\nwhile (index < 3) {\n  total = total + index;\n  index = index + 1;\n}\nconsole.log(total);\n",
+        );
+        assert!(
+            output.contains("switch copy"),
+            "loop header condition must stay a copy so codegen can rebuild the loop:\n{output}"
+        );
+    }
+
+    #[test]
+    fn move_on_last_use_does_not_move_function_parameters() {
+        // Parameters are excluded; the final read of `a` keeps its copy so a
+        // later borrow pass (not this one) can decide the calling convention.
+        let output = optimized_mir(
+            "function identity(a: string): string {\n  return a;\n}\nconsole.log(identity(\"x\"));\n",
+        );
+        assert!(
+            output.contains("return copy"),
+            "a returned parameter must remain a copy:\n{output}"
         );
     }
 }

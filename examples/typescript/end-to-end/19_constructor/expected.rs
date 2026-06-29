@@ -10,7 +10,7 @@ struct Box {
 fn main() {
     let mut box_: Box;
     let mut _smelt_tmp_1: Box = Box::new("ok".to_owned());
-    box_ = _smelt_tmp_1.clone();
+    box_ = _smelt_tmp_1;
     let _ = { println!("{}", box_.value.clone()); };
     return;
 }

@@ -17,7 +17,7 @@ fn sum (FuncId(1)) -> Float
     %1 temp: Float
   bb0:
     %1 = copy %0.field1 + copy %0.field2
-    return copy %1
+    return move %1
 
 fn main (FuncId(2)) -> None
   locals
@@ -28,10 +28,10 @@ fn main (FuncId(2)) -> None
   bb0:
     %1 = call fn0(2.0, 3.0) -> bb1
   bb1:
-    %0 = copy %1
-    %2 = call fn1(copy %0) -> bb2
+    %0 = move %1
+    %2 = call fn1(move %0) -> bb2
   bb2:
-    %3 = call @console_log(copy %2) -> bb3
+    %3 = call @console_log(move %2) -> bb3
   bb3:
     return none
 

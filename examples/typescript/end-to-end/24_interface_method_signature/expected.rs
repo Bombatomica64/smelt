@@ -15,9 +15,9 @@ struct User {
 fn main() {
     let mut user: User;
     let mut _smelt_tmp_1: User = User::new("Ada".to_owned());
-    user = _smelt_tmp_1.clone();
+    user = _smelt_tmp_1;
     let _smelt_tmp_2: String = user.label("Hi ".to_owned());
-    let _ = { println!("{}", _smelt_tmp_2.clone()); };
+    let _ = { println!("{}", _smelt_tmp_2); };
     return;
 }
 
@@ -29,6 +29,6 @@ impl User {
     }
     fn label(&self, prefix: String) -> String {
     let _smelt_tmp_2: String = prefix.clone() + &self.name.clone();
-    return _smelt_tmp_2.clone();
+    return _smelt_tmp_2;
     }
 }

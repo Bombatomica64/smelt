@@ -63,7 +63,9 @@ fn dump_mir_prints_optimized_mir_for_single_file() -> TestResult {
         "missing copied value",
     )?;
     ensure(
-        stdout.contains("%2 = call @console_log(copy %0) -> bb1"),
+        // After copy propagation resolves the alias to `%0`, move-on-last-use
+        // turns the final use into a move (the value is dead afterwards).
+        stdout.contains("%2 = call @console_log(move %0) -> bb1"),
         "missing log call",
     )?;
     ensure(stdout.contains("return none"), "missing return none")?;

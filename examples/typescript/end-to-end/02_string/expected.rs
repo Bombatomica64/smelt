@@ -3,6 +3,6 @@
 
 fn main() {
     let message: String = "hello smelt".to_owned();
-    let _ = { println!("{}", message.clone()); };
+    let _ = { println!("{}", message); };
     return;
 }

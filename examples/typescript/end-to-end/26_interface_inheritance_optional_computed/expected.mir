@@ -19,7 +19,7 @@ fn main (FuncId(1)) -> None
   bb0:
     %1 = call fn0("u1") -> bb1
   bb1:
-    %0 = copy %1
+    %0 = move %1
     %2 = call @console_log(copy %0.field2) -> bb2
   bb2:
     return none

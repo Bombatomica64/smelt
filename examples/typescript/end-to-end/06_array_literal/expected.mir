@@ -5,8 +5,8 @@ fn main (FuncId(0)) -> None
     %2 temp: None
   bb0:
     %1 = [1.0, 2.0, 3.0]
-    %0 = copy %1
-    %2 = call @console_log(copy %0) -> bb1
+    %0 = move %1
+    %2 = call @console_log(move %0) -> bb1
   bb1:
     return none
 

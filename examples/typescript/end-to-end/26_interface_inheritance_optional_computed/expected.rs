@@ -21,7 +21,7 @@ struct User {
 fn main() {
     let mut user: User;
     let mut _smelt_tmp_1: User = User::new("u1".to_owned());
-    user = _smelt_tmp_1.clone();
+    user = _smelt_tmp_1;
     let _ = { println!("{}", user.id.clone()); };
     return;
 }

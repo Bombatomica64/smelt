@@ -3,6 +3,6 @@
 
 fn main() {
     let enabled: bool = true;
-    let _ = { println!("{}", enabled.clone()); };
+    let _ = { println!("{}", enabled); };
     return;
 }

@@ -135,8 +135,8 @@ export function count(a: boolean, b: boolean): number {
     );
 
     assert!(source.contains("return f64::NAN;"), "{source}");
-    assert!(source.contains("result.clone() + 1.0"), "{source}");
-    assert!(source.contains("return result.clone();"), "{source}");
+    assert!(source.contains("result + 1.0"), "{source}");
+    assert!(source.contains("return result;"), "{source}");
 }
 
 #[test]
@@ -704,7 +704,9 @@ for name in names:
     );
     assert!(source.matches("loop {").count() >= 2);
     assert!(source.contains("total ="));
-    assert!(source.contains("last = name.clone();"));
+    // `name` holds an owned key string that is dead after the assignment, so
+    // move-on-last-use moves it into `last` instead of cloning.
+    assert!(source.contains("last = name;"));
 }
 
 #[test]

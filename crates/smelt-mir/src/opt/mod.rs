@@ -8,6 +8,10 @@ use std::collections::{HashMap, HashSet};
 use crate::{Callee, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
 use smelt_hir::Type;
 
+mod move_on_last_use;
+
+pub use move_on_last_use::MoveOnLastUse;
+
 /// A MIR optimization pass that transforms the MIR.
 pub trait Pass {
     /// Returns the name of this pass for debugging purposes.
@@ -37,7 +41,10 @@ impl Pass for CopyPropagation {
 /// Returns the default set of optimization passes.
 #[must_use]
 pub fn default_passes() -> Vec<Box<dyn Pass>> {
-    vec![Box::<CopyPropagation>::default()]
+    vec![
+        Box::<CopyPropagation>::default(),
+        Box::<MoveOnLastUse>::default(),
+    ]
 }
 
 /// Applies all default optimization passes to the MIR.
