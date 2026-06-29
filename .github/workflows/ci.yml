@@ -149,3 +149,39 @@ jobs:
             2>/dev/null || true
           # --clobber overwrites the asset so the tag always holds the newest binary.
           gh release upload smelt-nightly target/release/smelt --clobber
+
+  # Regression gate: transpile the Remeda library at a pinned ref with the smelt
+  # built from THIS commit, then compile and run its generated Rust test suite.
+  # The whole corpus currently passes (1789 tests); this job fails if a codegen,
+  # frontend, or MIR change regresses any of them. Builds smelt from source (not
+  # the smelt-nightly asset) so pull requests are gated against their own code.
+  remeda-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+
+      - name: Build smelt
+        run: cargo build --bin smelt
+
+      - name: Check out Remeda at the pinned ref + copy Smelt fixtures
+        run: |
+          repo_dir="target/compat-repos/remeda"
+          rm -rf "$repo_dir"
+          git clone --no-tags --filter=blob:none https://github.com/remeda/remeda.git "$repo_dir"
+          git -C "$repo_dir" checkout 3c80f28bb394edbf89f1fc9978571dec8ed20edc
+          cp -R .github/compat/remeda/. "$repo_dir"/
+
+      - name: Transpile Remeda to Rust
+        run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build
+
+      - name: Compile and run generated Remeda tests (regression gate)
+        run: cargo test --manifest-path target/compat-repos/remeda/dist-smelt/Cargo.toml --no-fail-fast
