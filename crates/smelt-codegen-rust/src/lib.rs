@@ -776,6 +776,22 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.line("impl ::std::fmt::Debug for SmeltPromise { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltPromise\").field(\"id\", &self.id).finish() } }");
         writer.blank_line();
+        // JavaScript `await` flattens: awaiting a value that is itself a promise
+        // resolves through the whole chain. An `async` function that returns a
+        // `Promise` erases that inner promise to `SmeltUnknown::Promise`, so a
+        // consumer that awaits the function's result must keep awaiting while the
+        // settled value is still a promise. This helper drives the shared cell of
+        // each erased promise (which in turn drives the cooperative scheduler),
+        // and is a no-op pass-through for any non-promise value.
+        writer.line("#[allow(dead_code)]");
+        writer.line("async fn smelt_await_flatten(value: SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {");
+        writer.line("    let mut current = value;");
+        writer.line("    while let SmeltUnknown::Promise(promise) = current {");
+        writer.line("        current = promise.smelt_await().await?;");
+        writer.line("    }");
+        writer.line("    Ok(current)");
+        writer.line("}");
+        writer.blank_line();
         writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
         writer.line("fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }");
         writer.blank_line();

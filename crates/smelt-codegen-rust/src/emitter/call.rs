@@ -21,9 +21,26 @@ impl FunctionEmitter<'_> {
         match op {
             smelt_hir::AsyncOp::All | smelt_hir::AsyncOp::AllSettled => {
                 if let [arg] = args
-                    && self.async_list_operand_item_type(arg)?.is_some()
+                    && let Some(item_ty) = self.async_list_operand_item_type(arg)?
                 {
                     let list = self.await_operand_text(arg)?;
+                    // When the futures resolve to erased values, each settled
+                    // value may itself be a `SmeltUnknown::Promise` (an `async`
+                    // function that returns a `Promise`). Collect every future
+                    // first — so funnel/batch schedulers observe all requests
+                    // before any is driven — then flatten each erased promise to
+                    // its resolved value.
+                    let item_is_erased = match self.mir.types.get(item_ty) {
+                        Some(Type::Future(output)) => {
+                            matches!(self.mir.types.get(*output), Some(Type::Unknown))
+                        }
+                        _ => false,
+                    };
+                    if item_is_erased {
+                        return Ok(format!(
+                            "Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }})"
+                        ));
+                    }
                     return Ok(format!(
                         "Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }})"
                     ));
@@ -32,13 +49,32 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .map(|arg| self.await_operand_text(arg))
                     .collect::<Result<Vec<_>, _>>()?;
+                // Per-element: an awaited erased value may settle to a nested
+                // `SmeltUnknown::Promise` (an `async` fn returning a `Promise`),
+                // so flatten those. `tokio::join!` still polls every future first,
+                // so funnel/batch schedulers observe all requests before any
+                // flattened element drives the scheduler.
+                let erased: Vec<bool> = args
+                    .iter()
+                    .map(|arg| self.awaited_operand_is_erased(arg))
+                    .collect();
+                let flatten = |slot: String, is_erased: bool| {
+                    if is_erased {
+                        format!("smelt_await_flatten({slot}?).await?")
+                    } else {
+                        format!("{slot}?")
+                    }
+                };
                 let body = match rendered_args.as_slice() {
                     [] => "()".to_owned(),
-                    [single] => format!("({single}.await?,)"),
+                    [single] => {
+                        let value = flatten(format!("{single}.await"), erased[0]);
+                        format!("({value},)")
+                    }
                     _ => {
                         let joined = format!("tokio::join!({})", rendered_args.join(", "));
                         let values = (0..rendered_args.len())
-                            .map(|index| format!("__smelt_joined.{index}?"))
+                            .map(|index| flatten(format!("__smelt_joined.{index}"), erased[index]))
                             .collect::<Vec<_>>()
                             .join(", ");
                         format!("{{ let __smelt_joined = {joined}; ({values}) }}")
@@ -240,6 +276,22 @@ impl FunctionEmitter<'_> {
     }
 
     /// Return the future item type when an async combinator operand is a list of futures.
+    /// Whether awaiting this operand yields an erased value that may itself be a
+    /// `SmeltUnknown::Promise` (i.e. the future's `Output` is `Unknown`), so its
+    /// awaited result needs flattening through `smelt_await_flatten`.
+    fn awaited_operand_is_erased(&self, operand: &Operand) -> bool {
+        match self
+            .operand_ty(operand)
+            .ok()
+            .and_then(|ty| self.mir.types.get(ty))
+        {
+            Some(Type::Future(output)) => {
+                matches!(self.mir.types.get(*output), Some(Type::Unknown))
+            }
+            _ => false,
+        }
+    }
+
     fn async_list_operand_item_type(&self, operand: &Operand) -> Result<Option<TypeId>, EmitError> {
         let operand_ty = self.operand_ty(operand)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(operand_ty) else {
