@@ -765,6 +765,15 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a dictionary key containment expression for `toHaveProperty`.
+    ///
+    /// A statically-typed record/map (`Type::Dict`) checks key membership
+    /// directly and requires the key type to match. An erased actual
+    /// (`Unknown`/`Union`/unconstrained type param) is a runtime JavaScript
+    /// value — for example the erased return of an imported helper — so the
+    /// emitted `DictContainsKey` inspects the live `SmeltUnknown::Object` at
+    /// runtime; the key may be any string-convertible value there, so no
+    /// static key-type match is demanded. This keeps `toHaveProperty` general
+    /// over both concrete records and erased object actuals.
     fn dict_contains_key_expr(
         &mut self,
         actual: smelt_hir::ExprId,
@@ -772,18 +781,23 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(Self::expr_ty(body, actual))
-        else {
-            return Err(SmeltError::unsupported(
-                self.span(span.start, span.end),
-                "expect(...).toHaveProperty(...) requires an object or map actual value",
-            ));
-        };
-        if Self::expr_ty(body, expected) != *key_ty {
-            return Err(SmeltError::unsupported(
-                self.span(span.start, span.end),
-                "expect(...).toHaveProperty(...) key must match the object key type",
-            ));
+        let actual_ty = Self::expr_ty(body, actual);
+        match self.ctx.krate.types.get(actual_ty) {
+            Some(Type::Dict(key_ty, _)) => {
+                if Self::expr_ty(body, expected) != *key_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(span.start, span.end),
+                        "expect(...).toHaveProperty(...) key must match the object key type",
+                    ));
+                }
+            }
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {}
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(span.start, span.end),
+                    "expect(...).toHaveProperty(...) requires an object or map actual value",
+                ));
+            }
         }
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(body.push_expr(Expr {

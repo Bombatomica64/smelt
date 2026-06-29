@@ -2633,4 +2633,23 @@ return_ty: function.return_ty,
         }
     }
 
+    /// Return the resolved item type for any awaitable actual value.
+    ///
+    /// A statically-typed `Promise<T>` / `Future<T>` yields its inner `T`. An
+    /// erased actual (`Type::Unknown`) is a `SmeltUnknown::Promise` thunk — for
+    /// example an `async` call across an import boundary whose generic return
+    /// type was erased — and resolves to an erased `Unknown` value once awaited.
+    /// Anything else is not awaitable and returns `None`. This keeps the Vitest
+    /// `resolves`/`rejects` matchers general over both concrete and erased
+    /// promise actuals instead of demanding a statically-spelled `Promise<T>`.
+    pub(super) fn awaitable_inner_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Future(inner)) => Some(*inner),
+            // An erased actual is itself the `Unknown` type id; awaiting it
+            // yields another erased value, so reuse the same id rather than
+            // re-interning.
+            Some(Type::Unknown) => Some(ty),
+            _ => None,
+        }
+    }
 }

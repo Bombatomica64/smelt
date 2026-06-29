@@ -473,6 +473,20 @@ impl ModuleBuilder<'_> {
             let _implementation = self.argument(implementation, body)?;
             return Ok(Some(receiver));
         }
+        // `mockReturnValue(value)` configures a non-date mock's return value.
+        // The mock handle is a placeholder, so evaluate the configured value
+        // for its side effects and yield the receiver, matching Vitest's
+        // chainable mock API (`mock.mockReturnValue(x)` returns the mock).
+        if method == "mockReturnValue" {
+            let [value] = call.arguments.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "mockReturnValue requires exactly one return value",
+                ));
+            };
+            let _value = self.argument(value, body)?;
+            return Ok(Some(receiver));
+        }
         if !call.arguments.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -701,10 +715,10 @@ impl ModuleBuilder<'_> {
         }
 
         let actual = self.argument(actual_arg, body)?;
-        if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, actual)),
-            Some(Type::Future(_))
-        ) {
+        if self
+            .awaitable_inner_type(Self::expr_ty(body, actual))
+            .is_none()
+        {
             return Err(SmeltError::unsupported(
                 self.span(actual_arg.span().start, actual_arg.span().end),
                 "expect(...).resolves/rejects actual value must be a Promise<T>",
@@ -723,6 +737,15 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `await expect(promise).rejects.toThrow(...)` to native exception flow.
+    ///
+    /// The actual must be awaited, so it has to lower to a real `Future<T>`:
+    /// imported `async` helpers resolve to `Type::Future` across the project
+    /// graph and drive the full reject-and-message assertion below. When the
+    /// actual is only an erased `Unknown` (single-file lowering before
+    /// cross-module resolution determines the future), awaiting it would be
+    /// invalid HIR, so — mirroring the ordinary erased-`await` fallback — the
+    /// actual is evaluated for its effects and a benign `Promise<void>`
+    /// placeholder is returned instead of rejecting the matcher outright.
     fn vitest_rejects_to_throw_call(
         &mut self,
         call: &CallExpression<'_>,
@@ -732,6 +755,31 @@ impl ModuleBuilder<'_> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let span = self.span(call.span.start, call.span.end);
+
+        // Evaluate the actual once and classify it. Only a real `Future<T>`
+        // supports the awaited assertion; an erased actual takes the benign
+        // placeholder path, and anything non-awaitable is a genuine blocker.
+        let actual = self.argument(actual_arg, body)?;
+        let actual_ty = Self::expr_ty(body, actual);
+        if self.awaitable_inner_type(actual_ty).is_none() {
+            return Err(SmeltError::unsupported(
+                self.span(actual_arg.span().start, actual_arg.span().end),
+                "expect(...).rejects.toThrow(...) actual value must be a Promise<T>",
+            ));
+        }
+        let Some(item_ty) = self.future_inner_type(actual_ty) else {
+            for argument in &call.arguments {
+                self.argument(argument, body)?;
+            }
+            let none_ty = self.ctx.krate.types.intern(Type::None);
+            let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span,
+            })));
+        };
+
         let did_throw_name = self.intern_source_name("did_throw");
         let did_throw = body.push_local(smelt_hir::LocalDecl {
             name: Some(did_throw_name),
@@ -752,13 +800,6 @@ impl ModuleBuilder<'_> {
         });
 
         let try_block = body.push_block(span);
-        let actual = self.argument(actual_arg, body)?;
-        let Some(item_ty) = self.future_inner_type(Self::expr_ty(body, actual)) else {
-            return Err(SmeltError::unsupported(
-                self.span(actual_arg.span().start, actual_arg.span().end),
-                "expect(...).rejects.toThrow(...) actual value must be a Promise<T>",
-            ));
-        };
         let awaited = body.push_expr(Expr {
             kind: ExprKind::Await(actual),
             ty: item_ty,

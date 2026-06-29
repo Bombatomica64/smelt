@@ -834,3 +834,98 @@ fn accepts_import_and_export_declarations() -> Result<(), String> {
     )?;
     Ok(())
 }
+
+#[test]
+fn lowers_rejects_to_throw_over_async_call_actual() -> Result<(), String> {
+    // An `async` helper resolves to `Promise<T>`; `.rejects.toThrow` awaits the
+    // actual (flattening through native exception flow) to assert it rejects.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+
+async function run(): Promise<number> {
+  throw new Error("boom");
+}
+
+it("rejects", async () => {
+  await expect(run()).rejects.toThrow("boom");
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_resolves_over_erased_promise_actual() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+import { run } from "./run";
+
+it("resolves", async () => {
+  await expect(run()).resolves.toBeUndefined();
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_to_have_property_over_erased_object_actual() -> Result<(), String> {
+    // The actual is the erased return of an imported helper; `toHaveProperty`
+    // lowers to a runtime key-containment check on the live `SmeltUnknown`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+import { transform } from "./transform";
+
+it("has property", () => {
+  const result = transform({ user_id: 1 });
+  expect(result).toHaveProperty("userId", 1);
+  expect(result).toHaveProperty("toString");
+});
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_mock_return_value_with_argument() -> Result<(), String> {
+    // `vi.fn().mockReturnValue(x)` configures a plain mock's return value; the
+    // configured value is accepted and the chainable mock handle is returned.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it, vi } from "vitest";
+
+it("configures return value", () => {
+  const mockFn = vi.fn();
+  mockFn.mockReturnValue(3);
+  expect(mockFn).toBe(mockFn);
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
