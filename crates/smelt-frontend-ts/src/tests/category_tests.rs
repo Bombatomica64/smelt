@@ -31,11 +31,38 @@ fn unresolved_user_symbol_is_unresolved_reference() -> Result<(), String> {
 #[test]
 fn new_unresolved_builtin_class_is_missing_stdlib() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(ts!("const buf = new ArrayBuffer(8);"), &mut ctx)?;
-    assert_category(&errors, "ArrayBuffer", DiagnosticCategory::MissingStdlib)?;
-    let mut ctx = HirCtx::new();
     let errors = lowering_errors(ts!("const c = new AbortController();"), &mut ctx)?;
-    assert_category(&errors, "AbortController", DiagnosticCategory::MissingStdlib)
+    assert_category(&errors, "AbortController", DiagnosticCategory::MissingStdlib)?;
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(ts!("const b = new Blob([]);"), &mut ctx)?;
+    assert_category(&errors, "Blob", DiagnosticCategory::MissingStdlib)
+}
+
+/// `new ArrayBuffer(n)` lowers to a concrete record carrying the dedicated
+/// `__smelt_arraybuffer` marker (and `byteLength`), giving it a distinct identity
+/// for `instanceof ArrayBuffer` instead of erasing it to a shapeless value.
+#[test]
+fn new_arraybuffer_lowers_to_concrete_marker_record() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const buf = new ArrayBuffer(8);"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            (&expr.kind, ctx.krate.types.get(expr.ty)),
+            (ExprKind::DictLit(entries), Some(Type::Dict(_, _)))
+                if entries.len() == 2
+        )),
+        "expected `new ArrayBuffer(8)` to lower to a concrete record (DictLit + Dict type)",
+    );
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::Literal(Literal::String(text)) if text == "__smelt_arraybuffer"
+        )),
+        "expected the ArrayBuffer record to carry the `__smelt_arraybuffer` marker key",
+    );
+    Ok(())
 }
 
 /// `new Object()` / `Object(...)` lower to the same concrete record (a `Dict`

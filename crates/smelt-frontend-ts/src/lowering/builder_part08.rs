@@ -62,6 +62,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "Object" && !self.classes.contains_key("Object") {
             return self.object_constructor_expression(new_expr, body, type_hint);
         }
+        if callee.name == "ArrayBuffer" && !self.classes.contains_key("ArrayBuffer") {
+            return self.arraybuffer_constructor_expression(new_expr, body);
+        }
         if Self::is_numeric_typed_array_constructor(callee.name.as_str()) {
             return self.numeric_typed_array_constructor_expression(new_expr, body);
         }
@@ -419,6 +422,67 @@ impl ModuleBuilder<'_> {
         });
         let object = body.push_expr(Expr {
             kind: ExprKind::DictLit(vec![(marker_key, marker_value), (message_key, message)]),
+            ty: dict_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// Lower `new ArrayBuffer(byteLength)` to a concrete marker-bearing record.
+    ///
+    /// JavaScript `ArrayBuffer` is a host binary-buffer object. es-toolkit only
+    /// constructs it and inspects it via `value instanceof ArrayBuffer` (the
+    /// `isArrayBuffer` predicate over an erased `unknown`). Rather than erase it
+    /// to a shapeless `SmeltUnknown` (which would lose its identity), model it as
+    /// a record carrying a dedicated `__smelt_arraybuffer` marker plus its
+    /// `byteLength`, mirroring how `Date`/`Error` keep a distinct identity for
+    /// later dynamic `instanceof` checks (see `instance_of_text`).
+    fn arraybuffer_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let number_ty = self.ctx.krate.types.intern(Type::Float);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let byte_length = match new_expr.arguments.first() {
+            Some(argument) => self.argument(argument, body)?,
+            None => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: number_ty,
+                span,
+            }),
+        };
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_arraybuffer".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let byte_length_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("byteLength".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![
+                (marker_key, marker_value),
+                (byte_length_key, byte_length),
+            ]),
             ty: dict_ty,
             span,
         });

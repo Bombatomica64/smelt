@@ -92,6 +92,7 @@ impl ModuleBuilder<'_> {
             || matches!(
                 target,
                 "Promise"
+                    | "ArrayBuffer"
                     | "Error"
                     | "EvalError"
                     | "RangeError"
