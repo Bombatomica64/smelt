@@ -42,7 +42,533 @@ fn specialization_paths_match(frontend: &str, materialized: &str) -> bool {
     }
 }
 
+/// Materialized descriptor callable role for one source method.
+enum DescriptorCallableRole {
+    /// Getter for the named owner member.
+    Getter(String),
+    /// Setter for the named owner member.
+    Setter(String),
+}
+
+/// Source owner receiving methods produced by definition-time execution.
+struct MaterializedClassTarget<'name> {
+    /// Final source class name.
+    name: &'name str,
+    /// Interned class symbol.
+    symbol: Symbol,
+    /// Concrete HIR class type.
+    ty: TypeId,
+    /// Class source span.
+    span: Span,
+}
+
 impl ModuleBuilder<'_> {
+    /// Lifts source-defined methods installed by a metaclass or class decorator.
+    fn lower_materialized_class_methods(
+        &mut self,
+        target: &MaterializedClassTarget<'_>,
+        materialized: &smelt_specialize::ClassDefinition,
+        module: &ModModule,
+    ) -> Result<Vec<ItemId>, SmeltError> {
+        let mut generated = Vec::new();
+        for method in &materialized.methods {
+            let existing = self
+                .class_methods
+                .get(target.name)
+                .and_then(|methods| methods.get(&method.name))
+                .copied();
+            if existing
+                .is_some_and(|item| self.materialized_method_matches_item(item, &method.callable))
+            {
+                continue;
+            }
+            let source = find_specialized_function(module, &method.callable).ok_or_else(|| {
+                SmeltError::native_specialization_adapter_required(
+                    target.span,
+                    "python.generated-method",
+                    &format!(
+                        "materialized method '{}' has no transpiled source function",
+                        method.callable.qualified_name
+                    ),
+                )
+            })?;
+            if let Some(original) = existing {
+                let hidden = self.intern_name(&format!("__smelt_original_{}", method.name));
+                self.rename_function_item(original, hidden)?;
+            }
+            let saved_aliases = self.install_materialized_captures(
+                &method.callable.captures,
+                self.span(source.range),
+            )?;
+            let lowered = self.class_method(target.name, target.symbol, target.ty, source);
+            self.restore_capture_aliases(saved_aliases);
+            let item = lowered?;
+            let name = self.intern_name(&method.name);
+            self.rename_function_item(item, name)?;
+            self.validate_materialized_method_signature(
+                item,
+                &method.signature,
+                target.span,
+                &method.name,
+            )?;
+            self.class_methods
+                .entry(target.name.to_owned())
+                .or_default()
+                .insert(method.name.clone(), item);
+            generated.push(item);
+        }
+        Ok(generated)
+    }
+
+    /// Returns whether a final host method still points at its source class method.
+    fn materialized_method_matches_item(
+        &self,
+        item: ItemId,
+        callable: &smelt_specialize::CallableProvenance,
+    ) -> bool {
+        let Some(Item::Function(function)) = self
+            .ctx
+            .krate
+            .items
+            .get(usize::try_from(item.0).unwrap_or(usize::MAX))
+        else {
+            return false;
+        };
+        (function.span.start..function.span.end).contains(&callable.span.start)
+    }
+
+    /// Validates a generated instance method while treating its receiver as the owner class.
+    fn validate_materialized_method_signature(
+        &mut self,
+        item: ItemId,
+        signature: &smelt_specialize::FunctionSignature,
+        span: Span,
+        name: &str,
+    ) -> Result<(), SmeltError> {
+        let index = usize::try_from(item.0).unwrap_or(usize::MAX);
+        let Some(Item::Function(function)) = self.ctx.krate.items.get(index).cloned() else {
+            return Err(SmeltError::specialization_type_mismatch(
+                span,
+                name,
+                "materialized method did not lower to a function",
+            ));
+        };
+        if function.params.len() != signature.parameters.len() {
+            return Err(SmeltError::specialization_type_mismatch(
+                span,
+                name,
+                "materialized method parameter count differs from source",
+            ));
+        }
+        for (source, materialized) in function
+            .params
+            .iter()
+            .skip(1)
+            .zip(signature.parameters.iter().skip(1))
+        {
+            let expected = self.materialized_parameter_type(materialized);
+            if source.ty != expected {
+                return Err(SmeltError::specialization_type_mismatch(
+                    span,
+                    name,
+                    format!("parameter '{}' changed concrete type", materialized.name),
+                ));
+            }
+        }
+        let mut expected_return = self.materialized_static_type(&signature.return_type);
+        if signature.is_async {
+            expected_return = self.future_type(expected_return);
+        }
+        if function.return_ty != expected_return || function.is_async != signature.is_async {
+            return Err(SmeltError::specialization_type_mismatch(
+                span,
+                name,
+                "materialized method return or async shape differs from source",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns a cloned materialized class definition by final binding name.
+    fn materialized_class_definition(
+        &self,
+        name: &str,
+    ) -> Option<&smelt_specialize::ClassDefinition> {
+        self.specialization
+            .as_ref()?
+            .module
+            .definitions
+            .iter()
+            .find_map(|record| {
+                (record.binding_name == name)
+                    .then_some(&record.definition)
+                    .and_then(|payload| match payload {
+                        smelt_specialize::Definition::Class(class) => Some(class),
+                        smelt_specialize::Definition::Function(_)
+                        | smelt_specialize::Definition::Value { .. } => None,
+                    })
+            })
+    }
+
+    /// Merges metaclass/generated concrete fields into the source class shape.
+    fn merge_materialized_class_fields(
+        &mut self,
+        class_name: &str,
+        materialized: &smelt_specialize::ClassDefinition,
+        fields: &mut Vec<Field>,
+        span: Span,
+    ) {
+        for field in materialized.fields.iter().filter(|field| !field.is_static) {
+            let name = self.intern_name(&field.name);
+            let ty = self.materialized_static_type(&field.ty);
+            let lowered = Field {
+                name,
+                ty,
+                visibility: if field.is_private {
+                    Visibility::Private
+                } else {
+                    Visibility::Public
+                },
+                optional: false,
+                span,
+            };
+            if let Some(existing) = fields.iter_mut().find(|existing| existing.name == name) {
+                *existing = lowered.clone();
+            } else {
+                fields.push(lowered.clone());
+            }
+            self.class_fields
+                .entry(class_name.to_owned())
+                .or_default()
+                .retain(|existing| existing.name != name);
+            self.class_fields
+                .entry(class_name.to_owned())
+                .or_default()
+                .push(lowered);
+        }
+    }
+
+    /// Lowers manifest descriptor metadata and concrete primitive state.
+    fn lower_materialized_descriptors(
+        &mut self,
+        materialized: &smelt_specialize::ClassDefinition,
+        span: Span,
+    ) -> Result<Vec<smelt_hir::Descriptor>, SmeltError> {
+        materialized
+            .descriptors
+            .iter()
+            .map(|descriptor| self.lower_materialized_descriptor(descriptor, span))
+            .collect()
+    }
+
+    /// Lowers one materialized descriptor.
+    fn lower_materialized_descriptor(
+        &mut self,
+        descriptor: &smelt_specialize::DescriptorDefinition,
+        span: Span,
+    ) -> Result<smelt_hir::Descriptor, SmeltError> {
+        let getter = descriptor
+            .getter
+            .as_ref()
+            .map(|provenance| self.source_item_for_provenance(provenance, span))
+            .transpose()?;
+        let setter = descriptor
+            .setter
+            .as_ref()
+            .map(|provenance| self.source_item_for_provenance(provenance, span))
+            .transpose()?;
+        let value_fields = self.materialized_descriptor_value_fields(descriptor.value, span)?;
+        self.merge_materialized_descriptor_state_class(descriptor.value, &value_fields, span)?;
+        Ok(smelt_hir::Descriptor {
+            name: self.intern_name(&descriptor.name),
+            read_ty: self.materialized_static_type(&descriptor.read_type),
+            write_ty: descriptor
+                .write_type
+                .as_ref()
+                .map(|ty| self.materialized_static_type(ty)),
+            getter,
+            setter,
+            data_descriptor: descriptor.data_descriptor,
+            value_fields,
+        })
+    }
+
+    /// Resolves callable provenance to the nearest already-lowered source item.
+    fn source_item_for_provenance(
+        &self,
+        provenance: &smelt_specialize::CallableProvenance,
+        span: Span,
+    ) -> Result<ItemId, SmeltError> {
+        let expected_name = provenance
+            .qualified_name
+            .rsplit('.')
+            .next()
+            .unwrap_or(&provenance.qualified_name);
+        self.ctx
+            .krate
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| {
+                let Item::Function(function) = item else {
+                    return None;
+                };
+                let name = self.ctx.krate.symbols.get(function.name)?;
+                (name == expected_name || name.ends_with(expected_name))
+                    .then_some((function.span.start.abs_diff(provenance.span.start), index))
+            })
+            .min_by_key(|(distance, _)| *distance)
+            .and_then(|(_, index)| u32::try_from(index).ok())
+            .map(ItemId)
+            .ok_or_else(|| {
+                SmeltError::native_specialization_adapter_required(
+                    span,
+                    "python.descriptor-callable",
+                    &format!(
+                        "descriptor callable '{}' has no lowered source method",
+                        provenance.qualified_name
+                    ),
+                )
+            })
+    }
+
+    /// Extracts concrete primitive fields from a descriptor value graph node.
+    fn materialized_descriptor_value_fields(
+        &mut self,
+        value: smelt_specialize::ValueId,
+        span: Span,
+    ) -> Result<Vec<smelt_hir::DescriptorValueField>, SmeltError> {
+        let node = self.materialized_value(value, span)?.clone();
+        let smelt_specialize::GraphValueKind::Instance { fields, .. } = node.value else {
+            return Ok(Vec::new());
+        };
+        fields
+            .into_iter()
+            .map(|(name, field_value)| {
+                let field_node = self.materialized_value(field_value, span)?.clone();
+                let (literal, ty) = Self::materialized_primitive(&field_node.value, span)?;
+                Ok(smelt_hir::DescriptorValueField {
+                    name: self.intern_name(&name),
+                    value: literal,
+                    ty: self.intern_type(ty),
+                })
+            })
+            .collect()
+    }
+
+    /// Adds concrete descriptor instance state to its source-defined class layout.
+    fn merge_materialized_descriptor_state_class(
+        &mut self,
+        value: smelt_specialize::ValueId,
+        value_fields: &[smelt_hir::DescriptorValueField],
+        span: Span,
+    ) -> Result<(), SmeltError> {
+        if value_fields.is_empty() {
+            return Ok(());
+        }
+        let node = self.materialized_value(value, span)?;
+        let smelt_specialize::GraphValueKind::Instance {
+            class: class_name, ..
+        } = &node.value
+        else {
+            return Ok(());
+        };
+        let qualified_class = class_name.clone();
+        let source_name = qualified_class
+            .rsplit('.')
+            .next()
+            .unwrap_or(&qualified_class)
+            .to_owned();
+        let resolved_class_index = self.ctx.krate.items.iter().position(|item| {
+            matches!(
+                item,
+                Item::Class(candidate)
+                    if self.ctx.krate.symbols.get(candidate.name) == Some(source_name.as_str())
+            )
+        });
+        let Some(class_index) = resolved_class_index else {
+            return Err(SmeltError::native_specialization_adapter_required(
+                span,
+                "python.descriptor-class",
+                &format!(
+                    "descriptor state class '{qualified_class}' has no transpiled source definition"
+                ),
+            ));
+        };
+        let fields = value_fields
+            .iter()
+            .map(|field| Field {
+                name: field.name,
+                ty: field.ty,
+                visibility: Visibility::Private,
+                optional: false,
+                span,
+            })
+            .collect::<Vec<_>>();
+        let Some(Item::Class(descriptor_class)) = self.ctx.krate.items.get_mut(class_index) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "resolved descriptor class item is missing",
+            ));
+        };
+        for field in &fields {
+            if let Some(existing) = descriptor_class
+                .fields
+                .iter_mut()
+                .find(|existing| existing.name == field.name)
+            {
+                *existing = field.clone();
+            } else {
+                descriptor_class.fields.push(field.clone());
+            }
+        }
+        let known_fields = self.class_fields.entry(source_name).or_default();
+        for field in fields {
+            if let Some(existing) = known_fields
+                .iter_mut()
+                .find(|existing| existing.name == field.name)
+            {
+                *existing = field;
+            } else {
+                known_fields.push(field);
+            }
+        }
+        Ok(())
+    }
+
+    /// Converts one graph payload to a concrete HIR primitive.
+    fn materialized_primitive(
+        payload: &smelt_specialize::GraphValueKind,
+        span: Span,
+    ) -> Result<(Literal, Type), SmeltError> {
+        match payload {
+            smelt_specialize::GraphValueKind::Null => Ok((Literal::None, Type::None)),
+            smelt_specialize::GraphValueKind::Bool(boolean) => {
+                Ok((Literal::Bool(*boolean), Type::Bool))
+            }
+            smelt_specialize::GraphValueKind::Int(integer) => integer
+                .parse::<i64>()
+                .map(|parsed| (Literal::Int(parsed), Type::Int))
+                .map_err(|error| {
+                    SmeltError::unsupported(
+                        span,
+                        format!("materialized descriptor integer is too large: {error}"),
+                    )
+                }),
+            smelt_specialize::GraphValueKind::Float(number) => {
+                Ok((Literal::Float(*number), Type::Float))
+            }
+            smelt_specialize::GraphValueKind::String(text) => {
+                Ok((Literal::String(text.clone()), Type::String))
+            }
+            smelt_specialize::GraphValueKind::Bytes(_)
+            | smelt_specialize::GraphValueKind::Tuple(_)
+            | smelt_specialize::GraphValueKind::List(_)
+            | smelt_specialize::GraphValueKind::Set(_)
+            | smelt_specialize::GraphValueKind::Dict(_)
+            | smelt_specialize::GraphValueKind::Enum { .. }
+            | smelt_specialize::GraphValueKind::Instance { .. }
+            | smelt_specialize::GraphValueKind::ClassRef { .. }
+            | smelt_specialize::GraphValueKind::FunctionRef(_) => {
+                Err(SmeltError::native_specialization_adapter_required(
+                    span,
+                    "python.descriptor-state",
+                    "descriptor state contains a non-primitive field",
+                ))
+            }
+        }
+    }
+
+    /// Renames property getter/setter methods to collision-free Rust methods.
+    fn rename_materialized_descriptor_callable(
+        &mut self,
+        class_name: &str,
+        function: &StmtFunctionDef,
+        item: ItemId,
+    ) -> Result<(), SmeltError> {
+        let Some(role) = self.materialized_descriptor_callable_role(class_name, function) else {
+            return Ok(());
+        };
+        let name = match role {
+            DescriptorCallableRole::Getter(field) => format!("__smelt_get_{field}"),
+            DescriptorCallableRole::Setter(field) => format!("__smelt_set_{field}"),
+        };
+        let symbol = self.intern_name(&name);
+        self.rename_function_item(item, symbol)
+    }
+
+    /// Matches a source method span to a materialized descriptor callable.
+    fn materialized_descriptor_callable_role(
+        &self,
+        class_name: &str,
+        function: &StmtFunctionDef,
+    ) -> Option<DescriptorCallableRole> {
+        let class = self.materialized_class_definition(class_name)?;
+        let start = function.range.start().to_u32();
+        class.descriptors.iter().find_map(|descriptor| {
+            if descriptor.name == function.name.as_str()
+                && function
+                    .decorator_list
+                    .iter()
+                    .any(|decorator| decorator_simple_name(decorator) == Some("property"))
+            {
+                return Some(DescriptorCallableRole::Getter(descriptor.name.clone()));
+            }
+            if descriptor.name == function.name.as_str()
+                && function
+                    .decorator_list
+                    .iter()
+                    .any(|decorator| decorator_simple_name(decorator) == Some("setter"))
+            {
+                return Some(DescriptorCallableRole::Setter(descriptor.name.clone()));
+            }
+            if descriptor
+                .getter
+                .as_ref()
+                .is_some_and(|getter| getter.span.start == start)
+            {
+                Some(DescriptorCallableRole::Getter(descriptor.name.clone()))
+            } else if descriptor
+                .setter
+                .as_ref()
+                .is_some_and(|setter| setter.span.start == start)
+            {
+                Some(DescriptorCallableRole::Setter(descriptor.name.clone()))
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Returns whether a decorated method is a manifest-backed descriptor callable.
+    fn is_materialized_descriptor_callable(&self, function: &StmtFunctionDef) -> bool {
+        let decorator_role = function.decorator_list.iter().any(|decorator| {
+            matches!(
+                decorator_simple_name(decorator),
+                Some("property" | "setter")
+            )
+        });
+        self.specialization.as_ref().is_some_and(|specialization| {
+            specialization
+                .module
+                .definitions
+                .iter()
+                .filter_map(|definition| match &definition.definition {
+                    smelt_specialize::Definition::Class(class) => Some(class),
+                    smelt_specialize::Definition::Function(_)
+                    | smelt_specialize::Definition::Value { .. } => None,
+                })
+                .flat_map(|class| &class.descriptors)
+                .any(|descriptor| {
+                    (decorator_role && descriptor.name == function.name.as_str())
+                        || [descriptor.getter.as_ref(), descriptor.setter.as_ref()]
+                            .into_iter()
+                            .flatten()
+                            .any(|callable| callable.span.start == function.range.start().to_u32())
+                })
+        })
+    }
+
     /// Returns whether a local function is used only as a materialized
     /// definition-time decorator factory in this module.
     fn is_materialized_decorator_factory(
@@ -59,6 +585,27 @@ impl ModuleBuilder<'_> {
                     decorator_simple_name(decorator) == Some(candidate.name.as_str())
                 }),
                 _ => false,
+            })
+    }
+
+    /// Returns whether a source class is used only as a build-time metaclass.
+    fn is_materialized_metaclass_definition(
+        &self,
+        candidate: &StmtClassDef,
+        module: &ModModule,
+    ) -> bool {
+        self.specialization.is_some()
+            && module.body.iter().any(|statement| {
+                let Stmt::ClassDef(class) = statement else {
+                    return false;
+                };
+                class.arguments.as_deref().is_some_and(|arguments| {
+                    arguments.keywords.iter().any(|keyword| {
+                        keyword.arg.as_ref().map(|name| name.as_str()) == Some("metaclass")
+                            && expr_simple_name(&keyword.value)
+                                == Some(candidate.name.as_str())
+                    })
+                })
             })
     }
 
@@ -421,13 +968,21 @@ impl ModuleBuilder<'_> {
     /// Finds a source item referenced by qualified callable provenance.
     fn capture_source_item(&self, qualified_name: &str, span: Span) -> Result<ItemId, SmeltError> {
         let source_name = qualified_name.rsplit('.').next().unwrap_or(qualified_name);
-        self.items.get(source_name).copied().ok_or_else(|| {
-            SmeltError::native_specialization_adapter_required(
-                span,
-                "python.capture-provenance",
-                &format!("captured callable '{qualified_name}' has no lowered source item"),
-            )
-        })
+        self.items
+            .get(source_name)
+            .copied()
+            .or_else(|| {
+                self.class_methods
+                    .values()
+                    .find_map(|methods| methods.get(source_name).copied())
+            })
+            .ok_or_else(|| {
+                SmeltError::native_specialization_adapter_required(
+                    span,
+                    "python.capture-provenance",
+                    &format!("captured callable '{qualified_name}' has no lowered source item"),
+                )
+            })
     }
 
     /// Creates a HIR constant item from one concrete materialized value.

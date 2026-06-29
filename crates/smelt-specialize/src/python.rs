@@ -475,6 +475,15 @@ class Descriptor:
 
 class Model:
     field: int = Descriptor()
+    _value: int = 1
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    @value.setter
+    def value(self, value: int) -> None:
+        self._value = value
 
 cycle = []
 cycle.append(cycle)
@@ -543,6 +552,7 @@ cycle.append(cycle)
         {
             return Err("typed descriptor was not materialized".to_owned());
         }
+        assert_property_descriptor(manifest, class)?;
         let cycle_id = module
             .globals
             .get("cycle")
@@ -558,6 +568,37 @@ cycle.append(cycle)
             crate::GraphValueKind::List(values) if values == &vec![*cycle_id]
         ) {
             return Err("self-referential list identity was not preserved".to_owned());
+        }
+        Ok(())
+    }
+
+    /// Verifies property accessor provenance and non-opaque graph state.
+    fn assert_property_descriptor(
+        manifest: &SpecializationManifest,
+        class: &crate::ClassDefinition,
+    ) -> Result<(), String> {
+        let property = class
+            .descriptors
+            .iter()
+            .find(|descriptor| descriptor.name == "value")
+            .ok_or_else(|| "property descriptor was not materialized".to_owned())?;
+        if property.getter.is_none() || property.setter.is_none() {
+            return Err("property accessor provenance was not preserved".to_owned());
+        }
+        let property_value = manifest
+            .values
+            .nodes
+            .iter()
+            .find(|node| node.id == property.value)
+            .ok_or_else(|| "property value graph node was missing".to_owned())?;
+        if !matches!(
+            &property_value.value,
+            crate::GraphValueKind::Instance {
+                class: property_class,
+                fields,
+            } if property_class == "builtins.property" && fields.is_empty()
+        ) {
+            return Err("property value must not retain opaque CPython callables".to_owned());
         }
         Ok(())
     }

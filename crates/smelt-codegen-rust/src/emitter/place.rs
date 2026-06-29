@@ -143,6 +143,9 @@ impl FunctionEmitter<'_> {
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
                     return self.string_field_text(&self.local_value_text(*base)?, *field);
                 }
+                if let Some(getter) = self.descriptor_getter_text(*base, *field)? {
+                    return Ok(getter);
+                }
                 if self.storage_field_is_function(base_ty, *field) {
                     return Ok(format!(
                         "{}.{}.clone()",
@@ -272,7 +275,199 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a place to its Rust text representation for assignment.
+    /// Emits a descriptor getter invocation for one statically known class field.
+    pub(super) fn descriptor_getter_text(
+        &self,
+        base: LocalId,
+        field: Symbol,
+    ) -> Result<Option<String>, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        let Some((owner, descriptor)) = self.descriptor_for_field(base_ty, field) else {
+            return Ok(None);
+        };
+        let Some(getter_id) = descriptor.getter else {
+            return Err(EmitError::new(
+                "materialized descriptor read has no source getter",
+            ));
+        };
+        let getter = self
+            .mir
+            .functions
+            .get(usize::try_from(getter_id.0).unwrap_or(usize::MAX))
+            .ok_or_else(|| EmitError::new("descriptor getter function is missing"))?;
+        let HirOrigin::ClassMethod {
+            class: getter_class,
+            method: method_symbol,
+            ..
+        } = getter.origin
+        else {
+            return Err(EmitError::new(
+                "descriptor getter did not lower as a class method",
+            ));
+        };
+        let method_name = sanitize_ident(self.symbol_name(method_symbol)?);
+        let base_text = self.local_value_text(base)?;
+        if getter_class == owner.name {
+            return Ok(Some(format!("{base_text}.{method_name}()")));
+        }
+        let descriptor_value = self.descriptor_value_text(getter_class, descriptor)?;
+        let arguments = getter
+            .params
+            .iter()
+            .skip(1)
+            .enumerate()
+            .map(|(index, _)| {
+                if index == 0 {
+                    format!("{base_text}.clone()")
+                } else {
+                    "Default::default()".to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(Some(format!(
+            "{descriptor_value}.{method_name}({arguments})"
+        )))
+    }
+
+    /// Emits a descriptor setter statement for one statically known class field.
+    pub(super) fn descriptor_setter_statement(
+        &self,
+        base: LocalId,
+        field: Symbol,
+        value: &Rvalue,
+    ) -> Result<Option<String>, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        let Some((owner, descriptor)) = self.descriptor_for_field(base_ty, field) else {
+            return Ok(None);
+        };
+        let Some(setter_id) = descriptor.setter else {
+            return Err(EmitError::new(
+                "materialized descriptor write has no source setter",
+            ));
+        };
+        let setter = self
+            .mir
+            .functions
+            .get(usize::try_from(setter_id.0).unwrap_or(usize::MAX))
+            .ok_or_else(|| EmitError::new("descriptor setter function is missing"))?;
+        let HirOrigin::ClassMethod {
+            class: setter_class,
+            method: method_symbol,
+            ..
+        } = setter.origin
+        else {
+            return Err(EmitError::new(
+                "descriptor setter did not lower as a class method",
+            ));
+        };
+        let write_ty = descriptor
+            .write_ty
+            .ok_or_else(|| EmitError::new("read-only descriptor cannot be assigned"))?;
+        let rendered = self.rvalue_text_for_dest(value, write_ty)?;
+        let method_name = sanitize_ident(self.symbol_name(method_symbol)?);
+        let base_text = self.local_mut_value_text(base)?;
+        if setter_class == owner.name {
+            return Ok(Some(format!("{base_text}.{method_name}({rendered});")));
+        }
+        let descriptor_value = self.descriptor_value_text(setter_class, descriptor)?;
+        let mut arguments = setter
+            .params
+            .iter()
+            .skip(1)
+            .enumerate()
+            .map(|(index, parameter)| {
+                if index == 0 {
+                    if self.parameter_needs_mutable_reference_in(setter, *parameter) {
+                        format!("&mut {base_text}")
+                    } else {
+                        format!("{base_text}.clone()")
+                    }
+                } else {
+                    "Default::default()".to_owned()
+                }
+            })
+            .collect::<Vec<_>>();
+        if let Some(last) = arguments.last_mut() {
+            rendered.clone_into(last);
+        }
+        Ok(Some(format!(
+            "{descriptor_value}.{method_name}({});",
+            arguments.join(", ")
+        )))
+    }
+
+    /// Finds a descriptor through the concrete class inheritance chain.
+    pub(super) fn descriptor_for_field(
+        &self,
+        ty: TypeId,
+        field: Symbol,
+    ) -> Option<(&MirClass, &MirDescriptor)> {
+        let Type::Class { name, .. } = self.mir.types.get(ty)? else {
+            return None;
+        };
+        let class = self.mir.classes.iter().find(|class| class.name == *name)?;
+        if let Some(descriptor) = class
+            .descriptors
+            .iter()
+            .find(|descriptor| descriptor.name == field)
+        {
+            let instance_storage_shadows = !descriptor.data_descriptor
+                && crate::classes::effective_class_fields(self.mir, class)
+                    .iter()
+                    .any(|candidate| candidate.name == field);
+            if !instance_storage_shadows {
+                return Some((class, descriptor));
+            }
+        }
+        let base = class.base?;
+        let base_ty = self
+            .mir
+            .types
+            .all()
+            .iter()
+            .position(|candidate| {
+                matches!(candidate, Type::Class { name: candidate_name, .. } if *candidate_name == base)
+            })
+            .and_then(|index| u32::try_from(index).ok())
+            .map(TypeId)?;
+        self.descriptor_for_field(base_ty, field)
+    }
+
+    /// Constructs concrete static descriptor state as a Rust value.
+    fn descriptor_value_text(
+        &self,
+        class_symbol: Symbol,
+        descriptor: &MirDescriptor,
+    ) -> Result<String, EmitError> {
+        let descriptor_class = self
+            .mir
+            .classes
+            .iter()
+            .find(|candidate| candidate.name == class_symbol)
+            .ok_or_else(|| EmitError::new("descriptor class is not materialized"))?;
+        let class_name = crate::classes::class_name_text(self.mir, descriptor_class)?;
+        let fields = descriptor
+            .value_fields
+            .iter()
+            .map(|field| {
+                Ok(format!(
+                    "{}: {}",
+                    sanitize_ident(self.symbol_name(field.name)?),
+                    descriptor_literal_text(&field.value)
+                ))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?;
+        if fields.is_empty() {
+            Ok(format!("{class_name}::default()"))
+        } else {
+            Ok(format!(
+                "{class_name} {{ {}, ..Default::default() }}",
+                fields.join(", ")
+            ))
+        }
+    }
+
     /// Converts a place to its Rust text representation for assignment.
     pub(super) fn assignment_place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
@@ -438,4 +633,27 @@ impl FunctionEmitter<'_> {
     }
 
     // Unknown/runtime type helpers continue in `unknown.rs`.
+}
+
+/// Converts a statically materialized descriptor literal to Rust source.
+fn descriptor_literal_text(literal: &smelt_hir::Literal) -> String {
+    match literal {
+        smelt_hir::Literal::Bool(boolean) => boolean.to_string(),
+        smelt_hir::Literal::Int(integer) => integer.to_string(),
+        smelt_hir::Literal::Float(number) => {
+            if number.is_nan() {
+                "f64::NAN".to_owned()
+            } else if number.is_infinite() && number.is_sign_positive() {
+                "f64::INFINITY".to_owned()
+            } else if number.is_infinite() {
+                "f64::NEG_INFINITY".to_owned()
+            } else {
+                format!("{number:?}")
+            }
+        }
+        smelt_hir::Literal::String(text) => format!("{text:?}.to_owned()"),
+        smelt_hir::Literal::Symbol(_)
+        | smelt_hir::Literal::Undefined
+        | smelt_hir::Literal::None => "Default::default()".to_owned(),
+    }
 }

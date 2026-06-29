@@ -141,6 +141,17 @@ class Serializer:
                     common_type(value_ids, self.nodes),
                 ],
             }, {"kind": "dict", "value": entries}
+        if isinstance(value, property):
+            return named_type("builtins.property"), {
+                "kind": "instance",
+                "value": {
+                    "class": "builtins.property",
+                    # Accessor provenance is serialized by `class_definition`;
+                    # the built-in property object has no independent runtime
+                    # state that generated Rust needs to construct.
+                    "fields": {},
+                },
+            }
         if inspect.isclass(value):
             return named_type(qualified_type_name(value)), {
                 "kind": "class_ref",
@@ -554,8 +565,14 @@ def class_definition(
             methods.append(function_definition(name, method, serializer, mode))
             continue
         if hasattr(type(raw_value), "__get__") or isinstance(raw_value, property):
-            getter = getattr(raw_value, "fget", None) or getattr(type(raw_value), "__get__", None)
-            setter = getattr(raw_value, "fset", None) or getattr(type(raw_value), "__set__", None)
+            if isinstance(raw_value, property):
+                getter = raw_value.fget
+                setter = raw_value.fset
+                data_descriptor = True
+            else:
+                getter = getattr(type(raw_value), "__get__", None)
+                setter = getattr(type(raw_value), "__set__", None)
+                data_descriptor = setter is not None
             read_annotation = (
                 inspect.signature(getter).return_annotation
                 if getter is not None and source_span(getter) is not None
@@ -577,7 +594,7 @@ def class_definition(
                         if setter is None
                         else callable_provenance(setter, serializer)
                     ),
-                    "data_descriptor": setter is not None,
+                    "data_descriptor": data_descriptor,
                 }
             )
             continue

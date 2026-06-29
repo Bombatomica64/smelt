@@ -3,6 +3,7 @@ impl ModuleBuilder<'_> {
     fn class_def(
         &mut self,
         class: &StmtClassDef,
+        module: &ModModule,
         hir_module: &mut Module,
     ) -> Result<(), SmeltError> {
         let span = self.span(class.range);
@@ -12,10 +13,16 @@ impl ModuleBuilder<'_> {
             name: class_sym,
             args: vec![],
         });
+        let materialized = self.materialized_class_definition(class_name_str).cloned();
 
         // --- Decorator check: only @dataclass is allowed ---
         let mut kind = ClassKind::Plain;
-        for dec in &class.decorator_list {
+        let runtime_decorators = if materialized.is_none() {
+            class.decorator_list.as_slice()
+        } else {
+            &[]
+        };
+        for dec in runtime_decorators {
             match decorator_simple_name(dec) {
                 Some(n @ ("dataclass" | "dataclasses.dataclass")) => {
                     let frozen = decorator_frozen_kwarg(dec);
@@ -48,7 +55,7 @@ impl ModuleBuilder<'_> {
                 if kw.arg.as_ref().map(|a| a.as_str()) == Some("metaclass") {
                     if matches!(expr_simple_name(&kw.value), Some("ABCMeta" | "abc.ABCMeta")) {
                         is_abstract_class = true;
-                    } else {
+                    } else if materialized.is_none() {
                         return Err(SmeltError::no_metaclass(span, class_name_str));
                     }
                 }
@@ -94,7 +101,7 @@ impl ModuleBuilder<'_> {
                             ),
                         ));
                     };
-                    if is_django_model_base(base_expr) {
+                    if is_django_model_base(base_expr) && materialized.is_none() {
                         return Err(SmeltError::django_unsupported(span, class_name_str));
                     }
                     match base_class_name(base_expr) {
@@ -134,6 +141,7 @@ impl ModuleBuilder<'_> {
             base,
             base_args: Vec::new(),
             fields: Vec::new(),
+            descriptors: Vec::new(),
             constructor: None,
             methods: Vec::new(),
             abstract_methods: Vec::new(),
@@ -192,6 +200,7 @@ impl ModuleBuilder<'_> {
                         hir_module.items.push(mid);
                     } else {
                         let mid = self.class_method(class_name_str, class_sym, class_ty, func)?;
+                        self.rename_materialized_descriptor_callable(class_name_str, func, mid)?;
                         method_ids.push(mid);
                         self.class_methods
                             .entry(class_name_str.to_owned())
@@ -242,6 +251,43 @@ impl ModuleBuilder<'_> {
             }
         }
 
+        let descriptors = if let Some(manifest_class) = &materialized {
+            self.merge_materialized_class_fields(class_name_str, manifest_class, &mut fields, span);
+            self.lower_materialized_descriptors(manifest_class, span)?
+        } else {
+            Vec::new()
+        };
+        let descriptor_names = descriptors
+            .iter()
+            .map(|descriptor| descriptor.name)
+            .collect::<HashSet<_>>();
+        fields.retain(|field| {
+            if !descriptor_names.contains(&field.name) {
+                return true;
+            }
+            descriptors
+                .iter()
+                .find(|descriptor| descriptor.name == field.name)
+                .is_some_and(|descriptor| {
+                    !descriptor.data_descriptor
+                        && Self::constructor_assigns_instance_field(class, field.name, self)
+                })
+        });
+        if let Some(manifest_class) = &materialized {
+            let generated = self.lower_materialized_class_methods(
+                &MaterializedClassTarget {
+                    name: class_name_str,
+                    symbol: class_sym,
+                    ty: class_ty,
+                    span,
+                },
+                manifest_class,
+                module,
+            )?;
+            hir_module.items.extend(generated.iter().copied());
+            method_ids.extend(generated);
+        }
+
         // @dataclass: synthesize __init__ from fields
         if matches!(kind, ClassKind::DataclassLike { .. }) {
             if fields.is_empty() {
@@ -276,6 +322,7 @@ impl ModuleBuilder<'_> {
             base,
             base_args: Vec::new(),
             fields,
+            descriptors,
             constructor: constructor_id,
             methods: method_ids,
             abstract_methods,
@@ -295,6 +342,47 @@ impl ModuleBuilder<'_> {
         hir_module.items.push(class_item_id);
 
         Ok(())
+    }
+
+    /// Returns whether `__init__` directly assigns the named instance field.
+    fn constructor_assigns_instance_field(
+        class: &StmtClassDef,
+        field: Symbol,
+        builder: &Self,
+    ) -> bool {
+        let Some(field_name) = builder.ctx.krate.symbols.get(field) else {
+            return false;
+        };
+        class.body.iter().any(|statement| {
+            let Stmt::FunctionDef(function) = statement else {
+                return false;
+            };
+            function.name.as_str() == "__init__"
+                && function.body.iter().any(|body_statement| {
+                    Self::statement_assigns_self_field(body_statement, field_name)
+                })
+        })
+    }
+
+    /// Returns whether one simple statement assigns `self.<field>`.
+    fn statement_assigns_self_field(statement: &Stmt, field: &str) -> bool {
+        let is_target = |target: &Expr| {
+            matches!(
+                target,
+                Expr::Attribute(attribute)
+                    if attribute.attr.as_str() == field
+                        && matches!(
+                            attribute.value.as_ref(),
+                            Expr::Name(receiver) if receiver.id.as_str() == "self"
+                        )
+            )
+        };
+        match statement {
+            Stmt::Assign(assign) => assign.targets.iter().any(is_target),
+            Stmt::AnnAssign(assign) => is_target(&assign.target),
+            Stmt::AugAssign(assign) => is_target(&assign.target),
+            _ => false,
+        }
     }
 
     /// Lower one targeted `IntEnum` member assignment from a class body.
@@ -442,7 +530,10 @@ impl ModuleBuilder<'_> {
             let annotation = param.parameter.annotation.as_deref().ok_or_else(|| {
                 SmeltError::unsupported(
                     span,
-                    format!("abstract method '{}': parameters require annotations", func.name),
+                    format!(
+                        "abstract method '{}': parameters require annotations",
+                        func.name
+                    ),
                 )
             })?;
             params.push(ParamSig {
@@ -457,7 +548,10 @@ impl ModuleBuilder<'_> {
             .ok_or_else(|| {
                 SmeltError::type_constraint(
                     span,
-                    format!("abstract method '{}': return type annotation required", func.name),
+                    format!(
+                        "abstract method '{}': return type annotation required",
+                        func.name
+                    ),
                 )
             })
             .and_then(|annotation| self.annotation_to_hir(annotation))?;
@@ -466,7 +560,7 @@ impl ModuleBuilder<'_> {
             params,
             rest: None,
             required_params: None,
-return_ty,
+            return_ty,
             visibility: Visibility::Public,
             is_async: false,
             span,
@@ -633,7 +727,7 @@ return_ty,
             params,
             rest: None,
             required_params: None,
-return_ty,
+            return_ty,
             is_async: false,
             is_test: false,
             body: Some(body_id),

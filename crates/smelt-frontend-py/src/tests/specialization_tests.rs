@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use super::*;
 use smelt_specialize::{
-    BindingMode, CallableProvenance, Definition, FunctionDefinition, FunctionSignature, GraphValue,
+    BindingMode, CallableProvenance, ClassDefinition, ConstructorShape, Definition,
+    DescriptorDefinition, FieldDefinition, FunctionDefinition, FunctionSignature, GraphValue,
     GraphValueKind, HashInputs, HostLanguage, MANIFEST_SCHEMA_VERSION, MaterializedDefinition,
     ModuleRecord, Parameter, ParameterKind, SandboxPolicyRecord, SourceProvenance, SourceSpan,
     SpecializationManifest, StaticType, ValueGraph, ValueId,
@@ -20,6 +21,34 @@ def decorate(function: Callable[[int], str]) -> Callable[[int], str]:
 @decorate
 def render(value: int) -> str:
     return str(value)
+"#;
+
+const PROPERTY_SOURCE: &str = r#"
+class Model:
+    _value: int
+
+    def __init__(self, value: int) -> None:
+        self._value = value
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    @value.setter
+    def value(self, value: int) -> None:
+        self._value = value
+"#;
+
+const METACLASS_SOURCE: &str = r#"
+class Meta(type):
+    def __new__(cls, name, bases, namespace):
+        def generated(self, value: int) -> str:
+            return str(value)
+        namespace["generated"] = generated
+        return type.__new__(cls, name, bases, namespace)
+
+class Model(metaclass=Meta):
+    source_field: int
 "#;
 
 #[test]
@@ -68,6 +97,119 @@ fn manifest_lifts_source_wrapper_and_concrete_captures() -> TestResult {
     ensure(
         smelt_hir::validate(&ctx.krate).is_empty(),
         "lifted wrapper HIR must validate",
+    )
+}
+
+#[test]
+fn manifest_materializes_property_as_typed_descriptor() -> TestResult {
+    let manifest = property_manifest();
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir_with_options(
+        PROPERTY_SOURCE,
+        FileId(0),
+        "fixture.py",
+        &mut ctx,
+        FrontendOptions {
+            specialization: Some(&manifest),
+        },
+    )
+    .map_err(|errors| format!("property lowering failed: {errors:?}"))?;
+    let module = module(&ctx, module_id)?;
+    let class = module
+        .items
+        .iter()
+        .find_map(|item_id| match item(&ctx, *item_id).ok()? {
+            Item::Class(class) => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| "materialized class item is missing".to_owned())?;
+    ensure_eq(
+        &class.fields.len(),
+        &1,
+        "descriptor must not occupy storage",
+    )?;
+    ensure_eq(
+        &class.descriptors.len(),
+        &1,
+        "materialized descriptor count",
+    )?;
+    let descriptor = &class.descriptors[0];
+    ensure(
+        descriptor.getter.is_some() && descriptor.setter.is_some(),
+        "property getter and setter must resolve to HIR functions",
+    )?;
+    ensure_eq(
+        &ctx.krate.types.get(descriptor.read_ty),
+        &Some(&Type::Int),
+        "descriptor read type",
+    )?;
+    ensure_eq(
+        &descriptor.write_ty.and_then(|ty| ctx.krate.types.get(ty)),
+        &Some(&Type::Int),
+        "descriptor write type",
+    )?;
+    ensure(
+        smelt_hir::validate(&ctx.krate).is_empty(),
+        "materialized descriptor HIR must validate",
+    )
+}
+
+#[test]
+fn manifest_merges_metaclass_generated_fields() -> TestResult {
+    let manifest = metaclass_manifest();
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir_with_options(
+        METACLASS_SOURCE,
+        FileId(0),
+        "fixture.py",
+        &mut ctx,
+        FrontendOptions {
+            specialization: Some(&manifest),
+        },
+    )
+    .map_err(|errors| format!("metaclass lowering failed: {errors:?}"))?;
+    let module = module(&ctx, module_id)?;
+    let class = module
+        .items
+        .iter()
+        .find_map(|item_id| match item(&ctx, *item_id).ok()? {
+            Item::Class(class) => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| "materialized class item is missing".to_owned())?;
+    let fields = class
+        .fields
+        .iter()
+        .map(|field| symbol(&ctx, field.name).map(str::to_owned))
+        .collect::<Result<Vec<_>, _>>()?;
+    ensure(
+        fields.iter().any(|field| field == "source_field"),
+        "source field must remain in the materialized class",
+    )?;
+    ensure(
+        fields.iter().any(|field| field == "generated_field"),
+        "metaclass-generated field must be merged into HIR",
+    )?;
+    let generated = class
+        .methods
+        .iter()
+        .filter_map(|item_id| item(&ctx, *item_id).ok())
+        .find_map(|item| match item {
+            Item::Function(function) if symbol(&ctx, function.name).ok() == Some("generated") => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "source-defined generated method was not lifted".to_owned())?;
+    ensure(
+        matches!(
+            generated.owner,
+            smelt_hir::FunctionOwner::ClassMethod {
+                class: owner_class,
+                ..
+            } if symbol(&ctx, owner_class).ok() == Some("Model")
+        ),
+        "generated method must be rebound to the materialized class",
     )
 }
 
@@ -136,6 +278,180 @@ fn wrapper_manifest() -> SpecializationManifest {
     }
 }
 
+/// Builds a materialized property manifest for [`PROPERTY_SOURCE`].
+fn property_manifest() -> SpecializationManifest {
+    let getter = property_provenance("def value(self) -> int:");
+    let setter = property_provenance("def value(self, value: int) -> None:");
+    let signature = FunctionSignature {
+        parameters: Vec::new(),
+        return_type: StaticType::Named("fixture.Model".to_owned()),
+        is_async: false,
+        throws: false,
+    };
+    SpecializationManifest {
+        smelt_version: "test".to_owned(),
+        schema_version: MANIFEST_SCHEMA_VERSION,
+        language: HostLanguage::Python,
+        host_runtime_version: "test".to_owned(),
+        hashes: fixture_hashes(),
+        sandbox_policy: fixture_policy(),
+        modules: vec![ModuleRecord {
+            path: "fixture.py".to_owned(),
+            definitions: vec![MaterializedDefinition {
+                original_name: "Model".to_owned(),
+                binding_name: "Model".to_owned(),
+                source: SourceProvenance {
+                    module: "fixture".to_owned(),
+                    qualified_name: "Model".to_owned(),
+                    span: SourceSpan {
+                        file: "fixture.py".to_owned(),
+                        start: source_start_in(PROPERTY_SOURCE, "class Model:"),
+                        end: u32::try_from(PROPERTY_SOURCE.len()).unwrap_or(u32::MAX),
+                    },
+                },
+                binding_type: StaticType::Named("fixture.Model".to_owned()),
+                definition: Definition::Class(ClassDefinition {
+                    mro: vec!["fixture.Model".to_owned()],
+                    bases: Vec::new(),
+                    fields: vec![FieldDefinition {
+                        name: "_value".to_owned(),
+                        ty: StaticType::Int,
+                        default: None,
+                        is_static: false,
+                        is_private: false,
+                        span: None,
+                    }],
+                    descriptors: vec![DescriptorDefinition {
+                        name: "value".to_owned(),
+                        value: ValueId(0),
+                        read_type: StaticType::Int,
+                        write_type: Some(StaticType::Int),
+                        getter: Some(getter),
+                        setter: Some(setter),
+                        data_descriptor: true,
+                    }],
+                    methods: Vec::new(),
+                    static_values: BTreeMap::new(),
+                    slots: Vec::new(),
+                    metadata: Vec::new(),
+                    constructor: ConstructorShape {
+                        signature,
+                        replacement: None,
+                    },
+                    initializers: Vec::new(),
+                }),
+            }],
+            globals: BTreeMap::from([("Model".to_owned(), ValueId(1))]),
+        }],
+        values: ValueGraph {
+            nodes: vec![
+                GraphValue {
+                    id: ValueId(0),
+                    ty: StaticType::Named("builtins.property".to_owned()),
+                    value: GraphValueKind::Instance {
+                        class: "builtins.property".to_owned(),
+                        fields: BTreeMap::new(),
+                    },
+                },
+                GraphValue {
+                    id: ValueId(1),
+                    ty: StaticType::Named("fixture.Model".to_owned()),
+                    value: GraphValueKind::ClassRef {
+                        module: "fixture".to_owned(),
+                        qualified_name: "Model".to_owned(),
+                    },
+                },
+            ],
+        },
+        effects: Vec::new(),
+        required_adapters: Vec::new(),
+    }
+}
+
+/// Builds a manifest containing a field generated by a custom metaclass.
+fn metaclass_manifest() -> SpecializationManifest {
+    let mut manifest = property_manifest();
+    let Definition::Class(class) = &mut manifest.modules[0].definitions[0].definition else {
+        return manifest;
+    };
+    class.descriptors.clear();
+    class.fields = vec![
+        FieldDefinition {
+            name: "source_field".to_owned(),
+            ty: StaticType::Int,
+            default: None,
+            is_static: false,
+            is_private: false,
+            span: None,
+        },
+        FieldDefinition {
+            name: "generated_field".to_owned(),
+            ty: StaticType::String,
+            default: None,
+            is_static: false,
+            is_private: false,
+            span: None,
+        },
+    ];
+    class.methods = vec![FunctionDefinition {
+        name: "generated".to_owned(),
+        signature: FunctionSignature {
+            parameters: vec![
+                Parameter {
+                    name: "self".to_owned(),
+                    ty: StaticType::Named("builtins.object".to_owned()),
+                    kind: ParameterKind::Positional,
+                    default: None,
+                    annotation: None,
+                },
+                Parameter {
+                    name: "value".to_owned(),
+                    ty: StaticType::Int,
+                    kind: ParameterKind::Positional,
+                    default: None,
+                    annotation: Some("int".to_owned()),
+                },
+            ],
+            return_type: StaticType::String,
+            is_async: false,
+            throws: false,
+        },
+        callable: CallableProvenance {
+            language: HostLanguage::Python,
+            module: "fixture".to_owned(),
+            qualified_name: "Meta.__new__.<locals>.generated".to_owned(),
+            span: SourceSpan {
+                file: "fixture.py".to_owned(),
+                start: source_start_in(METACLASS_SOURCE, "def generated"),
+                end: source_start_in(METACLASS_SOURCE, "def generated").saturating_add(64),
+            },
+            code_hash: "generated".to_owned(),
+            captures: BTreeMap::new(),
+            binding_mode: BindingMode::Instance,
+        },
+        wrapper_chain: Vec::new(),
+        binding_mode: BindingMode::Instance,
+    }];
+    manifest
+}
+
+/// Builds property accessor provenance at one source definition.
+fn property_provenance(fragment: &str) -> CallableProvenance {
+    CallableProvenance {
+        language: HostLanguage::Python,
+        module: "fixture".to_owned(),
+        qualified_name: "Model.value".to_owned(),
+        span: SourceSpan {
+            file: "fixture.py".to_owned(),
+            start: source_start_in(PROPERTY_SOURCE, fragment),
+            end: source_start_in(PROPERTY_SOURCE, fragment).saturating_add(32),
+        },
+        code_hash: fragment.to_owned(),
+        captures: BTreeMap::new(),
+        binding_mode: BindingMode::Instance,
+    }
+}
+
 /// Builds callable provenance against the in-memory fixture.
 fn provenance(
     qualified_name: &str,
@@ -159,7 +475,12 @@ fn provenance(
 
 /// Returns the byte offset for one source fragment.
 fn source_start(fragment: &str) -> u32 {
-    WRAPPED_SOURCE
+    source_start_in(WRAPPED_SOURCE, fragment)
+}
+
+/// Returns the byte offset for one source fragment in a fixture.
+fn source_start_in(source: &str, fragment: &str) -> u32 {
+    source
         .find(fragment)
         .and_then(|offset| u32::try_from(offset).ok())
         .unwrap_or(0)

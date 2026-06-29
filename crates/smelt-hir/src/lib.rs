@@ -77,8 +77,9 @@ pub use ids::{
     TypeId,
 };
 pub use item::{
-    Class, ClassKind, ConstItem, Field, Function, FunctionOwner, Interface, InterfaceHeritage,
-    Item, MethodSig, Param, ParamSig, TypeAlias, TypeParamDef, Visibility,
+    Class, ClassKind, ConstItem, Descriptor, DescriptorValueField, Field, Function, FunctionOwner,
+    Interface, InterfaceHeritage, Item, MethodSig, Param, ParamSig, TypeAlias, TypeParamDef,
+    Visibility,
 };
 pub use krate::{CONSOLE_LOG_SYMBOL, Crate, Import, Language, Module, SourceFile};
 pub use symbol::{OriginalNameTable, SymbolInterner};

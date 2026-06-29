@@ -182,6 +182,8 @@ pub struct MirClass {
     pub base_args: Vec<TypeId>,
     /// Fields defined in the class.
     pub fields: Vec<MirField>,
+    /// Materialized typed descriptors.
+    pub descriptors: Vec<MirDescriptor>,
     /// Constructor function ID, if any.
     pub constructor: Option<FuncId>,
     /// Method function IDs.
@@ -190,6 +192,25 @@ pub struct MirClass {
     pub abstract_methods: Vec<smelt_hir::MethodSig>,
     /// Interfaces this class implements.
     pub implements: Vec<Symbol>,
+}
+
+/// MIR representation of a materialized typed descriptor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirDescriptor {
+    /// Bound member name.
+    pub name: Symbol,
+    /// Type produced by reads.
+    pub read_ty: TypeId,
+    /// Type accepted by writes.
+    pub write_ty: Option<TypeId>,
+    /// Getter function, when source-mappable.
+    pub getter: Option<FuncId>,
+    /// Setter function, when source-mappable.
+    pub setter: Option<FuncId>,
+    /// Whether data-descriptor precedence applies.
+    pub data_descriptor: bool,
+    /// Concrete descriptor instance state.
+    pub value_fields: Vec<smelt_hir::DescriptorValueField>,
 }
 
 /// MIR representation of an interface definition.

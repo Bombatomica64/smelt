@@ -323,6 +323,9 @@ impl FunctionEmitter<'_> {
             Place::Local(local) => Ok(self.local_decl(*local)?.ty),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                if let Some((_, descriptor)) = self.descriptor_for_field(base_ty, *field) {
+                    return Ok(descriptor.read_ty);
+                }
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(_, value)) => Ok(*value),
                     Some(Type::Optional(inner)) => {

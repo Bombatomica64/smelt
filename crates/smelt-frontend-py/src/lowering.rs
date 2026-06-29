@@ -7,7 +7,7 @@
 mod stdlib;
 mod stdlib_dispatch;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::path::Path;
 
@@ -265,7 +265,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     Err(err) => errors.push(err),
                 }
             } else if let Stmt::ClassDef(class) = stmt {
-                match self.class_def(class, &mut hir_module) {
+                if self.is_materialized_metaclass_definition(class, module) {
+                    continue;
+                }
+                match self.class_def(class, module, &mut hir_module) {
                     Ok(()) => {}
                     Err(err) => errors.push(err),
                 }

@@ -5,6 +5,7 @@ impl ModuleBuilder<'_> {
         for decorator in &func.decorator_list {
             match decorator_simple_name(decorator) {
                 Some("classmethod") => is_classmethod = true,
+                Some(_) if self.is_materialized_descriptor_callable(func) => {}
                 Some(other) => {
                     return Err(SmeltError::unsupported_decorator(
                         self.span(decorator.range),
