@@ -993,6 +993,38 @@ impl FunctionEmitter<'_> {
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\"))"
             ));
         }
+        if class_name == "Blob"
+            && matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            )
+        {
+            let value_text = self.operand_text(value)?;
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                return Ok(format!(
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_blob\"))"
+                ));
+            }
+            return Ok(format!(
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_blob\"))"
+            ));
+        }
+        if class_name == "Number"
+            && matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            )
+        {
+            let value_text = self.operand_text(value)?;
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                return Ok(format!(
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_number\"))"
+                ));
+            }
+            return Ok(format!(
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_number\"))"
+            ));
+        }
         if class_name == "Promise"
             && matches!(
                 self.mir.types.get(value_ty),

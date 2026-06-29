@@ -93,6 +93,8 @@ impl ModuleBuilder<'_> {
                 target,
                 "Promise"
                     | "ArrayBuffer"
+                    | "Blob"
+                    | "Number"
                     | "Error"
                     | "EvalError"
                     | "RangeError"
@@ -102,6 +104,13 @@ impl ModuleBuilder<'_> {
                     | "URIError"
                     | "AggregateError"
             )
+    }
+
+    /// Return true for host global constructors that Smelt always models as
+    /// present, so `typeof X === 'undefined'` environment-support guards fold to
+    /// a constant instead of failing to resolve the bare `X` identifier.
+    fn is_known_defined_global_constructor(name: &str) -> bool {
+        matches!(name, "Blob")
     }
 
     /// Return true for builtin targets represented by non-class HIR values today.
@@ -245,6 +254,26 @@ impl ModuleBuilder<'_> {
         {
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             let result = !matches!(
+                binary.operator,
+                BinaryOperator::StrictInequality | BinaryOperator::Inequality
+            );
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(result)),
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            })));
+        }
+        // Modeled host constructors (e.g. `Blob`) are always present, so the
+        // `typeof Blob === 'undefined'` support guards used by `isBlob` and the
+        // `cloneDeepWith` clone paths fold to a constant: `=== 'undefined'` is
+        // `false`, `!== 'undefined'` is `true`. Without this, the bare `Blob`
+        // identifier would fail to resolve as a value.
+        if kind_lit.value.as_str() == "undefined"
+            && let Expression::Identifier(identifier) = &unary.argument
+            && Self::is_known_defined_global_constructor(identifier.name.as_str())
+        {
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let result = matches!(
                 binary.operator,
                 BinaryOperator::StrictInequality | BinaryOperator::Inequality
             );

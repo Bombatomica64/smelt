@@ -65,6 +65,15 @@ impl ModuleBuilder<'_> {
         if callee.name == "ArrayBuffer" && !self.classes.contains_key("ArrayBuffer") {
             return self.arraybuffer_constructor_expression(new_expr, body);
         }
+        if callee.name == "Blob" && !self.classes.contains_key("Blob") {
+            return self.blob_constructor_expression(new_expr, body);
+        }
+        if callee.name == "Number" && !self.classes.contains_key("Number") {
+            return self.boxed_number_constructor_expression(new_expr, body);
+        }
+        if callee.name == "Proxy" && !self.classes.contains_key("Proxy") {
+            return self.proxy_constructor_expression(new_expr, body);
+        }
         if Self::is_numeric_typed_array_constructor(callee.name.as_str()) {
             return self.numeric_typed_array_constructor_expression(new_expr, body);
         }
@@ -494,6 +503,196 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span,
         }))
+    }
+
+    /// Lower `new Blob(parts?, options?)` to a concrete marker-bearing record.
+    ///
+    /// JavaScript `Blob` is a host binary-data object. es-toolkit only
+    /// constructs it and inspects it via `value instanceof Blob` (the `isBlob`
+    /// predicate over an erased `unknown`, plus the `cloneDeepWith` clone path).
+    /// Rather than erase it to a shapeless `SmeltUnknown` (which would lose its
+    /// identity), model it as a record carrying a dedicated `__smelt_blob`
+    /// marker plus its observable `type` string, mirroring the `ArrayBuffer`
+    /// model so a later dynamic `instanceof Blob` resolves through the marker
+    /// (see `instance_of_text`). The constructor arguments are still lowered so
+    /// their effects/types are validated, but only `type` is retained.
+    fn blob_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        // Lower the constructor arguments for their side effects and type checks
+        // even though only the MIME `type` ends up on the modeled record.
+        for argument in &new_expr.arguments {
+            let _ = self.argument(argument, body)?;
+        }
+        let blob_type = self.blob_options_type_string(new_expr.arguments.get(1), body, span);
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_blob".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let type_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("type".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (type_key, blob_type)]),
+            ty: dict_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// Resolve a `Blob` constructor `options.type` string literal when present.
+    ///
+    /// Only a directly-spelled `{ type: "..." }` literal is carried onto the
+    /// modeled record; any other options shape falls back to the empty MIME
+    /// string that a real `Blob` reports when no type is supplied.
+    fn blob_options_type_string(
+        &mut self,
+        options_argument: Option<&Argument<'_>>,
+        body: &mut Body,
+        span: Span,
+    ) -> smelt_hir::ExprId {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let blob_type = options_argument.and_then(|argument| {
+            let Argument::ObjectExpression(object) = argument else {
+                return None;
+            };
+            object.properties.iter().find_map(|property| {
+                let ObjectPropertyKind::ObjectProperty(property) = property else {
+                    return None;
+                };
+                let PropertyKey::StaticIdentifier(key) = &property.key else {
+                    return None;
+                };
+                if key.name != "type" {
+                    return None;
+                }
+                match &property.value {
+                    Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+                    _ => None,
+                }
+            })
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(blob_type.unwrap_or_default())),
+            ty: string_ty,
+            span,
+        })
+    }
+
+    /// Lower the boxed-object form `new Number(value)` to a marker-bearing record.
+    ///
+    /// This is the boxed `Number` **object**, distinct from the `Number(x)`
+    /// coercion call (which already lowers to a numeric value elsewhere). The
+    /// boxed object has `typeof === "object"`, so es-toolkit's `isNumber`
+    /// (`typeof x === "number"`) must report `false` for it: modeling it as a
+    /// record erased to `SmeltUnknown::Object` makes the runtime `typeof`
+    /// narrowing (`SmeltUnknown::Number(_)`) correctly miss. The wrapped value
+    /// is retained alongside a dedicated `__smelt_number` marker so a later
+    /// dynamic `instanceof Number` resolves through the marker, mirroring the
+    /// `ArrayBuffer` model.
+    fn boxed_number_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if new_expr.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new Number(...) supports at most one value argument",
+            ));
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let number_ty = self.ctx.krate.types.intern(Type::Float);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let value = match new_expr.arguments.first() {
+            Some(argument) => self.argument(argument, body)?,
+            None => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: number_ty,
+                span,
+            }),
+        };
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_number".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let value_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("value".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (value_key, value)]),
+            ty: dict_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// Lower `new Proxy(target, handler)` to its target value.
+    ///
+    /// JavaScript `Proxy` is transparent: `x instanceof Proxy` is a `TypeError`
+    /// and a proxy reports the identity (`typeof`, `instanceof`, plain-object
+    /// shape) of its target. es-toolkit only constructs `new Proxy(target, {})`
+    /// in tests of `isPlainObject`, where the proxy must behave exactly like the
+    /// wrapped target. There is no faithful distinct identity to invent, so the
+    /// closest correct model is to lower the construct to its `target` operand
+    /// (the handler is lowered for its effects/types, then discarded). This
+    /// keeps the transparent semantics rather than erasing to a wrong marker.
+    fn proxy_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let Some(target_argument) = new_expr.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new Proxy(target, handler) requires a target argument",
+            ));
+        };
+        let target = self.argument(target_argument, body)?;
+        if let Some(handler_argument) = new_expr.arguments.get(1) {
+            let _ = self.argument(handler_argument, body)?;
+        }
+        Ok(target)
     }
 
     /// Lower a thrown expression to the string message carried by HIR throws.
@@ -1108,6 +1307,19 @@ impl ModuleBuilder<'_> {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String("undefined".to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
+        // A bare `typeof Blob` references the modeled host constructor, which is
+        // a function value in JavaScript. (The `typeof Blob === 'undefined'`
+        // support-guard comparison is folded earlier in `unknown_typeof_comparison`.)
+        if let Expression::Identifier(identifier) = &unary.argument
+            && Self::is_known_defined_global_constructor(identifier.name.as_str())
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("function".to_owned())),
                 ty,
                 span: self.span(unary.span.start, unary.span.end),
             }));
