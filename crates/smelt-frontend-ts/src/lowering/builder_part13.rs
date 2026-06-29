@@ -2512,6 +2512,11 @@ impl ModuleBuilder<'_> {
             if let Argument::StaticMemberExpression(_member) = argument {
                 return Ok(self.opaque_member_callback(expected_param_tys));
             }
+            if let Argument::Identifier(identifier) = argument
+                && self.is_opaque_callback_value(identifier.name.as_str())
+            {
+                return Ok(self.opaque_member_callback(expected_param_tys));
+            }
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "array callback methods currently require arrow function callbacks",
@@ -2774,6 +2779,21 @@ impl ModuleBuilder<'_> {
             },
             ty: unknown_ty,
         }
+    }
+
+    /// Return whether a bare identifier names a callable value whose body is
+    /// opaque to this module — an imported function value or a module-level
+    /// function/const callable declared elsewhere in the source.
+    ///
+    /// Such names resolve like a direct call would (see `call.rs`), so when one
+    /// is handed to an array method as a named-local callback we can lower it to
+    /// an opaque closure that calls the value, rather than rejecting it for not
+    /// being an inline arrow. The name must not shadow a local binding, because a
+    /// local with the same name is lexically nearer and handled separately.
+    fn is_opaque_callback_value(&self, name: &str) -> bool {
+        !self.locals.contains_key(name)
+            && !self.items.contains_key(name)
+            && (self.value_imports.contains(name) || self.source_contains_forward_callable(name))
     }
 
     /// Return whether an expression is an imported utility namespace/object.
@@ -4643,6 +4663,23 @@ impl ModuleBuilder<'_> {
                     ty: function_ty,
                     span: self.span(identifier.span.start, identifier.span.end),
                 });
+                return Ok(ClosureCallback { expr, return_ty });
+            }
+            if self.is_opaque_callback_value(identifier.name.as_str()) {
+                // The callback names an imported or forward-declared callable
+                // whose body is opaque here. Lower it like an opaque member
+                // callback: a closure that calls the value with the receiver's
+                // element arguments. This matches how a direct call to the same
+                // value lowers, and lets array methods accept named-local
+                // callbacks instead of requiring an inline arrow.
+                let callback = self.opaque_member_callback(expected_param_tys);
+                let return_ty = callback.ty;
+                let expr = self.callback_expr_to_closure(
+                    &callback,
+                    expected_param_tys,
+                    self.span(identifier.span.start, identifier.span.end),
+                    body,
+                )?;
                 return Ok(ClosureCallback { expr, return_ty });
             }
             if !self.locals.contains_key(identifier.name.as_str()) {

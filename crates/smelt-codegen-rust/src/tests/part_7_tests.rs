@@ -4375,3 +4375,55 @@ export function nthArgValue(n: number): (...args: number[]) => number {
         "the object-valued function-expression rest blocker must be gone\n{source}"
     );
 }
+
+#[test]
+fn lowers_imported_function_value_as_filter_callback() {
+    // An array method whose callback is a bare imported function value (a named
+    // local, not an inline arrow) must lower to a real callback closure instead
+    // of failing with "array callback local callback `X` is not in scope". The
+    // import is opaque here, so the closure body resolves like a direct call:
+    // it produces a conservative value that the predicate path coerces to bool.
+    let source = source_for(
+        r#"
+import { isNotNil } from "./isNotNil";
+function run(): unknown {
+  const arr = [1, 2, 3];
+  return arr.filter(isNotNil);
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".filter_map(|(index, item)|"),
+        "imported filter callback should lower to a filtering closure\n{source}"
+    );
+    assert!(
+        source.contains("(smelt_callback)(item.clone(), index as i64,"),
+        "the closure body should call the resolved callback value\n{source}"
+    );
+}
+
+#[test]
+fn lowers_imported_function_value_as_map_callback() {
+    // The same support extends to value-returning array methods like `map`: a
+    // bare imported function passed as the callback lowers to a mapping closure
+    // rather than being rejected for not being an inline arrow.
+    let source = source_for(
+        r#"
+import { deburr } from "./deburr";
+function run(): unknown {
+  const arr = ["a", "b"];
+  return arr.map(deburr);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_array.iter().enumerate().map(|(index, item)|"),
+        "imported map callback should lower to a mapping closure\n{source}"
+    );
+    assert!(
+        source.contains("(smelt_callback)(item.clone(), index as i64,"),
+        "the closure body should call the resolved callback value\n{source}"
+    );
+}
