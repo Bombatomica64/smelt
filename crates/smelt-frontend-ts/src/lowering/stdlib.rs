@@ -1807,72 +1807,88 @@ impl ModuleBuilder<'_> {
         if member.property.name != "push" {
             return Ok(None);
         }
-        let [item_argument] = call.arguments.as_slice() else {
+        if call.arguments.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "array push currently supports exactly one item argument",
+                "array push currently requires at least one item argument",
             ));
-        };
+        }
         let list = self.expression(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
         };
         let element_ty = *list_element_ty;
-        if let Argument::SpreadElement(spread) = item_argument {
-            let other = self.expression(&spread.argument, body)?;
-            let other_ty = Self::expr_ty(body, other);
-            let other = if matches!(self.ctx.krate.types.get(other_ty), Some(Type::List(_))) {
-                other
-            } else {
-                let list_value_ty = self.ctx.krate.types.intern(Type::List(element_ty));
+        // `Array.prototype.push` accepts any number of arguments and appends each
+        // in order, returning the new length. Each spread argument extends the
+        // list, each scalar pushes one element; the value of the call is the last
+        // mutation's `Float` length result.
+        let number_ty = self.ctx.krate.types.intern(Type::Float);
+        let mut result = None;
+        for item_argument in &call.arguments {
+            // Every push before the last is a sequenced side effect; the call's
+            // value is the final push's `Float` length result.
+            if let Some(previous) = result.take() {
+                body.push_stmt(Stmt::Expr(previous));
+            }
+            let pushed = if let Argument::SpreadElement(spread) = item_argument {
+                let other = self.expression(&spread.argument, body)?;
+                let other_ty = Self::expr_ty(body, other);
+                let other = if matches!(self.ctx.krate.types.get(other_ty), Some(Type::List(_))) {
+                    other
+                } else {
+                    let list_value_ty = self.ctx.krate.types.intern(Type::List(element_ty));
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: other },
+                        ty: list_value_ty,
+                        span: self.span(spread.span.start, spread.span.end),
+                    })
+                };
                 body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: other },
-                    ty: list_value_ty,
-                    span: self.span(spread.span.start, spread.span.end),
+                    kind: ExprKind::ListExtend { list, other },
+                    ty: number_ty,
+                    span: self.span(call.span.start, call.span.end),
+                })
+            } else {
+                let mut item = self.argument(item_argument, body)?;
+                let item_ty = Self::expr_ty(body, item);
+                let compatible = self.array_item_type_compatible(item_ty, element_ty)
+                    || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)
+                    || self.type_contains_unknown(item_ty)
+                    || self.type_contains_unknown(element_ty)
+                    || self.numeric_type_compatible(element_ty, item_ty)
+                    || matches!(
+                        (
+                            self.ctx.krate.types.get(element_ty),
+                            self.ctx.krate.types.get(item_ty)
+                        ),
+                        (Some(Type::TypeParam { .. }), _) | (_, Some(Type::TypeParam { .. }))
+                    );
+                if !compatible {
+                    if self.erased_or_union_surface(item_ty)
+                        || self.erased_or_union_surface(element_ty)
+                    {
+                        item = body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value: item },
+                            ty: element_ty,
+                            span: self.span(item_argument.span().start, item_argument.span().end),
+                        });
+                    } else {
+                        return Err(SmeltError::unsupported(
+                            self.span(call.span.start, call.span.end),
+                            "array push argument must match the array element type",
+                        ));
+                    }
+                }
+                body.push_expr(Expr {
+                    kind: ExprKind::ListPush { list, item },
+                    ty: number_ty,
+                    span: self.span(call.span.start, call.span.end),
                 })
             };
-            let ty = self.ctx.krate.types.intern(Type::Float);
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::ListExtend { list, other },
-                ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
+            result = Some(pushed);
         }
-        let mut item = self.argument(item_argument, body)?;
-        let item_ty = Self::expr_ty(body, item);
-        let compatible = self.array_item_type_compatible(item_ty, element_ty)
-            || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)
-            || self.type_contains_unknown(item_ty)
-            || self.type_contains_unknown(element_ty)
-            || self.numeric_type_compatible(element_ty, item_ty)
-            || matches!(
-                (
-                    self.ctx.krate.types.get(element_ty),
-                    self.ctx.krate.types.get(item_ty)
-                ),
-                (Some(Type::TypeParam { .. }), _) | (_, Some(Type::TypeParam { .. }))
-            );
-        if !compatible {
-            if self.erased_or_union_surface(item_ty) || self.erased_or_union_surface(element_ty) {
-                item = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: item },
-                    ty: element_ty,
-                    span: self.span(item_argument.span().start, item_argument.span().end),
-                });
-            } else {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "array push argument must match the array element type",
-                ));
-            }
-        }
-        let ty = self.ctx.krate.types.intern(Type::Float);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListPush { list, item },
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
+        Ok(result)
     }
 
     /// Lower modern TypeScript array APIs that materialize lists directly.

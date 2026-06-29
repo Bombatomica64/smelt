@@ -199,6 +199,29 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Return whether a type is an `Optional<...>` (or union containing one)
+    /// wrapping a numeric-like inner type, i.e. the surface produced by a JS
+    /// `number | undefined` / optional parameter.
+    fn optional_numeric_surface(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::Optional(inner)) => {
+                let inner = *inner;
+                self.is_numeric_like_type(inner) || self.optional_numeric_surface(inner)
+            }
+            Some(Type::Union(items)) => {
+                let items = items.clone();
+                items.iter().copied().all(|item| {
+                    self.ctx.krate.types.get(item) == Some(&Type::None)
+                        || self.is_numeric_like_type(item)
+                }) && items
+                    .iter()
+                    .copied()
+                    .any(|item| self.is_numeric_like_type(item))
+            }
+            _ => false,
+        }
+    }
+
     /// Return whether a type comes from an erased JavaScript surface.
     fn erased_or_union_surface(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {

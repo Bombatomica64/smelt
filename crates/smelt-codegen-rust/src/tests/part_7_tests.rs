@@ -4724,3 +4724,59 @@ export function ceiling(): number {
         "{source}"
     );
 }
+
+#[test]
+fn lowers_array_push_with_multiple_arguments() {
+    // `Array.prototype.push` accepts any number of arguments, appending each in
+    // order and returning the new length; spread arguments extend the list.
+    let source = source_for(
+        r#"
+export function appendThree(a: number[]): number {
+  return a.push(1, 2, 3);
+}
+export function appendSpreadAndScalar(a: number[], b: number[]): void {
+  a.push(...b, 9);
+}
+"#,
+    );
+    // Three pushes for the scalar case, plus an extend + push for the second.
+    assert!(source.matches(".push(").count() >= 4, "{source}");
+    assert!(source.contains("extend") || source.contains(".chain("), "{source}");
+}
+
+#[test]
+fn lowers_array_length_from_optional_and_member_numeric() {
+    // `new Array(n)` where `n` is an optional/number-typed parameter, and
+    // `new Array(xs.length)` where the length is a numeric member read, both
+    // preallocate a list instead of rejecting the length as non-numeric.
+    let source = source_for(
+        r#"
+export function makeOptional(n?: number): number[] {
+  const result = new Array(n);
+  return result;
+}
+export function makeFromLength<T>(keys: T[]): T[] {
+  const result = new Array(keys.length);
+  return result;
+}
+"#,
+    );
+    assert!(source.contains("Vec::new") || source.contains("SmeltList"), "{source}");
+}
+
+#[test]
+fn lowers_new_set_from_optional_and_erased_iterables() {
+    // `new Set(iterable)` accepts an optional array, an existing set (copy), and
+    // an erased iterable surface, instead of requiring a concretely-typed array.
+    let source = source_for(
+        r#"
+export function fromOptional(xs?: string[]): Set<string> {
+  return new Set(xs);
+}
+export function fromSet(s: Set<number>): Set<number> {
+  return new Set(s);
+}
+"#,
+    );
+    assert!(source.contains("HashSet") || source.contains("SmeltSet") || source.contains("Set"), "{source}");
+}

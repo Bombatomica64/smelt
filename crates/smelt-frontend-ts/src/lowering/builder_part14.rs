@@ -213,10 +213,20 @@ impl ModuleBuilder<'_> {
         }
         if let Some(length) = arguments.first() {
             let length = self.argument(length, body)?;
-            if !matches!(
-                self.ctx.krate.types.get(Self::expr_ty(body, length)),
-                Some(Type::Int | Type::Float)
-            ) {
+            // The preallocation length is only used to size the (initially empty)
+            // list, which Smelt models through later indexed writes, so the value
+            // itself is discarded. Accept any numeric-like type plus the erased /
+            // optional-numeric surfaces that flow from JS `number | undefined`
+            // parameters; only reject clearly non-numeric arguments.
+            let length_ty = Self::expr_ty(body, length);
+            let numeric = self.is_numeric_like_type(length_ty)
+                || matches!(
+                    self.ctx.krate.types.get(length_ty),
+                    Some(Type::Int | Type::Float)
+                )
+                || self.optional_numeric_surface(length_ty)
+                || self.erased_or_union_surface(length_ty);
+            if !numeric {
                 return Err(SmeltError::unsupported(
                     self.span(start, end),
                     "Array(...) length must be numeric",
@@ -588,13 +598,66 @@ impl ModuleBuilder<'_> {
                 (items, ty)
             }
             [argument] => {
-                let list = self.argument(argument, body)?;
-                let list_ty = self.type_param_constraint_or_self(Self::expr_ty(body, list));
-                let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
-                    return Err(SmeltError::unsupported(
-                        self.span(argument.span().start, argument.span().end),
-                        "new Set(iterable) currently requires an array argument",
-                    ));
+                let mut list = self.argument(argument, body)?;
+                let raw_ty = Self::expr_ty(body, list);
+                let list_ty = self.type_param_constraint_or_self(raw_ty);
+                // `new Set(iterable)` accepts arrays directly. Optional arrays are
+                // asserted to their inner list, an existing Set is already in set
+                // shape, and erased/union surfaces (e.g. a generic helper return
+                // typed `unknown`) are asserted to `List<Unknown>` so the
+                // list-to-set conversion can proceed instead of being rejected.
+                let item_ty = match self.ctx.krate.types.get(list_ty).cloned() {
+                    Some(Type::List(item_ty)) => item_ty,
+                    Some(Type::Optional(inner)) => {
+                        if let Some(Type::List(item_ty)) =
+                            self.ctx.krate.types.get(inner).cloned()
+                        {
+                            list = body.push_expr(Expr {
+                                kind: ExprKind::TypeAssert { value: list },
+                                ty: inner,
+                                span: self.span(argument.span().start, argument.span().end),
+                            });
+                            item_ty
+                        } else {
+                            return Err(SmeltError::unsupported(
+                                self.span(argument.span().start, argument.span().end),
+                                "new Set(iterable) currently requires an array argument",
+                            ));
+                        }
+                    }
+                    Some(Type::Set(item_ty)) => {
+                        // `new Set(otherSet)` copies an existing set: keep its
+                        // element type and short-circuit (no list conversion).
+                        let ty = if let Some(hint) = type_hint
+                            && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                        {
+                            hint
+                        } else {
+                            self.ctx.krate.types.intern(Type::Set(item_ty))
+                        };
+                        return Ok(Some(body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value: list },
+                            ty,
+                            span: self.span(new_expr.span.start, new_expr.span.end),
+                        })));
+                    }
+                    _ if self.erased_or_union_surface(list_ty) => {
+                        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let asserted_list_ty =
+                            self.ctx.krate.types.intern(Type::List(item_ty));
+                        list = body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value: list },
+                            ty: asserted_list_ty,
+                            span: self.span(argument.span().start, argument.span().end),
+                        });
+                        item_ty
+                    }
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(argument.span().start, argument.span().end),
+                            "new Set(iterable) currently requires an array argument",
+                        ));
+                    }
                 };
                 let ty = if let Some(hint) = type_hint {
                     if !matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) {
@@ -605,7 +668,7 @@ impl ModuleBuilder<'_> {
                     }
                     hint
                 } else {
-                    self.ctx.krate.types.intern(Type::Set(*item_ty))
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
                 };
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ListToSet { list },
