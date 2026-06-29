@@ -1046,9 +1046,19 @@ impl FunctionEmitter<'_> {
         // their `__smelt_abortcontroller` / `__smelt_abortsignal` markers on the
         // erased object, whether the static value type is dynamic (`unknown`,
         // generics, unions) or the erased abort class itself.
+        // Marker-only host builtins (WeakMap/WeakSet/DataView/SharedArrayBuffer/
+        // File) erase to records carrying a dedicated identity marker (see
+        // `marker_only_builtin_constructor_expression` in the frontend). They
+        // share the abort-marker recognition path: a dynamic or erased-class
+        // value resolves `instanceof X` through its marker key.
         let abort_marker = match class_name {
             "AbortController" => Some("__smelt_abortcontroller"),
             "AbortSignal" => Some("__smelt_abortsignal"),
+            "WeakMap" => Some("__smelt_weakmap"),
+            "WeakSet" => Some("__smelt_weakset"),
+            "DataView" => Some("__smelt_dataview"),
+            "SharedArrayBuffer" => Some("__smelt_sharedarraybuffer"),
+            "File" => Some("__smelt_file"),
             _ => None,
         };
         if let Some(marker) = abort_marker {

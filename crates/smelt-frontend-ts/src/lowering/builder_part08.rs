@@ -83,8 +83,10 @@ impl ModuleBuilder<'_> {
         if callee.name == "URLSearchParams" {
             return self.url_search_params_constructor_expression(new_expr, body);
         }
-        if matches!(callee.name.as_str(), "WeakMap" | "WeakSet") {
-            return self.opaque_builtin_constructor_expression(new_expr, body, callee.name.as_str());
+        if let Some(marker) = Self::marker_only_builtin_marker(callee.name.as_str()) {
+            if !self.classes.contains_key(callee.name.as_str()) {
+                return self.marker_only_builtin_constructor_expression(new_expr, body, marker);
+            }
         }
         if Self::is_builtin_error_constructor(callee.name.as_str()) {
             return self.error_object_constructor_expression(new_expr, body);
@@ -359,35 +361,77 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower a supported opaque builtin constructor to an unknown object value.
-    fn opaque_builtin_constructor_expression(
+    /// Lower a host builtin constructor that Smelt only inspects via
+    /// `instanceof` into a marker-bearing record erased to `SmeltUnknown`.
+    ///
+    /// JavaScript host objects such as `WeakMap`, `WeakSet`, `DataView`,
+    /// `SharedArrayBuffer`, and `File` have no useful structural shape that
+    /// es-toolkit reads — they are constructed and then only tested with
+    /// `value instanceof X` (the `isWeakMap`/`isWeakSet`/`isTypedArray` family
+    /// and the `clone` deep-clone dispatch). Rather than erase them to a
+    /// shapeless `SmeltUnknown::Object` (which would make every `instanceof`
+    /// false and collide each host type with the others), give each a dedicated
+    /// `__smelt_<marker>` key so a later dynamic `instanceof` resolves through
+    /// the marker (see `instance_of_text`), mirroring the `ArrayBuffer`/`Blob`
+    /// models. Constructor arguments are lowered for their effects/types and
+    /// then discarded, since none of the retained shape is observed.
+    fn marker_only_builtin_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
-        class_text: &str,
+        marker: &str,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let _class_name = self.intern_type_name(class_text);
-        let _args = new_expr
-            .arguments
-            .iter()
-            .map(|arg| self.argument(arg, body))
-            .collect::<Result<Vec<_>, _>>()?;
+        // Lower arguments for their effects/type checks; the marker record keeps
+        // no structural shape from them.
+        for argument in &new_expr.arguments {
+            self.argument(argument, body)?;
+        }
         let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
-        let value = body.push_expr(Expr {
-            kind: ExprKind::DictLit(Vec::new()),
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(marker.to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value)]),
             ty: dict_ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
+            span,
         });
         Ok(body.push_expr(Expr {
             kind: ExprKind::UnknownCast {
-                value,
+                value: object,
                 target: unknown_ty,
             },
             ty: unknown_ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
+            span,
         }))
+    }
+
+    /// Return the dedicated identity marker key for a marker-only host builtin
+    /// constructor, or `None` when the name is not such a builtin.
+    ///
+    /// Shared by the `new X(...)` constructor dispatch (to choose the marker to
+    /// stamp) and by `instanceof X` lowering (to know the target is modeled).
+    /// Keeping the mapping in one place stops the construct side and the
+    /// `instanceof` side from drifting.
+    pub(crate) fn marker_only_builtin_marker(name: &str) -> Option<&'static str> {
+        match name {
+            "WeakMap" => Some("__smelt_weakmap"),
+            "WeakSet" => Some("__smelt_weakset"),
+            "DataView" => Some("__smelt_dataview"),
+            "SharedArrayBuffer" => Some("__smelt_sharedarraybuffer"),
+            "File" => Some("__smelt_file"),
+            _ => None,
+        }
     }
 
     /// Return true for built-in JavaScript Error constructors with Error identity.

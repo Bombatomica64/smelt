@@ -658,6 +658,28 @@ impl ModuleBuilder<'_> {
         }
         let span = self.span(member.span.start, member.span.end);
         let number_ty = self.ctx.krate.types.intern(Type::Float);
+        // `Math.PI` and the other `Math.*` numeric constants are values, not
+        // callables: fold them to their IEEE-754 double literal so a bare
+        // `Math.PI` reference (e.g. `chunk(xs, Math.PI)` in the chunk spec)
+        // resolves to a concrete number instead of an unresolved `Math`
+        // identifier. These match the ECMAScript spec constant values.
+        if let Some(constant) = match member.property.name.as_str() {
+            "PI" => Some(std::f64::consts::PI),
+            "E" => Some(std::f64::consts::E),
+            "LN2" => Some(std::f64::consts::LN_2),
+            "LN10" => Some(std::f64::consts::LN_10),
+            "LOG2E" => Some(std::f64::consts::LOG2_E),
+            "LOG10E" => Some(std::f64::consts::LOG10_E),
+            "SQRT2" => Some(std::f64::consts::SQRT_2),
+            "SQRT1_2" => Some(std::f64::consts::FRAC_1_SQRT_2),
+            _ => None,
+        } {
+            return Some(outer_body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(constant)),
+                ty: number_ty,
+                span,
+            }));
+        }
         let value_name = self.intern_source_name("value");
         let mut closure_body = Body::new(None, span);
         let value_local = closure_body.push_local(LocalDecl {

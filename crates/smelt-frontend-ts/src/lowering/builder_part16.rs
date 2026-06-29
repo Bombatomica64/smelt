@@ -168,6 +168,9 @@ impl ModuleBuilder<'_> {
             if let Some(expr) = self.builtin_function_value_expression(name, start, end, body) {
                 return Ok(expr);
             }
+            if let Some(expr) = self.builtin_namespace_value_expression(name, start, end, body) {
+                return Ok(expr);
+            }
             if matches!(
                 name,
                 "Error"
@@ -373,6 +376,76 @@ impl ModuleBuilder<'_> {
             ),
             _ => return None,
         })
+    }
+
+    /// Lower a bare reference to a recognized global *namespace object*
+    /// (`Math`, `JSON`, `Reflect`, `Atomics`, `Promise`, `Array`, `Function`)
+    /// used as a value into a concrete marker-bearing host-object record.
+    ///
+    /// These intrinsics are normally consumed through recognized member calls
+    /// (`Math.max(...)`, `JSON.parse(...)`, `Promise.resolve(...)`); this path
+    /// only fires when the bare name is used as a first-class *value*, e.g.
+    /// `isPlainObject(JSON)` or `isPlainObject(Math)`. Modeling them as a record
+    /// carrying a dedicated `__smelt_builtin_namespace` marker (plus the source
+    /// `name`) keeps them honest host objects rather than leaving an unresolved
+    /// identifier or erasing them to a shapeless `SmeltUnknown::Object` that a
+    /// plain-object check would mistake for `{}`. The marker is a genuine dynamic
+    /// boundary value: predicates that inspect it at runtime (`typeof === object`
+    /// is true, but it is not a plain object) observe the host identity.
+    ///
+    /// Returns `None` for names that are not builtin namespace objects so the
+    /// caller continues its normal resolution chain.
+    fn builtin_namespace_value_expression(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if !matches!(
+            name,
+            "Math" | "JSON" | "Reflect" | "Atomics" | "Promise" | "Array" | "Function"
+        ) {
+            return None;
+        }
+        let span = self.span(start, end);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_builtin_namespace".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let name_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("name".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let name_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(name.to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (name_key, name_value)]),
+            ty: dict_ty,
+            span,
+        });
+        Some(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
     }
 
     /// Build a `(value) => <PrimitiveCast op>(value)` closure value.

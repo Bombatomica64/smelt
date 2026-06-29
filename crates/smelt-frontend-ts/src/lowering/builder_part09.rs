@@ -89,6 +89,7 @@ impl ModuleBuilder<'_> {
     /// Return true when an expression is a built-in constructor target.
     fn instanceof_builtin_target(target: &str) -> bool {
         smelt_stdlib::typescript_stdlib_class(target).is_some()
+            || Self::marker_only_builtin_marker(target).is_some()
             || matches!(
                 target,
                 "Promise"
@@ -111,8 +112,16 @@ impl ModuleBuilder<'_> {
     /// Return true for host global constructors that Smelt always models as
     /// present, so `typeof X === 'undefined'` environment-support guards fold to
     /// a constant instead of failing to resolve the bare `X` identifier.
+    ///
+    /// The set must stay in lock-step with what codegen actually models: each
+    /// name here has a concrete constructor lowering and a working `instanceof`
+    /// path (the marker-only host builtins plus `Blob`/`ArrayBuffer`). Folding a
+    /// presence guard `true` for a name whose positive branch the runtime cannot
+    /// satisfy would reintroduce the erased-vs-runtime disagreement the globals
+    /// plan warns against, so unmodeled host globals are deliberately excluded.
     fn is_known_defined_global_constructor(name: &str) -> bool {
-        matches!(name, "Blob")
+        matches!(name, "Blob" | "ArrayBuffer")
+            || Self::marker_only_builtin_marker(name).is_some()
     }
 
     /// Return true for builtin targets represented by non-class HIR values today.
@@ -253,6 +262,28 @@ impl ModuleBuilder<'_> {
         if kind_lit.value.as_str() == "undefined"
             && let Expression::Identifier(identifier) = &unary.argument
             && identifier.name == "crypto"
+        {
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let result = !matches!(
+                binary.operator,
+                BinaryOperator::StrictInequality | BinaryOperator::Inequality
+            );
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(result)),
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            })));
+        }
+        // Ambient globals that the default deterministic non-DOM, non-Node
+        // profile models as *absent* (e.g. `Buffer`, accessed bare or through a
+        // global alias as `globalThis.Buffer`). Their `typeof` existence guards
+        // fold to the absent answer: `=== 'undefined'` is `true`, `!==` is
+        // `false`. es-toolkit's `isBuffer` (`typeof globalThis.Buffer !==
+        // 'undefined' && globalThis.Buffer.isBuffer(x)`) then short-circuits to a
+        // constant `false`, which is the correct result in a non-Node runtime,
+        // instead of resolving `globalThis.Buffer` to a bogus empty object.
+        if kind_lit.value.as_str() == "undefined"
+            && self.typeof_operand_is_absent_global(&unary.argument)
         {
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             let result = !matches!(
@@ -484,6 +515,38 @@ impl ModuleBuilder<'_> {
             }
             _ => false,
         }
+    }
+
+    /// Return true when a `typeof <operand>` operand names an ambient global the
+    /// default profile models as absent.
+    ///
+    /// Recognizes both the bare spelling (`typeof Buffer`) and the global-alias
+    /// member spelling (`typeof globalThis.Buffer`, `typeof global.Buffer`),
+    /// since es-toolkit reaches `Buffer` through `globalThis`. Only a static,
+    /// non-optional member off a recognized global alias counts; any other shape
+    /// falls through to ordinary lowering.
+    fn typeof_operand_is_absent_global(&self, operand: &Expression<'_>) -> bool {
+        match operand {
+            Expression::Identifier(identifier) => {
+                Self::is_absent_ambient_global(identifier.name.as_str())
+            }
+            Expression::StaticMemberExpression(member) if !member.optional => {
+                self.expr_is_global_alias(&member.object)
+                    && Self::is_absent_ambient_global(member.property.name.as_str())
+            }
+            _ => false,
+        }
+    }
+
+    /// Return true for ambient globals the default deterministic profile treats
+    /// as absent (no runtime support, no modeled value).
+    ///
+    /// `Buffer` is a Node-only binary buffer constructor; the default profile is
+    /// non-Node, so it is reported absent. Keeping presence here (rather than
+    /// resolving the identifier to a fabricated value) makes the `typeof` guard
+    /// the single source of truth and keeps `isBuffer` deterministic.
+    fn is_absent_ambient_global(name: &str) -> bool {
+        matches!(name, "Buffer")
     }
 
     /// Return a static `typeof` comparison result when all runtime variants agree.

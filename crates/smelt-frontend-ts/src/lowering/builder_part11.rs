@@ -204,6 +204,13 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Object.keys`, `Object.values`, and `Object.entries` calls.
+    ///
+    /// `Reflect.ownKeys(record)` is also routed here as `Object.keys`: for the
+    /// plain-record receivers es-toolkit inspects (the `isJSONValue` key walk and
+    /// the `pick` key projection) the two return the same string-key list, since
+    /// Smelt records carry no non-enumerable or symbol keys. Modeling it through
+    /// the existing `DictProjection` keeps a concrete `List<string>` instead of
+    /// leaving `Reflect` an unresolved identifier or erasing the result.
     fn object_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -215,21 +222,19 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Object" {
-            return Ok(None);
-        }
-        let op = match member.property.name.as_str() {
-            "keys" => DictProjectionOp::Keys,
-            "values" => DictProjectionOp::Values,
-            "entries" => DictProjectionOp::Entries,
+        let op = match (object.name.as_str(), member.property.name.as_str()) {
+            ("Object", "keys") => DictProjectionOp::Keys,
+            ("Object", "values") => DictProjectionOp::Values,
+            ("Object", "entries") => DictProjectionOp::Entries,
+            ("Reflect", "ownKeys") => DictProjectionOp::Keys,
             _ => return Ok(None),
         };
         let [dict_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 format!(
-                    "Object.{} requires exactly one record argument",
-                    member.property.name
+                    "{}.{} requires exactly one record argument",
+                    object.name, member.property.name
                 ),
             ));
         };
