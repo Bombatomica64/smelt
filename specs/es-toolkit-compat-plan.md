@@ -82,11 +82,31 @@ Integration fix: host-builtin marker objects now report **no enumerable own keys
 Result: **files-with-blockers 281 → 200** (−81). Remeda gate 1789/0; smelt suite 1312/0.
 Cumulative this session: **419 → 200** (−219, ~52%).
 
-## Batch 5+ roadmap (the deeper remaining features)
-- Constructable function *values* (`new par()`) + closure free-variable capture (unblocks the curry/partial/bind family).
-- Typed-array runtime identity (`isView`/`isTypedArray`), Buffer value model, `setInterval`/`clearInterval` async runtime.
-- Globals Phase 2/3 runtime object (`SmeltGlobalObject`) for dynamic global access; a DOM profile for `window`/`document`.
-- The remaining ~163 unsupported-lowering long tail (string methods, control flow, exported-const, misc).
+## Batch 5 (2026-06-29) — partial (interrupted by a host reboot)
+
+A 3-agent batch was launched (constructable-values, missing-stdlib, unsupported-lowering tail). A host reboot mid-run killed all three. Only the work that had been **committed** before the reboot survived; the rest was uncommitted and unvalidated, so it was discarded. Salvaged & landed on main (Remeda gate 1789/0, smelt suite 1316/0):
+- **`9b393b93` — general closure free-variable capture for for-loops & updates**: capture-name collectors now traverse `for`/`do-while`/`switch`/update/sequence AST nodes, so a closure that refers to a variable mutated in those forms captures it correctly. Unblocks the `overEvery`/`overSome` family (and is a prerequisite for the curry/partial/bind family).
+- **`4e573747` — frontend panic fix**: truthy guard over a parameter with a dependent default no longer panics during lowering.
+
+Result: **files-with-blockers 200 → 192** (−8). unresolved-reference 22 → 17, unsupported-lowering 163 → 161, missing-stdlib unchanged at 21.
+Cumulative this session: **419 → 192** (~54%).
+
+**Lost to the reboot, needs a clean re-run from current main** (prerequisites now landed, so they redo cleanly):
+- *missing-stdlib residual* — typed-array runtime identity, Buffer value model, `setInterval`/`clearInterval`.
+- *unsupported-lowering tail* — string methods / control-flow / exported-const long tail + call-site generic instantiation (thread a callee's param function-type as a hint so "callback method not lowered" resolves).
+
+## Batch 6+ roadmap (current blocker breakdown: 192 files = unsupported-lowering 161 · missing-stdlib 21 · unresolved-reference 17)
+
+Priority order — biggest *general* semantic families first, never per-function special cases (per CLAUDE.md). Each item: fix generally in frontend/IR/emitter, add a focused compiler regression test, re-probe, keep the Remeda gate (1789/0) and smelt suite green, commit.
+
+1. **Re-run the two lost batch-5 agents** (above) — already scoped, highest ROI.
+2. **Constructable function *values* (`new par()`) + prototype-chain runtime ABI** — the single largest remaining unresolved-reference family; unblocks curry/partial/bind/flow. Builds on the now-landed closure capture. This is the deep one: a function value needs to carry a constructable identity + `.prototype` slot through the erased ABI.
+3. **Call-site generic instantiation** — thread a callee parameter's function-type as a lowering hint so array/iterator methods used *inside* a callback body ("callback method not lowered") resolve. Recurs across the unsupported-lowering tail.
+4. **Typed-array runtime identity** (`isView`/`isTypedArray`) + **Buffer value model** + **`setInterval`/`clearInterval`** async runtime — the concrete missing-stdlib models (RegExp/Date marker pattern, never `SmeltUnknown` erasure).
+5. **Globals Phase 2/3** — runtime `SmeltGlobalObject` for dynamic/computed global access + escaping global identity (`globalThis.Buffer`); then a **DOM profile** (`window`/`document`) for the browser-targeting specs.
+6. **unsupported-lowering long tail** — remaining string methods, control-flow (switch fallthrough/labels), exported-const non-primitive values, misc. Triage by recurrence before fixing.
+
+When es-toolkit reaches a fully-green generated suite, add it as a **second CI regression gate** beside `remeda-regression` (the original goal at the top of this file).
 
 ## Batch 4 roadmap (remaining non-stdlib lowering)
 
