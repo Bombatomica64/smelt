@@ -66,6 +66,8 @@ pub struct SandboxPolicyRecord {
     pub backend: String,
     /// Whether network access was allowed.
     pub network: bool,
+    /// Read-only source, dependency, and runtime roots.
+    pub read_only_roots: Vec<String>,
     /// Writable roots visible to the guest.
     pub writable_roots: Vec<String>,
     /// Allowlisted environment values.
@@ -779,6 +781,7 @@ mod tests {
             sandbox_policy: SandboxPolicyRecord {
                 backend: "test".to_owned(),
                 network: false,
+                read_only_roots: vec!["source".to_owned()],
                 writable_roots: vec!["scratch".to_owned()],
                 environment: BTreeMap::new(),
                 wall_time_ms: 100,

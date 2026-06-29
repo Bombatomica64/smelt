@@ -14,6 +14,7 @@
 mod cache_key;
 mod detection;
 mod manifest;
+mod sandbox;
 
 pub use cache_key::{CacheKeyInput, SpecializationCacheKey};
 pub use detection::{DetectionReason, ModuleDetection, ModuleInput, detect_specialization_modules};
@@ -24,6 +25,11 @@ pub use manifest::{
     InitializerKind, InitializerRecord, ManifestError, MaterializedDefinition, MetadataEntry,
     ModuleRecord, Parameter, ParameterKind, SandboxPolicyRecord, SourceProvenance, SourceSpan,
     SpecializationManifest, StaticType, ValueGraph, ValueId, validate_manifest,
+};
+pub use sandbox::{
+    BackendAvailability, LinuxBubblewrapBackend, MacOsSandboxBackend, OciSandboxBackend,
+    PreparedCommand, SandboxBackend, SandboxError, SandboxOutput, SandboxRequest, SandboxRunner,
+    WindowsAppContainerBackend, default_platform_backend,
 };
 
 /// Current specialization manifest schema version.

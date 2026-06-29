@@ -72,6 +72,7 @@ mod tests {
             sandbox_policy: SandboxPolicyRecord {
                 backend: "linux-bwrap".to_owned(),
                 network: false,
+                read_only_roots: vec!["/project".to_owned(), "/usr".to_owned()],
                 writable_roots: vec!["/scratch".to_owned()],
                 environment: BTreeMap::new(),
                 wall_time_ms: 10_000,
