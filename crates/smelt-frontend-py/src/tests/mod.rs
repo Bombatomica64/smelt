@@ -1,10 +1,9 @@
 //! Unit tests for the Python frontend.
 
-use crate::{HirCtx, SmeltError, to_hir, to_hir_with_path};
+use crate::{FrontendOptions, HirCtx, SmeltError, to_hir, to_hir_with_options, to_hir_with_path};
 use smelt_hir::{
     AsyncOp, BinOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId,
-    Language,
-    Literal, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    Language, Literal, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
     NumericUnaryFuncOp, Pattern, PatternId, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
     StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
@@ -155,3 +154,4 @@ mod collections_reject_a_tests;
 mod collections_reject_b_tests;
 mod packages_tests;
 mod pytest_tests;
+mod specialization_tests;

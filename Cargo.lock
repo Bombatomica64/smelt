@@ -6612,6 +6612,7 @@ dependencies = [
  "ruff_text_size",
  "smelt-asyncio",
  "smelt-hir",
+ "smelt-specialize",
  "smelt-stdlib",
 ]
 
