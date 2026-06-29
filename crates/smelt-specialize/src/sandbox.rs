@@ -207,6 +207,12 @@ impl<B: SandboxBackend> SandboxRunner<B> {
         Self { backend }
     }
 
+    /// Returns the stable selected backend name.
+    #[must_use]
+    pub fn backend_name(&self) -> &'static str {
+        self.backend.name()
+    }
+
     /// Runs one guest with sanitized environment and bounded output.
     ///
     /// # Errors

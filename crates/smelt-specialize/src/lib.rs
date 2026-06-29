@@ -11,11 +11,14 @@
     reason = "the manifest is a versioned interchange schema whose variants must be explicit"
 )]
 
+mod adapter;
 mod cache_key;
 mod detection;
 mod manifest;
+mod python;
 mod sandbox;
 
+pub use adapter::{NativeAdapter, NativeAdapterRegistry};
 pub use cache_key::{CacheKeyInput, SpecializationCacheKey};
 pub use detection::{DetectionReason, ModuleDetection, ModuleInput, detect_specialization_modules};
 pub use manifest::{
@@ -25,6 +28,9 @@ pub use manifest::{
     InitializerKind, InitializerRecord, ManifestError, MaterializedDefinition, MetadataEntry,
     ModuleRecord, Parameter, ParameterKind, SandboxPolicyRecord, SourceProvenance, SourceSpan,
     SpecializationManifest, StaticType, ValueGraph, ValueId, validate_manifest,
+};
+pub use python::{
+    PythonModule, PythonSpecializationError, PythonSpecializationRequest, PythonSpecializer,
 };
 pub use sandbox::{
     BackendAvailability, LinuxBubblewrapBackend, MacOsSandboxBackend, OciSandboxBackend,
