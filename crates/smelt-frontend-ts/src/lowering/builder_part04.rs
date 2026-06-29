@@ -397,6 +397,12 @@ return_ty,
             }
             Statement::TSModuleDeclaration(_) => Ok(()),
             Statement::ExpressionStatement(expr_stmt) => {
+                // `Foo.prototype.x = …` assignments for a constructor function
+                // were folded into the synthesized class during the block
+                // prepass, so the assignment statement itself is dropped.
+                if self.is_synthesized_prototype_assignment(&expr_stmt.expression) {
+                    return Ok(());
+                }
                 if self.inline_runtime_lifecycle_setup(&expr_stmt.expression, body, block)? {
                     return Ok(());
                 }

@@ -1326,6 +1326,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Build the body-less function item used by declaration hoisting.
+    ///
+    /// A later parameter's default initializer may reference an earlier
+    /// parameter (`function f(array, value, end = array.length)`), so each
+    /// parameter binding is registered as a local before the next parameter's
+    /// type (and any default initializer it lowers) is inferred. The local
+    /// scope is saved and restored around the loop because this prepass runs
+    /// before the function body is lowered and must not leak parameter bindings
+    /// into the surrounding module scope.
     fn predeclared_function(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
@@ -1333,10 +1341,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<Function, SmeltError> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
+        let saved_locals = std::mem::take(&mut self.locals);
         for (index, param) in function.params.items.iter().enumerate() {
-            let ty = self.function_parameter_type(param)?;
+            let ty = match self.function_parameter_type(param) {
+                Ok(ty) => ty,
+                Err(error) => {
+                    self.locals = saved_locals;
+                    return Err(error);
+                }
+            };
+            let local = smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX));
             let (param_name, span) =
                 if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                    self.locals.insert(binding.name.to_string(), local);
                     (
                         self.intern_source_name(binding.name.as_str()),
                         self.span(binding.span.start, binding.span.end),
@@ -1349,11 +1366,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 };
             params.push(Param {
                 name: param_name,
-                local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
+                local,
                 ty,
                 span,
             });
         }
+        self.locals = saved_locals;
         let mut rest_index = None;
         if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {

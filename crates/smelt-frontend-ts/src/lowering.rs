@@ -449,6 +449,7 @@ include!("lowering/types.rs");
 include!("lowering/builder_part16.rs");
 include!("lowering/builder_part17.rs");
 include!("lowering/builder_part18.rs");
+include!("lowering/constructor_function.rs");
 
 // Top-level lowering helper functions split into include files.
 include!("lowering/helpers_part01.rs");

@@ -485,6 +485,11 @@ impl ModuleBuilder<'_> {
                 errors.push(error);
             }
         }
+        if let Err(error) =
+            self.synthesize_setup_constructor_functions(setup, &arrow.body.statements)
+        {
+            errors.push(error);
+        }
         for statement in setup {
             if let Err(error) = self.test_case_statement(statement, &mut body) {
                 errors.push(error);
@@ -589,6 +594,11 @@ return_ty: none,
             if let Err(error) = self.bind_table_value(name, *value, &mut body) {
                 errors.push(error);
             }
+        }
+        if let Err(error) =
+            self.synthesize_setup_constructor_functions(setup, &function_body.statements)
+        {
+            errors.push(error);
         }
         for statement in setup {
             if let Err(error) = self.test_case_statement(statement, &mut body) {

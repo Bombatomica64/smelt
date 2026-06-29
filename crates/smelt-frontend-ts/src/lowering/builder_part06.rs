@@ -1600,6 +1600,10 @@ impl ModuleBuilder<'_> {
         statements: &[Statement<'_>],
         body: &mut Body,
     ) -> Result<(), SmeltError> {
+        // `const Foo = function () { … }` constructor bindings used with
+        // `new`/`instanceof`/`Foo.prototype.x = …` in this block are synthesized
+        // into classes here, before the binding is treated as a function value.
+        self.synthesize_const_constructor_functions(statements)?;
         for statement in statements {
             let Statement::FunctionDeclaration(function) = statement else {
                 continue;
@@ -1608,6 +1612,16 @@ impl ModuleBuilder<'_> {
                 continue;
             };
             if self.locals.contains_key(id.name.as_str()) {
+                continue;
+            }
+            // A `function Foo(){}` used as `new Foo()` / `instanceof Foo` /
+            // `Foo.prototype.x = …` in this block is a JavaScript constructor
+            // function: synthesize a class for it instead of a plain local
+            // function so the construction and prototype-chain sites resolve.
+            if !self.classes.contains_key(id.name.as_str())
+                && Self::statements_use_function_as_constructor(id.name.as_str(), statements)
+            {
+                self.synthesize_constructor_function_class(function, statements)?;
                 continue;
             }
             self.push_type_parameter_scope(function.type_parameters.as_deref())?;
@@ -1668,6 +1682,15 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         for declarator in &decl.declarations {
+            // A `const Foo = function () { … }` binding recognized as a
+            // constructor function was already synthesized into a class during
+            // the block prepass; its declarator contributes no runtime binding.
+            if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                && Self::const_constructor_function(declarator).is_some()
+                && self.classes.contains_key(binding.name.as_str())
+            {
+                continue;
+            }
             // `const g = globalThis;` records a local global-object alias so that
             // later `g.Object.keys(x)` / `"Map" in g` normalize and erase exactly
             // like the bare `globalThis` spelling. The alias is purely a
@@ -2037,6 +2060,12 @@ impl ModuleBuilder<'_> {
                 "anonymous local function declarations are not lowered yet",
             )
         })?;
+        // A constructor function recognized during the block prepass was already
+        // synthesized into a class; its declaration statement contributes no
+        // local closure.
+        if self.classes.contains_key(id.name.as_str()) {
+            return Ok(());
+        }
         let Some(function_body) = &function.body else {
             return Ok(());
         };

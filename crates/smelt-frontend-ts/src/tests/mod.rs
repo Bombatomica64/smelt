@@ -195,6 +195,7 @@ mod category_tests;
 mod part01_tests;
 mod part02_tests;
 mod part03_tests;
+mod constructor_function_tests;
 mod part04_tests;
 mod part05_tests;
 mod part06_tests;
