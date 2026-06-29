@@ -1,0 +1,6 @@
+# Transient investigation reports
+
+`smelt rust-diagnostics` / `smelt rust-test-report` and the debug workflow
+write per-investigation Markdown reports here. These are point-in-time
+snapshots — delete them once the underlying work lands. Don't let them
+accumulate; git history is the archive of record.
