@@ -54,7 +54,23 @@ Remeda gate 1789/0; smelt suite 1278/0. Still-unmodeled honest blockers:
 SharedArrayBuffer, DOMException, Buffer-as-value, `Math.PI`/`Reflect.ownKeys`
 member-access, and the deferred ambient globals (globalThis runtime object).
 
-## Batch 3 roadmap (the non-stdlib lowering features)
+## Batch 3 (2026-06-29) — callbacks + vitest, landed on main
+
+- **Callbacks/closures**: numeric-index truthy conditions 27→0; `try/catch`+loop
+  callback bodies 10→0 (routed through the closure-body fallback); erased
+  named-local callbacks 7→1. Left as documented blockers: "callback method not
+  lowered" (needs call-site generic instantiation to thread a callee's param
+  function-type as a hint), lodash two-arg `_.map(coll, cb)` utilities (separate
+  lowering), arrow-of-callables / divergent-list-type unification (low-value).
+- **Vitest harness**: `.rejects.toThrow`/`.resolves` Promise matchers 11→0
+  (reuse `smelt_await_flatten`), `toHaveProperty` 4→0, `mockReturnValue` args 2→0,
+  `describe` loop-unrolling + template-literal test names. Residual describe/
+  computed-name cases are all in out-of-scope `compat/**`.
+
+Result: **files-with-blockers 324 → 281** (−43), unsupported-lowering 235 → 187.
+Remeda gate 1789/0; smelt suite 1289/0. Cumulative this session: **419 → 281**.
+
+## Batch 4 roadmap (remaining non-stdlib lowering)
 
 1. **46 — unresolved identifier** (missing-stdlib): builtins-used-as-*values* (`Number`, `Math`, `parseInt`, `globalThis`…) — needs a general bare-builtin-value lowering path.
 2. **38 — unresolved class** (unresolved-reference): `compat/**` function-as-constructor + `X.prototype.y=…` idiom (see `blocker-logs/plan-class-prototype-*.md`); out of the test-prefix scope.
