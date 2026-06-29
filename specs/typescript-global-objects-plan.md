@@ -159,6 +159,15 @@ This is a path normalization layer, not a package-specific exception. When the
 normalized path consumes the only global usage, the runtime global object should
 remain uncreated.
 
+A bare builtin reference and its `globalThis.` form must resolve to the same
+concrete value. `Math`, `Reflect`, `parseInt`, etc. referenced as bare values
+are handled by the separate builtins-as-values lowering; `globalThis.Math` and
+`g.Math` (for a known global alias) must normalize to that exact same concrete
+representation rather than producing a parallel global-object slot read. In
+practice the global-path normalization should strip the recognized global-alias
+receiver and then defer to the ordinary identifier/value lowering, so the two
+spellings can never diverge.
+
 ### 6. Support Aliasing and Mutation
 
 Track local bindings that are aliases of the global object:
@@ -200,6 +209,23 @@ point is that compile-time answers and runtime global object shape must come
 from the same profile table, so erased probes and non-erased runtime object
 reads cannot disagree.
 
+Derive the profile's "present" set from the existing registries rather than a
+hand-maintained list. The set of constructors/namespaces a probe like
+`"Map" in globalThis` or `"ArrayBuffer" in globalThis` answers `true` for must be
+computed from the same sources codegen actually lowers — the `StdlibClass`
+registry and the recognized-builtins list (`crates/smelt-stdlib`). A separate
+literal list would drift as builtins are added (e.g. answering `true` for a
+constructor that is not yet modeled, or `false` for one that is), reintroducing
+exactly the erased-vs-runtime disagreement this section exists to prevent.
+
+`crypto.getRandomValues` and `structuredClone` are runtime *functions*, not mere
+capability flags. A probe such as `typeof globalThis.structuredClone` may only
+erase to `true` once a deterministic runtime implementation exists; until then,
+keep them as honest unsupported blockers rather than erasing a probe whose
+positive branch the runtime cannot satisfy. The profile's "present" answer for
+these must be gated on real runtime support landing, not on the intent to add
+it.
+
 ### 8. Generated Rust Runtime Surface
 
 Generated crates should emit or import helper functions for:
@@ -240,6 +266,18 @@ normalization. A source module that only contains erased probes such as
 - Add negative tests proving erasure does not run when global identity,
   dynamic access, or mutation is observable.
 - Keep `window` as absent in the non-DOM profile.
+
+### Checkpoint: re-probe before building the runtime object
+
+After Phase 1, regenerate the es-toolkit probe (and any other target corpus) and
+measure how many global blockers remain once feature probes and namespace-only
+paths have erased/normalized. Most non-DOM `globalThis` usage is feature
+detection, so Phase 1 alone may clear the large majority. Only proceed to
+Phases 2–3 (the `ExprKind::Global*` operations and the runtime `SmeltGlobalObject`)
+for the residual cases that genuinely require runtime object identity — aliasing
+with dynamic property writes, identity comparison, or escaping global values. Do
+not build the runtime-global machinery on assumption; build it against the
+specific blockers Phase 1 leaves behind, and skip it entirely if none remain.
 
 ### Phase 2: HIR/MIR Global Operations
 
