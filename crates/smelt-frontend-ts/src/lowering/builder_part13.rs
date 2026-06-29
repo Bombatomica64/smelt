@@ -22,37 +22,26 @@ impl ModuleBuilder<'_> {
                     "static array concat requires a receiver argument",
                 ));
             };
-            if right_arguments.len() != 1 {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "array concat currently requires exactly one array argument",
-                ));
-            }
-            let Some(right_argument) = right_arguments.first() else {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "array concat currently requires exactly one array argument",
-                ));
-            };
             let left = self.argument(left_argument, body)?;
-            return self.finish_list_concat_call(call, left, right_argument, true, body);
+            return self.finish_list_concat_call(call, left, right_arguments, true, body);
         }
-        let [right_argument] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "array concat currently requires exactly one array argument",
-            ));
-        };
         let left = self.expression(&member.object, body)?;
-        self.finish_list_concat_call(call, left, right_argument, false, body)
+        self.finish_list_concat_call(call, left, &call.arguments, false, body)
     }
 
-    /// Finish array concat lowering after receiver-style or helper-style arguments are known.
+    /// Finish array concat lowering after the receiver and the list of
+    /// `concat(...)` arguments are known.
+    ///
+    /// JavaScript `Array.prototype.concat` accepts any number of arguments, each
+    /// of which is either another array (spread into the result) or a scalar
+    /// element (appended). This folds every argument onto the receiver list left
+    /// to right so `a.concat(b, c, d)` and `a.concat(x)` both lower through the
+    /// same per-argument path.
     fn finish_list_concat_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         mut left: smelt_hir::ExprId,
-        right_argument: &Argument<'_>,
+        right_arguments: &[Argument<'_>],
         right_prefers_list: bool,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
@@ -121,6 +110,43 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
+        if right_arguments.is_empty() {
+            // `arr.concat()` with no arguments is a shallow copy.
+            return Ok(Some(left));
+        }
+        for right_argument in right_arguments {
+            let right = self.list_concat_argument(
+                call,
+                right_argument,
+                ty,
+                item_ty,
+                right_prefers_list,
+                body,
+            )?;
+            left = body.push_expr(Expr {
+                kind: ExprKind::ListConcat { left, right },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            });
+        }
+        Ok(Some(left))
+    }
+
+    /// Normalize a single `concat(...)` argument into a list of the receiver's
+    /// element type so it can be appended with [`ExprKind::ListConcat`].
+    ///
+    /// `concat` accepts both arrays (spread) and scalar elements (wrapped into a
+    /// singleton list); this picks between the two based on the argument's lowered
+    /// type, matching the receiver's element type (`item_ty`) and list type (`ty`).
+    fn list_concat_argument(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        right_argument: &Argument<'_>,
+        ty: smelt_hir::TypeId,
+        item_ty: smelt_hir::TypeId,
+        right_prefers_list: bool,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let mut right = self.argument(right_argument, body)?;
         let right_ty = Self::expr_ty(body, right);
         let right = if right_ty == ty {
@@ -179,11 +205,7 @@ impl ModuleBuilder<'_> {
                 "array concat requires an array or element argument matching the receiver",
             ));
         };
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListConcat { left, right },
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
+        Ok(right)
     }
 
     /// Lower callback-heavy TypeScript array methods.

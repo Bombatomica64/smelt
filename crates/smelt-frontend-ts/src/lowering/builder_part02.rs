@@ -737,6 +737,9 @@ return_ty: target_function.return_ty,
             Expression::UnaryExpression(unary) => self.unary_literal_const_expression(unary),
             Expression::BinaryExpression(binary) => self.binary_literal_const_expression(binary),
             Expression::CallExpression(call) => self.call_literal_const_expression(call),
+            Expression::StaticMemberExpression(member) => {
+                self.member_literal_const_expression(member)
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(expression.span().start, expression.span().end),
                 "exported const values currently support primitive literals and foldable primitive expressions",
@@ -816,6 +819,50 @@ return_ty: target_function.return_ty,
                 "exported const unary expressions currently support numeric plus, numeric negation, and boolean not",
             )),
         }
+    }
+
+    /// Fold a supported static member expression inside an exported const
+    /// initializer into a numeric literal.
+    ///
+    /// Lodash-style compat code exports module constants that alias well-known
+    /// global numeric members (`export const MAX_INTEGER = Number.MAX_VALUE`).
+    /// These are compile-time constants, so they fold to the same `Float`
+    /// literals that the runtime `Number.<constant>` reader produces.
+    fn member_literal_const_expression(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> Result<ConstLiteral, SmeltError> {
+        if let Expression::Identifier(object) = &member.object {
+            let value = match (object.name.as_str(), member.property.name.as_str()) {
+                ("Number", "NaN") => Some(f64::NAN),
+                ("Number", "POSITIVE_INFINITY") => Some(f64::INFINITY),
+                ("Number", "NEGATIVE_INFINITY") => Some(f64::NEG_INFINITY),
+                ("Number", "MAX_VALUE") => Some(f64::MAX),
+                ("Number", "MIN_VALUE") => Some(f64::MIN_POSITIVE),
+                ("Number", "MAX_SAFE_INTEGER") => Some(9_007_199_254_740_991.0_f64),
+                ("Number", "MIN_SAFE_INTEGER") => Some(-9_007_199_254_740_991.0_f64),
+                ("Number", "EPSILON") => Some(f64::EPSILON),
+                ("Math", "PI") => Some(std::f64::consts::PI),
+                ("Math", "E") => Some(std::f64::consts::E),
+                ("Math", "LN2") => Some(std::f64::consts::LN_2),
+                ("Math", "LN10") => Some(std::f64::consts::LN_10),
+                ("Math", "LOG2E") => Some(std::f64::consts::LOG2_E),
+                ("Math", "LOG10E") => Some(std::f64::consts::LOG10_E),
+                ("Math", "SQRT2") => Some(std::f64::consts::SQRT_2),
+                ("Math", "SQRT1_2") => Some(std::f64::consts::FRAC_1_SQRT_2),
+                _ => None,
+            };
+            if let Some(value) = value {
+                return Ok(ConstLiteral {
+                    literal: Literal::Float(value),
+                    ty: self.ctx.krate.types.intern(Type::Float),
+                });
+            }
+        }
+        Err(SmeltError::unsupported(
+            self.span(member.span.start, member.span.end),
+            "exported const member expressions support well-known Number/Math numeric constants only",
+        ))
     }
 
     /// Fold a supported binary expression inside an exported const initializer.

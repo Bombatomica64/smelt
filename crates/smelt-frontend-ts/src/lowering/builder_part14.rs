@@ -1876,6 +1876,9 @@ impl ModuleBuilder<'_> {
         if unary.operator == UnaryOperator::Delete {
             return self.delete_unary_expression(unary, body);
         }
+        if unary.operator == UnaryOperator::Typeof {
+            return self.typeof_expression(unary, body);
+        }
         if unary.operator == UnaryOperator::Void {
             let ty = self.ctx.krate.types.intern(Type::None);
             return Ok(body.push_expr(Expr {

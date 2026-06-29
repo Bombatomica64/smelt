@@ -4668,3 +4668,59 @@ function apply(values: string[], fn: any): string[] {
 
     assert!(source.contains(".map("), "{source}");
 }
+
+#[test]
+fn lowers_array_concat_with_multiple_arguments() {
+    // `Array.prototype.concat` accepts any number of arguments; each array
+    // argument is spread and each scalar is appended, chained left to right.
+    let source = source_for(
+        r#"
+export function joinAll(a: number[], b: number[], c: number[]): number[] {
+  return a.concat(b, c);
+}
+export function appendScalars(a: number[], x: number, y: number): number[] {
+  return a.concat(x, y);
+}
+export function copy(a: number[]): number[] {
+  return a.concat();
+}
+"#,
+    );
+    // Two right-arguments produce chained list concatenations (`.chain(...)`),
+    // and the no-argument form is a shallow copy.
+    assert!(source.matches(".chain(").count() >= 3, "{source}");
+    assert!(source.contains("a.clone()"), "{source}");
+}
+
+#[test]
+fn lowers_typeof_in_array_element_position() {
+    // `typeof x` appearing as an array literal element (which routes through the
+    // generic `unary_expression` path rather than the top-level expression
+    // dispatcher) must lower instead of rejecting the file.
+    let source = source_for(
+        r#"
+export function tags(x: unknown): string[] {
+  return [typeof x, "tail"];
+}
+"#,
+    );
+    assert!(source.contains("vec!"), "{source}");
+}
+
+#[test]
+fn folds_number_constant_in_exported_const() {
+    // An exported const aliasing a well-known numeric member constant folds to a
+    // numeric literal instead of rejecting the initializer as non-foldable.
+    let source = source_for(
+        r#"
+export const SAFE = Number.MAX_SAFE_INTEGER;
+export function ceiling(): number {
+  return SAFE;
+}
+"#,
+    );
+    assert!(
+        source.contains("9007199254740991") || source.contains("9_007_199_254_740_991"),
+        "{source}"
+    );
+}
