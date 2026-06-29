@@ -165,8 +165,8 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
-            if name == "String" {
-                return Ok(self.string_constructor_closure_expression(start, end, body));
+            if let Some(expr) = self.builtin_function_value_expression(name, start, end, body) {
+                return Ok(expr);
             }
             if matches!(
                 name,
@@ -307,60 +307,188 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower the global `String` value to a callable primitive string converter.
-    fn string_constructor_closure_expression(
+    /// Lower a bare reference to a recognized global builtin *function* (used as
+    /// a value, not called) into a concrete first-class closure.
+    ///
+    /// JavaScript utility code frequently passes the global coercion and parse
+    /// functions around as values — `['6', '8'].map(unary(parseInt))`,
+    /// `values.map(Number)`, `xs.filter(Boolean)`. The direct-call form of each
+    /// is lowered by `primitive_cast_call` / `primitive_predicate_call`; this
+    /// path gives the *value* form the same concrete behavior by synthesizing a
+    /// single-argument closure that runs the builtin's existing IR op, rather
+    /// than resolving the name as an unresolved identifier or erasing it to a
+    /// dynamic `SmeltUnknown` tag.
+    ///
+    /// Returns `None` for names that are not builtin function values so the
+    /// caller can continue its normal resolution chain.
+    fn builtin_function_value_expression(
         &mut self,
+        name: &str,
         start: u32,
         end: u32,
         outer_body: &mut Body,
-    ) -> smelt_hir::ExprId {
+    ) -> Option<smelt_hir::ExprId> {
         let span = self.span(start, end);
-        let value_name = self.intern_source_name("value");
+        Some(match name {
+            // Primitive coercion constructors used as callbacks.
+            "String" => {
+                self.builtin_cast_closure_expression(PrimitiveCastOp::ToString, Type::String, span, outer_body)
+            }
+            "Number" => self.builtin_cast_closure_expression(
+                PrimitiveCastOp::ToJsNumber,
+                Type::Float,
+                span,
+                outer_body,
+            ),
+            "Boolean" => {
+                self.builtin_cast_closure_expression(PrimitiveCastOp::ToBool, Type::Bool, span, outer_body)
+            }
+            // String-to-number parse functions used as callbacks. Both take a
+            // single string argument here (matching the direct-call lowering,
+            // which requires a string operand): callers that need JavaScript's
+            // `(value, index)` arity (e.g. `arr.map(parseInt)`) wrap them in
+            // `unary`/`ary` first, so a one-parameter closure is faithful. The
+            // parameter is typed `string` so the cast emits the real numeric
+            // parse instead of the erased-operand fallback.
+            "parseInt" => self.builtin_string_cast_closure_expression(
+                PrimitiveCastOp::ToInt,
+                span,
+                outer_body,
+            ),
+            "parseFloat" => self.builtin_string_cast_closure_expression(
+                PrimitiveCastOp::ToFloat,
+                span,
+                outer_body,
+            ),
+            // Numeric predicates used as callbacks.
+            "isNaN" => self.builtin_numeric_predicate_closure_expression(
+                NumericPredicateOp::IsNaN,
+                span,
+                outer_body,
+            ),
+            "isFinite" => self.builtin_numeric_predicate_closure_expression(
+                NumericPredicateOp::IsFinite,
+                span,
+                outer_body,
+            ),
+            _ => return None,
+        })
+    }
+
+    /// Build a `(value) => <PrimitiveCast op>(value)` closure value.
+    ///
+    /// The single parameter is typed `unknown` so any argument the closure is
+    /// later applied to is accepted; the result type matches the cast's output.
+    fn builtin_cast_closure_expression(
+        &mut self,
+        op: PrimitiveCastOp,
+        return_type: Type,
+        span: Span,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
         let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let result_ty = self.ctx.krate.types.intern(return_type);
+        self.builtin_unary_closure_expression(value_ty, result_ty, span, outer_body, |value_expr| {
+            ExprKind::PrimitiveCast {
+                op,
+                operand: value_expr,
+            }
+        })
+    }
+
+    /// Build a `(value: string) => <PrimitiveCast op>(value)` closure value.
+    ///
+    /// Used for the string-to-number parse builtins (`parseInt`, `parseFloat`),
+    /// whose single argument is a string. A concrete `string` parameter routes
+    /// the cast through its real numeric-parse emission rather than the erased
+    /// `unknown` fallback (which would yield a constant `0`).
+    fn builtin_string_cast_closure_expression(
+        &mut self,
+        op: PrimitiveCastOp,
+        span: Span,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
+        let result_ty = self.ctx.krate.types.intern(Type::Float);
+        self.builtin_unary_closure_expression(string_ty, result_ty, span, outer_body, |value_expr| {
+            ExprKind::PrimitiveCast {
+                op,
+                operand: value_expr,
+            }
+        })
+    }
+
+    /// Build a `(value) => <NumericPredicate op>(value)` closure value.
+    fn builtin_numeric_predicate_closure_expression(
+        &mut self,
+        op: NumericPredicateOp,
+        span: Span,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let value_ty = self.ctx.krate.types.intern(Type::Float);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        self.builtin_unary_closure_expression(value_ty, bool_ty, span, outer_body, |value_expr| {
+            ExprKind::NumericPredicate {
+                op,
+                operand: value_expr,
+            }
+        })
+    }
+
+    /// Synthesize a single-argument closure value whose body returns `make_body`
+    /// applied to the parameter read.
+    ///
+    /// Shared by the builtin coercion/parse/predicate value lowerings so each
+    /// only specifies its parameter type, result type, and the IR op to run.
+    fn builtin_unary_closure_expression(
+        &mut self,
+        param_ty: smelt_hir::TypeId,
+        return_ty: smelt_hir::TypeId,
+        span: Span,
+        outer_body: &mut Body,
+        make_body: impl FnOnce(smelt_hir::ExprId) -> ExprKind,
+    ) -> smelt_hir::ExprId {
+        let value_name = self.intern_source_name("value");
         let mut closure_body = Body::new(None, span);
         let value_local = closure_body.push_local(LocalDecl {
             name: Some(value_name),
-            ty: value_ty,
+            ty: param_ty,
             mutable: false,
             span,
         });
         closure_body.params.push(value_local);
         let value_expr = closure_body.push_expr(Expr {
             kind: ExprKind::Local(value_local),
-            ty: value_ty,
+            ty: param_ty,
             span,
         });
-        let cast = closure_body.push_expr(Expr {
-            kind: ExprKind::PrimitiveCast {
-                op: PrimitiveCastOp::ToString,
-                operand: value_expr,
-            },
-            ty: string_ty,
+        let result = closure_body.push_expr(Expr {
+            kind: make_body(value_expr),
+            ty: return_ty,
             span,
         });
-        closure_body.push_stmt(Stmt::Return(Some(cast)));
+        closure_body.push_stmt(Stmt::Return(Some(result)));
         let body = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: vec![value_ty],
+            params: vec![param_ty],
             rest: None,
             required_params: None,
-                    mutable_params: Vec::new(),
-return_ty: string_ty,
+            mutable_params: Vec::new(),
+            return_ty,
             is_async: false,
-                            may_throw: false,
+            may_throw: false,
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: vec![Param {
                     name: value_name,
                     local: value_local,
-                    ty: value_ty,
+                    ty: param_ty,
                     span,
                 }],
                 rest: None,
                 required_params: None,
-return_ty: string_ty,
+                return_ty,
                 captures: Vec::new(),
                 body,
                 function_item: None,
@@ -369,6 +497,24 @@ return_ty: string_ty,
             ty: closure_ty,
             span,
         })
+    }
+
+    /// Read the declared return type of a synthesized closure value expression.
+    ///
+    /// Callback positions need the callback's return type to type the array
+    /// method result; the builtin closures built above carry it in their
+    /// interned `Type::Function`. Falls back to `unknown` for non-function
+    /// values, which never occurs for the builtin closure helpers.
+    fn closure_value_return_ty(
+        &mut self,
+        expr: smelt_hir::ExprId,
+        body: &Body,
+    ) -> smelt_hir::TypeId {
+        let ty = Self::expr_ty(body, expr);
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Function(function)) => function.return_ty,
+            _ => self.ctx.krate.types.intern(Type::Unknown),
+        }
     }
 
     /// Wrap a function item in a first-class closure value for argument positions.

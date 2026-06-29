@@ -4831,21 +4831,33 @@ impl ModuleBuilder<'_> {
                 )?;
                 return Ok(ClosureCallback { expr, return_ty });
             }
+            // Recognized global builtin *functions* passed as callbacks
+            // (`xs.map(Number)`, `xs.filter(Boolean)`, `xs.map(parseInt)`).
+            // Lower them to the same concrete single-argument closures used in
+            // ordinary value position so the array method runs the builtin's
+            // real behavior instead of a placeholder.
+            if let Some(expr) = self.builtin_function_value_expression(
+                identifier.name.as_str(),
+                identifier.span.start,
+                identifier.span.end,
+                body,
+            ) {
+                let return_ty = self.closure_value_return_ty(expr, body);
+                return Ok(ClosureCallback { expr, return_ty });
+            }
+            // Imported es-toolkit/lodash predicates whose bodies are opaque here
+            // but whose `(value) => bool` shape is known. These are not builtins,
+            // so they are gated on being a value import.
             if matches!(
                 identifier.name.as_str(),
-                "Boolean" | "String" | "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
-            ) && (matches!(identifier.name.as_str(), "Boolean" | "String")
-                || self.value_imports.contains(identifier.name.as_str()))
+                "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
+            ) && self.value_imports.contains(identifier.name.as_str())
             {
                 let param_ty = expected_param_tys
                     .first()
                     .copied()
                     .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                let return_ty = if identifier.name == "String" {
-                    self.ctx.krate.types.intern(Type::String)
-                } else {
-                    self.ctx.krate.types.intern(Type::Bool)
-                };
+                let return_ty = self.ctx.krate.types.intern(Type::Bool);
                 let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params: vec![param_ty],
                     rest: None,

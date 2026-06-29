@@ -1175,6 +1175,128 @@ const missing = undefined;
 }
 
 #[test]
+fn lowers_bare_builtin_functions_as_closure_values() -> Result<(), String> {
+    // Recognized global coercion/parse/predicate functions referenced as bare
+    // values (passed to a higher-order function) must lower to concrete
+    // closures running the builtin's IR op, not to an unresolved identifier or
+    // an erased `SmeltUnknown` tag.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function take<A, R>(fn: (a: A) => R): (a: A) => R {
+  return (a: A) => fn(a);
+}
+const asNumber = take(Number);
+const asString = take(String);
+const asBool = take(Boolean);
+const asInt = take(parseInt);
+const asFloat = take(parseFloat);
+const checkNaN = take(isNaN);
+const checkFinite = take(isFinite);
+"#),
+        &mut ctx,
+    )?;
+    let lowered_module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, lowered_module)?;
+
+    // Each builtin value must be a closure expression in the module body.
+    let closure_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::Closure(_)))
+        .count();
+    ensure!(closure_count >= 7, "expected at least 7 builtin closure values, got {closure_count}");
+
+    // The closure bodies must contain the concrete coercion/predicate ops.
+    let mut cast_ops: Vec<PrimitiveCastOp> = Vec::new();
+    let mut predicate_ops: Vec<NumericPredicateOp> = Vec::new();
+    for closure in body.exprs.iter().filter_map(|expr| match &expr.kind {
+        ExprKind::Closure(closure) => Some(closure),
+        _ => None,
+    }) {
+        let Some(closure_body) = ctx.krate.bodies.get(closure.body.0 as usize) else {
+            continue;
+        };
+        for inner in &closure_body.exprs {
+            match inner.kind {
+                ExprKind::PrimitiveCast { op, .. } => {
+                    if !cast_ops.contains(&op) {
+                        cast_ops.push(op);
+                    }
+                }
+                ExprKind::NumericPredicate { op, .. } => {
+                    if !predicate_ops.contains(&op) {
+                        predicate_ops.push(op);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    for expected in [
+        PrimitiveCastOp::ToJsNumber, // Number
+        PrimitiveCastOp::ToString,   // String
+        PrimitiveCastOp::ToBool,     // Boolean
+        PrimitiveCastOp::ToInt,      // parseInt
+        PrimitiveCastOp::ToFloat,    // parseFloat
+    ] {
+        ensure!(cast_ops.contains(&expected), "missing cast op {expected:?}");
+    }
+    for expected in [NumericPredicateOp::IsNaN, NumericPredicateOp::IsFinite] {
+        ensure!(
+            predicate_ops.contains(&expected),
+            "missing predicate op {expected:?}"
+        );
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_bare_builtin_functions_as_array_callbacks() -> Result<(), String> {
+    // The same recognized builtins passed directly to array methods
+    // (`xs.map(Number)`, `xs.filter(isFinite)`) lower to concrete callbacks
+    // rather than the previous placeholder / unresolved-callback error.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const nums = ["1", "2", "3"].map(Number);
+const ints = ["4", "5"].map(parseInt);
+const strs = [1, 2].map(String);
+const truthy = [0, 1].map(Boolean);
+const finite = [1, 2, 3].filter(isFinite);
+"#),
+        &mut ctx,
+    )?;
+    let lowered_module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, lowered_module)?;
+
+    // Every array callback method must have lowered (no unresolved blockers),
+    // and the synthesized callbacks must carry the concrete coercion ops.
+    let has_to_js_number = body
+        .exprs
+        .iter()
+        .filter_map(|expr| match &expr.kind {
+            ExprKind::Closure(closure) => ctx.krate.bodies.get(closure.body.0 as usize),
+            _ => None,
+        })
+        .any(|closure_body| {
+            closure_body.exprs.iter().any(|inner| {
+                matches!(
+                    inner.kind,
+                    ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToJsNumber,
+                        ..
+                    }
+                )
+            })
+        });
+    ensure!(has_to_js_number, "map(Number) callback did not lower to a ToJsNumber cast");
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_object_projection_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
