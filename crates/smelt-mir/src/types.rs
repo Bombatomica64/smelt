@@ -1627,4 +1627,8 @@ pub enum Callee {
 pub enum BuiltinFn {
     /// Print to the console.
     ConsoleLog,
+    /// Write exact text to stdout.
+    ConsoleWrite,
+    /// Write exact text to stderr.
+    ConsoleErrorWrite,
 }

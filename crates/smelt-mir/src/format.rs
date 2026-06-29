@@ -1259,6 +1259,8 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Static(func) => format!("fn{}", func.0),
         Callee::Indirect(operand) => operand_text(operand),
         Callee::Builtin(BuiltinFn::ConsoleLog) => "@console_log".to_owned(),
+        Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
+        Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
     }
 }
 

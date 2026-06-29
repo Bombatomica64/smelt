@@ -3426,6 +3426,10 @@ impl<'hir> LoweringCtx<'hir> {
         };
         if name == smelt_hir::CONSOLE_LOG_SYMBOL {
             Ok(Callee::Builtin(BuiltinFn::ConsoleLog))
+        } else if name == smelt_hir::CONSOLE_WRITE_SYMBOL {
+            Ok(Callee::Builtin(BuiltinFn::ConsoleWrite))
+        } else if name == smelt_hir::CONSOLE_ERROR_WRITE_SYMBOL {
+            Ok(Callee::Builtin(BuiltinFn::ConsoleErrorWrite))
         } else if let Some(function_id) = self.item_functions.get(&item_id).copied() {
             Ok(Callee::Static(function_id))
         } else {

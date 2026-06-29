@@ -351,6 +351,65 @@ mod tests {
     }
 
     #[test]
+    fn guest_preserves_import_cycles_reexports_and_singleton_identity() -> Result<(), String> {
+        let Some(python) = discovered_python() else {
+            return Ok(());
+        };
+        let manifest = run_module_graph_guest(python)?;
+        let module_a = manifest
+            .modules
+            .iter()
+            .find(|module| module.path.ends_with("a.py"))
+            .ok_or_else(|| "module a is absent".to_owned())?;
+        let module_c = manifest
+            .modules
+            .iter()
+            .find(|module| module.path.ends_with("c.py"))
+            .ok_or_else(|| "module c is absent".to_owned())?;
+        let product = module_a
+            .globals
+            .get("Product")
+            .ok_or_else(|| "module a Product global is absent".to_owned())?;
+        let reexport = module_c
+            .globals
+            .get("Reexported")
+            .ok_or_else(|| "module c re-export is absent".to_owned())?;
+        if product != reexport {
+            return Err("re-exported class identity was not preserved".to_owned());
+        }
+        let definition = module_c
+            .definitions
+            .iter()
+            .find(|definition| definition.binding_name == "Reexported")
+            .ok_or_else(|| "re-exported class definition is absent".to_owned())?;
+        if definition.source.module != "a" {
+            return Err("re-export provenance did not retain source module a".to_owned());
+        }
+        let events = module_a
+            .globals
+            .get("events")
+            .and_then(|value| usize::try_from(value.0).ok())
+            .and_then(|value| manifest.values.nodes.get(value))
+            .ok_or_else(|| "cycle event list is absent".to_owned())?;
+        let crate::GraphValueKind::List(values) = &events.value else {
+            return Err("cycle events did not serialize as a list".to_owned());
+        };
+        let texts = values
+            .iter()
+            .filter_map(|value| usize::try_from(value.0).ok())
+            .filter_map(|value| manifest.values.nodes.get(value))
+            .filter_map(|node| match &node.value {
+                crate::GraphValueKind::String(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if texts != ["b", "a"] {
+            return Err(format!("import cycle order differs: {texts:?}"));
+        }
+        Ok(())
+    }
+
+    #[test]
     fn sandboxed_specializer_runs_when_backend_is_available() -> Result<(), String> {
         let Some(python) = discovered_python() else {
             return Ok(());
@@ -436,6 +495,58 @@ mod tests {
             sandbox_policy: &policy,
         };
         let request_path = scratch.path().join("request.json");
+        write_if_changed(
+            &request_path,
+            &serde_json::to_vec(&input).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let output = std::process::Command::new(python)
+            .args(["-I", "-S", "-c"])
+            .arg(PYTHON_GUEST)
+            .arg(&request_path)
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+        }
+        decode_manifest(&output.stdout).map_err(|error| error.to_string())
+    }
+
+    /// Runs a three-module graph containing a cycle and a class re-export.
+    fn run_module_graph_guest(python: &Path) -> Result<SpecializationManifest, String> {
+        let scratch = ScratchDirectory::create().map_err(|error| error.to_string())?;
+        let project = scratch.path().join("module-graph");
+        fs::create_dir(&project).map_err(|error| error.to_string())?;
+        let sources = [
+            (
+                "a",
+                "events = []\ndef record(value):\n    events.append(value)\nimport b\nrecord(\"a\")\nclass Product:\n    pass\n",
+            ),
+            ("b", "import a\na.record(\"b\")\n"),
+            ("c", "from a import Product as Reexported\n"),
+        ];
+        let modules = sources
+            .iter()
+            .map(|(name, source)| {
+                let path = project.join(format!("{name}.py"));
+                fs::write(&path, source).map_err(|error| error.to_string())?;
+                Ok(PythonModule {
+                    name: (*name).to_owned(),
+                    path,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let policy = fixture_policy(&project, scratch.path());
+        let hashes = fixture_hashes();
+        let input = PythonGuestInput {
+            smelt_version: "test",
+            schema_version: MANIFEST_SCHEMA_VERSION,
+            project_root: &project,
+            modules: &modules,
+            hashes: &hashes,
+            sandbox_policy: &policy,
+        };
+        let request_path = scratch.path().join("module-graph.json");
         write_if_changed(
             &request_path,
             &serde_json::to_vec(&input).map_err(|error| error.to_string())?,

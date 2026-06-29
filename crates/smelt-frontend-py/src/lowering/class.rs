@@ -16,7 +16,16 @@ impl ModuleBuilder<'_> {
         let materialized = self.materialized_class_definition(class_name_str).cloned();
 
         // --- Decorator check: only @dataclass is allowed ---
-        let mut kind = ClassKind::Plain;
+        let mut kind = if materialized.as_ref().is_some_and(|manifest_class| {
+            manifest_class
+                .metadata
+                .iter()
+                .any(|metadata| metadata.key == "python.dataclass_fields")
+        }) {
+            ClassKind::DataclassLike { frozen: false }
+        } else {
+            ClassKind::Plain
+        };
         let runtime_decorators = if materialized.is_none() {
             class.decorator_list.as_slice()
         } else {
@@ -181,6 +190,11 @@ impl ModuleBuilder<'_> {
                 }
                 Stmt::FunctionDef(func) => {
                     let method_name = func.name.as_str();
+                    if materialized.is_some()
+                        && matches!(method_name, "__init_subclass__" | "__set_name__")
+                    {
+                        continue;
+                    }
                     if Self::is_abstractmethod(func) {
                         kind = ClassKind::Abstract;
                         abstract_methods.push(self.abstract_method_sig(func)?);

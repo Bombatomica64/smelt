@@ -329,6 +329,19 @@ impl FunctionEmitter<'_> {
                     Ok(format!("{{ println!(\"{format}\", {arg_values}); }}"))
                 }
             }
+            Callee::Builtin(BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite) => {
+                let value = args
+                    .first()
+                    .map(|argument| self.console_arg_text(argument))
+                    .transpose()?
+                    .map_or_else(|| "\"\"".to_owned(), |(_, value)| value);
+                let macro_name = if matches!(callee, Callee::Builtin(BuiltinFn::ConsoleWrite)) {
+                    "print"
+                } else {
+                    "eprint"
+                };
+                Ok(format!("{{ {macro_name}!(\"{{}}\", {value}); }}"))
+            }
             Callee::Static(func) => {
                 let function = self
                     .mir
@@ -883,7 +896,9 @@ impl FunctionEmitter<'_> {
     /// Returns the static return type of a call expression.
     pub(super) fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
-            Callee::Builtin(BuiltinFn::ConsoleLog) => self.none_ty,
+            Callee::Builtin(
+                BuiltinFn::ConsoleLog | BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite,
+            ) => self.none_ty,
             Callee::Static(func) => {
                 let function = self
                     .mir

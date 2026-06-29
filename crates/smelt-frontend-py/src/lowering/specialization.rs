@@ -17,10 +17,20 @@ pub(crate) fn specialization_for_path(
                 .flatten()
         })
         .cloned()?;
+    let replay_effects = specialization
+        .modules
+        .first()
+        .is_some_and(|first| first.path == module.path);
+    let effects = if replay_effects {
+        specialization.effects.clone()
+    } else {
+        Vec::new()
+    };
     Some(SpecializationData {
         module,
         values: specialization.values.nodes.clone(),
         required_adapters: specialization.required_adapters.clone(),
+        effects,
     })
 }
 
@@ -63,6 +73,71 @@ struct MaterializedClassTarget<'name> {
 }
 
 impl ModuleBuilder<'_> {
+    /// Replays deterministic output captured during definition-time execution.
+    fn replay_specialization_output(&mut self, body: &mut Body) {
+        let effects = self
+            .specialization
+            .as_ref()
+            .map(|specialization| specialization.effects.clone())
+            .unwrap_or_default();
+        let span = Span::new(self.file_id, 0, 0);
+        let none_ty = self.intern_type(Type::None);
+        let string_ty = self.intern_type(Type::String);
+        for effect in effects {
+            let smelt_specialize::EffectReplay::Output { stderr, text } = effect else {
+                continue;
+            };
+            let symbol = if stderr {
+                smelt_hir::CONSOLE_ERROR_WRITE_SYMBOL
+            } else {
+                smelt_hir::CONSOLE_WRITE_SYMBOL
+            };
+            let item = self.ensure_specialization_output_item(symbol, span);
+            let callee = body.push_expr(HirExpr {
+                kind: ExprKind::Item(item),
+                ty: none_ty,
+                span,
+            });
+            let value = body.push_expr(HirExpr {
+                kind: ExprKind::Literal(Literal::String(text)),
+                ty: string_ty,
+                span,
+            });
+            let call = body.push_expr(HirExpr {
+                kind: ExprKind::Call {
+                    callee,
+                    args: vec![value],
+                },
+                ty: none_ty,
+                span,
+            });
+            body.push_stmt_to_block(body.root, HirStmt::Expr(call));
+        }
+    }
+
+    /// Ensures one exact output replay builtin exists in HIR.
+    fn ensure_specialization_output_item(&mut self, name: &str, span: Span) -> ItemId {
+        if let Some(item) = self.items.get(name) {
+            return *item;
+        }
+        let symbol = self.intern_name(name);
+        let none_ty = self.intern_type(Type::None);
+        let item = self.ctx.krate.push_item(Item::Function(Function {
+            name: symbol,
+            span,
+            params: Vec::new(),
+            rest: None,
+            required_params: None,
+            return_ty: none_ty,
+            is_async: false,
+            is_test: false,
+            body: None,
+            owner: FunctionOwner::Module,
+        }));
+        self.items.insert(name.to_owned(), item);
+        item
+    }
+
     /// Lifts source-defined methods installed by a metaclass or class decorator.
     fn lower_materialized_class_methods(
         &mut self,
@@ -602,8 +677,7 @@ impl ModuleBuilder<'_> {
                 class.arguments.as_deref().is_some_and(|arguments| {
                     arguments.keywords.iter().any(|keyword| {
                         keyword.arg.as_ref().map(|name| name.as_str()) == Some("metaclass")
-                            && expr_simple_name(&keyword.value)
-                                == Some(candidate.name.as_str())
+                            && expr_simple_name(&keyword.value) == Some(candidate.name.as_str())
                     })
                 })
             })
@@ -730,43 +804,90 @@ impl ModuleBuilder<'_> {
         if Self::provenance_matches_function(&materialized.callable, original) {
             return Ok(vec![original_item]);
         }
-        let wrapper =
-            find_specialized_function(module, &materialized.callable).ok_or_else(|| {
-                SmeltError::native_specialization_adapter_required(
-                    self.span(original.range),
-                    "python.callable-provenance",
-                    &format!(
-                        "callable '{}' did not resolve to a source function",
-                        materialized.callable.qualified_name
-                    ),
-                )
-            })?;
         let original_name = original.name.as_str();
         let final_symbol = self.intern_name(original_name);
         let hidden_symbol = self.intern_name(&format!("__smelt_original_{original_name}"));
         self.rename_function_item(original_item, hidden_symbol)?;
 
-        let saved_aliases = self.install_materialized_captures(
-            &materialized.callable.captures,
-            self.span(wrapper.range),
-        )?;
-        let wrapper_result = self.function_def(wrapper);
-        self.restore_capture_aliases(saved_aliases);
-        let wrapper_item = wrapper_result?;
-        self.rename_function_item(wrapper_item, final_symbol)?;
+        let mut provenance_chain =
+            Vec::with_capacity(materialized.wrapper_chain.len().saturating_add(1));
+        provenance_chain.push(&materialized.callable);
+        provenance_chain.extend(&materialized.wrapper_chain);
+        if provenance_chain
+            .last()
+            .is_some_and(|provenance| Self::provenance_matches_function(provenance, original))
+        {
+            provenance_chain.pop();
+        }
+        let mut items = vec![original_item];
+        let mut inner_item = original_item;
+        let mut inner_provenance = materialized.wrapper_chain.last();
+        for (index, provenance) in provenance_chain.into_iter().rev().enumerate() {
+            let wrapper = find_specialized_function(module, provenance).ok_or_else(|| {
+                SmeltError::native_specialization_adapter_required(
+                    self.span(original.range),
+                    "python.callable-provenance",
+                    &format!(
+                        "callable '{}' did not resolve to a source function",
+                        provenance.qualified_name
+                    ),
+                )
+            })?;
+            let saved_aliases = self.install_materialized_wrapper_captures(
+                &provenance.captures,
+                inner_item,
+                inner_provenance,
+                self.span(wrapper.range),
+            )?;
+            let wrapper_result = self.function_def(wrapper);
+            self.restore_capture_aliases(saved_aliases);
+            let wrapper_item = wrapper_result?;
+            let wrapper_symbol =
+                self.intern_name(&format!("__smelt_wrapper_{original_name}_{index}"));
+            self.rename_function_item(wrapper_item, wrapper_symbol)?;
+            items.push(wrapper_item);
+            inner_item = wrapper_item;
+            inner_provenance = Some(provenance);
+        }
+        self.rename_function_item(inner_item, final_symbol)?;
         self.validate_materialized_signature(
-            wrapper_item,
+            inner_item,
             &materialized.signature,
             self.span(original.range),
             original_name,
         )?;
-        self.items.insert(original_name.to_owned(), wrapper_item);
-        self.exports.insert(original_name.to_owned(), wrapper_item);
-        if wrapper.name.as_str() != original_name {
-            self.items.remove(wrapper.name.as_str());
-            self.exports.remove(wrapper.name.as_str());
+        self.items.insert(original_name.to_owned(), inner_item);
+        self.exports.insert(original_name.to_owned(), inner_item);
+        Ok(items)
+    }
+
+    /// Installs captures while binding a wrapper's inner callable explicitly.
+    fn install_materialized_wrapper_captures(
+        &mut self,
+        captures: &std::collections::BTreeMap<String, smelt_specialize::ValueId>,
+        inner_item: ItemId,
+        inner_provenance: Option<&smelt_specialize::CallableProvenance>,
+        span: Span,
+    ) -> Result<Vec<(String, Option<ItemId>)>, SmeltError> {
+        let mut saved = Vec::new();
+        for (name, value) in captures {
+            let node = self.materialized_value(*value, span)?.clone();
+            let is_inner_callable = matches!(
+                &node.value,
+                smelt_specialize::GraphValueKind::FunctionRef(provenance)
+                    if inner_provenance.is_none_or(|inner| {
+                        provenance.qualified_name == inner.qualified_name
+                            && provenance.span == inner.span
+                    })
+            );
+            let item = if is_inner_callable {
+                inner_item
+            } else {
+                self.materialized_capture_item(name, *value, span)?
+            };
+            saved.push((name.clone(), self.items.insert(name.clone(), item)));
         }
-        Ok(vec![original_item, wrapper_item])
+        Ok(saved)
     }
 
     /// Validates host callable shape against the source-lowered HIR function.
@@ -904,8 +1025,13 @@ impl ModuleBuilder<'_> {
         provenance: &smelt_specialize::CallableProvenance,
         function: &StmtFunctionDef,
     ) -> bool {
-        provenance.qualified_name == function.name.as_str()
-            && provenance.span.start == function.range.start().to_u32()
+        provenance
+            .qualified_name
+            .rsplit('.')
+            .next()
+            .is_some_and(|name| name == function.name.as_str())
+            && (function.range.start().to_u32()..function.range.end().to_u32())
+                .contains(&provenance.span.start)
     }
 
     /// Renames one HIR function item without changing its body or call identity.
@@ -918,6 +1044,12 @@ impl ModuleBuilder<'_> {
             ));
         };
         function.name = name;
+        if let FunctionOwner::ClassMethod { class, .. } = function.owner {
+            function.owner = FunctionOwner::ClassMethod {
+                class,
+                method: name,
+            };
+        }
         Ok(())
     }
 

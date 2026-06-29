@@ -46,6 +46,8 @@ pub(crate) struct SpecializationData {
     values: Vec<smelt_specialize::GraphValue>,
     /// Opaque behavior that requires explicit adapters.
     required_adapters: Vec<smelt_specialize::AdapterRequirement>,
+    /// Ordered deterministic effects replayed once by the first manifest module.
+    effects: Vec<smelt_specialize::EffectReplay>,
 }
 
 /// Stateful Python-module lowering context.
@@ -252,6 +254,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         {
             return Err(vec![SmeltError::specialization_required(span, name)]);
         }
+        self.replay_specialization_output(&mut body);
 
         // Pass 1 — collect top-level function/class declarations so later
         // statements can reference them in calls.

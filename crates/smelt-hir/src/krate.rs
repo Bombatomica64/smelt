@@ -10,6 +10,10 @@ use crate::ty::TypeInterner;
 
 /// Symbol name used for console.log function.
 pub const CONSOLE_LOG_SYMBOL: &str = "console_log";
+/// Internal exact stdout write builtin used for specialization replay.
+pub const CONSOLE_WRITE_SYMBOL: &str = "console_write";
+/// Internal exact stderr write builtin used for specialization replay.
+pub const CONSOLE_ERROR_WRITE_SYMBOL: &str = "console_error_write";
 
 /// A crate containing all HIR data structures.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

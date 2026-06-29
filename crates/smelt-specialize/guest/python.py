@@ -39,8 +39,13 @@ class EventStream:
         self.stderr = stderr
 
     def write(self, text: str) -> int:
-        """Record one non-empty output write."""
-        if text:
+        """Record output emitted from an active definition-time callable."""
+        caller = inspect.currentframe()
+        caller = None if caller is None else caller.f_back
+        definition_time = (
+            caller is not None and caller.f_code.co_name != "<module>"
+        )
+        if text and definition_time:
             self.events.append({"kind": "output", "stderr": self.stderr, "text": text})
         return len(text)
 
@@ -384,14 +389,20 @@ def source_span(function: object) -> tuple[dict[str, object], str] | None:
     try:
         source_bytes = path.read_bytes()
         source_text = source_bytes.decode("utf-8")
-        lines, first_line = inspect.getsourcelines(function)
     except (OSError, UnicodeError, TypeError):
         return None
     line_offsets = [0]
     for line in source_text.splitlines(keepends=True):
         line_offsets.append(line_offsets[-1] + len(line.encode("utf-8")))
-    start_index = max(first_line - 1, 0)
-    end_index = min(start_index + len(lines), len(line_offsets) - 1)
+    first_line = max(code.co_firstlineno, 1)
+    code_lines = [
+        line
+        for _, _, line in code.co_lines()
+        if line is not None and line >= first_line
+    ]
+    last_line = max(code_lines, default=first_line)
+    start_index = min(first_line - 1, len(line_offsets) - 1)
+    end_index = min(last_line, len(line_offsets) - 1)
     start = line_offsets[start_index]
     end = line_offsets[end_index]
     body = source_bytes[start:end]
@@ -409,8 +420,15 @@ def callable_provenance(function: object, serializer: Serializer) -> dict[str, o
         unwrapped = unwrapped.__func__
     resolved = source_span(unwrapped)
     module = getattr(unwrapped, "__module__", "")
-    qualified_name = getattr(
-        unwrapped, "__qualname__", getattr(unwrapped, "__name__", type(unwrapped).__name__)
+    code = getattr(unwrapped, "__code__", None)
+    qualified_name = (
+        getattr(code, "co_qualname", code.co_name)
+        if code is not None
+        else getattr(
+            unwrapped,
+            "__qualname__",
+            getattr(unwrapped, "__name__", type(unwrapped).__name__),
+        )
     )
     if resolved is None:
         adapter_id = f"python.native-callable:{module}.{qualified_name}"
@@ -525,7 +543,7 @@ def source_provenance(
     else:
         span = resolved[0]
     return {
-        "module": module_name,
+        "module": getattr(target, "__module__", module_name),
         "qualified_name": getattr(target, "__qualname__", binding_name),
         "span": span,
     }
@@ -553,12 +571,22 @@ def class_definition(
                 "span": None,
             }
         )
+    django_structure = django_model_structure(class_value)
+    if django_structure is not None:
+        known_fields = {field["name"] for field in fields}
+        fields.extend(
+            field
+            for field in typing.cast(list[dict[str, object]], django_structure["fields"])
+            if field["name"] not in known_fields
+        )
 
     descriptors = []
     methods = []
     static_values: dict[str, int] = {}
     for name, raw_value in sorted(class_value.__dict__.items()):
         if name.startswith("__") and name.endswith("__"):
+            continue
+        if name == "_meta" and django_structure is not None:
             continue
         method, mode = unwrap_method(raw_value)
         if method is not None:
@@ -622,6 +650,13 @@ def class_definition(
                 ),
             }
         )
+    if django_structure is not None:
+        metadata.append(
+            {
+                "key": "python.django.model",
+                "value": serializer.value(django_structure["metadata"]),
+            }
+        )
 
     constructor = class_value.__dict__.get("__init__")
     replacement = (
@@ -653,6 +688,42 @@ def class_definition(
     }
 
 
+def django_model_structure(
+    class_value: type[object],
+) -> dict[str, object] | None:
+    """Return a dependency-free structural snapshot of Django model options."""
+    options = class_value.__dict__.get("_meta")
+    if options is None or not hasattr(options, "fields") or not hasattr(options, "managers"):
+        return None
+    model_fields = []
+    for field in options.fields:
+        try:
+            python_type = field.python_type
+        except (AttributeError, NotImplementedError):
+            python_type = object
+        model_fields.append(
+            {
+                "name": field.name,
+                "ty": annotation_type(python_type),
+                "default": None,
+                "is_static": False,
+                "is_private": False,
+                "span": None,
+            }
+        )
+    manager_names = sorted(manager.name for manager in options.managers)
+    return {
+        "fields": model_fields,
+        "metadata": {
+            "app_label": options.app_label,
+            "model_name": options.model_name,
+            "db_table": options.db_table,
+            "field_names": [field["name"] for field in model_fields],
+            "manager_names": manager_names,
+        },
+    }
+
+
 def unwrap_method(value: object) -> tuple[object | None, str | None]:
     """Return the callable and binding mode for a class namespace value."""
     if isinstance(value, staticmethod):
@@ -681,15 +752,21 @@ def materialized_definition(
     module_name: str, name: str, value: object, serializer: Serializer
 ) -> dict[str, object]:
     """Build one manifest definition from a final module binding."""
-    source = source_provenance(module_name, name, value, serializer)
     if inspect.isclass(value):
+        source = source_provenance(module_name, name, value, serializer)
         binding_type = named_type(qualified_type_name(value))
         definition = {"kind": "class", **class_definition(value, serializer)}
     elif callable(value):
+        source = source_provenance(module_name, name, value, serializer)
         function = function_definition(name, value, serializer)
         binding_type = {"kind": "function", "value": function["signature"]}
         definition = {"kind": "function", **function}
     else:
+        source = {
+            "module": module_name,
+            "qualified_name": name,
+            "span": {"file": "", "start": 0, "end": 0},
+        }
         value_id = serializer.value(value)
         binding_type = serializer.nodes[value_id]["ty"]
         definition = {"kind": "value", "value": value_id}
@@ -702,24 +779,32 @@ def materialized_definition(
     }
 
 
-def should_materialize(module_name: str, name: str, value: object) -> bool:
+def should_materialize(
+    module_name: str, name: str, value: object, candidate_modules: set[str]
+) -> bool:
     """Return whether a public module binding belongs in the static snapshot."""
     if name.startswith("_") or isinstance(value, types.ModuleType):
         return False
     owner = getattr(value, "__module__", module_name)
     if inspect.isclass(value) or callable(value):
-        return owner == module_name or hasattr(value, "__wrapped__")
+        return (
+            owner == module_name
+            or owner in candidate_modules
+            or hasattr(value, "__wrapped__")
+        )
     return True
 
 
 def module_record(
-    module: types.ModuleType, serializer: Serializer
+    module: types.ModuleType,
+    serializer: Serializer,
+    candidate_modules: set[str],
 ) -> dict[str, object]:
     """Materialize final public bindings for one imported module."""
     definitions = []
     globals_record: dict[str, int] = {}
     for name, value in sorted(vars(module).items()):
-        if not should_materialize(module.__name__, name, value):
+        if not should_materialize(module.__name__, name, value, candidate_modules):
             continue
         definitions.append(
             materialized_definition(module.__name__, name, value, serializer)
@@ -795,7 +880,10 @@ def build_manifest(request: dict[str, object]) -> dict[str, object]:
     install_guards(set(environment), set(extensions))
     modules = load_modules(request, events)
     serializer = Serializer(pathlib.Path(typing.cast(str, request["project_root"])))
-    records = [module_record(module, serializer) for module in modules]
+    candidate_modules = {module.__name__ for module in modules}
+    records = [
+        module_record(module, serializer, candidate_modules) for module in modules
+    ]
     return {
         "smelt_version": request["smelt_version"],
         "schema_version": request["schema_version"],

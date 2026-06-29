@@ -6599,7 +6599,9 @@ dependencies = [
  "smelt-frontend-ts",
  "smelt-hir",
  "smelt-mir",
+ "smelt-specialize",
  "smelt-stdlib",
+ "tempfile",
 ]
 
 [[package]]
@@ -6677,6 +6679,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
 ]
 
 [[package]]
