@@ -1427,9 +1427,10 @@ impl ModuleBuilder<'_> {
         };
         let name = identifier.name.as_str();
         let local = self.locals.get(name).copied()?;
-        let local_ty = self
-            .narrowed_type(name)
-            .unwrap_or_else(|| Self::local_ty(body, local));
+        let local_ty = match self.narrowed_type(name) {
+            Some(ty) => ty,
+            None => Self::local_ty_checked(body, local)?,
+        };
         match self.ctx.krate.types.get(local_ty).cloned() {
             Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
             Some(Type::Union(items)) => {

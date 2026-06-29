@@ -292,6 +292,20 @@ impl ModuleBuilder<'_> {
             .ty
     }
 
+    /// Look up the type of a local that may not exist in this `body`.
+    ///
+    /// The lexical `locals` name map can outlive the body that actually owns a
+    /// binding — for example when a default-parameter initializer registers a
+    /// name that the enclosing function body never materializes as a local. In
+    /// those cases the recorded [`LocalId`] points past `body.locals`, so a
+    /// plain [`Self::local_ty`] would panic. Callers performing best-effort type
+    /// narrowing use this checked variant and treat a missing local as "no
+    /// narrowing information available".
+    fn local_ty_checked(body: &Body, local: smelt_hir::LocalId) -> Option<smelt_hir::TypeId> {
+        let index = usize::try_from(local.0).ok()?;
+        body.locals.get(index).map(|local| local.ty)
+    }
+
     /// Look up a lowered item by id.
     fn item_ref(&self, item: smelt_hir::ItemId) -> &Item {
         let index = usize::try_from(item.0).expect("item id should fit into usize");

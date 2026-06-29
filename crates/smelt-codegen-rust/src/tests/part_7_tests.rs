@@ -4861,3 +4861,34 @@ export function fillRange(a: number[]): number[] {
     );
     assert!(source.contains("fill"), "{source}");
 }
+
+#[test]
+fn lowers_truthy_guard_on_param_with_dependent_default() {
+    // A default-parameter initializer (`end = array ? array.length : 0`) can
+    // register a name in the lexical `locals` map whose `LocalId` is not
+    // materialized in the function body. A later bare-identifier truthy guard
+    // (`if (!end) { ... }`) must not panic looking that local up; it falls back
+    // to "no narrowing" instead. Regression for the es-toolkit `compat/array/
+    // fill.ts` frontend panic.
+    let source = source_for(
+        r#"
+export function fillRange<T>(
+  array: T[] | null | undefined,
+  value: T,
+  start = 0,
+  end = array ? array.length : 0
+): T[] {
+  start = Math.floor(start);
+  end = Math.floor(end);
+  if (!start) {
+    start = 0;
+  }
+  if (!end) {
+    end = 0;
+  }
+  return [];
+}
+"#,
+    );
+    assert!(source.contains("fill_range"), "{source}");
+}
