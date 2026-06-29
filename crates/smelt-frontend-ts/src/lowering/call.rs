@@ -7,6 +7,23 @@ type BuiltinCallHandler<'builder> = fn(
     &mut Body,
 ) -> Result<Option<smelt_hir::ExprId>, SmeltError>;
 
+/// Stripped callee shape produced when normalizing a global-alias namespace call.
+///
+/// Used by [`ModuleBuilder::global_alias_namespace_call`] to record which bare
+/// spelling a global-rooted callee normalizes to before the synthetic call is
+/// rebuilt and re-dispatched through the ordinary call path.
+enum StrippedGlobalCallee<'a> {
+    /// `<alias>.<fn>(...)` normalizes to the bare free function `<fn>`.
+    FreeFn(&'a str),
+    /// `<alias>.<Namespace>.<method>(...)` normalizes to `<Namespace>.<method>`.
+    Namespace {
+        /// Bare namespace identifier the alias receiver is stripped down to.
+        namespace: &'a str,
+        /// Method invoked on the normalized namespace.
+        method: &'a str,
+    },
+}
+
 impl<'builder> ModuleBuilder<'builder> {
     /// Lower call expressions, including stdlib shims and direct function/method invokes.
     fn call_expression(
@@ -14,6 +31,9 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(expr) = self.global_alias_namespace_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.dispatch_builtin_call(call, body)? {
             return Ok(expr);
         }
@@ -640,6 +660,86 @@ impl<'builder> ModuleBuilder<'builder> {
             }
         }
         Ok(None)
+    }
+
+    /// Normalize a global-alias namespace call and re-dispatch it stripped.
+    ///
+    /// Implements the path-normalization layer from plan §5: a call whose callee
+    /// is rooted at a recognized global alias is rewritten so the alias receiver
+    /// is removed, then lowered through the *ordinary* call path. This guarantees
+    /// `globalThis.Object.keys(x)` and `g.Array.isArray(value)` (for a known alias
+    /// `g`) emit exactly what the bare `Object.keys(x)` / `Array.isArray(value)`
+    /// spellings do, instead of producing a parallel global-object slot read.
+    ///
+    /// Two shapes are normalized:
+    ///
+    /// - `<alias>.<Namespace>.<method>(...)` -> `<Namespace>.<method>(...)`
+    /// - `<alias>.<fn>(...)` -> `<fn>(...)`
+    ///
+    /// The rewrite only fires when the alias is *only* a namespace receiver here
+    /// (a static, non-optional member path); a computed key, optional chain, or
+    /// any deeper escape of the alias is left untouched so it keeps its honest
+    /// blocker. The synthetic call is allocated in a local arena and its
+    /// arguments are cloned into it, so no AST mutation of the original program
+    /// occurs and the rewrite cannot recurse (the stripped callee no longer has a
+    /// global-alias root).
+    fn global_alias_namespace_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        use oxc::allocator::{Allocator, Box as ArenaBox, CloneIn};
+        use oxc::ast::AstBuilder;
+        use oxc::ast::ast::TSTypeParameterInstantiation;
+
+        if call.optional {
+            return Ok(None);
+        }
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.optional {
+            return Ok(None);
+        }
+
+        // Decide the stripped callee shape without holding the arena yet.
+        let stripped = if self.expr_is_global_alias(&member.object) {
+            // `<alias>.<fn>(...)`.
+            StrippedGlobalCallee::FreeFn(member.property.name.as_str())
+        } else if let Expression::StaticMemberExpression(inner) = &member.object
+            && !inner.optional
+            && self.expr_is_global_alias(&inner.object)
+        {
+            // `<alias>.<Namespace>.<method>(...)`.
+            StrippedGlobalCallee::Namespace {
+                namespace: inner.property.name.as_str(),
+                method: member.property.name.as_str(),
+            }
+        } else {
+            return Ok(None);
+        };
+
+        let arena = Allocator::default();
+        let builder = AstBuilder::new(&arena);
+        let span = call.span;
+        let no_type_args: Option<ArenaBox<'_, TSTypeParameterInstantiation<'_>>> = None;
+        let callee = match stripped {
+            StrippedGlobalCallee::FreeFn(name) => {
+                builder.expression_identifier(member.property.span, name)
+            }
+            StrippedGlobalCallee::Namespace { namespace, method } => {
+                let object = builder.expression_identifier(member.span, namespace);
+                Expression::StaticMemberExpression(builder.alloc_static_member_expression(
+                    member.span,
+                    object,
+                    builder.identifier_name(member.property.span, method),
+                    false,
+                ))
+            }
+        };
+        let arguments = call.arguments.clone_in(&arena);
+        let synthetic = builder.call_expression(span, callee, no_type_args, arguments, false);
+        self.call_expression(&synthetic, body).map(Some)
     }
 
     /// Adapter so an infallible `Option`-returning handler fits the registry shape.

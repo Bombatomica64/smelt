@@ -227,6 +227,9 @@ impl ModuleBuilder<'_> {
         ) {
             return Ok(None);
         }
+        if let Some(expr) = self.global_typeof_probe(binary, body) {
+            return Ok(Some(expr));
+        }
         let Expression::UnaryExpression(unary) = &binary.left else {
             return Ok(None);
         };
@@ -362,6 +365,94 @@ impl ModuleBuilder<'_> {
             )));
         }
         Ok(Some(check))
+    }
+
+    /// Fold a `typeof <global-alias> ===/!== "<kind>"` feature probe to a literal.
+    ///
+    /// In the non-DOM Node-compatible profile every recognized global alias
+    /// (`globalThis`, `global`, `self`) is a present object, so existence probes
+    /// such as `typeof globalThis !== "undefined"` and `typeof globalThis ===
+    /// "object"` have a known answer and never observe the global object's
+    /// identity. The probe is matched in either operand order. Anything that is
+    /// not a recognized existence probe returns `None` so it falls through to the
+    /// ordinary `typeof` comparison handling (which keeps honest blockers for
+    /// real dynamic global usage).
+    fn global_typeof_probe(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let is_equality = !matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        );
+        // Accept `typeof g <op> "kind"` and the mirrored `"kind" <op> typeof g`.
+        let (typeof_side, literal_side) = (&binary.left, &binary.right);
+        let probe = ambient_globals::typeof_identifier_name(typeof_side)
+            .map(|name| (name, literal_side))
+            .or_else(|| {
+                ambient_globals::typeof_identifier_name(&binary.right)
+                    .map(|name| (name, &binary.left))
+            });
+        let (operand_name, literal) = probe?;
+        let Expression::StringLiteral(kind_lit) = literal else {
+            return None;
+        };
+        let operand_is_global_alias = self.is_ambient_global_alias(operand_name);
+        let value = ambient_globals::global_typeof_probe_value(
+            operand_is_global_alias,
+            kind_lit.value.as_str(),
+            is_equality,
+        )?;
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(value)),
+            ty: bool_ty,
+            span: self.span(binary.span.start, binary.span.end),
+        }))
+    }
+
+    /// Return whether a name resolves to the ambient global object in this module.
+    ///
+    /// A base alias spelling (`globalThis` / `global` / `self`) only counts when it
+    /// is *not* shadowed by a module-local binding — an import, declared item,
+    /// module global, or local variable. es-toolkit, for example, imports its own
+    /// `globalThis` shim (`import { globalThis } from "../_internal/globalThis"`);
+    /// that imported binding is an ordinary value, not the ambient global, so it
+    /// must not be normalized or erased. A name explicitly recorded as a
+    /// `const g = globalThis;` alias always counts.
+    fn is_ambient_global_alias(&self, name: &str) -> bool {
+        if self.global_object_aliases.contains(name) {
+            return true;
+        }
+        if !ambient_globals::is_global_alias_name(name) {
+            return false;
+        }
+        // Shadowed by a local binding/import/item -> not the ambient global.
+        !(self.locals.contains_key(name)
+            || self.value_imports.contains(name)
+            || self.type_only_imports.contains(name)
+            || self.namespace_imports.contains(name)
+            || self.items.contains_key(name)
+            || self.module_globals.contains_key(name)
+            || self.const_literals.contains_key(name)
+            || self.const_objects.contains_key(name))
+    }
+
+    /// Return whether an expression refers to the ambient global object.
+    ///
+    /// This is true for a non-shadowed base global alias and for a local
+    /// identifier recorded as a global-object alias by `const g = globalThis;`.
+    /// Any other expression — including a member access or computed access on the
+    /// global object — is rejected, so callers never mistake a deeper path for the
+    /// global object itself.
+    fn expr_is_global_alias(&self, expression: &Expression<'_>) -> bool {
+        match expression {
+            Expression::Identifier(identifier) => {
+                self.is_ambient_global_alias(identifier.name.as_str())
+            }
+            _ => false,
+        }
     }
 
     /// Return a static `typeof` comparison result when all runtime variants agree.

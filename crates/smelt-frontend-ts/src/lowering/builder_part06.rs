@@ -1654,6 +1654,22 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         for declarator in &decl.declarations {
+            // `const g = globalThis;` records a local global-object alias so that
+            // later `g.Object.keys(x)` / `"Map" in g` normalize and erase exactly
+            // like the bare `globalThis` spelling. The alias is purely a
+            // compile-time name-tracking aid; no HIR local is emitted because the
+            // global object is never materialized in Phase 1. A `let` is allowed:
+            // a later reassignment off the alias is handled where assignments are
+            // lowered (the name is cleared), and a write *through* the alias stays
+            // on the erasure denylist and produces an honest blocker.
+            if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                && let Some(initializer) = &declarator.init
+                && self.expr_is_global_alias(initializer)
+            {
+                self.global_object_aliases
+                    .insert(binding.name.as_str().to_owned());
+                continue;
+            }
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init
             {

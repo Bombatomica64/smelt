@@ -19,7 +19,7 @@ pub use classes::{StdlibClass, typescript_stdlib_class};
 pub use deps::BackendDependency;
 pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use fields::{FieldRule, typescript_field_rule};
-pub use globals::is_javascript_global_builtin;
+pub use globals::{GlobalPresence, global_member_presence, is_javascript_global_builtin};
 pub use recognition::{
     CallRecognition, MethodRecognition, TYPESCRIPT_CALLS, TYPESCRIPT_METHODS,
     TypeScriptReceiverKind, typescript_call_rule, typescript_method_rule,

@@ -1,5 +1,6 @@
 //! TypeScript AST lowering into Smelt HIR.
 
+mod ambient_globals;
 mod stdlib;
 mod stdlib_dispatch;
 use std::{
@@ -365,6 +366,14 @@ struct ModuleBuilder<'ctx> {
     allow_unknown_index_access: bool,
     /// Test-framework API names imported from Vitest-compatible modules.
     test_builtins: HashSet<String>,
+    /// Local names statically known to alias the ambient global object.
+    ///
+    /// Populated for `const g = globalThis;` style bindings so that global-path
+    /// normalization and feature-probe erasure recognize `g.Object.keys(x)` and
+    /// `"Map" in g` as global references. Used only for preserving known member
+    /// types and stdlib dispatch; dynamic correctness would come from a shared
+    /// runtime object if Phase 2/3 lands.
+    global_object_aliases: HashSet<String>,
     /// Local names bound by namespace imports such as `import * as MathApi from "./math"`.
     namespace_imports: HashSet<String>,
     /// Local names imported only for TypeScript type positions.

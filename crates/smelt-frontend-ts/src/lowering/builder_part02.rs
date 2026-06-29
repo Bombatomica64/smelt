@@ -823,6 +823,12 @@ return_ty: target_function.return_ty,
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
+        if let Some(value) = self.global_probe_const_value(binary) {
+            return Ok(ConstLiteral {
+                literal: Literal::Bool(value),
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
         let lhs = self.literal_const_expression(&binary.left)?;
         let rhs = self.literal_const_expression(&binary.right)?;
         match (lhs.literal, rhs.literal) {
@@ -859,6 +865,50 @@ return_ty: target_function.return_ty,
                 "exported const binary expressions currently require matching primitive operands",
             )),
         }
+    }
+
+    /// Fold a global feature probe inside an exported const initializer.
+    ///
+    /// Exported consts are folded by a dedicated literal evaluator that never
+    /// runs the general expression lowering, so the `typeof globalThis !==
+    /// "undefined"` and `"Map" in globalThis` probes are folded here too, using
+    /// the same registry-derived answers as the runtime-expression erasure. This
+    /// keeps `export const supported = typeof globalThis === "object";` a foldable
+    /// primitive instead of an "unresolved const" blocker. Returns `None` when the
+    /// binary expression is not a recognized global probe.
+    fn global_probe_const_value(&self, binary: &oxc::ast::ast::BinaryExpression<'_>) -> Option<bool> {
+        // `"<key>" in <global-alias>`.
+        if binary.operator == BinaryOperator::In
+            && self.expr_is_global_alias(&binary.right)
+            && let Expression::StringLiteral(key_lit) = &binary.left
+        {
+            return match smelt_stdlib::global_member_presence(key_lit.value.as_str()) {
+                smelt_stdlib::GlobalPresence::Present => Some(true),
+                smelt_stdlib::GlobalPresence::Absent => Some(false),
+                // `Unknown` (and any future undecided presence) must not fold.
+                _ => None,
+            };
+        }
+        // `typeof <global-alias> ===/!== "<kind>"`, in either operand order.
+        let is_equality = match binary.operator {
+            BinaryOperator::StrictEquality | BinaryOperator::Equality => true,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality => false,
+            _ => return None,
+        };
+        let (operand_name, literal) = ambient_globals::typeof_identifier_name(&binary.left)
+            .map(|name| (name, &binary.right))
+            .or_else(|| {
+                ambient_globals::typeof_identifier_name(&binary.right).map(|name| (name, &binary.left))
+            })?;
+        let Expression::StringLiteral(kind_lit) = literal else {
+            return None;
+        };
+        let operand_is_global_alias = self.is_ambient_global_alias(operand_name);
+        ambient_globals::global_typeof_probe_value(
+            operand_is_global_alias,
+            kind_lit.value.as_str(),
+            is_equality,
+        )
     }
 
     /// Fold supported pure calls inside exported const initializers.

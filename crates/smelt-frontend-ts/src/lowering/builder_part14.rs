@@ -1671,6 +1671,41 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Fold a `"<key>" in <global-alias>` feature probe to a literal.
+    ///
+    /// The receiver must be a recognized global alias (bare `globalThis` /
+    /// `global` / `self`, or a local known to alias the global object) and the key
+    /// must be a string literal — a dynamic key is on the erasure denylist and
+    /// stays a runtime check. The presence answer is derived from the
+    /// recognition registries via [`smelt_stdlib::global_member_presence`], so an
+    /// unmodeled key (`Unknown`) is *not* folded: it returns `None` and falls
+    /// through to ordinary lowering instead of guessing.
+    fn global_contains_key_probe(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if !self.expr_is_global_alias(&binary.right) {
+            return None;
+        }
+        let Expression::StringLiteral(key_lit) = &binary.left else {
+            return None;
+        };
+        let presence = smelt_stdlib::global_member_presence(key_lit.value.as_str());
+        let value = match presence {
+            smelt_stdlib::GlobalPresence::Present => true,
+            smelt_stdlib::GlobalPresence::Absent => false,
+            // `Unknown` (and any future undecided presence) must not fold.
+            _ => return None,
+        };
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(value)),
+            ty: bool_ty,
+            span: self.span(binary.span.start, binary.span.end),
+        }))
+    }
+
     /// Lower JavaScript `key in object` checks for dictionaries and static objects.
     ///
     /// Static object constants are often erased to reusable metadata before a
@@ -1685,6 +1720,10 @@ impl ModuleBuilder<'_> {
         let span = self.span(binary.span.start, binary.span.end);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let string_ty = self.ctx.krate.types.intern(Type::String);
+
+        if let Some(expr) = self.global_contains_key_probe(binary, body) {
+            return Ok(expr);
+        }
 
         if let Expression::Identifier(receiver_ident) = &binary.right
             && let Some(object_const) = self

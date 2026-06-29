@@ -47,6 +47,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             deferred_postfix_updates: None,
             allow_unknown_index_access,
             test_builtins: HashSet::new(),
+            global_object_aliases: HashSet::new(),
             namespace_imports: HashSet::new(),
             type_only_imports: HashSet::new(),
             value_imports: HashSet::new(),
