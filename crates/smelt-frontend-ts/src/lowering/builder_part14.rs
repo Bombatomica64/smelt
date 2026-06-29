@@ -1725,6 +1725,21 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
 
+        // A `<key> in <global-alias>` membership test that the registry-derived
+        // probe above could not fold (an unknown/undecided member, or a
+        // non-literal key) must stay an honest blocker. The global object now
+        // resolves to a marker host-object value (see
+        // `global_object_value_expression`), so without this guard the test
+        // would silently evaluate against the empty marker record and answer
+        // `false` for members the real global actually has. Presence of the
+        // global object as a value does not make its full key set known.
+        if self.expr_is_global_alias(&binary.right) {
+            return Err(SmeltError::unsupported(
+                span,
+                "`in` on the global object is only lowered for registry-decidable string-literal keys",
+            ));
+        }
+
         if let Expression::Identifier(receiver_ident) = &binary.right
             && let Some(object_const) = self
                 .const_objects

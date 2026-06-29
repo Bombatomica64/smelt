@@ -872,6 +872,18 @@ return_ty: number_ty,
         if let Some(expr) = self.dynamic_math_member_expression(member, body) {
             return Ok(expr);
         }
+        // A dynamic computed read off the global object (`globalThis[key]`) is on
+        // the erasure denylist: the key is not statically known, so it genuinely
+        // needs the runtime global object's dynamic property store (plan Phase
+        // 2/3), which is not built. The global object resolves to a marker
+        // host-object value (see `global_object_value_expression`), so guard here
+        // to keep an honest blocker instead of indexing the empty marker record.
+        if !member.optional && self.expr_is_global_alias(&member.object) {
+            return Err(SmeltError::unsupported(
+                self.span(member.span.start, member.span.end),
+                "dynamic computed access on the global object requires the runtime global object (not yet modeled)",
+            ));
+        }
         let receiver = self.expression(&member.object, body)?;
         let index = self.expression(&member.expression, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);

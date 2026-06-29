@@ -190,6 +190,29 @@ fn reflect_own_keys_lowers_like_object_keys() -> Result<(), String> {
     Ok(())
 }
 
+/// A bare ambient-global-object reference (`globalThis`/`global`/`self`) used as
+/// a *value* lowers to a marker-bearing host-object record
+/// (`__smelt_global_object`), not an unresolved identifier — covering the
+/// es-toolkit `_internal/globalThis.ts` escaping-identity shim.
+#[test]
+fn bare_global_object_value_lowers_to_marker_record() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const g: any = (typeof globalThis === 'object' && globalThis) || 1;"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
+        )),
+        "expected bare `globalThis` value to carry the `__smelt_global_object` marker",
+    );
+    Ok(())
+}
+
 /// `typeof globalThis.Buffer !== 'undefined'` folds to a constant `false`: the
 /// default deterministic non-Node profile models `Buffer` as absent, so the
 /// `isBuffer` support guard short-circuits instead of resolving `Buffer` to a

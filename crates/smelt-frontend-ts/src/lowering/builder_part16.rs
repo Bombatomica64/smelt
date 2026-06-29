@@ -171,6 +171,9 @@ impl ModuleBuilder<'_> {
             if let Some(expr) = self.builtin_namespace_value_expression(name, start, end, body) {
                 return Ok(expr);
             }
+            if self.is_ambient_global_alias(name) {
+                return Ok(self.global_object_value_expression(start, end, body));
+            }
             if matches!(
                 name,
                 "Error"
@@ -446,6 +449,64 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span,
         }))
+    }
+
+    /// Lower a bare reference to the ambient global object (`globalThis` /
+    /// `global` / `self`, when not shadowed) *used as a value* into a concrete
+    /// marker-bearing host-object record.
+    ///
+    /// Most ambient-global usage is feature-detection that Phase-1 erasure folds
+    /// before this point (`typeof globalThis`, `"Map" in globalThis`,
+    /// `globalThis.Object.keys(x)` namespace normalization). This path handles
+    /// the residual escaping-identity case where the global object itself flows
+    /// as a value — e.g. es-toolkit's `_internal/globalThis.ts` shim
+    /// `(typeof globalThis === 'object' && globalThis) || ...`, whose result is
+    /// re-exported and later read as `globalThis.Buffer` (an absent member that
+    /// resolves to `undefined`). Modeling it as a record carrying a dedicated
+    /// `__smelt_global_object` marker keeps a concrete host-object value instead
+    /// of leaving an unresolved identifier or erasing it to a shapeless object.
+    ///
+    /// This is the pragmatic first step toward the plan's full Phase-2/3 runtime
+    /// `SmeltGlobalObject` (shared identity + dynamic property store). es-toolkit's
+    /// in-scope residual usage never compares global-object identity, writes a
+    /// dynamic property onto the global, or reads a user-defined dynamic slot, so
+    /// a per-read marker record is sufficient and faithful here; the shared-handle
+    /// runtime object remains the correct model once identity or dynamic mutation
+    /// becomes observable.
+    fn global_object_value_expression(
+        &mut self,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let span = self.span(start, end);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_global_object".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value)]),
+            ty: dict_ty,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        })
     }
 
     /// Build a `(value) => <PrimitiveCast op>(value)` closure value.
