@@ -183,6 +183,33 @@ function makeValue(): Promise<number> {
 }
 
 #[test]
+fn promise_all_flattens_erased_promise_results() {
+    // `Promise.all` over async functions that themselves return a `Promise`
+    // settles each element to an erased `SmeltUnknown::Promise`. Awaiting must
+    // flatten those to their resolved values (driving the scheduler) instead of
+    // collecting the unresolved promise objects.
+    let source = source_for(
+        r#"
+function defer(value: unknown): Promise<unknown> {
+  return new Promise<unknown>((resolve) => {
+    setTimeout(() => resolve(value), 0);
+  });
+}
+
+async function makeOne(value: unknown): Promise<unknown> {
+  return defer(value);
+}
+
+async function run(): Promise<unknown[]> {
+  return await Promise.all([makeOne(1), makeOne(2)]);
+}
+"#,
+    );
+
+    assert!(source.contains("smelt_await_flatten"), "{source}");
+}
+
+#[test]
 fn promise_bare_delay_settimeout_lowers_to_sleep() {
     // The pure-delay shape `new Promise(resolve => setTimeout(resolve, ms))`
     // resolves `undefined` after the delay and carries no value, so collapsing
