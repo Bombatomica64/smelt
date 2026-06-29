@@ -1390,13 +1390,24 @@ return_ty,
         if !call.arguments.is_empty() {
             return Ok(None);
         }
-        let operand = self.expression(&member.object, body)?;
+        let mut operand = self.expression(&member.object, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         if self.ctx.krate.types.get(operand_ty) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "string trim requires a string receiver",
-            ));
+            // Coerce a string-compatible receiver (e.g. the return of a user
+            // `toString`-like helper typed `unknown`/generic) to `String`.
+            if self.is_string_compatible_type(operand_ty) {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                operand = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: operand },
+                    ty: string_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "string trim requires a string receiver",
+                ));
+            }
         }
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
@@ -1420,17 +1431,17 @@ return_ty,
             "endsWith" => StringAffixOp::EndsWith,
             _ => return Ok(None),
         };
-        if call.arguments.len() != 1 {
+        if !(1..=2).contains(&call.arguments.len()) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string prefix/suffix methods require exactly one argument",
+                "string prefix/suffix methods require one needle and an optional position argument",
             ));
         }
         let mut haystack = self.expression(&member.object, body)?;
         let Some(needle_argument) = call.arguments.first() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string prefix/suffix methods require exactly one argument",
+                "string prefix/suffix methods require one needle and an optional position argument",
             ));
         };
         let mut needle = self.argument(needle_argument, body)?;
@@ -1440,6 +1451,48 @@ return_ty,
         {
             haystack = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: haystack },
+                ty: string_ty,
+                span: self.span(member.object.span().start, member.object.span().end),
+            });
+        }
+        // JavaScript `startsWith(target, position)` tests the prefix starting at
+        // `position`; `endsWith(target, endPosition)` tests the suffix of the
+        // string truncated to `endPosition`. Both reduce to a substring of the
+        // haystack followed by the unbounded affix test.
+        if let Some(position_argument) = call.arguments.get(1) {
+            let position = self.argument(position_argument, body)?;
+            let position_ty = Self::expr_ty(body, position);
+            let position = if self.ctx.krate.types.get(position_ty) == Some(&Type::Float) {
+                Some(position)
+            } else if self.is_numeric_like_type(position_ty)
+                || self.optional_numeric_surface(position_ty)
+                || self.erased_or_union_surface(position_ty)
+            {
+                let float_ty = self.ctx.krate.types.intern(Type::Float);
+                Some(body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToJsNumber,
+                        operand: position,
+                    },
+                    ty: float_ty,
+                    span: self.span(position_argument.span().start, position_argument.span().end),
+                }))
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "string prefix/suffix position argument must be numeric",
+                ));
+            };
+            let (start, end) = match op {
+                StringAffixOp::StartsWith => (position, None),
+                StringAffixOp::EndsWith => (None, position),
+            };
+            haystack = body.push_expr(Expr {
+                kind: ExprKind::StringSlice {
+                    operand: haystack,
+                    start,
+                    end,
+                },
                 ty: string_ty,
                 span: self.span(member.object.span().start, member.object.span().end),
             });
@@ -1635,8 +1688,38 @@ return_ty,
                 "string repeat requires exactly one number argument",
             ));
         };
-        let operand = self.expression(&member.object, body)?;
-        let count = self.argument(count_argument, body)?;
+        let span = self.span(call.span.start, call.span.end);
+        let mut operand = self.expression(&member.object, body)?;
+        let mut count = self.argument(count_argument, body)?;
+        // Coerce a string-compatible receiver to `String` and a numeric-like
+        // count to a JS number rather than requiring exact `String`/`Float`.
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::String)
+            && self.is_string_compatible_type(operand_ty)
+        {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            operand = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: operand },
+                ty: string_ty,
+                span,
+            });
+        }
+        let count_ty = Self::expr_ty(body, count);
+        if self.ctx.krate.types.get(count_ty) != Some(&Type::Float)
+            && (self.is_numeric_like_type(count_ty)
+                || self.optional_numeric_surface(count_ty)
+                || self.erased_or_union_surface(count_ty))
+        {
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            count = body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToJsNumber,
+                    operand: count,
+                },
+                ty: float_ty,
+                span,
+            });
+        }
         if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, count)) != Some(&Type::Float)
         {

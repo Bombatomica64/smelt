@@ -66,15 +66,34 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        let length = self.array_from_length_argument(source_arg, body)?;
+        let mut length = self.array_from_length_argument(source_arg, body)?;
+        let length_ty = Self::expr_ty(body, length);
         if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, length)),
+            self.ctx.krate.types.get(length_ty),
             Some(Type::Int | Type::Float)
         ) {
-            return Err(SmeltError::unsupported(
-                self.span(source_arg.span().start, source_arg.span().end),
-                "Array.from({ length }, mapper) length must be numeric",
-            ));
+            // Accept numeric-like, optional-numeric, and erased length surfaces
+            // (e.g. `{ length: n }` where `n` is `number | undefined`), coercing
+            // them to a JS number so the allocation count is concrete.
+            if self.is_numeric_like_type(length_ty)
+                || self.optional_numeric_surface(length_ty)
+                || self.erased_or_union_surface(length_ty)
+            {
+                let float_ty = self.ctx.krate.types.intern(Type::Float);
+                length = body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToJsNumber,
+                        operand: length,
+                    },
+                    ty: float_ty,
+                    span: self.span(source_arg.span().start, source_arg.span().end),
+                });
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(source_arg.span().start, source_arg.span().end),
+                    "Array.from({ length }, mapper) length must be numeric",
+                ));
+            }
         }
         let Some(mapper_arg) = mapper_arg else {
             let item_ty = self.ctx.krate.types.intern(Type::Unknown);

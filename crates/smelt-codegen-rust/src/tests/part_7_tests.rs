@@ -4802,3 +4802,27 @@ export function genericKey<T extends object>(object: T, key: string): boolean {
     // Array case becomes a length-bounded comparison.
     assert!(source.contains(".len()") || source.contains("len("), "{source}");
 }
+
+#[test]
+fn lowers_string_methods_on_coercible_receivers() {
+    // String padding/charAt/repeat/trim and prefix/suffix-with-position accept
+    // string-compatible receivers (generic `T extends string`, erased returns),
+    // numeric-like length/index/count arguments, and an optional position.
+    let source = source_for(
+        r#"
+export function pad(s: string, n: number, c: string): string {
+  return s.padStart(n, c);
+}
+export function firstChar<T extends string>(s: T): string {
+  return s.charAt(0);
+}
+export function repeated(s: string, n: number): string {
+  return s.repeat(n);
+}
+export function startsAt(s: string, t: string, p: number): boolean {
+  return s.startsWith(t, p);
+}
+"#,
+    );
+    assert!(source.contains("starts_with") || source.contains("StringAffix") || source.contains("char"), "{source}");
+}

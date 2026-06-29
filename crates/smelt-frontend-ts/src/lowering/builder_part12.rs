@@ -235,6 +235,37 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Coerce a padding operand (receiver or pad string) to `Type::String`.
+    ///
+    /// `String.prototype.padStart`/`padEnd` receivers and pad arguments commonly
+    /// arrive as `toString(...)` returns or erased/optional surfaces. A value
+    /// already typed `String` is returned unchanged; a string-compatible surface
+    /// is converted with a JS `ToString` cast so the runtime padding sees a
+    /// concrete string.
+    fn coerce_pad_string_operand(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) == Some(&Type::String) {
+            return Ok(operand);
+        }
+        if self.is_string_compatible_type(operand_ty) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToString,
+                    operand,
+                },
+                ty: string_ty,
+                span,
+            }));
+        }
+        Ok(operand)
+    }
+
     /// Lower supported string padding calls into HIR string runtime calls.
     fn string_pad_call(
         &mut self,
@@ -288,12 +319,42 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })
         };
+        let span = self.span(call.span.start, call.span.end);
+        // Coerce the receiver/pad to `String` and the target length to a number
+        // when they arrive as string/numeric-compatible or erased surfaces
+        // (e.g. `length = 0` numeric defaults, `toString(...)` returns), instead
+        // of requiring exact `String`/`Float` types.
+        let operand = self.coerce_pad_string_operand(operand, span, body)?;
+        let pad = self.coerce_pad_string_operand(pad, span, body)?;
+        let target_len = {
+            let target_ty = Self::expr_ty(body, target_len);
+            if self.ctx.krate.types.get(target_ty) == Some(&Type::Float) {
+                target_len
+            } else if self.is_numeric_like_type(target_ty)
+                || self.optional_numeric_surface(target_ty)
+                || self.erased_or_union_surface(target_ty)
+            {
+                let float_ty = self.ctx.krate.types.intern(Type::Float);
+                body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToJsNumber,
+                        operand: target_len,
+                    },
+                    ty: float_ty,
+                    span,
+                })
+            } else {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "string padding requires a string receiver, number target length, and string padding",
+                ));
+            }
+        };
         if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, target_len)) != Some(&Type::Float)
             || self.ctx.krate.types.get(Self::expr_ty(body, pad)) != Some(&Type::String)
         {
             return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
+                span,
                 "string padding requires a string receiver, number target length, and string padding",
             ));
         }
@@ -330,8 +391,39 @@ impl ModuleBuilder<'_> {
                 "string charAt/charCodeAt requires exactly one number argument",
             ));
         };
-        let operand = self.expression(&member.object, body)?;
-        let index = self.argument(index_argument, body)?;
+        let span = self.span(call.span.start, call.span.end);
+        let mut operand = self.expression(&member.object, body)?;
+        let mut index = self.argument(index_argument, body)?;
+        // Coerce a string-compatible receiver (e.g. `T extends string` generic)
+        // to `String` and a numeric-like index to a JS number, instead of
+        // requiring exact `String`/`Float` types.
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::String)
+            && self.is_string_compatible_type(operand_ty)
+        {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            operand = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: operand },
+                ty: string_ty,
+                span,
+            });
+        }
+        let index_ty = Self::expr_ty(body, index);
+        if self.ctx.krate.types.get(index_ty) != Some(&Type::Float)
+            && (self.is_numeric_like_type(index_ty)
+                || self.optional_numeric_surface(index_ty)
+                || self.erased_or_union_surface(index_ty))
+        {
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            index = body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToJsNumber,
+                    operand: index,
+                },
+                ty: float_ty,
+                span,
+            });
+        }
         if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, index)) != Some(&Type::Float)
         {
