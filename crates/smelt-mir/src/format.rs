@@ -1295,6 +1295,7 @@ fn constant_text(constant: &Constant) -> String {
         Constant::String(value) => format!("\"{value}\""),
         Constant::Symbol(value) => format!("symbol({value:?})"),
         Constant::None => "none".to_owned(),
+        Constant::Undefined => "undefined".to_owned(),
     }
 }
 

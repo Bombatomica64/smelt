@@ -642,6 +642,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.block("pub enum SmeltUnknown", |unknown_writer| {
             unknown_writer.line("Null,");
+            unknown_writer.line("Undefined,");
             unknown_writer.line("Bool(bool),");
             unknown_writer.line("Number(f64),");
             unknown_writer.line("String(String),");

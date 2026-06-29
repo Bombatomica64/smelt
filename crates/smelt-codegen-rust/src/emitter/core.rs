@@ -3548,7 +3548,9 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn operand_ty(&self, operand: &Operand) -> Result<TypeId, EmitError> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => self.place_ty(place),
-            Operand::Const(Constant::None) => Ok(self.none_ty),
+            // `undefined` shares the nullish type with `null` so it flows
+            // through the same typed paths; only its emitted runtime tag differs.
+            Operand::Const(Constant::None | Constant::Undefined) => Ok(self.none_ty),
             Operand::Const(Constant::Bool(_)) => self.type_id(Type::Bool),
             Operand::Const(Constant::Int(_)) => self.type_id(Type::Int),
             Operand::Const(Constant::Float(_)) => self.type_id(Type::Float),

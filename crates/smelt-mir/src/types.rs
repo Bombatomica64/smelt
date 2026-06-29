@@ -439,8 +439,14 @@ pub enum Constant {
     String(String),
     /// JavaScript symbol constant.
     Symbol(String),
-    /// `None`.
+    /// `None` (TypeScript `null`, Python `None`).
     None,
+    /// JavaScript `undefined`, distinct from `None`/`null` at runtime.
+    ///
+    /// Shares the nullish type with [`Constant::None`] (see `operand_ty`), so it
+    /// flows through the same typed paths, but emits `SmeltUnknown::Undefined`
+    /// so `null !== undefined` and `typeof undefined === "undefined"` hold.
+    Undefined,
 }
 
 /// An MIR rvalue.

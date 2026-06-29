@@ -32,7 +32,10 @@ pub(super) fn constant_text(constant: &Constant) -> String {
                 RustExpr::string_literal(value).into_string()
             )
         }
-        Constant::None => "()".to_owned(),
+        // `undefined` shares the nullish unit type with `null` in non-erased
+        // contexts; the distinct runtime tag is produced by the coercion seam's
+        // `erase`, which special-cases the `Constant::Undefined` operand.
+        Constant::None | Constant::Undefined => "()".to_owned(),
     }
 }
 

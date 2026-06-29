@@ -70,7 +70,13 @@ impl FunctionEmitter<'_> {
         if self.is_erased_class_type(target) {
             return self.erase(operand);
         }
-        if matches!(operand, Operand::Const(Constant::None)) {
+        // A nullish constant coerced to a concrete (non-erased) target collapses
+        // to that target's default, exactly like `null`. The distinct
+        // `undefined` tag only matters at the erased boundary handled above.
+        if matches!(
+            operand,
+            Operand::Const(Constant::None | Constant::Undefined)
+        ) {
             return self.default_value(target);
         }
         if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
@@ -725,6 +731,13 @@ impl FunctionEmitter<'_> {
 
     /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
     pub(super) fn erase(&self, operand: &Operand) -> Result<String, EmitError> {
+        // `undefined` shares the nullish (`Type::None`) static type with `null`,
+        // so the type-directed arms below cannot tell them apart. Detect the
+        // `undefined` constant up front and emit the distinct runtime tag so
+        // `null !== undefined` and `typeof undefined === "undefined"` hold.
+        if matches!(operand, Operand::Const(Constant::Undefined)) {
+            return Ok("SmeltUnknown::Undefined".to_owned());
+        }
         let text = self.operand_text(operand)?;
         match self.mir.types.get(self.operand_ty(operand)?) {
             Some(Type::Unknown | Type::TypeParam { .. }) => Ok(text),

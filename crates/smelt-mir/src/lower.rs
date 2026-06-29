@@ -3899,6 +3899,7 @@ fn lower_literal(literal: &HirLiteral) -> Constant {
         HirLiteral::String(value) => Constant::String(value.clone()),
         HirLiteral::Symbol(value) => Constant::Symbol(value.clone()),
         HirLiteral::None => Constant::None,
+        HirLiteral::Undefined => Constant::Undefined,
     }
 }
 

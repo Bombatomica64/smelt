@@ -15,8 +15,16 @@ pub enum Literal {
     String(String),
     /// A JavaScript symbol literal lowered as an opaque runtime value.
     Symbol(String),
-    /// The None/null literal.
+    /// The None/null literal (TypeScript `null`, Python `None`).
     None,
+    /// The JavaScript `undefined` value, kept distinct from `None`/`null`.
+    ///
+    /// Although `undefined` shares the nullish type with `None`, it is a
+    /// separate runtime value: `null !== undefined`, `typeof undefined` is
+    /// `"undefined"` (vs `"object"` for `null`), and `String(undefined)` is
+    /// `"undefined"` (vs `""` for `null`). Lowered from the `undefined`
+    /// identifier and the `void` operator result.
+    Undefined,
 }
 
 /// Runtime tags supported by TypeScript `unknown` narrowing.
