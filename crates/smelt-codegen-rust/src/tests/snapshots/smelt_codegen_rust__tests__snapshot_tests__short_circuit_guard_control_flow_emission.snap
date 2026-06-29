@@ -19,14 +19,14 @@ fn count(a: bool, b: bool) -> f64 {
     let _smelt_tmp_8: f64;
     let _smelt_tmp_3: bool = valid(a.clone());
     _smelt_tmp_4 = !(_smelt_tmp_3);
-    if _smelt_tmp_4.clone() {
+    if _smelt_tmp_4 {
     _smelt_tmp_5 = true;
     } else {
     let _smelt_tmp_6: bool = valid(b.clone());
     _smelt_tmp_7 = !(_smelt_tmp_6);
     _smelt_tmp_5 = _smelt_tmp_7;
     }
-    if _smelt_tmp_5.clone() {
+    if _smelt_tmp_5 {
     return f64::NAN;
     } else {
     result = 0.0;

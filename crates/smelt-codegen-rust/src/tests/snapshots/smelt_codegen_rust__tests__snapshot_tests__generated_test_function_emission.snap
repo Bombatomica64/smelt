@@ -9,7 +9,7 @@ expression: emitted
 fn test_adds() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_0: f64 = 1.0 + 2.0;
     let _smelt_tmp_1: bool = !({ let lhs: f64 = _smelt_tmp_0; let rhs: f64 = 3.0; (lhs.is_nan() && rhs.is_nan()) || (lhs == rhs && (lhs != 0.0 || lhs.is_sign_negative() == rhs.is_sign_negative())) });
-    if _smelt_tmp_1.clone() {
+    if _smelt_tmp_1 {
     return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "expect(...).toBe(...) failed".to_owned())).into());
     } else {
     return Ok(());

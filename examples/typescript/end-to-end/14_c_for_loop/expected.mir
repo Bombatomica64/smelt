@@ -12,7 +12,7 @@ fn main (FuncId(0)) -> None
     goto bb1
   bb1:
     %2 = copy %1 < 4.0
-    switch copy %2 ? bb2 : bb3
+    switch move %2 ? bb2 : bb3
   bb2:
     %3 = move %0 + copy %1
     %0 = move %3

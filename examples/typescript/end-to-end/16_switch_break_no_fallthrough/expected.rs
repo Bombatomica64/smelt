@@ -4,7 +4,7 @@
 fn main() {
     let code: f64 = 2.0;
     let mut label: String = "".to_owned();
-    match code.clone() {
+    match code {
         1.0 => {
     label = "one".to_owned();
         }
