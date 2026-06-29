@@ -23,6 +23,21 @@ suite, like Remeda (1789/0), then add it as a second CI regression gate.
 - Categories: unsupported-lowering 317 · missing-stdlib 79 ·
   unresolved-reference 35 · internal 1.
 
+## Batch 1 (2026-06-29) — landed on main (6 parallel agents)
+
+Files with blockers **419 → 333** (−86). unsupported-lowering 317 → 226; missing-stdlib 79 → 67. (unresolved-reference rose 35 → 51 — newly-surfaced downstream `compat/**` function-as-constructor cases, out of scope.) Whole-crate `smelt build` abort moved `array/at.spec.ts` → `array/chunk.spec.ts`. Remeda gate stayed 1789/0; smelt suite 1246/0. Fresh report: `blocker-logs/estk-after-batch1.md`.
+
+Landed: named-local array callbacks 54→0 · object-value rest params 31→0 · `arguments` in non-arrow fn expressions 28→0 · array methods in callback bodies 12→9 · bare `Array(n)` call 57→41 · `new Object()`→concrete record (struct-backed builtins ArrayBuffer/AbortController/Number/Blob/Proxy left as honest `missing-stdlib` blockers, NOT erased).
+
+## Batch 2 roadmap (top remaining classes)
+
+1. **46 — unresolved identifier** (missing-stdlib): builtins-used-as-*values* (`Number`, `Math`, `parseInt`, `globalThis`…) — needs a general bare-builtin-value lowering path.
+2. **38 — unresolved class** (unresolved-reference): `compat/**` function-as-constructor + `X.prototype.y=…` idiom (see `blocker-logs/plan-class-prototype-*.md`); out of the test-prefix scope.
+3. **26 — callback conditions must be boolean/optional/supported-truthy**.
+4. **15 — exported const values support only primitive literals / foldable**.
+5. **12 — unresolved class** (missing-stdlib): the struct-backed builtins (ArrayBuffer/AbortController/boxed Number/Blob) — each a self-contained RegExp-style runtime model.
+6. **10 — callback block statements** (non-const/if/return/throw) · **10 — callback method not lowered** (remaining erased-callback-param family) · **9 — typeof in callbacks** · **8 — instanceof on non-lowered class**.
+
 ## Prioritized roadmap (biggest general blocker classes first)
 
 Work the smelt-debug-workflow loop: pick a repeated *semantic family* (never a
