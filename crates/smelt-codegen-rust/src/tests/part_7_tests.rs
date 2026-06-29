@@ -4826,3 +4826,38 @@ export function startsAt(s: string, t: string, p: number): boolean {
     );
     assert!(source.contains("starts_with") || source.contains("StringAffix") || source.contains("char"), "{source}");
 }
+
+#[test]
+fn lowers_for_in_over_generic_object_receiver() {
+    // `for...in` over an unconstrained generic / erased object receiver casts to
+    // a string-keyed record and iterates its keys.
+    let source = source_for(
+        r#"
+export function keysOf<T>(object: T): string[] {
+  const out: string[] = [];
+  for (const key in object) {
+    out.push(key);
+  }
+  return out;
+}
+"#,
+    );
+    assert!(source.contains("for "), "{source}");
+}
+
+#[test]
+fn lowers_array_fill_with_compatible_value() {
+    // `Array.prototype.fill` coerces an assignment-compatible value (generic
+    // element type) instead of requiring an exact element-type match.
+    let source = source_for(
+        r#"
+export function fillAll<T>(a: T[], v: T): T[] {
+  return a.fill(v);
+}
+export function fillRange(a: number[]): number[] {
+  return a.fill(0, 1, 2);
+}
+"#,
+    );
+    assert!(source.contains("fill"), "{source}");
+}

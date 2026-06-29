@@ -1991,12 +1991,39 @@ impl ModuleBuilder<'_> {
                         "array fill supports value, start, and end arguments",
                     ));
                 }
-                let value = self.argument(value_arg, body)?;
-                if Self::expr_ty(body, value) != element_ty {
-                    return Err(SmeltError::unsupported(
-                        self.span(value_arg.span().start, value_arg.span().end),
-                        "array fill value must match the array element type",
-                    ));
+                let mut value = self.argument(value_arg, body)?;
+                let value_ty = Self::expr_ty(body, value);
+                if value_ty != element_ty {
+                    // Coerce a fill value that is assignment-compatible with the
+                    // element type (numeric widening, erased/union surfaces, type
+                    // params) via a type assertion, instead of requiring an exact
+                    // type match.
+                    let compatible = self.array_item_type_compatible(value_ty, element_ty)
+                        || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)
+                        || self.type_contains_unknown(value_ty)
+                        || self.type_contains_unknown(element_ty)
+                        || self.numeric_type_compatible(element_ty, value_ty)
+                        || self.erased_or_union_surface(value_ty)
+                        || self.erased_or_union_surface(element_ty)
+                        || matches!(
+                            (
+                                self.ctx.krate.types.get(element_ty),
+                                self.ctx.krate.types.get(value_ty)
+                            ),
+                            (Some(Type::TypeParam { .. }), _) | (_, Some(Type::TypeParam { .. }))
+                        );
+                    if compatible {
+                        value = body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value },
+                            ty: element_ty,
+                            span: self.span(value_arg.span().start, value_arg.span().end),
+                        });
+                    } else {
+                        return Err(SmeltError::unsupported(
+                            self.span(value_arg.span().start, value_arg.span().end),
+                            "array fill value must match the array element type",
+                        ));
+                    }
                 }
                 let start = rest
                     .first()

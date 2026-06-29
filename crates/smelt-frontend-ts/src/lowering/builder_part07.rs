@@ -237,7 +237,11 @@ impl ModuleBuilder<'_> {
                     span: self.expression_span(source),
                 }))
             }
-            Some(Type::Unknown | Type::Class { .. }) => {
+            Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. })
+            | Some(Type::Optional(_)) => {
+                // A `for...in` over an erased object surface — an unconstrained
+                // generic `T`, an erased object, or an optional object — iterates
+                // string-keyed properties, so it is cast to `Record<string, unknown>`.
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
