@@ -2433,6 +2433,20 @@ impl<'mir> FunctionEmitter<'mir> {
         if !self.is_erased_unknown_rest_function(target_function) || target_function.may_throw {
             return Ok(None);
         }
+        // The source is ALREADY lowered to a `SmeltErasedFunction` whenever it is
+        // an erased-rest, non-throwing function (the exact predicate
+        // `is_erased_unknown_rest_function && !may_throw` that `types.rs` uses to
+        // pick the `SmeltErasedFunction` Rust type). Re-wrapping it here would
+        // build a brand-new callback `Rc`, dropping JavaScript reference identity
+        // (two `doNothing()` results would no longer be `Rc::ptr_eq`). Return
+        // `None` so `value_at_type` falls through to its tail `{text}.clone()`,
+        // which shares the inner `callback` `Rc` instead.
+        if let Some(Type::Function(source)) = self.mir.types.get(self.operand_ty(operand)?)
+            && self.is_erased_unknown_rest_function(source)
+            && !source.may_throw
+        {
+            return Ok(None);
+        }
         let Some(callback) = self.smelt_erased_function_callback_text(operand, target)? else {
             return Ok(None);
         };
