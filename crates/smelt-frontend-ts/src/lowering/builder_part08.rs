@@ -59,6 +59,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "String" {
             return self.string_constructor_expression(new_expr, body);
         }
+        if callee.name == "Object" && !self.classes.contains_key("Object") {
+            return self.object_constructor_expression(new_expr, body, type_hint);
+        }
         if Self::is_numeric_typed_array_constructor(callee.name.as_str()) {
             return self.numeric_typed_array_constructor_expression(new_expr, body);
         }

@@ -723,6 +723,61 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `new Object()` / `Object(...)` to a concrete record value.
+    ///
+    /// JavaScript `Object()` is the plain-object constructor. Smelt models plain
+    /// objects with the same concrete record representation as an object literal
+    /// `{}` (a `Type::Dict` carrying `ExprKind::DictLit`), so no value is routed
+    /// through `SmeltUnknown`:
+    ///
+    /// - `new Object()` / `Object()` / `Object(null)` / `Object(undefined)`
+    ///   produce a fresh empty record, exactly like `{}`.
+    /// - `Object(value)` where `value` is already an object/record (a `Dict`,
+    ///   `Class`, or `unknown` surface) returns that value unchanged, matching
+    ///   `Object(obj) === obj`.
+    /// - Boxing a primitive (`Object(42)` -> a boxed `Number` object) has no
+    ///   concrete Smelt model yet and is rejected as an unsupported lowering
+    ///   rather than erased, so the boundary stays explicit.
+    fn object_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let argument = match new_expr.arguments.as_slice() {
+            [] => None,
+            [Argument::NullLiteral(_)] => None,
+            [Argument::Identifier(ident)] if ident.name == "undefined" => None,
+            [argument] => Some(self.argument(argument, body)?),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "Object constructor supports at most one argument",
+                ));
+            }
+        };
+        if let Some(value) = argument {
+            let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
+            if matches!(
+                self.ctx.krate.types.get(value_ty),
+                Some(Type::Dict(_, _) | Type::Class { .. } | Type::Unknown)
+            ) {
+                return Ok(value);
+            }
+            return Err(SmeltError::unsupported(
+                span,
+                "Object(value) boxing of non-object values is not lowered yet",
+            ));
+        }
+        let ty = self.object_literal_type(&[], type_hint, body);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
+            ty,
+            span,
+        }))
+    }
+
     /// Lower the entry array passed to `new Map([[key, value], ...])`.
     fn map_constructor_entries(
         &mut self,
