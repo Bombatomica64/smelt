@@ -29,7 +29,32 @@ Files with blockers **419 → 333** (−86). unsupported-lowering 317 → 226; m
 
 Landed: named-local array callbacks 54→0 · object-value rest params 31→0 · `arguments` in non-arrow fn expressions 28→0 · array methods in callback bodies 12→9 · bare `Array(n)` call 57→41 · `new Object()`→concrete record (struct-backed builtins ArrayBuffer/AbortController/Number/Blob/Proxy left as honest `missing-stdlib` blockers, NOT erased).
 
-## Batch 2 roadmap (top remaining classes)
+## Batch 2 (2026-06-29) — stdlib + globals, landed on main
+
+Concrete stdlib models (mirroring the Date/Error marker pattern — distinct
+identity markers, never generic `SmeltUnknown` erasure):
+- **ArrayBuffer** — `new ArrayBuffer(n)` + `instanceof` via `__smelt_arraybuffer`.
+- **Blob, boxed Number, Proxy** — Blob/Number markers (`isNumber(new Number())`
+  stays false); Proxy lowered to its transparent `target` (not faked into `instanceof`).
+- **AbortController/AbortSignal** — full model (shared `aborted` flag, `abort()`,
+  `addEventListener` listeners fire) for debounce/throttle.
+- **builtins-as-values** — `Number`/`String`/`Boolean`/`parseInt`/`parseFloat`/
+  `isNaN`/`isFinite` referenced as bare values lower to concrete `Rc<dyn Fn>` closures.
+- **globals Phase 1** — registry-derived presence (can't drift from the stdlib
+  registry), `ambient_globals` module, compile-time erasure of `typeof`/`in`
+  global probes + namespace normalization (`globalThis.Object.keys` → `Object.keys`),
+  conservative shadowing denylist. Phase 2/3 (runtime `SmeltGlobalObject`)
+  deliberately deferred per the checkpoint — es-toolkit's residual global use
+  (escaping global identity, `globalThis.Buffer`, dynamic computed access) needs
+  it, but those depend on other unmodeled features; build it against real blockers.
+
+Result: **missing-stdlib 63 → 49**, files-with-blockers 331 → 324 (the
+unsupported-lowering uptick is downstream blockers surfacing as files advance).
+Remeda gate 1789/0; smelt suite 1278/0. Still-unmodeled honest blockers:
+SharedArrayBuffer, DOMException, Buffer-as-value, `Math.PI`/`Reflect.ownKeys`
+member-access, and the deferred ambient globals (globalThis runtime object).
+
+## Batch 3 roadmap (the non-stdlib lowering features)
 
 1. **46 — unresolved identifier** (missing-stdlib): builtins-used-as-*values* (`Number`, `Math`, `parseInt`, `globalThis`…) — needs a general bare-builtin-value lowering path.
 2. **38 — unresolved class** (unresolved-reference): `compat/**` function-as-constructor + `X.prototype.y=…` idiom (see `blocker-logs/plan-class-prototype-*.md`); out of the test-prefix scope.
