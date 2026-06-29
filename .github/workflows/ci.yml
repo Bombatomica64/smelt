@@ -10,7 +10,12 @@ on:
     branches: [ main ]
 
 jobs:
-  build-test-coverage:
+  # Slow tier: compile the emitted-Rust corpus. This is a plain (non-instrumented)
+  # build on stable, so it runs as its own job in parallel with coverage and shares
+  # the "build" cache lane with the other plain-build workflows. It does not need the
+  # nightly toolchain, cargo-llvm-cov, or the GUI native libs (it only builds
+  # smelt-codegen-rust and its dependencies, not smelt-gui).
+  corpus:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -19,33 +24,53 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+
+      - name: Compile emitted-Rust corpus (slow tier)
+        run: |
+          cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install nightly Rust (for branch coverage)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+
       - name: Install native GUI libraries
         run: |
           sudo apt-get update
           sudo apt-get install --yes libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            target
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          # Distinct cache lane: this job builds with coverage instrumentation,
+          # so its artifacts must not be shared with the plain-build workflows.
+          shared-key: coverage
+          # Cache cargo-installed binaries (cargo-llvm-cov) too.
+          cache-bin: true
 
       - name: Install coverage tool
-        run: |
-          rustup component add llvm-tools-preview
-          rustup toolchain install nightly --component llvm-tools-preview
-          cargo install cargo-llvm-cov --locked || echo "already installed"
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       - name: Test with coverage
         run: |
           cargo +nightly llvm-cov --workspace --branch --lcov --output-path lcov.info
-
-      - name: Compile emitted-Rust corpus (slow tier)
-        run: |
-          cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored
 
       - name: Coverage summary (JSON)
         run: |
@@ -84,3 +109,43 @@ jobs:
             coverage-lines.svg
             coverage-regions.svg
             coverage-branches.svg
+
+  # Build a release `smelt` binary on every push to main and publish it to a
+  # rolling "smelt-nightly" prerelease. The slower compat/library-probes
+  # workflows download this instead of compiling smelt from source, saving the
+  # ~1-2 min smelt build each run. Interim measure until smelt is on crates.io.
+  # Runs in its own parallel job, so it adds no wall-clock to coverage/corpus.
+  publish-smelt:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Own lane: a release build must not share the debug-profile target
+          # cache used by the corpus/compat/probes "build" lane.
+          shared-key: release-bin
+
+      - name: Build release smelt
+        run: cargo build --release --bin smelt
+
+      - name: Publish to rolling smelt-nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create the rolling prerelease once; ignore the error if it exists.
+          gh release create smelt-nightly \
+            --prerelease \
+            --title "smelt nightly (main)" \
+            --notes "Rolling build of the smelt CLI from the latest main commit. Auto-updated by CI." \
+            2>/dev/null || true
+          # --clobber overwrites the asset so the tag always holds the newest binary.
+          gh release upload smelt-nightly target/release/smelt --clobber

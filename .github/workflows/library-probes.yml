@@ -30,16 +30,27 @@ jobs:
           sudo apt-get install --yes libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            target
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-probes-cargo-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: build
 
-      - name: Build smelt
-        run: cargo build --bin smelt
+      - name: Get smelt binary (prebuilt from main, else build from source)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Prefer the rolling release built by the last push to main; only fall
+          # back to a from-source build if that asset isn't available (e.g. before
+          # the first main publish). The probe script reads $SMELT_BIN.
+          mkdir -p .smelt-bin
+          if gh release download smelt-nightly --pattern smelt --dir .smelt-bin --clobber 2>/dev/null; then
+            chmod +x .smelt-bin/smelt
+            echo "SMELT_BIN=$PWD/.smelt-bin/smelt" >> "$GITHUB_ENV"
+            echo "Using prebuilt smelt from the smelt-nightly release."
+          else
+            echo "No smelt-nightly release asset found; building smelt from source."
+            cargo build --release --bin smelt
+            echo "SMELT_BIN=$PWD/target/release/smelt" >> "$GITHUB_ENV"
+          fi
 
       - name: Check out probed libraries at pinned refs
         run: |

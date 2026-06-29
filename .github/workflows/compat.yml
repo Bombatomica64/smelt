@@ -36,13 +36,27 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
-        uses: actions/cache@v5
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            target
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-compat-cargo-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: build
+
+      - name: Get smelt binary (prebuilt from main, else build from source)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Prefer the rolling release built by the last push to main; only fall
+          # back to a from-source build if that asset isn't available (e.g. before
+          # the first main publish).
+          mkdir -p .smelt-bin
+          if gh release download smelt-nightly --pattern smelt --dir .smelt-bin --clobber 2>/dev/null; then
+            chmod +x .smelt-bin/smelt
+            echo "SMELT_BIN=$PWD/.smelt-bin/smelt" >> "$GITHUB_ENV"
+            echo "Using prebuilt smelt from the smelt-nightly release."
+          else
+            echo "No smelt-nightly release asset found; building smelt from source."
+            cargo build --release --bin smelt
+            echo "SMELT_BIN=$PWD/target/release/smelt" >> "$GITHUB_ENV"
+          fi
 
       - name: Checkout compatibility repo
         run: |
@@ -64,7 +78,7 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p "target/compat-reports"
-          cargo run --bin smelt -- rust-test-report \
+          "$SMELT_BIN" rust-test-report \
             --build-manifest "target/compat-repos/${{ matrix.name }}/${{ matrix.manifest }}" \
             --cargo-manifest "target/compat-repos/${{ matrix.name }}/${{ matrix.generated_manifest }}" \
             --full \
