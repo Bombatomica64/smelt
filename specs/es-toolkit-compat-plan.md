@@ -70,6 +70,24 @@ member-access, and the deferred ambient globals (globalThis runtime object).
 Result: **files-with-blockers 324 → 281** (−43), unsupported-lowering 235 → 187.
 Remeda gate 1789/0; smelt suite 1289/0. Cumulative this session: **419 → 281**.
 
+## Batch 4 (2026-06-29) — full-category sweep, landed on main
+
+Three category-owning agents (compat now in scope, no shortcuts):
+- **unresolved-reference 52 → 22**: implemented the general **function-as-constructor + `.prototype`** feature (synthesize `Item::Class` from `function Foo(){}` + `Foo.prototype.x=…`) + a default-param scoping fix. Residual 20-ish are deeper (constructable function *values* `new par()`, closure free-variable capture, dynamic `new Ctor()`, wholesale prototype reassignment).
+- **missing-stdlib 53 → 21**: modeled WeakMap/WeakSet/DataView/SharedArrayBuffer/File markers, `typeof` presence guards, `Reflect.ownKeys`, `Math.*` constant folds, bare namespace objects + bare `globalThis`/`global`/`self` (per-read marker host-record, dynamic global access kept as honest blockers). Residual: typed-array runtime identity, Buffer value model, `setInterval`, constructor-as-value + vitest-matcher, DOM `window`/`document`.
+- **unsupported-lowering 235 → 163**: multi-arg concat/push, relaxed `Array(n)` length, `new Set(iterable)`, `typeof` in generic unary, `Object.hasOwn` receivers, string-method receiver/arg coercion, `Array.from` optional length, foldable `Number`/`Math` const members. (Agent was killed mid-stream; its 5 commits + the salvaged in-progress work were integrated.)
+
+Integration fix: host-builtin marker objects now report **no enumerable own keys** (`smelt_is_for_in_*`), matching JS — caught a Remeda `isEmptyish(new WeakMap())` regression at the gate.
+
+Result: **files-with-blockers 281 → 200** (−81). Remeda gate 1789/0; smelt suite 1312/0.
+Cumulative this session: **419 → 200** (−219, ~52%).
+
+## Batch 5+ roadmap (the deeper remaining features)
+- Constructable function *values* (`new par()`) + closure free-variable capture (unblocks the curry/partial/bind family).
+- Typed-array runtime identity (`isView`/`isTypedArray`), Buffer value model, `setInterval`/`clearInterval` async runtime.
+- Globals Phase 2/3 runtime object (`SmeltGlobalObject`) for dynamic global access; a DOM profile for `window`/`document`.
+- The remaining ~163 unsupported-lowering long tail (string methods, control flow, exported-const, misc).
+
 ## Batch 4 roadmap (remaining non-stdlib lowering)
 
 1. **46 — unresolved identifier** (missing-stdlib): builtins-used-as-*values* (`Number`, `Math`, `parseInt`, `globalThis`…) — needs a general bare-builtin-value lowering path.
