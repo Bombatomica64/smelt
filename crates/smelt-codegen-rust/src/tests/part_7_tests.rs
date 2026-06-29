@@ -4587,3 +4587,84 @@ const isSignal = signal instanceof AbortSignal;
         "instanceof AbortSignal must check the signal marker\n{source}"
     );
 }
+
+#[test]
+fn lowers_numeric_truthy_condition_inside_callback() {
+    // A non-boolean numeric value used as a callback condition (the common
+    // `(value, index) => index ? a : b` index-guard idiom) lowers to an
+    // explicit `!= 0` test rather than rejecting the callback.
+    let source = source_for(
+        r#"
+function pick(values: number[]): number[] {
+  return values.map((value, index) => (index ? value * 2 : value));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("!= 0"),
+        "numeric callback condition must lower to a non-zero test: {source}"
+    );
+}
+
+#[test]
+fn falls_back_to_closure_body_for_try_catch_callback() {
+    // A `.map` callback whose body uses a statement form the side-effect-free
+    // callback IR cannot represent (here `try`/`catch`) must retry through full
+    // closure-body lowering instead of failing the whole file. `source_for`
+    // panics on any blocker, so reaching codegen proves the fallback fired.
+    let source = source_for(
+        r#"
+function run(values: string[]): Array<string | undefined> {
+  return values.map((value) => {
+    try {
+      return value;
+    } catch (e) {
+      return undefined;
+    }
+  });
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+}
+
+#[test]
+fn falls_back_to_closure_body_for_sort_comparator_with_loop() {
+    // An `Array.prototype.sort` comparator whose body uses a `for` loop must
+    // retry through full closure-body lowering rather than rejecting the file.
+    let source = source_for(
+        r#"
+function order(items: number[][]): number[][] {
+  return items.slice().sort((a, b) => {
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        return a[i] - b[i];
+      }
+    }
+    return 0;
+  });
+}
+"#,
+    );
+
+    assert!(source.contains("sort"), "{source}");
+}
+
+#[test]
+fn lowers_erased_local_value_passed_as_named_callback() {
+    // A local holding a callable value whose static type is erased (`any`) and
+    // handed to an array method as a named callback (`values.map(fn)`) lowers to
+    // a wrapper closure that calls the captured local, instead of rejecting it
+    // for not being an inline arrow / not having a callback entry.
+    let source = source_for(
+        r#"
+function apply(values: string[], fn: any): string[] {
+  return values.map(fn);
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+}

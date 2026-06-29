@@ -1704,13 +1704,18 @@ impl ModuleBuilder<'_> {
         };
         let element_ty = *list_element_ty;
         let comparator = if let Some(argument) = comparator_argument {
-            let callback = self.callback_argument(
+            let number_ty = self.ctx.krate.types.intern(Type::Float);
+            // Use the body-fallback variant so a comparator whose body uses
+            // statement forms the side-effect-free callback IR cannot represent
+            // (e.g. a `for` loop scanning sort criteria) retries through full
+            // closure-body lowering instead of failing the whole file.
+            let callback = self.callback_argument_with_body_fallback(
                 argument,
                 &[element_ty, element_ty],
+                number_ty,
                 "array sort",
                 body,
             )?;
-            let number_ty = self.ctx.krate.types.intern(Type::Float);
             self.require_callback_ty(callback.return_ty, number_ty, call, "array sort")?;
             Some(callback.expr)
         } else {

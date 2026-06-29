@@ -2942,6 +2942,72 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Return whether a local's type can hold a callable value handed to an
+    /// array method as a named callback.
+    ///
+    /// `Type::Function` locals are lowered directly elsewhere; this covers the
+    /// erased/generic surfaces — `unknown`/`any`, type parameters, and unions
+    /// that include a function or erased branch — where the value is genuinely
+    /// callable at runtime but lacks a clean static function type.
+    fn callback_local_value_is_callable_surface(&self, ty: smelt_hir::TypeId) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. }) => true,
+            Some(Type::Union(items)) => items.iter().copied().any(|item| {
+                matches!(
+                    self.ctx.krate.types.get(item),
+                    Some(Type::Function(_) | Type::Unknown)
+                )
+            }),
+            _ => false,
+        }
+    }
+
+    /// Build an opaque callback that calls a captured outer local value.
+    ///
+    /// Mirrors [`Self::opaque_member_callback`], but the callee is the named
+    /// local itself (captured by id) instead of a `None` placeholder resolved by
+    /// name. This lowers `xs.map(fn)` where `fn` is a local holding a callable
+    /// value whose static type is erased (`any`/`unknown`), a type parameter, or
+    /// a union that includes a function — cases where the local is genuinely
+    /// callable but does not have a clean `Type::Function`, so the direct
+    /// local-value branch above does not fire. The wrapper closure forwards the
+    /// receiver's element arguments, matching how a direct `fn(...)` call lowers.
+    fn opaque_local_callback(
+        &mut self,
+        local: smelt_hir::LocalId,
+        local_ty: smelt_hir::TypeId,
+        expected_param_tys: &[smelt_hir::TypeId],
+    ) -> CallbackExpr {
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let args = expected_param_tys
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, ty)| CallbackCallArg {
+                expr: CallbackExpr {
+                    kind: CallbackExprKind::Param(index),
+                    ty,
+                },
+                spread: false,
+            })
+            .collect();
+        CallbackExpr {
+            kind: CallbackExprKind::Call {
+                callee: Box::new(CallbackExpr {
+                    kind: CallbackExprKind::Capture(local),
+                    ty: local_ty,
+                }),
+                args,
+            },
+            ty: unknown_ty,
+        }
+    }
+
     /// Build an opaque callback expression for imported predicate/function members.
     fn opaque_member_callback(&mut self, expected_param_tys: &[smelt_hir::TypeId]) -> CallbackExpr {
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
@@ -3512,6 +3578,57 @@ impl ModuleBuilder<'_> {
                     }),
                 },
                 ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Int) {
+            // JavaScript number truthiness: a non-NaN integer is truthy iff it is
+            // non-zero. Integers are never NaN, so `n != 0` is exact (this lowers
+            // the common `(value, index) => index ? a : b` index-guard idiom).
+            let int_ty = self.ctx.krate.types.intern(Type::Int);
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::NotEq,
+                    lhs: Box::new(expr),
+                    rhs: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::Int(0)),
+                        ty: int_ty,
+                    }),
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Float) {
+            // JavaScript number truthiness: a float is truthy iff it is non-zero
+            // (covering both `+0` and `-0`) and not `NaN`. `n != 0.0` rejects the
+            // zeroes; `n == n` rejects `NaN` (the only value not equal to itself).
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            let non_zero = CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::NotEq,
+                    lhs: Box::new(expr.clone()),
+                    rhs: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::Float(0.0)),
+                        ty: float_ty,
+                    }),
+                },
+                ty: bool_ty,
+            };
+            let not_nan = CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::Eq,
+                    lhs: Box::new(expr.clone()),
+                    rhs: Box::new(expr),
+                },
+                ty: bool_ty,
+            };
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::And,
+                    lhs: Box::new(non_zero),
+                    rhs: Box::new(not_nan),
+                },
+                ty: bool_ty,
             });
         }
         if self.ctx.krate.types.get(expr_ty) == Some(&Type::Unknown) {
@@ -4901,6 +5018,29 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let Some(callback) = self.local_callbacks.get(identifier.name.as_str()).cloned() else {
+                // The name is a local holding a value but is not an inlined
+                // callback literal. If its (possibly erased) type is a callable
+                // surface — `any`/`unknown`, a type parameter, or a union that
+                // includes a function — call it through a wrapper closure that
+                // captures the local and forwards the receiver's element
+                // arguments, the same way a direct `fn(...)` call would lower.
+                let local = self
+                    .locals
+                    .get(identifier.name.as_str())
+                    .copied()
+                    .expect("local checked present above");
+                let local_ty = Self::local_ty(body, local);
+                if self.callback_local_value_is_callable_surface(local_ty) {
+                    let callback = self.opaque_local_callback(local, local_ty, expected_param_tys);
+                    let return_ty = callback.ty;
+                    let expr = self.callback_expr_to_closure(
+                        &callback,
+                        expected_param_tys,
+                        self.span(identifier.span.start, identifier.span.end),
+                        body,
+                    )?;
+                    return Ok(ClosureCallback { expr, return_ty });
+                }
                 return Err(SmeltError::unsupported(
                     self.span(identifier.span.start, identifier.span.end),
                     format!(
@@ -5150,6 +5290,11 @@ impl ModuleBuilder<'_> {
             || error.message
                 == "callback side-effect blocks only support expression and throw statements"
             || error.message == "callback block declarations require simple bindings"
+            // A callback body statement form the side-effect-free expression IR
+            // cannot represent (e.g. `try`/`catch`, loops, `let` reassignment).
+            // Full closure-body lowering supports these statements, so retry there.
+            || error.message
+                == "callback block statements must be const declarations, if guards, return, or throw"
             || error.message == "async callbacks need closure-body lowering"
             || error
                 .message
