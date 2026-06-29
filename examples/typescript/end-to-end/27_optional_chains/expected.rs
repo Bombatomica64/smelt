@@ -256,9 +256,11 @@ impl SmeltObject {
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
-fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(object.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(object.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
+fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { ["__smelt_weakmap", "__smelt_weakset", "__smelt_dataview", "__smelt_sharedarraybuffer", "__smelt_file", "__smelt_blob", "__smelt_arraybuffer", "__smelt_number", "__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
+fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { ["__smelt_weakmap", "__smelt_weakset", "__smelt_dataview", "__smelt_sharedarraybuffer", "__smelt_file", "__smelt_blob", "__smelt_arraybuffer", "__smelt_number", "__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.contains_key(*marker)) }
+fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(object.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(object.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
 /// Return whether a record key is visible to JavaScript `for...in` iteration.
-fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(record.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(record.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
+fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(record.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(record.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
 /// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.
 /// Class instances carry a hidden `__smelt_class` marker and map to a distinct
 /// `"__smelt_proto:class"` sentinel so they are not treated as plain objects; arrays,

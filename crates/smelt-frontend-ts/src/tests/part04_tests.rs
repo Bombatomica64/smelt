@@ -953,15 +953,17 @@ values.push("x");
     )?;
     assert_unsupported_ts(&wrong_type, "argument must match")?;
 
+    // Multiple homogeneous items are now supported and lower cleanly (the old
+    // "exactly one item argument" restriction was lifted by multi-arg push).
     let mut ctx = HirCtx::new();
-    let too_many = lowering_errors(
+    lower_ok(
         ts!(r#"
 let values: number[] = [1, 2];
 values.push(3, 4);
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&too_many, "exactly one item argument")
+    Ok(())
 }
 
 #[test]
