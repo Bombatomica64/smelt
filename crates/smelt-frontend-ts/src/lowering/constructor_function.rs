@@ -289,6 +289,17 @@ impl ModuleBuilder<'_> {
                 if !Self::statements_use_function_as_constructor(name, statements) {
                     continue;
                 }
+                // A `const bound = function (...) { … }` that captures enclosing
+                // locals (the curry/bind/partial family's returned closures) is
+                // a *constructable function value*, not a static class: its
+                // identity and captured state belong to the runtime closure, so
+                // synthesizing a top-level class would drop the captures (e.g.
+                // `partialArgs`) and break the closure body. Leave it as a
+                // function value so the closure path captures correctly; `new
+                // bound()` on the value is handled by the closure-construct path.
+                if self.const_constructor_captures_enclosing_locals(function) {
+                    continue;
+                }
                 let prototype_methods =
                     Self::collect_prototype_member_functions(name, statements.iter());
                 self.synthesize_named_constructor_function_class(
@@ -299,6 +310,38 @@ impl ModuleBuilder<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Return whether a `const Foo = function (…) { … }` body references any
+    /// local bound in the enclosing scope (a free-variable capture).
+    ///
+    /// Such a binding is a closure value rather than a static constructor
+    /// class. The existing closure capture-name collectors are reused so the
+    /// same expression/statement coverage decides capture here and during
+    /// closure lowering.
+    fn const_constructor_captures_enclosing_locals(
+        &self,
+        function: &oxc::ast::ast::Function<'_>,
+    ) -> bool {
+        let Some(function_body) = &function.body else {
+            return false;
+        };
+        let mut param_names = HashSet::new();
+        for param in &function.params.items {
+            let mut names = Vec::new();
+            Self::binding_pattern_names(&param.pattern, &mut names);
+            param_names.extend(names);
+        }
+        if let Some(rest) = &function.params.rest {
+            let mut names = Vec::new();
+            Self::binding_pattern_names(&rest.rest.argument, &mut names);
+            param_names.extend(names);
+        }
+        let mut captures = Vec::new();
+        for statement in &function_body.statements {
+            self.collect_statement_capture_names(statement, &param_names, &mut captures);
+        }
+        !captures.is_empty()
     }
 
     /// Synthesize classes for constructor functions declared in a test's

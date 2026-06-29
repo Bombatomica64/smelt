@@ -4793,6 +4793,49 @@ impl ModuleBuilder<'_> {
                 }
                 ChainElement::PrivateFieldExpression(_) => {}
             },
+            Expression::UpdateExpression(update) => {
+                self.collect_simple_assignment_target_capture_names(
+                    &update.argument,
+                    param_names,
+                    captures,
+                );
+            }
+            Expression::SequenceExpression(sequence) => {
+                for expression in &sequence.expressions {
+                    self.collect_expression_capture_names(expression, param_names, captures);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Collect captured locals referenced by a simple assignment target
+    /// (the target of `x++`, `--y`, or `obj[i]++`).
+    ///
+    /// `++counter` and `startIndex++` in the curry/bind/after family mutate a
+    /// captured enclosing local; without traversing the update target the
+    /// mutated local is never recorded as a capture and the closure body fails
+    /// with `unresolved identifier`.
+    fn collect_simple_assignment_target_capture_names(
+        &self,
+        target: &SimpleAssignmentTarget<'_>,
+        param_names: &HashSet<String>,
+        captures: &mut Vec<String>,
+    ) {
+        match target {
+            SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+                let name = identifier.name.as_str();
+                if !param_names.contains(name) && self.locals.contains_key(name) {
+                    captures.push(name.to_owned());
+                }
+            }
+            SimpleAssignmentTarget::StaticMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
+            SimpleAssignmentTarget::ComputedMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+                self.collect_expression_capture_names(&member.expression, param_names, captures);
+            }
             _ => {}
         }
     }
@@ -4902,6 +4945,72 @@ impl ModuleBuilder<'_> {
             }
             Statement::ThrowStatement(statement) => {
                 self.collect_expression_capture_names(&statement.argument, param_names, captures);
+            }
+            Statement::ForStatement(statement) => {
+                // C-style `for (let i = 0; i < n; ++i)` loops appear throughout
+                // the curry/bind/partial family's returned closures. The init
+                // declaration introduces loop-scoped locals (`i`); the test,
+                // update, and body all reference enclosing captures
+                // (`partialArgs.length`, `predicates[i]`). Thread the init's
+                // declared names so the loop variable is not treated as a
+                // capture while the genuinely-enclosing locals still are.
+                let mut local_names = param_names.clone();
+                if let Some(ForStatementInit::VariableDeclaration(decl)) = &statement.init {
+                    for declarator in &decl.declarations {
+                        let mut binding_names = Vec::new();
+                        Self::binding_pattern_names(&declarator.id, &mut binding_names);
+                        local_names.extend(binding_names);
+                    }
+                }
+                match &statement.init {
+                    Some(ForStatementInit::VariableDeclaration(decl)) => {
+                        for declarator in &decl.declarations {
+                            if let Some(init) = &declarator.init {
+                                self.collect_expression_capture_names(
+                                    init,
+                                    &local_names,
+                                    captures,
+                                );
+                            }
+                        }
+                    }
+                    Some(init) => {
+                        if let Some(expression) = init.as_expression() {
+                            self.collect_expression_capture_names(
+                                expression,
+                                &local_names,
+                                captures,
+                            );
+                        }
+                    }
+                    None => {}
+                }
+                if let Some(test) = &statement.test {
+                    self.collect_expression_capture_names(test, &local_names, captures);
+                }
+                if let Some(update) = &statement.update {
+                    self.collect_expression_capture_names(update, &local_names, captures);
+                }
+                self.collect_statement_capture_names(&statement.body, &local_names, captures);
+            }
+            Statement::DoWhileStatement(statement) => {
+                self.collect_statement_capture_names(&statement.body, param_names, captures);
+                self.collect_expression_capture_names(&statement.test, param_names, captures);
+            }
+            Statement::SwitchStatement(statement) => {
+                self.collect_expression_capture_names(
+                    &statement.discriminant,
+                    param_names,
+                    captures,
+                );
+                for case in &statement.cases {
+                    if let Some(test) = &case.test {
+                        self.collect_expression_capture_names(test, param_names, captures);
+                    }
+                    for child in &case.consequent {
+                        self.collect_statement_capture_names(child, param_names, captures);
+                    }
+                }
             }
             _ => {}
         }

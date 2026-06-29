@@ -929,3 +929,84 @@ it("configures return value", () => {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+#[test]
+fn captures_enclosing_locals_in_for_loop_closure_body() -> Result<(), String> {
+    // A returned `function (...)` whose body iterates over a captured enclosing
+    // rest parameter with a C-style `for (let i = 0; i < xs.length; ++i)` loop
+    // must capture `xs` (the overEvery/overSome/bind pattern). Before
+    // `collect_statement_capture_names` traversed `ForStatement`, the loop test,
+    // update, and body were skipped and `xs` failed with `unresolved identifier`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function overEvery(...xs: number[]): (v: number) => boolean {
+  return function (v: number): boolean {
+    let total = 0;
+    for (let i = 0; i < xs.length; ++i) {
+      total = total + xs[i];
+    }
+    return total > v;
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn captures_mutated_counter_across_arrow_closure() -> Result<(), String> {
+    // `after`-style closure: the returned arrow mutates a captured enclosing
+    // `let counter` and reads the captured parameter `n`. The closure-body
+    // capture machinery must record both across the C-style/conditional body.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function after(n: number, func: () => number): () => number {
+  let counter = 0;
+  return (): number => {
+    counter = counter + 1;
+    if (counter >= n) {
+      return func();
+    }
+    return 0;
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn capturing_const_function_binding_is_not_synthesized_as_class() -> Result<(), String> {
+    // `const bound = function (...) { … }` that captures enclosing locals is a
+    // constructable function *value*, not a static class. The binding must
+    // remain a closure value so its captures (`xs`) are preserved; synthesizing
+    // a top-level class would drop them and break the closure body. This must
+    // lower without an `unresolved identifier`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function bind(...xs: number[]): (v: number) => number {
+  const bound = function (v: number): number {
+    let total = v;
+    for (let i = 0; i < xs.length; i++) {
+      total = total + xs[i];
+    }
+    return total;
+  };
+  return bound;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
