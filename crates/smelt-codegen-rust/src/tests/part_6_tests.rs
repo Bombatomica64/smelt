@@ -163,6 +163,43 @@ function makeValue(): Promise<number> {
 }
 
 #[test]
+fn promise_settimeout_resolving_value_threads_resolve_not_bare_sleep() {
+    // `new Promise(resolve => setTimeout(() => resolve(v), ms))` must flow
+    // through the executor (AsyncOp::Promise) so the resolved value survives.
+    // Collapsing it to a bare `Sleep` (the old behavior) silently dropped `v`
+    // and returned the output type's default.
+    let source = source_for(
+        r#"
+function makeValue(): Promise<number> {
+  return new Promise<number>((resolve) => {
+    setTimeout(() => resolve(7), 0);
+  });
+}
+"#,
+    );
+
+    assert!(source.contains("smelt_promise_result"), "{source}");
+    assert!(source.contains("SmeltUnknown::Number(7.0"), "{source}");
+}
+
+#[test]
+fn promise_bare_delay_settimeout_lowers_to_sleep() {
+    // The pure-delay shape `new Promise(resolve => setTimeout(resolve, ms))`
+    // resolves `undefined` after the delay and carries no value, so collapsing
+    // it to `Sleep` stays correct (and keeps the cheap delay-shim fast path).
+    let source = source_for(
+        r#"
+function delay(): Promise<void> {
+  return new Promise<void>((resolve) => setTimeout(resolve, 5));
+}
+"#,
+    );
+
+    assert!(source.contains("smelt_sleep_ms"), "{source}");
+    assert!(!source.contains("smelt_promise_result"), "{source}");
+}
+
+#[test]
 fn emits_object_has_own_methods() {
     let source = source_for(
         r#"

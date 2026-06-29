@@ -135,6 +135,15 @@ impl FunctionEmitter<'_> {
                     {
                         format!("({executor_text})(SmeltList::from(vec![smelt_resolve, smelt_reject]));")
                     }
+                    // An executor that only declares `resolve` (e.g.
+                    // `new Promise(resolve => …)`) is a 1-arg closure; calling it
+                    // with both callbacks would be an arity error, so pass only
+                    // `resolve` and let `smelt_reject` stay unused.
+                    Some(Type::Function(function))
+                        if function.rest.is_none() && function.params.len() == 1 =>
+                    {
+                        format!("let _ = &smelt_reject; ({executor_text})(smelt_resolve);")
+                    }
                     _ => format!("({executor_text})(smelt_resolve, smelt_reject);"),
                 };
                 let output_ty = *output_ty;

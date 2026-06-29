@@ -1142,7 +1142,16 @@ impl ModuleBuilder<'_> {
             })
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
         let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
-        let duration = if let Some(timer_call) = Self::promise_executor_timer_call(executor) {
+        // Only collapse a Promise to a bare `Sleep` when its executor is the pure
+        // delay shape `new Promise(resolve => setTimeout(resolve, ms))` — the
+        // timer's callback IS the `resolve` parameter, so the promise resolves
+        // `undefined` after the delay and carries no value. Any executor whose
+        // timer callback does real work (e.g. `() => resolve(value)`) must flow
+        // through `AsyncOp::Promise`, which threads `resolve`/`reject`; treating
+        // it as `Sleep` would silently discard the resolved value.
+        let bare_delay_timer = Self::promise_executor_timer_call(executor)
+            .filter(|timer_call| Self::promise_executor_is_bare_delay(executor, timer_call));
+        let duration = if let Some(timer_call) = bare_delay_timer {
             let Some(duration_argument) = timer_call.arguments.get(1) else {
                 return Err(SmeltError::unsupported(
                     self.span(timer_call.span.start, timer_call.span.end),
@@ -1234,6 +1243,31 @@ impl ModuleBuilder<'_> {
             return None;
         };
         (callee.name == "setTimeout" && call.arguments.len() == 2).then_some(call)
+    }
+
+    /// Return whether a `setTimeout`-bodied Promise executor is a pure delay.
+    ///
+    /// The pure-delay shape is `(resolve) => setTimeout(resolve, ms)`: the timer
+    /// callback is exactly the executor's first (`resolve`) parameter, so the
+    /// promise resolves `undefined` after `ms` and carries no value — it is sound
+    /// to lower the whole construct to `AsyncOp::Sleep`. When the callback is
+    /// anything else (`() => resolve(value)`, a block that rejects, etc.) the
+    /// resolved value would be lost by the `Sleep` collapse, so the caller must
+    /// route it through `AsyncOp::Promise` instead.
+    fn promise_executor_is_bare_delay(
+        executor: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        timer_call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> bool {
+        let Some(resolve_param) = executor.params.items.first() else {
+            return false;
+        };
+        let BindingPattern::BindingIdentifier(resolve_binding) = &resolve_param.pattern else {
+            return false;
+        };
+        let Some(Argument::Identifier(callback)) = timer_call.arguments.first() else {
+            return false;
+        };
+        callback.name == resolve_binding.name
     }
 
     /// Lower small TypeScript timer shims used by async fixtures.
