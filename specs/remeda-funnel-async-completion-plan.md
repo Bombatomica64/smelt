@@ -11,6 +11,44 @@ The other five (`isPromise`, `isShallowEqual` promises, `sortBy` data-last
 multi-rule, `mapWithFeedback`, `constant`) are fixed and merged to `main`. This
 document is the plan for the remaining async cluster.
 
+## UPDATE (2026-06-29): corrected root cause — it is NOT scheduler delivery
+
+Instrumenting the generated funnel test (`test_showcase_results_as_array`) showed
+the three burst timers are **armed** (`[set_timeout] due_ms=0` ×3) but
+**never fire** — `drain_due_timers`/`drain_promise_tasks` are never reached, and
+`smelt_await` (the `SmeltPromise` poll-loop, `main.rs` ~1514) is emitted but
+called **zero** times. So the cooperative scheduler is fine; it is simply never
+driven.
+
+The real blocker: **`await` never flattens an erased `SmeltUnknown::Promise`.**
+The funnel's `call: async (...) => new Promise(...)` lowers the inner promise to
+`SmeltUnknown::Promise(SmeltPromise::from_future(…))` (the cluster-b
+representation DID land). But `Promise.all` lowers to
+`for f in prepared { values.push(f.await?); }` — it awaits each *outer* `api.call`
+future, gets the **unresolved** `SmeltUnknown::Promise`, and pushes it as-is. The
+inner promise's polling future (spawned via `from_future`) is never awaited, so
+`sleep_ms` never runs, the timers never fire, and `Promise.all` yields promise
+objects instead of values. `short_result` ends up being a `SmeltUnknown::Promise`,
+so `.toBe(5)` fails.
+
+This is the same shape the Step-1 reproductions hit as a compile error (an
+`async` fn that **returns** a `Promise` needs the returned promise awaited /
+flattened). It compiles in the funnel only because the inner future is erased to
+`SmeltUnknown`, so the type checks while the value is lost.
+
+**Corrected fix direction (supersedes Step 3 below):** route `await` through a
+flatten step — after `fut.await?`, if the value is `SmeltUnknown::Promise(p)`,
+`p.smelt_await().await?` to drive it to its resolved value (recursively). Apply
+at every await site: `AsyncOp::Await`, each `AsyncOp::All` element, and the
+`async`-fn-returns-`Promise` return path. This wires the already-present
+`smelt_await` into the await path; the scheduler work in Step 3 below is likely
+unnecessary once flattening drives `sleep_ms`. Keep the same regression gate
+(full remeda suite + smelt unit tests after every change).
+
+Sub-problem 1 (the `setTimeout` Promise-executor value drop) is **fixed and
+committed** separately (`fix(async): thread resolved value through setTimeout
+Promise executors`); it was not on the funnel path, as predicted.
+
 ## Why these three are the hard tail
 
 They are **not one bug** — they sit at the intersection of several async-runtime
