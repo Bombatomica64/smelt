@@ -4780,3 +4780,25 @@ export function fromSet(s: Set<number>): Set<number> {
     );
     assert!(source.contains("HashSet") || source.contains("SmeltSet") || source.contains("Set"), "{source}");
 }
+
+#[test]
+fn lowers_object_has_own_on_optional_array_and_generic_receivers() {
+    // `Object.hasOwn` lowers for an array receiver (numeric in-bounds check), an
+    // optional record receiver (asserted to its inner shape), and a generic
+    // `T extends object` receiver (treated as a string-keyed record).
+    let source = source_for(
+        r#"
+export function indexPresent(arr: number[], i: number): boolean {
+  return Object.hasOwn(arr, i);
+}
+export function keyPresent(obj?: Record<string, number>, key?: string): boolean {
+  return obj != null && key != null && Object.hasOwn(obj, key);
+}
+export function genericKey<T extends object>(object: T, key: string): boolean {
+  return Object.hasOwn(object, key);
+}
+"#,
+    );
+    // Array case becomes a length-bounded comparison.
+    assert!(source.contains(".len()") || source.contains("len("), "{source}");
+}

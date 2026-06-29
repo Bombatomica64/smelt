@@ -1052,7 +1052,65 @@ return_ty,
         mut key: smelt_hir::ExprId,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let dict_ty = Self::expr_ty(body, dict);
-        let dict_shape_ty = self.type_param_constraint_or_self(dict_ty);
+        let mut dict_shape_ty = self.type_param_constraint_or_self(dict_ty);
+        // `Object.hasOwn(obj, key)` is commonly called on optionally-typed
+        // receivers (`object?: unknown`). Unwrap the optional and assert the
+        // value to its inner shape so the ownership check sees the underlying
+        // record/erased type instead of rejecting the `Optional` wrapper.
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(dict_shape_ty).cloned() {
+            dict = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: dict },
+                ty: inner,
+                span: self.span(call.span.start, call.span.end),
+            });
+            dict_shape_ty = self.type_param_constraint_or_self(inner);
+        }
+        // `Object.hasOwn(array, index)` checks whether a (numeric) index is a
+        // present element, i.e. `0 <= index < array.length`. Arrays are not
+        // records, so this lowers to an in-bounds comparison rather than a
+        // dictionary key lookup.
+        if matches!(self.ctx.krate.types.get(dict_shape_ty), Some(Type::List(_))) {
+            let span = self.span(call.span.start, call.span.end);
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let len = body.push_expr(Expr {
+                kind: ExprKind::Len { operand: dict },
+                ty: float_ty,
+                span,
+            });
+            let zero = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: float_ty,
+                span,
+            });
+            let non_negative = body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::Gte,
+                    lhs: key,
+                    rhs: zero,
+                },
+                ty: bool_ty,
+                span,
+            });
+            let in_bounds = body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::Lt,
+                    lhs: key,
+                    rhs: len,
+                },
+                ty: bool_ty,
+                span,
+            });
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::And,
+                    lhs: non_negative,
+                    rhs: in_bounds,
+                },
+                ty: bool_ty,
+                span,
+            })));
+        }
         let key_ty = match self.ctx.krate.types.get(dict_shape_ty) {
             Some(Type::Dict(key_ty, _)) => *key_ty,
             Some(Type::Unknown) => Self::expr_ty(body, key),
@@ -1077,6 +1135,23 @@ return_ty,
                     .all(|item| self.object_keys_compatible_type(*item)) =>
             {
                 self.ctx.krate.types.intern(Type::String)
+            }
+            _ if self.erased_or_union_surface(dict_shape_ty) => {
+                // A receiver typed through an erased object surface (e.g. a
+                // `T extends object` generic) is treated as a string-keyed
+                // record, mirroring the explicit TypeParam/Class coercion above.
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                dict = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: dict,
+                        target,
+                    },
+                    ty: target,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                key_ty
             }
             _ => {
                 return Err(SmeltError::unsupported(
