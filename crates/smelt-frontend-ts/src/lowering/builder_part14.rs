@@ -2696,12 +2696,74 @@ impl ModuleBuilder<'_> {
                 break;
             }
         }
-        if function.params.rest.is_some() {
-            errors.push(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "function expression rest parameters are not lowered in object values yet",
-            ));
+        // Lower an optional `...rest` parameter the same way top-level functions
+        // and arrow expressions do: resolve its array element type, push a packed
+        // list local/param, and record the rest index on the closure so codegen
+        // collects the trailing source arguments into one list. Function
+        // expressions appear as object property values, returned values, and call
+        // arguments, so this keeps rest semantics for all of them.
+        let mut rest = None;
+        if let Some(rest_param) = &function.params.rest {
+            let result = (|| {
+                let BindingPattern::BindingIdentifier(binding) = &rest_param.rest.argument else {
+                    return Err(SmeltError::unsupported(
+                        self.span(rest_param.span.start, rest_param.span.end),
+                        "function expression destructured rest parameters need rest binding lowering",
+                    ));
+                };
+                let annotated_ty = rest_param
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?;
+                let rest_index = params.len();
+                let hint_rest_ty = hint_function.as_ref().and_then(|(_, function_ty)| {
+                    function_ty
+                        .rest
+                        .filter(|index| *index == rest_index)
+                        .and_then(|index| function_ty.params.get(index).copied())
+                });
+                let source_ty = annotated_ty
+                    .or(hint_rest_ty)
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                let Ok((ty, item_ty)) = self.rest_param_array_type(source_ty) else {
+                    return Err(SmeltError::unsupported(
+                        self.span(rest_param.span.start, rest_param.span.end),
+                        "function expression rest parameter type must be an array type",
+                    ));
+                };
+                let param_name = self.intern_source_name(binding.name.as_str());
+                let local = body.push_local(LocalDecl {
+                    name: Some(param_name),
+                    ty,
+                    mutable: false,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                body.params.push(local);
+                self.locals.insert(binding.name.to_string(), local);
+                param_names.insert(binding.name.to_string());
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                rest = Some(RestParam {
+                    index: rest_index,
+                    item_ty,
+                });
+                Ok(())
+            })();
+            if let Err(error) = result {
+                errors.push(error);
+            }
         }
+        let required_params = function
+            .params
+            .items
+            .iter()
+            .position(|param| param.optional || Self::formal_parameter_has_default(param))
+            .unwrap_or(function.params.items.len());
         let mut captures = Vec::new();
         if errors.is_empty() {
             let mut capture_names = Vec::new();
@@ -2775,12 +2837,13 @@ impl ModuleBuilder<'_> {
         }
 
         let body_id = self.ctx.krate.push_body(body);
+        let rest_index = rest.as_ref().map(|rest| rest.index);
         let function_ty = hint_function.map_or_else(
             || {
                 self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params: params.iter().map(|param| param.ty).collect(),
-                    rest: None,
-                    required_params: None,
+                    rest: rest_index,
+                    required_params: Some(required_params),
                     mutable_params: Vec::new(),
                     return_ty,
                     is_async: function.r#async,
@@ -2792,8 +2855,8 @@ impl ModuleBuilder<'_> {
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params,
-                rest: None,
-                required_params: None,
+                rest: rest_index,
+                required_params: Some(required_params),
                 return_ty,
                 captures,
                 body: body_id,

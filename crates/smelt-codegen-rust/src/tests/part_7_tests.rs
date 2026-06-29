@@ -4342,3 +4342,36 @@ const other = ([1, 2, 3] as unknown) === ([1, 2, 3] as unknown);
         "a list literal must use a fresh `SmeltArray::new` identity\n{source}"
     );
 }
+
+#[test]
+fn lowers_function_expression_value_rest_parameters() {
+    // A `function (...args)` expression used as a returned value (an object-valued
+    // function expression position) must lower its rest parameter the same way
+    // top-level functions and arrow expressions do, packing trailing arguments
+    // into a single list parameter instead of erroring out.
+    let source = source_for(
+        r#"
+export function nthArgValue(n: number): (...args: number[]) => number {
+  return function (...args: number[]): number {
+    return args[n];
+  };
+}
+"#,
+    );
+
+    // The returned closure must accept a single packed rest list
+    // (`SmeltList<f64>`), proving the rest parameter was lowered into one list
+    // closure parameter rather than rejected.
+    assert!(
+        source.contains("Fn(SmeltList<f64>) -> f64"),
+        "function-expression rest parameters must lower to a packed list closure type\n{source}"
+    );
+    assert!(
+        source.contains("move |closure_arg_0: SmeltList<f64>|"),
+        "the returned closure must bind the rest list as its single parameter\n{source}"
+    );
+    assert!(
+        !source.contains("rest parameters are not lowered"),
+        "the object-valued function-expression rest blocker must be gone\n{source}"
+    );
+}
