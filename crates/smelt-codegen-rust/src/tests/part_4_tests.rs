@@ -725,3 +725,51 @@ def test_truth():
     assert!(source.contains("return Err(std::io::Error::new"));
     assert!(source.contains("return Ok(());"));
 }
+
+#[test]
+fn lowers_bare_array_call_like_new_array() {
+    // `Array(total)` and `new Array(total)` are identical in ECMAScript; the
+    // bare-call form is the dominant es-toolkit preallocation idiom (e.g.
+    // `const result = Array(total); result[i] = ...`). Both lower to a list
+    // container that subsequent indexed writes fill.
+    let source = source_for(
+        r#"
+export function build(total: number): number[] {
+  const result: number[] = Array(total);
+  for (let i = 0; i < total; i++) {
+    result[i] = i;
+  }
+  return result;
+}
+"#,
+    );
+
+    // The `result` list is constructed (not a leaked `Array(...)` call) and is
+    // grown by the subsequent indexed write.
+    assert!(
+        source.contains("let mut result: SmeltList<f64>"),
+        "bare Array(total) should construct a typed list: {source}"
+    );
+    assert!(
+        source.contains("result[smelt_assign_index] = i"),
+        "indexed writes should fill the list built by Array(total): {source}"
+    );
+}
+
+#[test]
+fn lowers_bare_array_call_with_array_literal_argument() {
+    // A single array-literal argument builds that literal directly, matching the
+    // `new Array([...])` lowering.
+    let source = source_for(
+        r#"
+export function pair(): number[] {
+  return Array([1, 2, 3]);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("vec![") || source.contains("Vec::from"),
+        "Array([...]) should build the array literal: {source}"
+    );
+}

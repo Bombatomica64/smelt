@@ -711,6 +711,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::crypto_get_random_values_call,
         Self::unsupported_object_collection_call_entry,
         Self::exact_stdlib_call,
+        Self::array_constructor_call,
         Self::promise_continuation_call,
         Self::timer_call,
         Self::number_to_string_call,

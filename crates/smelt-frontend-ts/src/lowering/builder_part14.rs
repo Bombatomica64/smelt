@@ -148,32 +148,86 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if new_expr.arguments.len() > 1 {
+        self.lower_array_construction(
+            &new_expr.arguments,
+            new_expr.type_arguments.as_deref(),
+            new_expr.span.start,
+            new_expr.span.end,
+            body,
+        )
+    }
+
+    /// Lower a bare `Array(length)` / `Array(element)` call as a value-returning
+    /// constructor expression.
+    ///
+    /// In ECMAScript the `Array` global produces an identical array whether
+    /// invoked as `Array(...)` or `new Array(...)` (the spec routes both through
+    /// the same constructor behavior). Reusing the `new Array` lowering keeps the
+    /// two spellings in lockstep instead of special-casing the call form. The
+    /// es-toolkit corpus relies heavily on `Array(n)` to preallocate a list that
+    /// is then filled by indexed writes.
+    pub(super) fn array_constructor_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        if callee.name != "Array" {
+            return Ok(None);
+        }
+        self.lower_array_construction(
+            &call.arguments,
+            call.type_arguments.as_deref(),
+            call.span.start,
+            call.span.end,
+            body,
+        )
+        .map(Some)
+    }
+
+    /// Shared core for `Array(...)` and `new Array(...)` construction.
+    ///
+    /// JavaScript creates a sparse array here; Smelt models the later indexed
+    /// writes and only needs the list container type at construction time. A
+    /// single array-literal argument (`Array([1, 2])`) builds that literal, a
+    /// single numeric argument (`Array(3)`) preallocates a list, and an optional
+    /// type argument supplies the element type.
+    fn lower_array_construction(
+        &mut self,
+        arguments: &[Argument<'_>],
+        type_arguments: Option<&oxc::ast::ast::TSTypeParameterInstantiation<'_>>,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if arguments.len() > 1 {
             return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new Array(...) supports at most one length argument",
+                self.span(start, end),
+                "Array(...) supports at most one length argument",
             ));
         }
-        if let Some(Argument::ArrayExpression(array)) = new_expr.arguments.first() {
+        if let Some(Argument::ArrayExpression(array)) = arguments.first() {
             return self.array_expression(array, body, None);
         }
-        if let Some(length) = new_expr.arguments.first() {
+        if let Some(length) = arguments.first() {
             let length = self.argument(length, body)?;
             if !matches!(
                 self.ctx.krate.types.get(Self::expr_ty(body, length)),
                 Some(Type::Int | Type::Float)
             ) {
                 return Err(SmeltError::unsupported(
-                    self.span(new_expr.span.start, new_expr.span.end),
-                    "new Array(...) length must be numeric",
+                    self.span(start, end),
+                    "Array(...) length must be numeric",
                 ));
             }
         }
-        let item_ty = if let Some(type_args) = &new_expr.type_arguments {
+        let item_ty = if let Some(type_args) = type_arguments {
             let [item] = type_args.params.as_slice() else {
                 return Err(SmeltError::unsupported(
-                    self.span(new_expr.span.start, new_expr.span.end),
-                    "new Array(...) supports exactly one type argument",
+                    self.span(start, end),
+                    "Array(...) supports exactly one type argument",
                 ));
             };
             self.ts_type_to_hir(item)?
@@ -184,7 +238,7 @@ impl ModuleBuilder<'_> {
         Ok(body.push_expr(Expr {
             kind: ExprKind::ListLit(Vec::new()),
             ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
+            span: self.span(start, end),
         }))
     }
 
