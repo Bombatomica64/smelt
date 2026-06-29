@@ -2494,6 +2494,60 @@ impl ModuleBuilder<'_> {
         Some(field_ty)
     }
 
+    /// Report whether a function body references the implicit `arguments`
+    /// binding.
+    ///
+    /// Scans the body's source slice for the `arguments` identifier with
+    /// surrounding identifier-boundary checks, mirroring the source-text probes
+    /// already used for forward-callable detection. Used to decide whether a
+    /// zero-parameter object-method function expression must be lowered as a
+    /// real function value (which establishes the array-like `arguments`
+    /// object) rather than collapsed into a getter return expression.
+    fn function_body_references_arguments(
+        &self,
+        function_body: &oxc::ast::ast::FunctionBody<'_>,
+    ) -> bool {
+        let (Ok(start), Ok(end)) = (
+            usize::try_from(function_body.span.start),
+            usize::try_from(function_body.span.end),
+        ) else {
+            return false;
+        };
+        let Some(text) = self.source.get(start..end) else {
+            return false;
+        };
+        Self::source_slice_mentions_identifier(text, "arguments")
+    }
+
+    /// Report whether `text` contains `identifier` as a standalone JavaScript
+    /// identifier (not as a substring of a longer identifier such as a property
+    /// name or a different variable).
+    fn source_slice_mentions_identifier(text: &str, identifier: &str) -> bool {
+        let bytes = text.as_bytes();
+        let mut search_from = 0;
+        while let Some(offset) = text.get(search_from..).and_then(|tail| tail.find(identifier)) {
+            let match_start = search_from + offset;
+            let match_end = match_start + identifier.len();
+            let before_ok = match_start
+                .checked_sub(1)
+                .and_then(|index| bytes.get(index))
+                .is_none_or(|byte| !Self::is_identifier_byte(*byte));
+            let after_ok = bytes
+                .get(match_end)
+                .is_none_or(|byte| !Self::is_identifier_byte(*byte));
+            if before_ok && after_ok {
+                return true;
+            }
+            search_from = match_start + 1;
+        }
+        false
+    }
+
+    /// Report whether `byte` can appear inside a JavaScript identifier.
+    fn is_identifier_byte(byte: u8) -> bool {
+        byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
+    }
+
     /// Lower an object property value, treating zero-argument getters as field values.
     fn object_property_value_expr(
         &mut self,
@@ -2511,6 +2565,15 @@ impl ModuleBuilder<'_> {
                     "object getter functions must have a body",
                 ));
             };
+            // A zero-parameter `function` value that references its own
+            // `arguments` binding is a real function, not a collapsible getter:
+            // collapsing it to the bare return expression would lower
+            // `arguments` against the enclosing scope (where it is unavailable).
+            // Lower it as a genuine function-expression value instead, which
+            // establishes the array-like `arguments` object for the body.
+            if self.function_body_references_arguments(function_body) {
+                return self.function_expression_value(function, type_hint, property.span, body);
+            }
             let [Statement::ReturnStatement(statement)] = function_body.statements.as_slice()
             else {
                 let ty = type_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
@@ -2684,6 +2747,12 @@ impl ModuleBuilder<'_> {
                 .generator
                 .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
         self.current_generator_yields = generator_yields;
+        // A non-arrow `function` expression introduces its own `arguments`
+        // binding, so make the array-like `arguments` object available while
+        // lowering the body — mirroring the function-declaration and closure
+        // lowering paths that also push the argument arity stack.
+        self.current_arguments_arities
+            .push(function.params.items.len());
         for statement in &function_body.statements {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
@@ -2695,6 +2764,7 @@ impl ModuleBuilder<'_> {
         if function.r#async {
             body.build_async_state_machine();
         }
+        self.current_arguments_arities.pop();
         self.locals = saved_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;

@@ -6663,6 +6663,35 @@ function nonEmpty(value: string, count: number): boolean {
 }
 
 #[test]
+fn lowers_function_expression_arguments_object_inside_value_body() -> Result<(), String> {
+    // A non-arrow `function` expression used as a value introduces its own
+    // `arguments` binding, just like a top-level function declaration. The
+    // expression-position lowering path must make the array-like `arguments`
+    // object available inside the body instead of rejecting it as only being
+    // available inside function bodies (es-toolkit's partial/rest tests rely
+    // on `arguments.length` and `Array.from(arguments)` here).
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+declare function isEmptyish(value: unknown): boolean;
+
+const countArgs = function (): number {
+  return arguments.length;
+};
+
+const captureArgs = function (a: string, b: string): boolean {
+  return isEmptyish(arguments);
+};
+
+export const result = [countArgs(), captureArgs("a", "b")];
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_object_create_to_erased_prototype_shape() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(

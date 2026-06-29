@@ -397,6 +397,13 @@ return_ty: none,
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
         let saved_async = self.current_async;
         self.current_async = function.r#async;
+        // A `function () { ... }` test callback (as opposed to an arrow) has its
+        // own `arguments` binding, so make the array-like `arguments` object
+        // available while lowering the body — matching the other function-body
+        // lowering paths. The callback takes no parameters here, so its arity is
+        // zero.
+        self.current_arguments_arities
+            .push(function.params.items.len());
         let mut body = Body::new(
             None,
             self.span(function_body.span.start, function_body.span.end),
@@ -440,6 +447,7 @@ return_ty: none,
                 }
             }
         }
+        self.current_arguments_arities.pop();
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
         self.current_async = saved_async;
