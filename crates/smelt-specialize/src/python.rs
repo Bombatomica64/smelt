@@ -184,6 +184,7 @@ impl<B: SandboxBackend> PythonSpecializer<B> {
             ],
             current_dir: request.project_root.clone(),
             scratch_dir: scratch.path().to_path_buf(),
+            internal_threads: false,
         };
         let output = self.runner.run(&sandbox_request, &policy)?;
         if !output.status.success() {

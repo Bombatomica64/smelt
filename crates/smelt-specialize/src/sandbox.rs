@@ -52,6 +52,9 @@ pub struct SandboxRequest {
     pub current_dir: PathBuf,
     /// Existing scratch directory and the only writable guest root.
     pub scratch_dir: PathBuf,
+    /// Whether the runtime needs native worker threads while its own hard
+    /// permission mode independently denies child processes.
+    pub internal_threads: bool,
 }
 
 /// Fully prepared sandbox launcher command.
@@ -631,9 +634,19 @@ fn validate_request(
             "subprocess-enabled policy requires a process limit above one".to_owned(),
         ));
     }
-    if !policy.subprocesses && policy.process_limit != 1 {
+    if !policy.subprocesses && policy.process_limit != 1 && !request.internal_threads {
         return Err(SandboxError::InvalidPolicy(
             "subprocess-denied policy requires a process limit of one".to_owned(),
+        ));
+    }
+    if request.internal_threads
+        && !request
+            .args
+            .iter()
+            .any(|argument| argument == OsStr::new("--permission"))
+    {
+        return Err(SandboxError::InvalidPolicy(
+            "threaded guests require a hard runtime permission mode".to_owned(),
         ));
     }
     require_directory(&request.current_dir, "working directory")?;
@@ -931,6 +944,7 @@ mod tests {
             args: Vec::new(),
             current_dir: PathBuf::from("/usr"),
             scratch_dir: scratch.to_path_buf(),
+            internal_threads: false,
         }
     }
 

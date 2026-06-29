@@ -15,6 +15,7 @@ mod adapter;
 mod cache_key;
 mod detection;
 mod manifest;
+mod node;
 mod python;
 mod sandbox;
 
@@ -29,6 +30,7 @@ pub use manifest::{
     ModuleRecord, Parameter, ParameterKind, SandboxPolicyRecord, SourceProvenance, SourceSpan,
     SpecializationManifest, StaticType, ValueGraph, ValueId, validate_manifest,
 };
+pub use node::{NodeModule, NodeSpecializationError, NodeSpecializationRequest, NodeSpecializer};
 pub use python::{
     PythonModule, PythonSpecializationError, PythonSpecializationRequest, PythonSpecializer,
 };
