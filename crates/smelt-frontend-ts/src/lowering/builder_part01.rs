@@ -1818,6 +1818,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 items.push(item);
                 continue;
             }
+            if let Expression::FunctionExpression(function) = init
+                && function.body.is_some()
+            {
+                // `export const stub = function () { ... }` binds an anonymous
+                // function expression to a module name. It is semantically the
+                // same as `function stub() { ... }`, so lower it through the
+                // shared named-function path rather than the literal folder.
+                let item =
+                    self.function_declaration_named(function, binding.name.as_str())?;
+                items.push(item);
+                continue;
+            }
             if let Some(item) = self.fp_wrapper_const_declaration(binding.name.as_str(), init)? {
                 items.push(item);
                 continue;

@@ -10,13 +10,28 @@ impl ModuleBuilder<'_> {
                 "anonymous function declarations are not lowered yet",
             )
         })?;
+        self.function_declaration_named(function, id.name.as_str())
+    }
+
+    /// Lower a TypeScript `Function` AST node into a HIR function item under an
+    /// externally supplied name.
+    ///
+    /// A `function` *declaration* carries its own identifier, but an exported
+    /// `const stub = function () { ... }` binds an otherwise-anonymous
+    /// `FunctionExpression` to the const's name. Both forms are semantically a
+    /// named module function, so they share this body; the only difference is
+    /// where the name comes from.
+    fn function_declaration_named(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        name_text: &str,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &function.body else {
             return Err(SmeltError::unsupported(
                 self.span(function.span.start, function.span.end),
                 "declare functions are not lowered yet",
             ));
         };
-        let name_text = id.name.as_str();
         let name = self.intern_source_name(name_text);
         let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let assertion_return = match function
