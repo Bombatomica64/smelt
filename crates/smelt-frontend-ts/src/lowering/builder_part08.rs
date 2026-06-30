@@ -65,14 +65,31 @@ impl ModuleBuilder<'_> {
         if callee.name == "ArrayBuffer" && !self.classes.contains_key("ArrayBuffer") {
             return self.arraybuffer_constructor_expression(new_expr, body);
         }
+        if callee.name == "Blob" && !self.classes.contains_key("Blob") {
+            return self.blob_constructor_expression(new_expr, body);
+        }
+        if callee.name == "Number" && !self.classes.contains_key("Number") {
+            return self.boxed_number_constructor_expression(new_expr, body);
+        }
+        if callee.name == "Proxy" && !self.classes.contains_key("Proxy") {
+            return self.proxy_constructor_expression(new_expr, body);
+        }
+        if callee.name == "AbortController" && !self.classes.contains_key("AbortController") {
+            return self.abort_controller_constructor_expression(new_expr, body);
+        }
         if Self::is_numeric_typed_array_constructor(callee.name.as_str()) {
             return self.numeric_typed_array_constructor_expression(new_expr, body);
         }
         if callee.name == "URLSearchParams" {
             return self.url_search_params_constructor_expression(new_expr, body);
         }
-        if matches!(callee.name.as_str(), "WeakMap" | "WeakSet") {
-            return self.opaque_builtin_constructor_expression(new_expr, body, callee.name.as_str());
+        if let Some(marker) = Self::marker_only_builtin_marker(callee.name.as_str()) {
+            if !self.classes.contains_key(callee.name.as_str()) {
+                return self.marker_only_builtin_constructor_expression(new_expr, body, marker);
+            }
+        }
+        if callee.name == "DOMException" && !self.classes.contains_key("DOMException") {
+            return self.domexception_object_constructor_expression(new_expr, body);
         }
         if Self::is_builtin_error_constructor(callee.name.as_str()) {
             return self.error_object_constructor_expression(new_expr, body);
@@ -347,35 +364,77 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower a supported opaque builtin constructor to an unknown object value.
-    fn opaque_builtin_constructor_expression(
+    /// Lower a host builtin constructor that Smelt only inspects via
+    /// `instanceof` into a marker-bearing record erased to `SmeltUnknown`.
+    ///
+    /// JavaScript host objects such as `WeakMap`, `WeakSet`, `DataView`,
+    /// `SharedArrayBuffer`, and `File` have no useful structural shape that
+    /// es-toolkit reads — they are constructed and then only tested with
+    /// `value instanceof X` (the `isWeakMap`/`isWeakSet`/`isTypedArray` family
+    /// and the `clone` deep-clone dispatch). Rather than erase them to a
+    /// shapeless `SmeltUnknown::Object` (which would make every `instanceof`
+    /// false and collide each host type with the others), give each a dedicated
+    /// `__smelt_<marker>` key so a later dynamic `instanceof` resolves through
+    /// the marker (see `instance_of_text`), mirroring the `ArrayBuffer`/`Blob`
+    /// models. Constructor arguments are lowered for their effects/types and
+    /// then discarded, since none of the retained shape is observed.
+    fn marker_only_builtin_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
-        class_text: &str,
+        marker: &str,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let _class_name = self.intern_type_name(class_text);
-        let _args = new_expr
-            .arguments
-            .iter()
-            .map(|arg| self.argument(arg, body))
-            .collect::<Result<Vec<_>, _>>()?;
+        // Lower arguments for their effects/type checks; the marker record keeps
+        // no structural shape from them.
+        for argument in &new_expr.arguments {
+            self.argument(argument, body)?;
+        }
         let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
-        let value = body.push_expr(Expr {
-            kind: ExprKind::DictLit(Vec::new()),
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(marker.to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value)]),
             ty: dict_ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
+            span,
         });
         Ok(body.push_expr(Expr {
             kind: ExprKind::UnknownCast {
-                value,
+                value: object,
                 target: unknown_ty,
             },
             ty: unknown_ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
+            span,
         }))
+    }
+
+    /// Return the dedicated identity marker key for a marker-only host builtin
+    /// constructor, or `None` when the name is not such a builtin.
+    ///
+    /// Shared by the `new X(...)` constructor dispatch (to choose the marker to
+    /// stamp) and by `instanceof X` lowering (to know the target is modeled).
+    /// Keeping the mapping in one place stops the construct side and the
+    /// `instanceof` side from drifting.
+    pub(crate) fn marker_only_builtin_marker(name: &str) -> Option<&'static str> {
+        match name {
+            "WeakMap" => Some("__smelt_weakmap"),
+            "WeakSet" => Some("__smelt_weakset"),
+            "DataView" => Some("__smelt_dataview"),
+            "SharedArrayBuffer" => Some("__smelt_sharedarraybuffer"),
+            "File" => Some("__smelt_file"),
+            _ => None,
+        }
     }
 
     /// Return true for built-in JavaScript Error constructors with Error identity.
@@ -422,6 +481,117 @@ impl ModuleBuilder<'_> {
         });
         let object = body.push_expr(Expr {
             kind: ExprKind::DictLit(vec![(marker_key, marker_value), (message_key, message)]),
+            ty: dict_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// Lower `new DOMException(message?, name?)` to a concrete marker record.
+    ///
+    /// `DOMException` is a host error class. es-toolkit re-exports it (with an
+    /// `Error` fallback for runtimes without it) and uses it only as the base of
+    /// `AbortError`/`TimeoutError` and via `value instanceof DOMException`. Rather
+    /// than erase it to a shapeless `SmeltUnknown`, model it like `Error`: a record
+    /// carrying a dedicated `__smelt_domexception` marker plus its `message` and
+    /// `name`, so the identity survives later dynamic `instanceof` checks (see
+    /// `instance_of_text`). The two-argument form is `(message, name)`; the name
+    /// defaults to `"Error"` to match the spec fallback path es-toolkit relies on.
+    fn domexception_object_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let message = match new_expr.arguments.first() {
+            Some(message_arg) => {
+                let message = self.argument(message_arg, body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, message)) == Some(&Type::String) {
+                    message
+                } else if self.is_string_compatible_type(Self::expr_ty(body, message))
+                    || self.type_contains_unknown(Self::expr_ty(body, message))
+                {
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: message },
+                        ty: string_ty,
+                        span: self.span(message_arg.span().start, message_arg.span().end),
+                    })
+                } else {
+                    return Err(SmeltError::unsupported(
+                        self.span(message_arg.span().start, message_arg.span().end),
+                        "DOMException constructor message must be a string",
+                    ));
+                }
+            }
+            None => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(String::new())),
+                ty: string_ty,
+                span,
+            }),
+        };
+        let name = match new_expr.arguments.get(1) {
+            Some(name_arg) => {
+                let name = self.argument(name_arg, body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, name)) == Some(&Type::String) {
+                    name
+                } else if self.is_string_compatible_type(Self::expr_ty(body, name))
+                    || self.type_contains_unknown(Self::expr_ty(body, name))
+                {
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: name },
+                        ty: string_ty,
+                        span: self.span(name_arg.span().start, name_arg.span().end),
+                    })
+                } else {
+                    return Err(SmeltError::unsupported(
+                        self.span(name_arg.span().start, name_arg.span().end),
+                        "DOMException constructor name must be a string",
+                    ));
+                }
+            }
+            None => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("Error".to_owned())),
+                ty: string_ty,
+                span,
+            }),
+        };
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_domexception".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let message_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("message".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let name_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("name".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![
+                (marker_key, marker_value),
+                (message_key, message),
+                (name_key, name),
+            ]),
             ty: dict_ty,
             span,
         });
@@ -489,6 +659,301 @@ impl ModuleBuilder<'_> {
         Ok(body.push_expr(Expr {
             kind: ExprKind::UnknownCast {
                 value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// Lower `new Blob(parts?, options?)` to a concrete marker-bearing record.
+    ///
+    /// JavaScript `Blob` is a host binary-data object. es-toolkit only
+    /// constructs it and inspects it via `value instanceof Blob` (the `isBlob`
+    /// predicate over an erased `unknown`, plus the `cloneDeepWith` clone path).
+    /// Rather than erase it to a shapeless `SmeltUnknown` (which would lose its
+    /// identity), model it as a record carrying a dedicated `__smelt_blob`
+    /// marker plus its observable `type` string, mirroring the `ArrayBuffer`
+    /// model so a later dynamic `instanceof Blob` resolves through the marker
+    /// (see `instance_of_text`). The constructor arguments are still lowered so
+    /// their effects/types are validated, but only `type` is retained.
+    fn blob_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        // Lower the constructor arguments for their side effects and type checks
+        // even though only the MIME `type` ends up on the modeled record.
+        for argument in &new_expr.arguments {
+            let _ = self.argument(argument, body)?;
+        }
+        let blob_type = self.blob_options_type_string(new_expr.arguments.get(1), body, span);
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_blob".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let type_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("type".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (type_key, blob_type)]),
+            ty: dict_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// Resolve a `Blob` constructor `options.type` string literal when present.
+    ///
+    /// Only a directly-spelled `{ type: "..." }` literal is carried onto the
+    /// modeled record; any other options shape falls back to the empty MIME
+    /// string that a real `Blob` reports when no type is supplied.
+    fn blob_options_type_string(
+        &mut self,
+        options_argument: Option<&Argument<'_>>,
+        body: &mut Body,
+        span: Span,
+    ) -> smelt_hir::ExprId {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let blob_type = options_argument.and_then(|argument| {
+            let Argument::ObjectExpression(object) = argument else {
+                return None;
+            };
+            object.properties.iter().find_map(|property| {
+                let ObjectPropertyKind::ObjectProperty(property) = property else {
+                    return None;
+                };
+                let PropertyKey::StaticIdentifier(key) = &property.key else {
+                    return None;
+                };
+                if key.name != "type" {
+                    return None;
+                }
+                match &property.value {
+                    Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+                    _ => None,
+                }
+            })
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(blob_type.unwrap_or_default())),
+            ty: string_ty,
+            span,
+        })
+    }
+
+    /// Lower the boxed-object form `new Number(value)` to a marker-bearing record.
+    ///
+    /// This is the boxed `Number` **object**, distinct from the `Number(x)`
+    /// coercion call (which already lowers to a numeric value elsewhere). The
+    /// boxed object has `typeof === "object"`, so es-toolkit's `isNumber`
+    /// (`typeof x === "number"`) must report `false` for it: modeling it as a
+    /// record erased to `SmeltUnknown::Object` makes the runtime `typeof`
+    /// narrowing (`SmeltUnknown::Number(_)`) correctly miss. The wrapped value
+    /// is retained alongside a dedicated `__smelt_number` marker so a later
+    /// dynamic `instanceof Number` resolves through the marker, mirroring the
+    /// `ArrayBuffer` model.
+    fn boxed_number_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if new_expr.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new Number(...) supports at most one value argument",
+            ));
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let number_ty = self.ctx.krate.types.intern(Type::Float);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let value = match new_expr.arguments.first() {
+            Some(argument) => self.argument(argument, body)?,
+            None => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: number_ty,
+                span,
+            }),
+        };
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_number".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let value_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("value".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (value_key, value)]),
+            ty: dict_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// Lower `new Proxy(target, handler)` to its target value.
+    ///
+    /// JavaScript `Proxy` is transparent: `x instanceof Proxy` is a `TypeError`
+    /// and a proxy reports the identity (`typeof`, `instanceof`, plain-object
+    /// shape) of its target. es-toolkit only constructs `new Proxy(target, {})`
+    /// in tests of `isPlainObject`, where the proxy must behave exactly like the
+    /// wrapped target. There is no faithful distinct identity to invent, so the
+    /// closest correct model is to lower the construct to its `target` operand
+    /// (the handler is lowered for its effects/types, then discarded). This
+    /// keeps the transparent semantics rather than erasing to a wrong marker.
+    fn proxy_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let Some(target_argument) = new_expr.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new Proxy(target, handler) requires a target argument",
+            ));
+        };
+        let target = self.argument(target_argument, body)?;
+        if let Some(handler_argument) = new_expr.arguments.get(1) {
+            let _ = self.argument(handler_argument, body)?;
+        }
+        Ok(target)
+    }
+
+    /// Lower `new AbortController()` to a concrete, marker-bearing record whose
+    /// `signal` shares a mutable `aborted` flag with the controller.
+    ///
+    /// JavaScript `AbortController` is a host cancellation primitive used by
+    /// es-toolkit's `debounce`/`throttle`: the controller exposes a `signal`,
+    /// `controller.abort()` flips `signal.aborted` to `true`, and
+    /// `signal.addEventListener('abort', cb)` registers callbacks fired by
+    /// `abort()`. Rather than erase it to a shapeless `SmeltUnknown` (which would
+    /// lose identity and shared mutability), model it as two records:
+    ///
+    /// - the controller carries a dedicated `__smelt_abortcontroller` marker and
+    ///   a `signal` field;
+    /// - the signal carries a `__smelt_abortsignal` marker, a mutable `aborted`
+    ///   flag (false at construction), and a `__smelt_abort_listeners` array that
+    ///   `addEventListener` appends to and `abort()` drains.
+    ///
+    /// Both records erase to `SmeltUnknown::Object`, whose backing storage is a
+    /// shared `Rc<RefCell<..>>`; cloning the controller (or reading its `signal`)
+    /// keeps the same backing store, so `controller.abort()` is observed through
+    /// any binding that read `controller.signal` earlier. The method behaviors
+    /// (`abort`, `addEventListener`, ...) are surfaced as runtime-helper-bound
+    /// closures when those fields are read (see the erased-object field path in
+    /// `place.rs` and `smelt_abort_method`); `instanceof AbortController` /
+    /// `instanceof AbortSignal` use the markers (see `instance_of_text`).
+    fn abort_controller_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+
+        // Push a `Bool`/`String` literal expression and return its id. Kept as
+        // local helpers (not methods) so the constructor reads top-to-bottom.
+        let string_literal = |target: &mut Body, value: &str| {
+            target.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(value.to_owned())),
+                ty: string_ty,
+                span,
+            })
+        };
+        let signal_marker_key = string_literal(body, "__smelt_abortsignal");
+        let aborted_key = string_literal(body, "aborted");
+        let listeners_key = string_literal(body, "__smelt_abort_listeners");
+        let controller_marker_key = string_literal(body, "__smelt_abortcontroller");
+        let signal_key = string_literal(body, "signal");
+
+        let bool_literal = |target: &mut Body, value: bool| {
+            target.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(value)),
+                ty: bool_ty,
+                span,
+            })
+        };
+        let signal_marker_value = bool_literal(body, true);
+        let aborted_value = bool_literal(body, false);
+        let controller_marker_value = bool_literal(body, true);
+
+        // The shared signal record: marker, mutable `aborted` flag, listeners.
+        let listeners_value = body.push_expr(Expr {
+            kind: ExprKind::ListLit(Vec::new()),
+            ty: list_ty,
+            span,
+        });
+        let signal_object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![
+                (signal_marker_key, signal_marker_value),
+                (aborted_key, aborted_value),
+                (listeners_key, listeners_value),
+            ]),
+            ty: dict_ty,
+            span,
+        });
+        let signal_unknown = body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: signal_object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        });
+
+        // The controller record: marker plus the shared signal.
+        let controller_object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![
+                (controller_marker_key, controller_marker_value),
+                (signal_key, signal_unknown),
+            ]),
+            ty: dict_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: controller_object,
                 target: unknown_ty,
             },
             ty: unknown_ty,
@@ -717,9 +1182,10 @@ impl ModuleBuilder<'_> {
                     BinaryOperator::ShiftLeft => BinOp::Shl,
                     BinaryOperator::ShiftRight => BinOp::Shr,
                     BinaryOperator::ShiftRightZeroFill => BinOp::UShr,
-                    BinaryOperator::Exponential | BinaryOperator::BitwiseOR
-                    | BinaryOperator::BitwiseXOR
-                    | BinaryOperator::BitwiseAnd
+                    BinaryOperator::BitwiseAnd => BinOp::BitAnd,
+                    BinaryOperator::BitwiseOR => BinOp::BitOr,
+                    BinaryOperator::BitwiseXOR => BinOp::BitXor,
+                    BinaryOperator::Exponential
                     | BinaryOperator::In
                     | BinaryOperator::Instanceof => {
                         return Err(SmeltError::unsupported(
@@ -751,6 +1217,12 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::LogicalExpression(logical) => {
+                // Fold the `(typeof X === 'object' && X) || ...` global-detection
+                // chain before lowering its operands, so dead absent-alias clauses
+                // (e.g. `&& window`) never resolve their identifier.
+                if let Some(expr) = self.global_detection_chain_expression(logical, body) {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.same_value_zero_logical(logical, body)? {
                     return Ok(expr);
                 }
@@ -874,6 +1346,16 @@ impl ModuleBuilder<'_> {
                         .krate
                         .types
                         .intern(Type::Union(vec![then_ty, else_ty]))
+                } else if let (Some(Type::List(then_item)), Some(Type::List(else_item))) = (
+                    self.ctx.krate.types.get(then_ty).cloned(),
+                    self.ctx.krate.types.get(else_ty).cloned(),
+                ) {
+                    // Both branches are arrays whose element types differ. Unify
+                    // the element types with the same branch rules and keep an
+                    // array shape, falling back to a list of the union of the
+                    // element types when they have no closer common shape.
+                    let item_ty = self.unify_conditional_list_item_type(then_item, else_item);
+                    self.ctx.krate.types.intern(Type::List(item_ty))
                 } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
                 {
                     self.ctx.krate.types.intern(Type::Unknown)
@@ -1064,6 +1546,12 @@ impl ModuleBuilder<'_> {
                 self.new_expression_with_hint(new_expr, body, type_hint)
             }
             Expression::TemplateLiteral(tpl) => self.template_literal_expression(tpl, body),
+            Expression::PrivateFieldExpression(member) => self.private_field_member(
+                &member.object,
+                member.field.name.as_str(),
+                member.span,
+                body,
+            ),
             Expression::TaggedTemplateExpression(tagged) => Err(SmeltError::unsupported(
                 self.span(tagged.span.start, tagged.span.end),
                 "tagged template literals are not supported",
@@ -1108,6 +1596,19 @@ impl ModuleBuilder<'_> {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String("undefined".to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
+        // A bare `typeof Blob` references the modeled host constructor, which is
+        // a function value in JavaScript. (The `typeof Blob === 'undefined'`
+        // support-guard comparison is folded earlier in `unknown_typeof_comparison`.)
+        if let Expression::Identifier(identifier) = &unary.argument
+            && Self::is_known_defined_global_constructor(identifier.name.as_str())
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("function".to_owned())),
                 ty,
                 span: self.span(unary.span.start, unary.span.end),
             }));
@@ -1191,6 +1692,17 @@ impl ModuleBuilder<'_> {
             Ok(then_ty)
         } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty)) {
             Ok(else_ty)
+        } else if let (Some(Type::List(then_item)), Some(Type::List(else_item))) = (
+            self.ctx.krate.types.get(then_ty).cloned(),
+            self.ctx.krate.types.get(else_ty).cloned(),
+        ) {
+            // Both branches are arrays whose element types differ (e.g.
+            // `index ? numberArray : numberOrNullArray`). Unify the element
+            // types and return a list of the unified element type so the array
+            // shape is preserved instead of collapsing the whole value to
+            // `unknown`.
+            let item_ty = self.unify_conditional_list_item_type(then_item, else_item);
+            Ok(self.ctx.krate.types.intern(Type::List(item_ty)))
         } else if type_hint
             .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
             || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
@@ -1212,6 +1724,42 @@ impl ModuleBuilder<'_> {
                     self.ctx.krate.types.get(else_ty)
                 ),
             ))
+        }
+    }
+
+    /// Unify the element types of two array branches of a conditional expression.
+    ///
+    /// Both branches are already known to be `List<...>`; this picks an element
+    /// type for the merged `List<...>` result. It never fails: when the elements
+    /// have no closer common shape it widens to their union (or `unknown` when an
+    /// element is itself erased), so an array-producing ternary always keeps an
+    /// array shape rather than aborting lowering.
+    fn unify_conditional_list_item_type(
+        &mut self,
+        then_item: smelt_hir::TypeId,
+        else_item: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        if then_item == else_item {
+            then_item
+        } else if self.numeric_type_compatible(then_item, else_item) {
+            self.ctx.krate.types.intern(Type::Float)
+        } else if self.ctx.krate.types.get(then_item) == Some(&Type::None) {
+            self.ctx.krate.types.intern(Type::Optional(else_item))
+        } else if self.ctx.krate.types.get(else_item) == Some(&Type::None) {
+            self.ctx.krate.types.intern(Type::Optional(then_item))
+        } else if let (Some(Type::List(then_inner)), Some(Type::List(else_inner))) = (
+            self.ctx.krate.types.get(then_item).cloned(),
+            self.ctx.krate.types.get(else_item).cloned(),
+        ) {
+            let inner = self.unify_conditional_list_item_type(then_inner, else_inner);
+            self.ctx.krate.types.intern(Type::List(inner))
+        } else if self.type_contains_unknown(then_item) || self.type_contains_unknown(else_item) {
+            self.ctx.krate.types.intern(Type::Unknown)
+        } else {
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![then_item, else_item]))
         }
     }
 

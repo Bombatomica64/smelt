@@ -37,6 +37,17 @@ pub mod timers {
     /// Cancels a previously registered timer by handle; backs `clearTimeout`.
     pub const CLEAR_TIMEOUT: &str = "smelt_clear_timeout";
 
+    /// Registers a repeating timer callback with a period; backs `setInterval`.
+    ///
+    /// The callback re-arms itself for the next period each time it fires, so the
+    /// existing virtual-time timer queue drives it without special-casing.
+    pub const SET_INTERVAL: &str = "smelt_set_interval";
+
+    /// Cancels a previously registered repeating timer by handle; backs
+    /// `clearInterval`. Intervals share the timer queue with timeouts, so this is
+    /// the same cancel-by-id operation as `clearTimeout`.
+    pub const CLEAR_INTERVAL: &str = "smelt_clear_interval";
+
     /// Resets all timer/promise-queue thread-local state; emitted at the start
     /// of generated `main`/entry wrappers so each run starts clean.
     pub const RESET_TIMERS: &str = "smelt_reset_timers";

@@ -718,6 +718,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(operand, aliases, dest)
                 | rewrite_operand_except(radix, aliases, dest)
         }
+        Rvalue::NumericToFixed { operand, digits } => {
+            rewrite_operand_except(operand, aliases, dest)
+                | rewrite_operand_except(digits, aliases, dest)
+        }
         Rvalue::ParseIntRadix { operand, radix } => {
             rewrite_operand_except(operand, aliases, dest)
                 | rewrite_operand_except(radix, aliases, dest)

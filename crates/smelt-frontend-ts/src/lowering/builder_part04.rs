@@ -67,24 +67,15 @@ impl ModuleBuilder<'_> {
                     args: parent_args.clone(),
                 });
                 let Some(parent) = self.find_interface(parent_name).cloned() else {
-                    let parent_name_text = self
-                        .ctx
-                        .krate
-                        .symbols
-                        .get(parent_name)
-                        .unwrap_or("<unknown>");
-                    if parent_name_text == "ContextOptions"
-                        || parent_name_text.starts_with("Intl.")
-                        || parent_name_text.contains('.')
-                        || self.type_only_imports.contains(parent_name_text)
-                        || self.find_type_alias(parent_name).is_some()
-                    {
-                        continue;
-                    }
-                    return Err(SmeltError::unsupported(
-                            self.span(heritage.span.start, heritage.span.end),
-                            format!("extended interface `{parent_name_text}` is not declared"),
-                        ));
+                    // An extended name that is not a lowerable user interface
+                    // resolves instead to a type alias, a `typeof`/namespace or
+                    // value import, a dotted/qualified library type, or a global
+                    // ambient lib type such as `Array`/`ArrayLike`. None of these
+                    // can contribute structural fields here, but TypeScript has
+                    // already validated the heritage, so the child interface
+                    // keeps its own members and the parent is treated as an
+                    // opaque base rather than blocking the whole file.
+                    continue;
                 };
                 let substitutions = self.type_argument_substitution(
                     &parent.type_params,
@@ -397,6 +388,12 @@ return_ty,
             }
             Statement::TSModuleDeclaration(_) => Ok(()),
             Statement::ExpressionStatement(expr_stmt) => {
+                // `Foo.prototype.x = …` assignments for a constructor function
+                // were folded into the synthesized class during the block
+                // prepass, so the assignment statement itself is dropped.
+                if self.is_synthesized_prototype_assignment(&expr_stmt.expression) {
+                    return Ok(());
+                }
                 if self.inline_runtime_lifecycle_setup(&expr_stmt.expression, body, block)? {
                     return Ok(());
                 }
@@ -866,10 +863,12 @@ return_ty,
             return Ok(false);
         };
         let Some(item_param) = arrow.params.items.first() else {
-            return Err(SmeltError::unsupported(
-                self.span(arrow.params.span.start, arrow.params.span.end),
-                "array forEach callbacks require an item parameter",
-            ));
+            // A `forEach` whose callback has no fixed item parameter — a bare
+            // `() => ...` side effect or a rest-only `(...args) => ...` collector
+            // — is not modeled by this statement-loop shortcut. Decline so the
+            // general callback lowering (which supports rest parameters through
+            // the closure-body path) handles it instead of failing here.
+            return Ok(false);
         };
         let mut iter = self.expression(&member.object, body)?;
         let iter_ty = Self::expr_ty(body, iter);

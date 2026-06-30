@@ -165,8 +165,14 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
-            if name == "String" {
-                return Ok(self.string_constructor_closure_expression(start, end, body));
+            if let Some(expr) = self.builtin_function_value_expression(name, start, end, body) {
+                return Ok(expr);
+            }
+            if let Some(expr) = self.builtin_namespace_value_expression(name, start, end, body) {
+                return Ok(expr);
+            }
+            if self.is_ambient_global_alias(name) {
+                return Ok(self.global_object_value_expression(start, end, body));
             }
             if matches!(
                 name,
@@ -307,60 +313,424 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower the global `String` value to a callable primitive string converter.
-    fn string_constructor_closure_expression(
+    /// Lower a bare reference to a recognized global builtin *function* (used as
+    /// a value, not called) into a concrete first-class closure.
+    ///
+    /// JavaScript utility code frequently passes the global coercion and parse
+    /// functions around as values — `['6', '8'].map(unary(parseInt))`,
+    /// `values.map(Number)`, `xs.filter(Boolean)`. The direct-call form of each
+    /// is lowered by `primitive_cast_call` / `primitive_predicate_call`; this
+    /// path gives the *value* form the same concrete behavior by synthesizing a
+    /// single-argument closure that runs the builtin's existing IR op, rather
+    /// than resolving the name as an unresolved identifier or erasing it to a
+    /// dynamic `SmeltUnknown` tag.
+    ///
+    /// Returns `None` for names that are not builtin function values so the
+    /// caller can continue its normal resolution chain.
+    fn builtin_function_value_expression(
         &mut self,
+        name: &str,
         start: u32,
         end: u32,
         outer_body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let span = self.span(start, end);
+        Some(match name {
+            // Primitive coercion constructors used as callbacks.
+            "String" => {
+                self.builtin_cast_closure_expression(PrimitiveCastOp::ToString, Type::String, span, outer_body)
+            }
+            "Number" => self.builtin_cast_closure_expression(
+                PrimitiveCastOp::ToJsNumber,
+                Type::Float,
+                span,
+                outer_body,
+            ),
+            "Boolean" => {
+                self.builtin_cast_closure_expression(PrimitiveCastOp::ToBool, Type::Bool, span, outer_body)
+            }
+            // String-to-number parse functions used as callbacks. Both take a
+            // single string argument here (matching the direct-call lowering,
+            // which requires a string operand): callers that need JavaScript's
+            // `(value, index)` arity (e.g. `arr.map(parseInt)`) wrap them in
+            // `unary`/`ary` first, so a one-parameter closure is faithful. The
+            // parameter is typed `string` so the cast emits the real numeric
+            // parse instead of the erased-operand fallback.
+            "parseInt" => self.builtin_string_cast_closure_expression(
+                PrimitiveCastOp::ToInt,
+                span,
+                outer_body,
+            ),
+            "parseFloat" => self.builtin_string_cast_closure_expression(
+                PrimitiveCastOp::ToFloat,
+                span,
+                outer_body,
+            ),
+            // Numeric predicates used as callbacks.
+            "isNaN" => self.builtin_numeric_predicate_closure_expression(
+                NumericPredicateOp::IsNaN,
+                span,
+                outer_body,
+            ),
+            "isFinite" => self.builtin_numeric_predicate_closure_expression(
+                NumericPredicateOp::IsFinite,
+                span,
+                outer_body,
+            ),
+            _ => return None,
+        })
+    }
+
+    /// Lower a bare reference to a recognized global *namespace object*
+    /// (`Math`, `JSON`, `Reflect`, `Atomics`, `Promise`, `Array`, `Function`)
+    /// used as a value into a concrete marker-bearing host-object record.
+    ///
+    /// These intrinsics are normally consumed through recognized member calls
+    /// (`Math.max(...)`, `JSON.parse(...)`, `Promise.resolve(...)`); this path
+    /// only fires when the bare name is used as a first-class *value*, e.g.
+    /// `isPlainObject(JSON)` or `isPlainObject(Math)`. Modeling them as a record
+    /// carrying a dedicated `__smelt_builtin_namespace` marker (plus the source
+    /// `name`) keeps them honest host objects rather than leaving an unresolved
+    /// identifier or erasing them to a shapeless `SmeltUnknown::Object` that a
+    /// plain-object check would mistake for `{}`. The marker is a genuine dynamic
+    /// boundary value: predicates that inspect it at runtime (`typeof === object`
+    /// is true, but it is not a plain object) observe the host identity.
+    ///
+    /// Returns `None` for names that are not builtin namespace objects so the
+    /// caller continues its normal resolution chain.
+    fn builtin_namespace_value_expression(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if !matches!(
+            name,
+            "Math" | "JSON" | "Reflect" | "Atomics" | "Promise" | "Array" | "Function"
+        ) {
+            return None;
+        }
+        let span = self.span(start, end);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_builtin_namespace".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let name_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("name".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let name_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(name.to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (name_key, name_value)]),
+            ty: dict_ty,
+            span,
+        });
+        Some(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// Lower a bare reference to the ambient global object (`globalThis` /
+    /// `global` / `self`, when not shadowed) *used as a value* into a concrete
+    /// marker-bearing host-object record.
+    ///
+    /// Most ambient-global usage is feature-detection that Phase-1 erasure folds
+    /// before this point (`typeof globalThis`, `"Map" in globalThis`,
+    /// `globalThis.Object.keys(x)` namespace normalization). This path handles
+    /// the residual escaping-identity case where the global object itself flows
+    /// as a value — e.g. es-toolkit's `_internal/globalThis.ts` shim
+    /// `(typeof globalThis === 'object' && globalThis) || ...`, whose result is
+    /// re-exported and later read as `globalThis.Buffer` (an absent member that
+    /// resolves to `undefined`). Modeling it as a record carrying a dedicated
+    /// `__smelt_global_object` marker keeps a concrete host-object value instead
+    /// of leaving an unresolved identifier or erasing it to a shapeless object.
+    ///
+    /// This is the pragmatic first step toward the plan's full Phase-2/3 runtime
+    /// `SmeltGlobalObject` (shared identity + dynamic property store). es-toolkit's
+    /// in-scope residual usage never compares global-object identity, writes a
+    /// dynamic property onto the global, or reads a user-defined dynamic slot, so
+    /// a per-read marker record is sufficient and faithful here; the shared-handle
+    /// runtime object remains the correct model once identity or dynamic mutation
+    /// becomes observable.
+    /// Fold the global-object detection chain
+    /// `(typeof X === 'object' && X) || (typeof Y === 'object' && Y) || ...`
+    /// to the global-object value, short-circuiting per JavaScript semantics.
+    ///
+    /// This is the canonical UMD/`globalThis` shim idiom (es-toolkit's
+    /// `_internal/globalThis.ts`): a left-nested `||` chain whose clauses each
+    /// guard a global alias with its own `typeof` existence probe. JavaScript
+    /// evaluates the clauses left to right and never evaluates the right operand
+    /// of a `&&` whose guard is falsy, so a clause for an *absent* alias (e.g.
+    /// `window` in the non-DOM profile) must be skipped *without lowering* its
+    /// dead `window` reference (which would otherwise be an unresolved
+    /// identifier). The first clause for a *present* alias (`globalThis`,
+    /// `global`, `self`) is truthy and yields the global object, collapsing the
+    /// whole chain to the single global-object value.
+    ///
+    /// Returns `None` for anything that is not this exact guarded-alias chain
+    /// shape, so ordinary `||` lowering keeps handling every other case (and any
+    /// honest blocker it would otherwise raise).
+    pub(super) fn global_detection_chain_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if logical.operator != LogicalOperator::Or {
+            return None;
+        }
+        // Only fold when the chain actually resolves to a *present* global object;
+        // a chain that resolves to none of the modeled aliases is not this idiom
+        // and must fall through to ordinary `||` lowering. The outer `||` splits
+        // into its left spine and right clause exactly like the recursive walker.
+        let resolves = self.or_chain_resolves_to_global(&logical.left)
+            || self.clause_is_present_global_guard(&logical.right);
+        if !resolves {
+            return None;
+        }
+        Some(self.global_object_value_expression(logical.span.start, logical.span.end, body))
+    }
+
+    /// Return whether an `||` chain of `(typeof X === 'object' && X)` clauses
+    /// resolves to a present global object under the active profile.
+    ///
+    /// Walks the left-nested `||` spine. Each clause must be a
+    /// `typeof X === 'object' && X` guard whose two `X` spellings agree and name
+    /// a global alias. A clause for a *present* alias resolves the whole chain
+    /// (`Some(true)`); a clause for an *absent* alias is skipped; a final
+    /// non-guard fallback (e.g. the `((function(){return this})())` or a literal)
+    /// is allowed only after at least one present alias was found. Any other shape
+    /// returns `false`, leaving the expression to ordinary lowering.
+    fn or_chain_resolves_to_global(&self, expression: &Expression<'_>) -> bool {
+        match Self::unparenthesized_expression(expression) {
+            Expression::LogicalExpression(logical)
+                if logical.operator == LogicalOperator::Or =>
+            {
+                // `(left) || (right)`: a present global anywhere in the spine wins.
+                self.or_chain_resolves_to_global(&logical.left)
+                    || self.clause_is_present_global_guard(&logical.right)
+            }
+            other => self.clause_is_present_global_guard(other),
+        }
+    }
+
+    /// Return whether a single `typeof X === 'object' && X` clause guards a
+    /// *present* global alias (so the clause is truthy and yields the global).
+    ///
+    /// An absent-alias clause (e.g. `typeof window === 'object' && window`) is
+    /// statically falsy, so it returns `false` here — the chain walker skips it
+    /// rather than treating it as the resolving clause, and crucially the dead
+    /// `window` operand is never lowered.
+    fn clause_is_present_global_guard(&self, expression: &Expression<'_>) -> bool {
+        let Expression::LogicalExpression(clause) = Self::unparenthesized_expression(expression)
+        else {
+            return false;
+        };
+        if clause.operator != LogicalOperator::And {
+            return false;
+        }
+        // Right operand must be a bare alias identifier.
+        let Expression::Identifier(value) = Self::unparenthesized_expression(&clause.right) else {
+            return false;
+        };
+        // Left operand must be `typeof <same-alias> === 'object'`.
+        let Expression::BinaryExpression(guard) = Self::unparenthesized_expression(&clause.left)
+        else {
+            return false;
+        };
+        if !matches!(
+            guard.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::Equality
+        ) {
+            return false;
+        }
+        let guard_name = ambient_globals::typeof_identifier_name(&guard.left)
+            .or_else(|| ambient_globals::typeof_identifier_name(&guard.right));
+        let Some(guard_name) = guard_name else {
+            return false;
+        };
+        let compared_object = matches!(&guard.left, Expression::StringLiteral(s) if s.value == "object")
+            || matches!(&guard.right, Expression::StringLiteral(s) if s.value == "object");
+        if !compared_object || guard_name != value.name.as_str() {
+            return false;
+        }
+        // The clause's two spellings agree and name a global alias; it is a
+        // present global only when the alias is present in this profile and is
+        // not shadowed by a module-local binding.
+        self.is_ambient_global_alias(guard_name)
+            && ambient_globals::global_alias_object_presence(guard_name) == Some(true)
+    }
+
+    fn global_object_value_expression(
+        &mut self,
+        start: u32,
+        end: u32,
+        body: &mut Body,
     ) -> smelt_hir::ExprId {
         let span = self.span(start, end);
-        let value_name = self.intern_source_name("value");
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
         let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_global_object".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value)]),
+            ty: dict_ty,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        })
+    }
+
+    /// Build a `(value) => <PrimitiveCast op>(value)` closure value.
+    ///
+    /// The single parameter is typed `unknown` so any argument the closure is
+    /// later applied to is accepted; the result type matches the cast's output.
+    fn builtin_cast_closure_expression(
+        &mut self,
+        op: PrimitiveCastOp,
+        return_type: Type,
+        span: Span,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let result_ty = self.ctx.krate.types.intern(return_type);
+        self.builtin_unary_closure_expression(value_ty, result_ty, span, outer_body, |value_expr| {
+            ExprKind::PrimitiveCast {
+                op,
+                operand: value_expr,
+            }
+        })
+    }
+
+    /// Build a `(value: string) => <PrimitiveCast op>(value)` closure value.
+    ///
+    /// Used for the string-to-number parse builtins (`parseInt`, `parseFloat`),
+    /// whose single argument is a string. A concrete `string` parameter routes
+    /// the cast through its real numeric-parse emission rather than the erased
+    /// `unknown` fallback (which would yield a constant `0`).
+    fn builtin_string_cast_closure_expression(
+        &mut self,
+        op: PrimitiveCastOp,
+        span: Span,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let result_ty = self.ctx.krate.types.intern(Type::Float);
+        self.builtin_unary_closure_expression(string_ty, result_ty, span, outer_body, |value_expr| {
+            ExprKind::PrimitiveCast {
+                op,
+                operand: value_expr,
+            }
+        })
+    }
+
+    /// Build a `(value) => <NumericPredicate op>(value)` closure value.
+    fn builtin_numeric_predicate_closure_expression(
+        &mut self,
+        op: NumericPredicateOp,
+        span: Span,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let value_ty = self.ctx.krate.types.intern(Type::Float);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        self.builtin_unary_closure_expression(value_ty, bool_ty, span, outer_body, |value_expr| {
+            ExprKind::NumericPredicate {
+                op,
+                operand: value_expr,
+            }
+        })
+    }
+
+    /// Synthesize a single-argument closure value whose body returns `make_body`
+    /// applied to the parameter read.
+    ///
+    /// Shared by the builtin coercion/parse/predicate value lowerings so each
+    /// only specifies its parameter type, result type, and the IR op to run.
+    fn builtin_unary_closure_expression(
+        &mut self,
+        param_ty: smelt_hir::TypeId,
+        return_ty: smelt_hir::TypeId,
+        span: Span,
+        outer_body: &mut Body,
+        make_body: impl FnOnce(smelt_hir::ExprId) -> ExprKind,
+    ) -> smelt_hir::ExprId {
+        let value_name = self.intern_source_name("value");
         let mut closure_body = Body::new(None, span);
         let value_local = closure_body.push_local(LocalDecl {
             name: Some(value_name),
-            ty: value_ty,
+            ty: param_ty,
             mutable: false,
             span,
         });
         closure_body.params.push(value_local);
         let value_expr = closure_body.push_expr(Expr {
             kind: ExprKind::Local(value_local),
-            ty: value_ty,
+            ty: param_ty,
             span,
         });
-        let cast = closure_body.push_expr(Expr {
-            kind: ExprKind::PrimitiveCast {
-                op: PrimitiveCastOp::ToString,
-                operand: value_expr,
-            },
-            ty: string_ty,
+        let result = closure_body.push_expr(Expr {
+            kind: make_body(value_expr),
+            ty: return_ty,
             span,
         });
-        closure_body.push_stmt(Stmt::Return(Some(cast)));
+        closure_body.push_stmt(Stmt::Return(Some(result)));
         let body = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: vec![value_ty],
+            params: vec![param_ty],
             rest: None,
             required_params: None,
-                    mutable_params: Vec::new(),
-return_ty: string_ty,
+            mutable_params: Vec::new(),
+            return_ty,
             is_async: false,
-                            may_throw: false,
+            may_throw: false,
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: vec![Param {
                     name: value_name,
                     local: value_local,
-                    ty: value_ty,
+                    ty: param_ty,
                     span,
                 }],
                 rest: None,
                 required_params: None,
-return_ty: string_ty,
+                return_ty,
                 captures: Vec::new(),
                 body,
                 function_item: None,
@@ -369,6 +739,24 @@ return_ty: string_ty,
             ty: closure_ty,
             span,
         })
+    }
+
+    /// Read the declared return type of a synthesized closure value expression.
+    ///
+    /// Callback positions need the callback's return type to type the array
+    /// method result; the builtin closures built above carry it in their
+    /// interned `Type::Function`. Falls back to `unknown` for non-function
+    /// values, which never occurs for the builtin closure helpers.
+    fn closure_value_return_ty(
+        &mut self,
+        expr: smelt_hir::ExprId,
+        body: &Body,
+    ) -> smelt_hir::TypeId {
+        let ty = Self::expr_ty(body, expr);
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Function(function)) => function.return_ty,
+            _ => self.ctx.krate.types.intern(Type::Unknown),
+        }
     }
 
     /// Wrap a function item in a first-class closure value for argument positions.

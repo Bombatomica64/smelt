@@ -204,6 +204,13 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Object.keys`, `Object.values`, and `Object.entries` calls.
+    ///
+    /// `Reflect.ownKeys(record)` is also routed here as `Object.keys`: for the
+    /// plain-record receivers es-toolkit inspects (the `isJSONValue` key walk and
+    /// the `pick` key projection) the two return the same string-key list, since
+    /// Smelt records carry no non-enumerable or symbol keys. Modeling it through
+    /// the existing `DictProjection` keeps a concrete `List<string>` instead of
+    /// leaving `Reflect` an unresolved identifier or erasing the result.
     fn object_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -215,21 +222,19 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Object" {
-            return Ok(None);
-        }
-        let op = match member.property.name.as_str() {
-            "keys" => DictProjectionOp::Keys,
-            "values" => DictProjectionOp::Values,
-            "entries" => DictProjectionOp::Entries,
+        let op = match (object.name.as_str(), member.property.name.as_str()) {
+            ("Object", "keys") => DictProjectionOp::Keys,
+            ("Object", "values") => DictProjectionOp::Values,
+            ("Object", "entries") => DictProjectionOp::Entries,
+            ("Reflect", "ownKeys") => DictProjectionOp::Keys,
             _ => return Ok(None),
         };
         let [dict_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 format!(
-                    "Object.{} requires exactly one record argument",
-                    member.property.name
+                    "{}.{} requires exactly one record argument",
+                    object.name, member.property.name
                 ),
             ));
         };
@@ -1047,7 +1052,65 @@ return_ty,
         mut key: smelt_hir::ExprId,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let dict_ty = Self::expr_ty(body, dict);
-        let dict_shape_ty = self.type_param_constraint_or_self(dict_ty);
+        let mut dict_shape_ty = self.type_param_constraint_or_self(dict_ty);
+        // `Object.hasOwn(obj, key)` is commonly called on optionally-typed
+        // receivers (`object?: unknown`). Unwrap the optional and assert the
+        // value to its inner shape so the ownership check sees the underlying
+        // record/erased type instead of rejecting the `Optional` wrapper.
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(dict_shape_ty).cloned() {
+            dict = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: dict },
+                ty: inner,
+                span: self.span(call.span.start, call.span.end),
+            });
+            dict_shape_ty = self.type_param_constraint_or_self(inner);
+        }
+        // `Object.hasOwn(array, index)` checks whether a (numeric) index is a
+        // present element, i.e. `0 <= index < array.length`. Arrays are not
+        // records, so this lowers to an in-bounds comparison rather than a
+        // dictionary key lookup.
+        if matches!(self.ctx.krate.types.get(dict_shape_ty), Some(Type::List(_))) {
+            let span = self.span(call.span.start, call.span.end);
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let len = body.push_expr(Expr {
+                kind: ExprKind::Len { operand: dict },
+                ty: float_ty,
+                span,
+            });
+            let zero = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: float_ty,
+                span,
+            });
+            let non_negative = body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::Gte,
+                    lhs: key,
+                    rhs: zero,
+                },
+                ty: bool_ty,
+                span,
+            });
+            let in_bounds = body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::Lt,
+                    lhs: key,
+                    rhs: len,
+                },
+                ty: bool_ty,
+                span,
+            });
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::And,
+                    lhs: non_negative,
+                    rhs: in_bounds,
+                },
+                ty: bool_ty,
+                span,
+            })));
+        }
         let key_ty = match self.ctx.krate.types.get(dict_shape_ty) {
             Some(Type::Dict(key_ty, _)) => *key_ty,
             Some(Type::Unknown) => Self::expr_ty(body, key),
@@ -1072,6 +1135,23 @@ return_ty,
                     .all(|item| self.object_keys_compatible_type(*item)) =>
             {
                 self.ctx.krate.types.intern(Type::String)
+            }
+            _ if self.erased_or_union_surface(dict_shape_ty) => {
+                // A receiver typed through an erased object surface (e.g. a
+                // `T extends object` generic) is treated as a string-keyed
+                // record, mirroring the explicit TypeParam/Class coercion above.
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                dict = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: dict,
+                        target,
+                    },
+                    ty: target,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                key_ty
             }
             _ => {
                 return Err(SmeltError::unsupported(
@@ -1310,13 +1390,24 @@ return_ty,
         if !call.arguments.is_empty() {
             return Ok(None);
         }
-        let operand = self.expression(&member.object, body)?;
+        let mut operand = self.expression(&member.object, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         if self.ctx.krate.types.get(operand_ty) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "string trim requires a string receiver",
-            ));
+            // Coerce a string-compatible receiver (e.g. the return of a user
+            // `toString`-like helper typed `unknown`/generic) to `String`.
+            if self.is_string_compatible_type(operand_ty) {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                operand = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: operand },
+                    ty: string_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "string trim requires a string receiver",
+                ));
+            }
         }
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
@@ -1340,17 +1431,17 @@ return_ty,
             "endsWith" => StringAffixOp::EndsWith,
             _ => return Ok(None),
         };
-        if call.arguments.len() != 1 {
+        if !(1..=2).contains(&call.arguments.len()) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string prefix/suffix methods require exactly one argument",
+                "string prefix/suffix methods require one needle and an optional position argument",
             ));
         }
         let mut haystack = self.expression(&member.object, body)?;
         let Some(needle_argument) = call.arguments.first() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string prefix/suffix methods require exactly one argument",
+                "string prefix/suffix methods require one needle and an optional position argument",
             ));
         };
         let mut needle = self.argument(needle_argument, body)?;
@@ -1360,6 +1451,48 @@ return_ty,
         {
             haystack = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: haystack },
+                ty: string_ty,
+                span: self.span(member.object.span().start, member.object.span().end),
+            });
+        }
+        // JavaScript `startsWith(target, position)` tests the prefix starting at
+        // `position`; `endsWith(target, endPosition)` tests the suffix of the
+        // string truncated to `endPosition`. Both reduce to a substring of the
+        // haystack followed by the unbounded affix test.
+        if let Some(position_argument) = call.arguments.get(1) {
+            let position = self.argument(position_argument, body)?;
+            let position_ty = Self::expr_ty(body, position);
+            let position = if self.ctx.krate.types.get(position_ty) == Some(&Type::Float) {
+                Some(position)
+            } else if self.is_numeric_like_type(position_ty)
+                || self.optional_numeric_surface(position_ty)
+                || self.erased_or_union_surface(position_ty)
+            {
+                let float_ty = self.ctx.krate.types.intern(Type::Float);
+                Some(body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToJsNumber,
+                        operand: position,
+                    },
+                    ty: float_ty,
+                    span: self.span(position_argument.span().start, position_argument.span().end),
+                }))
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "string prefix/suffix position argument must be numeric",
+                ));
+            };
+            let (start, end) = match op {
+                StringAffixOp::StartsWith => (position, None),
+                StringAffixOp::EndsWith => (None, position),
+            };
+            haystack = body.push_expr(Expr {
+                kind: ExprKind::StringSlice {
+                    operand: haystack,
+                    start,
+                    end,
+                },
                 ty: string_ty,
                 span: self.span(member.object.span().start, member.object.span().end),
             });
@@ -1500,9 +1633,15 @@ return_ty,
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if member.property.name != "replace" {
-            return Ok(None);
-        }
+        // `replace` substitutes the first match; `replaceAll` substitutes every
+        // match. With a plain string search value both are literal substring
+        // replacements (Rust `str::replacen`/`str::replace`); regex-pattern
+        // forms are handled earlier by `regex_replace_call`.
+        let op = match member.property.name.as_str() {
+            "replace" => StringReplaceOp::First,
+            "replaceAll" => StringReplaceOp::All,
+            _ => return Ok(None),
+        };
         let [pattern_argument, replacement_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -1527,7 +1666,7 @@ return_ty,
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::StringReplace {
-                op: StringReplaceOp::First,
+                op,
                 haystack,
                 pattern,
                 replacement,
@@ -1555,8 +1694,38 @@ return_ty,
                 "string repeat requires exactly one number argument",
             ));
         };
-        let operand = self.expression(&member.object, body)?;
-        let count = self.argument(count_argument, body)?;
+        let span = self.span(call.span.start, call.span.end);
+        let mut operand = self.expression(&member.object, body)?;
+        let mut count = self.argument(count_argument, body)?;
+        // Coerce a string-compatible receiver to `String` and a numeric-like
+        // count to a JS number rather than requiring exact `String`/`Float`.
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::String)
+            && self.is_string_compatible_type(operand_ty)
+        {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            operand = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: operand },
+                ty: string_ty,
+                span,
+            });
+        }
+        let count_ty = Self::expr_ty(body, count);
+        if self.ctx.krate.types.get(count_ty) != Some(&Type::Float)
+            && (self.is_numeric_like_type(count_ty)
+                || self.optional_numeric_surface(count_ty)
+                || self.erased_or_union_surface(count_ty))
+        {
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            count = body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToJsNumber,
+                    operand: count,
+                },
+                ty: float_ty,
+                span,
+            });
+        }
         if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, count)) != Some(&Type::Float)
         {

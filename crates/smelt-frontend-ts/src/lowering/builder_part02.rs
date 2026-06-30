@@ -683,6 +683,26 @@ return_ty: target_function.return_ty,
         }
     }
 
+    /// Resolve a bare identifier to a foldable const literal by name.
+    ///
+    /// Same-module exported consts are precomputed into `const_literals`, but a
+    /// const imported from another module (`import { stringTag } from
+    /// './tags'`) is only registered as a HIR `Item::Const` in `self.items`
+    /// until it is first read. Switch case labels and exported-const
+    /// initializers that reference such an import must still fold to the same
+    /// literal, so fall back to the lowered const item when the precomputed map
+    /// misses the name.
+    fn resolve_const_literal_by_name(&self, name: &str) -> Option<ConstLiteral> {
+        if let Some(value) = self.const_literals.get(name) {
+            return Some(value.clone());
+        }
+        let item = self.items.get(name).copied()?;
+        let Item::Const(const_item) = self.item_ref(item) else {
+            return None;
+        };
+        const_literal_from_item(&self.ctx.krate, const_item)
+    }
+
     /// Convert a supported TypeScript literal expression into an importable const value.
     fn literal_const_expression(
         &mut self,
@@ -710,9 +730,7 @@ return_ty: target_function.return_ty,
                 ty: self.ctx.krate.types.intern(Type::String),
             }),
             Expression::Identifier(ident) => self
-                .const_literals
-                .get(ident.name.as_str())
-                .cloned()
+                .resolve_const_literal_by_name(ident.name.as_str())
                 .ok_or_else(|| {
                     SmeltError::unsupported(
                         self.span(ident.span.start, ident.span.end),
@@ -737,6 +755,9 @@ return_ty: target_function.return_ty,
             Expression::UnaryExpression(unary) => self.unary_literal_const_expression(unary),
             Expression::BinaryExpression(binary) => self.binary_literal_const_expression(binary),
             Expression::CallExpression(call) => self.call_literal_const_expression(call),
+            Expression::StaticMemberExpression(member) => {
+                self.member_literal_const_expression(member)
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(expression.span().start, expression.span().end),
                 "exported const values currently support primitive literals and foldable primitive expressions",
@@ -779,17 +800,56 @@ return_ty: target_function.return_ty,
     }
 
     /// Return whether an exported const has known metadata value that is safe to skip.
+    ///
+    /// Two recognized shapes are skippable because the bound name resolves to a
+    /// builtin Smelt already models elsewhere, so re-emitting the const would only
+    /// fail to fold:
+    /// - `Symbol.for(...)` registry lookups (a runtime symbol value).
+    /// - A host-constructor presence alias such as es-toolkit's
+    ///   `export const DOMException = typeof globalThis.DOMException !== 'undefined'
+    ///   ? globalThis.DOMException : (Error as ...)`. The conditional selects the
+    ///   host constructor when present and an `Error` fallback otherwise; Smelt
+    ///   always models the constructor (`new DOMException`, `instanceof
+    ///   DOMException`), so the alias const is dropped and the identifier resolves
+    ///   through the builtin path instead.
     fn is_known_non_importable_exported_const(expression: &Expression<'_>) -> bool {
-        let Expression::CallExpression(call) = expression else {
+        if let Expression::CallExpression(call) = expression
+            && let Expression::StaticMemberExpression(member) = &call.callee
+            && let Expression::Identifier(object) = &member.object
+        {
+            return object.name == "Symbol" && member.property.name == "for";
+        }
+        Self::is_host_constructor_presence_alias(expression)
+    }
+
+    /// Return whether an initializer is a `globalThis.X`-presence host-constructor
+    /// alias, where `X` is a modeled builtin constructor.
+    ///
+    /// Matches the `<test> ? globalThis.X : <fallback>` ternary es-toolkit uses to
+    /// re-export host globals with a fallback. Recognition keys on the consequent
+    /// being a `globalThis.X` member access whose property names a builtin Smelt
+    /// models (currently `DOMException`); the test and fallback shapes are not
+    /// inspected because the modeled builtin makes them irrelevant.
+    fn is_host_constructor_presence_alias(expression: &Expression<'_>) -> bool {
+        let Expression::ConditionalExpression(conditional) = expression else {
             return false;
         };
-        let Expression::StaticMemberExpression(member) = &call.callee else {
+        let Expression::StaticMemberExpression(member) = &conditional.consequent else {
             return false;
         };
+        Self::is_global_alias_member_host_constructor(member)
+    }
+
+    /// Return whether a member access is `globalThis.X` (or `global.X` / `self.X`)
+    /// for a modeled builtin host constructor `X`.
+    fn is_global_alias_member_host_constructor(
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> bool {
         let Expression::Identifier(object) = &member.object else {
             return false;
         };
-        object.name == "Symbol" && member.property.name == "for"
+        matches!(object.name.as_str(), "globalThis" | "global" | "self")
+            && matches!(member.property.name.as_str(), "DOMException")
     }
 
     /// Fold a supported unary expression inside an exported const initializer.
@@ -818,11 +878,61 @@ return_ty: target_function.return_ty,
         }
     }
 
+    /// Fold a supported static member expression inside an exported const
+    /// initializer into a numeric literal.
+    ///
+    /// Lodash-style compat code exports module constants that alias well-known
+    /// global numeric members (`export const MAX_INTEGER = Number.MAX_VALUE`).
+    /// These are compile-time constants, so they fold to the same `Float`
+    /// literals that the runtime `Number.<constant>` reader produces.
+    fn member_literal_const_expression(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> Result<ConstLiteral, SmeltError> {
+        if let Expression::Identifier(object) = &member.object {
+            let value = match (object.name.as_str(), member.property.name.as_str()) {
+                ("Number", "NaN") => Some(f64::NAN),
+                ("Number", "POSITIVE_INFINITY") => Some(f64::INFINITY),
+                ("Number", "NEGATIVE_INFINITY") => Some(f64::NEG_INFINITY),
+                ("Number", "MAX_VALUE") => Some(f64::MAX),
+                ("Number", "MIN_VALUE") => Some(f64::MIN_POSITIVE),
+                ("Number", "MAX_SAFE_INTEGER") => Some(9_007_199_254_740_991.0_f64),
+                ("Number", "MIN_SAFE_INTEGER") => Some(-9_007_199_254_740_991.0_f64),
+                ("Number", "EPSILON") => Some(f64::EPSILON),
+                ("Math", "PI") => Some(std::f64::consts::PI),
+                ("Math", "E") => Some(std::f64::consts::E),
+                ("Math", "LN2") => Some(std::f64::consts::LN_2),
+                ("Math", "LN10") => Some(std::f64::consts::LN_10),
+                ("Math", "LOG2E") => Some(std::f64::consts::LOG2_E),
+                ("Math", "LOG10E") => Some(std::f64::consts::LOG10_E),
+                ("Math", "SQRT2") => Some(std::f64::consts::SQRT_2),
+                ("Math", "SQRT1_2") => Some(std::f64::consts::FRAC_1_SQRT_2),
+                _ => None,
+            };
+            if let Some(value) = value {
+                return Ok(ConstLiteral {
+                    literal: Literal::Float(value),
+                    ty: self.ctx.krate.types.intern(Type::Float),
+                });
+            }
+        }
+        Err(SmeltError::unsupported(
+            self.span(member.span.start, member.span.end),
+            "exported const member expressions support well-known Number/Math numeric constants only",
+        ))
+    }
+
     /// Fold a supported binary expression inside an exported const initializer.
     fn binary_literal_const_expression(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
+        if let Some(value) = self.global_probe_const_value(binary) {
+            return Ok(ConstLiteral {
+                literal: Literal::Bool(value),
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
         let lhs = self.literal_const_expression(&binary.left)?;
         let rhs = self.literal_const_expression(&binary.right)?;
         match (lhs.literal, rhs.literal) {
@@ -859,6 +969,50 @@ return_ty: target_function.return_ty,
                 "exported const binary expressions currently require matching primitive operands",
             )),
         }
+    }
+
+    /// Fold a global feature probe inside an exported const initializer.
+    ///
+    /// Exported consts are folded by a dedicated literal evaluator that never
+    /// runs the general expression lowering, so the `typeof globalThis !==
+    /// "undefined"` and `"Map" in globalThis` probes are folded here too, using
+    /// the same registry-derived answers as the runtime-expression erasure. This
+    /// keeps `export const supported = typeof globalThis === "object";` a foldable
+    /// primitive instead of an "unresolved const" blocker. Returns `None` when the
+    /// binary expression is not a recognized global probe.
+    fn global_probe_const_value(&self, binary: &oxc::ast::ast::BinaryExpression<'_>) -> Option<bool> {
+        // `"<key>" in <global-alias>`.
+        if binary.operator == BinaryOperator::In
+            && self.expr_is_global_alias(&binary.right)
+            && let Expression::StringLiteral(key_lit) = &binary.left
+        {
+            return match smelt_stdlib::global_member_presence(key_lit.value.as_str()) {
+                smelt_stdlib::GlobalPresence::Present => Some(true),
+                smelt_stdlib::GlobalPresence::Absent => Some(false),
+                // `Unknown` (and any future undecided presence) must not fold.
+                _ => None,
+            };
+        }
+        // `typeof <global-alias> ===/!== "<kind>"`, in either operand order.
+        let is_equality = match binary.operator {
+            BinaryOperator::StrictEquality | BinaryOperator::Equality => true,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality => false,
+            _ => return None,
+        };
+        let (operand_name, literal) = ambient_globals::typeof_identifier_name(&binary.left)
+            .map(|name| (name, &binary.right))
+            .or_else(|| {
+                ambient_globals::typeof_identifier_name(&binary.right).map(|name| (name, &binary.left))
+            })?;
+        let Expression::StringLiteral(kind_lit) = literal else {
+            return None;
+        };
+        let operand_is_global_alias = self.is_ambient_global_alias(operand_name);
+        ambient_globals::global_typeof_probe_value(
+            operand_is_global_alias,
+            kind_lit.value.as_str(),
+            is_equality,
+        )
     }
 
     /// Fold supported pure calls inside exported const initializers.

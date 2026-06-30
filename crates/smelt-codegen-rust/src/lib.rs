@@ -303,6 +303,8 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
                         op: AsyncOp::Sleep
                             | AsyncOp::SetTimeout
                             | AsyncOp::ClearTimeout
+                            | AsyncOp::SetInterval
+                            | AsyncOp::ClearInterval
                             | AsyncOp::Promise
                             | AsyncOp::Then
                             | AsyncOp::Catch
@@ -696,10 +698,12 @@ fn emit_source_with_free_function_router(
         writer.line(
             "/// Return whether an erased object key is visible to JavaScript `for...in` iteration.",
         );
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\")) }");
+        writer.line("fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { [\"__smelt_weakmap\", \"__smelt_weakset\", \"__smelt_dataview\", \"__smelt_sharedarraybuffer\", \"__smelt_file\", \"__smelt_blob\", \"__smelt_arraybuffer\", \"__smelt_number\", \"__smelt_domexception\", \"__smelt_abortcontroller\", \"__smelt_abortsignal\", \"__smelt_builtin_namespace\", \"__smelt_global_object\"].iter().any(|marker| object.contains_key(marker)) }");
+        writer.line("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { [\"__smelt_weakmap\", \"__smelt_weakset\", \"__smelt_dataview\", \"__smelt_sharedarraybuffer\", \"__smelt_file\", \"__smelt_blob\", \"__smelt_arraybuffer\", \"__smelt_number\", \"__smelt_domexception\", \"__smelt_abortcontroller\", \"__smelt_abortsignal\", \"__smelt_builtin_namespace\", \"__smelt_global_object\"].iter().any(|marker| record.contains_key(*marker)) }");
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
-        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\")) }");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\")) }");
         writer.line("/// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.");
         writer.line(
             "/// Class instances carry a hidden `__smelt_class` marker and map to a distinct",
@@ -810,6 +814,19 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
         writer.line("fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }");
+        writer.blank_line();
+        // `AbortController`/`AbortSignal` cancellation model. Both erase to
+        // marker-bearing `SmeltObject`s whose shared `Rc<RefCell<..>>` storage
+        // makes `controller.abort()` observable through any binding that read
+        // `controller.signal`. These helpers resolve the signal record behind a
+        // controller or signal, flip the shared `aborted` flag, and fire (then
+        // clear) registered `'abort'` listeners.
+        writer.line("/// Resolve the AbortSignal record behind an abort controller or signal object.");
+        writer.line("fn smelt_abort_signal_object(object: &SmeltObject) -> Option<SmeltObject> { if object.contains_key(\"__smelt_abortsignal\") { return Some(object.clone()); } match object.get(\"signal\") { Some(SmeltUnknown::Object(signal)) if signal.contains_key(\"__smelt_abortsignal\") => Some(signal), _ => None } }");
+        writer.line("/// Mark an AbortSignal aborted and fire (then clear) its registered `'abort'` listeners.");
+        writer.line("fn smelt_abort_signal_fire(signal: &SmeltObject) { if matches!(signal.get(\"aborted\"), Some(SmeltUnknown::Bool(true))) { return; } signal.insert(\"aborted\".to_owned(), SmeltUnknown::Bool(true)); let listeners = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() }; signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(Vec::new().into())); for listener in listeners { if let SmeltUnknown::Function(callback) = listener { let event = SmeltObject::new(::std::collections::HashMap::from([(\"type\".to_owned(), SmeltUnknown::String(\"abort\".to_owned()))])); let _ = callback(vec![SmeltUnknown::Object(event)]); } } }");
+        writer.line("/// Return an erased AbortController/AbortSignal method bound to its shared record.");
+        writer.line("fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let signal = smelt_abort_signal_object(&object); match method.as_str() { \"abort\" | \"dispatchEvent\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal); } Ok(if method == \"dispatchEvent\" { SmeltUnknown::Bool(true) } else { SmeltUnknown::Undefined }) } \"addEventListener\" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.clone(), _ => String::new() }; if event_type == \"abort\" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } \"removeEventListener\" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect(); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } Ok(SmeltUnknown::Undefined) } _ => Ok(SmeltUnknown::Undefined) } })) }");
         writer.blank_line();
         writer.block("pub enum SmeltUnknown", |unknown_writer| {
             unknown_writer.line("Null,");
@@ -1039,6 +1056,9 @@ fn emit_source_with_free_function_router(
             writer.line("    id: u64,");
             writer.line("    due_ms: u64,");
             writer.line("    callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>,");
+            writer.line("    // `Some(period)` marks a repeating `setInterval` timer that re-arms");
+            writer.line("    // itself `period` ms after each fire; `None` is a one-shot `setTimeout`.");
+            writer.line("    period_ms: Option<u64>,");
             writer.line("}");
             writer.blank_line();
             writer.line("thread_local! {");
@@ -1113,7 +1133,20 @@ fn emit_source_with_free_function_router(
             writer.line("    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });");
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
             writer.line("    let due_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));");
-            writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback }));");
+            writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: None }));");
+            writer.line("    SmeltUnknown::Number(id as f64)");
+            writer.line("}");
+            writer.blank_line();
+            writer.line(format!(
+                "fn {set_interval}(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, period_ms: f64) -> SmeltUnknown {{",
+                set_interval = smelt_stdlib::runtime_symbols::timers::SET_INTERVAL,
+            ));
+            writer.line("    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });");
+            writer.line("    // Clamp non-positive periods to 1 ms so an interval still advances virtual");
+            writer.line("    // time and cannot busy-loop the drain at the current instant.");
+            writer.line("    let period_ms = if period_ms.is_finite() && period_ms > 0.0 { period_ms as u64 } else { 1 };");
+            writer.line("    let due_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(period_ms));");
+            writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: Some(period_ms) }));");
             writer.line("    SmeltUnknown::Number(id as f64)");
             writer.line("}");
             writer.blank_line();
@@ -1129,6 +1162,15 @@ fn emit_source_with_free_function_router(
             "    SMELT_TIMERS.with(|timers| timers.borrow_mut().retain(|timer| timer.id != id));",
         );
             writer.line("}");
+            writer.blank_line();
+            // `clearInterval` cancels by id exactly like `clearTimeout`; both share
+            // the single timer queue. Emit it as a thin alias so the generated
+            // `async_clear_interval` call site resolves to a real helper.
+            writer.line(format!(
+                "fn {clear_interval}<T: IntoSmeltUnknown>(handle: T) {{ {clear_timeout}(handle) }}",
+                clear_interval = smelt_stdlib::runtime_symbols::timers::CLEAR_INTERVAL,
+                clear_timeout = smelt_stdlib::runtime_symbols::timers::CLEAR_TIMEOUT,
+            ));
             writer.blank_line();
             writer.line(format!(
                 "fn {drain_due_timers}() {{",
@@ -1149,6 +1191,13 @@ fn emit_source_with_free_function_router(
             writer.line("        if due.is_empty() { break; }");
             writer.line("        for timer in due {");
             writer.line("            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| panic!(\"{}\", error));");
+            writer.line("            // Re-arm repeating `setInterval` timers for their next period. The");
+            writer.line("            // next fire is scheduled `period` ms from the current virtual time, so");
+            writer.line("            // it is strictly in the future and cannot re-fire within this drain pass.");
+            writer.line("            if let Some(period_ms) = timer.period_ms {");
+            writer.line("                let next_due = now.saturating_add(period_ms);");
+            writer.line("                SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id: timer.id, due_ms: next_due, callback: timer.callback.clone(), period_ms: Some(period_ms) }));");
+            writer.line("            }");
             writer.line("        }");
             writer.line("    }");
             writer.line("}");

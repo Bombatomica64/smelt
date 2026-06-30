@@ -89,10 +89,29 @@ impl ModuleBuilder<'_> {
     /// Return true when an expression is a built-in constructor target.
     fn instanceof_builtin_target(target: &str) -> bool {
         smelt_stdlib::typescript_stdlib_class(target).is_some()
+            || Self::marker_only_builtin_marker(target).is_some()
             || matches!(
                 target,
                 "Promise"
                     | "ArrayBuffer"
+                    | "Blob"
+                    | "Number"
+                    // Boxed primitive wrappers. A real primitive (`true`, `"a"`)
+                    // is never `instanceof` its wrapper; only the boxed object
+                    // form is, recognized through its `__smelt_boolean` /
+                    // `__smelt_string` marker (see `instance_of_text`). Listing
+                    // them makes `value instanceof Boolean` / `instanceof String`
+                    // lower to a marker check instead of aborting as an unmodeled
+                    // class — the correct `false` for the primitives that
+                    // es-toolkit's `isBoolean`/`isString` test against.
+                    | "Boolean"
+                    | "String"
+                    // `Symbol` likewise: a primitive symbol erases to
+                    // `SmeltUnknown::Symbol` and is not `instanceof Symbol`; only a
+                    // boxed `Object(symbol)` wrapper carrying `__smelt_symbol` is.
+                    | "Symbol"
+                    | "AbortController"
+                    | "AbortSignal"
                     | "Error"
                     | "EvalError"
                     | "RangeError"
@@ -101,7 +120,29 @@ impl ModuleBuilder<'_> {
                     | "TypeError"
                     | "URIError"
                     | "AggregateError"
+                    // Host `DOMException`: es-toolkit's `AbortError`/`TimeoutError`
+                    // tests probe `value instanceof DOMException`. A `new
+                    // DOMException(...)` erases to a record carrying
+                    // `__smelt_domexception` (see
+                    // `domexception_object_constructor_expression`), recognized
+                    // through that marker in `instance_of_text`.
+                    | "DOMException"
             )
+    }
+
+    /// Return true for host global constructors that Smelt always models as
+    /// present, so `typeof X === 'undefined'` environment-support guards fold to
+    /// a constant instead of failing to resolve the bare `X` identifier.
+    ///
+    /// The set must stay in lock-step with what codegen actually models: each
+    /// name here has a concrete constructor lowering and a working `instanceof`
+    /// path (the marker-only host builtins plus `Blob`/`ArrayBuffer`). Folding a
+    /// presence guard `true` for a name whose positive branch the runtime cannot
+    /// satisfy would reintroduce the erased-vs-runtime disagreement the globals
+    /// plan warns against, so unmodeled host globals are deliberately excluded.
+    fn is_known_defined_global_constructor(name: &str) -> bool {
+        matches!(name, "Blob" | "ArrayBuffer")
+            || Self::marker_only_builtin_marker(name).is_some()
     }
 
     /// Return true for builtin targets represented by non-class HIR values today.
@@ -227,6 +268,9 @@ impl ModuleBuilder<'_> {
         ) {
             return Ok(None);
         }
+        if let Some(expr) = self.global_typeof_probe(binary, body) {
+            return Ok(Some(expr));
+        }
         let Expression::UnaryExpression(unary) = &binary.left else {
             return Ok(None);
         };
@@ -242,6 +286,48 @@ impl ModuleBuilder<'_> {
         {
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             let result = !matches!(
+                binary.operator,
+                BinaryOperator::StrictInequality | BinaryOperator::Inequality
+            );
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(result)),
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            })));
+        }
+        // Ambient globals that the default deterministic non-DOM, non-Node
+        // profile models as *absent* (e.g. `Buffer`, accessed bare or through a
+        // global alias as `globalThis.Buffer`). Their `typeof` existence guards
+        // fold to the absent answer: `=== 'undefined'` is `true`, `!==` is
+        // `false`. es-toolkit's `isBuffer` (`typeof globalThis.Buffer !==
+        // 'undefined' && globalThis.Buffer.isBuffer(x)`) then short-circuits to a
+        // constant `false`, which is the correct result in a non-Node runtime,
+        // instead of resolving `globalThis.Buffer` to a bogus empty object.
+        if kind_lit.value.as_str() == "undefined"
+            && self.typeof_operand_is_absent_global(&unary.argument)
+        {
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let result = !matches!(
+                binary.operator,
+                BinaryOperator::StrictInequality | BinaryOperator::Inequality
+            );
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(result)),
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            })));
+        }
+        // Modeled host constructors (e.g. `Blob`) are always present, so the
+        // `typeof Blob === 'undefined'` support guards used by `isBlob` and the
+        // `cloneDeepWith` clone paths fold to a constant: `=== 'undefined'` is
+        // `false`, `!== 'undefined'` is `true`. Without this, the bare `Blob`
+        // identifier would fail to resolve as a value.
+        if kind_lit.value.as_str() == "undefined"
+            && let Expression::Identifier(identifier) = &unary.argument
+            && Self::is_known_defined_global_constructor(identifier.name.as_str())
+        {
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let result = matches!(
                 binary.operator,
                 BinaryOperator::StrictInequality | BinaryOperator::Inequality
             );
@@ -362,6 +448,126 @@ impl ModuleBuilder<'_> {
             )));
         }
         Ok(Some(check))
+    }
+
+    /// Fold a `typeof <global-alias> ===/!== "<kind>"` feature probe to a literal.
+    ///
+    /// In the non-DOM Node-compatible profile every recognized global alias
+    /// (`globalThis`, `global`, `self`) is a present object, so existence probes
+    /// such as `typeof globalThis !== "undefined"` and `typeof globalThis ===
+    /// "object"` have a known answer and never observe the global object's
+    /// identity. The probe is matched in either operand order. Anything that is
+    /// not a recognized existence probe returns `None` so it falls through to the
+    /// ordinary `typeof` comparison handling (which keeps honest blockers for
+    /// real dynamic global usage).
+    fn global_typeof_probe(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let is_equality = !matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        );
+        // Accept `typeof g <op> "kind"` and the mirrored `"kind" <op> typeof g`.
+        let (typeof_side, literal_side) = (&binary.left, &binary.right);
+        let probe = ambient_globals::typeof_identifier_name(typeof_side)
+            .map(|name| (name, literal_side))
+            .or_else(|| {
+                ambient_globals::typeof_identifier_name(&binary.right)
+                    .map(|name| (name, &binary.left))
+            });
+        let (operand_name, literal) = probe?;
+        let Expression::StringLiteral(kind_lit) = literal else {
+            return None;
+        };
+        let operand_is_global_alias = self.is_ambient_global_alias(operand_name);
+        let value = ambient_globals::global_typeof_probe_value(
+            operand_is_global_alias,
+            kind_lit.value.as_str(),
+            is_equality,
+        )?;
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(value)),
+            ty: bool_ty,
+            span: self.span(binary.span.start, binary.span.end),
+        }))
+    }
+
+    /// Return whether a name resolves to the ambient global object in this module.
+    ///
+    /// A base alias spelling (`globalThis` / `global` / `self`) only counts when it
+    /// is *not* shadowed by a module-local binding — an import, declared item,
+    /// module global, or local variable. es-toolkit, for example, imports its own
+    /// `globalThis` shim (`import { globalThis } from "../_internal/globalThis"`);
+    /// that imported binding is an ordinary value, not the ambient global, so it
+    /// must not be normalized or erased. A name explicitly recorded as a
+    /// `const g = globalThis;` alias always counts.
+    fn is_ambient_global_alias(&self, name: &str) -> bool {
+        if self.global_object_aliases.contains(name) {
+            return true;
+        }
+        if !ambient_globals::is_global_alias_name(name) {
+            return false;
+        }
+        // Shadowed by a local binding/import/item -> not the ambient global.
+        !(self.locals.contains_key(name)
+            || self.value_imports.contains(name)
+            || self.type_only_imports.contains(name)
+            || self.namespace_imports.contains(name)
+            || self.items.contains_key(name)
+            || self.module_globals.contains_key(name)
+            || self.const_literals.contains_key(name)
+            || self.const_objects.contains_key(name))
+    }
+
+    /// Return whether an expression refers to the ambient global object.
+    ///
+    /// This is true for a non-shadowed base global alias and for a local
+    /// identifier recorded as a global-object alias by `const g = globalThis;`.
+    /// Any other expression — including a member access or computed access on the
+    /// global object — is rejected, so callers never mistake a deeper path for the
+    /// global object itself.
+    fn expr_is_global_alias(&self, expression: &Expression<'_>) -> bool {
+        match expression {
+            Expression::Identifier(identifier) => {
+                self.is_ambient_global_alias(identifier.name.as_str())
+            }
+            _ => false,
+        }
+    }
+
+    /// Return true when a `typeof <operand>` operand names an ambient global the
+    /// default profile models as absent.
+    ///
+    /// Recognizes both the bare spelling (`typeof Buffer`) and the global-alias
+    /// member spelling (`typeof globalThis.Buffer`, `typeof global.Buffer`),
+    /// since es-toolkit reaches `Buffer` through `globalThis`. Only a static,
+    /// non-optional member off a recognized global alias counts; any other shape
+    /// falls through to ordinary lowering.
+    fn typeof_operand_is_absent_global(&self, operand: &Expression<'_>) -> bool {
+        match operand {
+            Expression::Identifier(identifier) => {
+                Self::is_absent_ambient_global(identifier.name.as_str())
+            }
+            Expression::StaticMemberExpression(member) if !member.optional => {
+                self.expr_is_global_alias(&member.object)
+                    && Self::is_absent_ambient_global(member.property.name.as_str())
+            }
+            _ => false,
+        }
+    }
+
+    /// Return true for ambient globals the default deterministic profile treats
+    /// as absent (no runtime support, no modeled value).
+    ///
+    /// `Buffer` is a Node-only binary buffer constructor; the default profile is
+    /// non-Node, so it is reported absent. Keeping presence here (rather than
+    /// resolving the identifier to a fabricated value) makes the `typeof` guard
+    /// the single source of truth and keeps `isBuffer` deterministic.
+    fn is_absent_ambient_global(name: &str) -> bool {
+        matches!(name, "Buffer")
     }
 
     /// Return a static `typeof` comparison result when all runtime variants agree.
@@ -1066,6 +1272,8 @@ impl ModuleBuilder<'_> {
             | AsyncOp::HttpGetText
             | AsyncOp::SetTimeout
             | AsyncOp::ClearTimeout
+            | AsyncOp::SetInterval
+            | AsyncOp::ClearInterval
             | AsyncOp::Promise
             | AsyncOp::Then
             | AsyncOp::Catch
@@ -1168,10 +1376,16 @@ impl ModuleBuilder<'_> {
         } else {
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             let none_ty = self.ctx.krate.types.intern(Type::None);
+            // `resolve`/`reject` accept their value argument optionally: TypeScript
+            // types them `(value?: T) => void`, and `resolve()` with no argument is
+            // valid (it settles with `undefined`). Recording `required_params: 0`
+            // lets the callbacks satisfy shorter expected function slots such as the
+            // `Array<() => void>` deferred-task queue used by promise concurrency
+            // primitives (semaphore/mutex).
             let resolve_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: vec![unknown_ty],
                 rest: None,
-                required_params: Some(1),
+                required_params: Some(0),
                 mutable_params: Vec::new(),
                 return_ty: none_ty,
                 is_async: false,
@@ -1180,7 +1394,7 @@ impl ModuleBuilder<'_> {
             let reject_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: vec![unknown_ty],
                 rest: None,
-                required_params: Some(1),
+                required_params: Some(0),
                 mutable_params: Vec::new(),
                 return_ty: none_ty,
                 is_async: false,
@@ -1339,32 +1553,71 @@ impl ModuleBuilder<'_> {
                     span: self.span(call.span.start, call.span.end),
                 })))
             }
-            "setTimeout" | "clearTimeout" => Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "timer lowering supports setTimeout(milliseconds), setTimeout(callback, milliseconds), and clearTimeout(id)",
-            )),
+            // `setInterval(callback, period)` registers a repeating timer that
+            // re-arms itself after every fire, mirroring the two-argument
+            // `setTimeout` shape. The shared virtual-time timer queue drives it,
+            // so the only difference at codegen time is the re-arm; see
+            // `AsyncOp::SetInterval` in the call emitter.
+            "setInterval" if call.arguments.len() == 2 => {
+                let Some(callback) = call.arguments.first() else {
+                    return Ok(None);
+                };
+                let Some(duration) = call.arguments.get(1) else {
+                    return Ok(None);
+                };
+                let callback = self.argument(callback, body)?;
+                let duration = self.argument(duration, body)?;
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::SetInterval,
+                        args: vec![callback, duration],
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            // `clearInterval(id)` cancels a repeating timer by handle. Intervals
+            // share the timer queue with timeouts, so this is the same
+            // cancel-by-id as `clearTimeout`.
+            "clearInterval" if call.arguments.len() == 1 => {
+                let Some(timer) = call.arguments.first() else {
+                    return Ok(None);
+                };
+                let timer = self.argument(timer, body)?;
+                let ty = self.ctx.krate.types.intern(Type::None);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::ClearInterval,
+                        args: vec![timer],
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "setTimeout" | "clearTimeout" | "setInterval" | "clearInterval" => {
+                Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "timer lowering supports setTimeout(milliseconds), setTimeout(callback, milliseconds), clearTimeout(id), setInterval(callback, milliseconds), and clearInterval(id)",
+                ))
+            }
             _ => Ok(None),
         }
     }
 
     /// Return targeted diagnostics for deferred object and collection APIs.
+    ///
+    /// `replaceAll` is handled by `regex_replace_call` (regex pattern) and
+    /// `string_replace_call` (literal string pattern), so it is no longer
+    /// rejected here. The hook is kept as the place to surface future
+    /// deferred object/collection method diagnostics.
     fn unsupported_object_collection_call(
-        &self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Option<SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
+        let Expression::StaticMemberExpression(_) = &call.callee else {
             return None;
         };
-        let message = match &member.object {
-            _ if member.property.name == "replaceAll" => {
-                "TypeScript String.replaceAll is not supported yet; replacement semantics need a dedicated mapping"
-            }
-            _ => return None,
-        };
-        Some(SmeltError::unsupported(
-            self.span(call.span.start, call.span.end),
-            message,
-        ))
+        None
     }
 
     /// Lower TypeScript `fetch(url[, options])` into an async HTTP GET text operation.

@@ -279,6 +279,29 @@ with dynamic property writes, identity comparison, or escaping global values. Do
 not build the runtime-global machinery on assumption; build it against the
 specific blockers Phase 1 leaves behind, and skip it entirely if none remain.
 
+### Checkpoint result (estk6): Phase 1 cleared all es-toolkit global blockers
+
+Re-probing es-toolkit after Phase 1 showed **zero** compile-time-foldable
+`globalThis`/`window` blockers remaining in the whole-crate probe — feature
+detection and namespace-only paths all erased as predicted. The single residual
+runtime-global case was `src/_internal/globalThis.ts`: the canonical UMD
+detection chain `(typeof globalThis === 'object' && globalThis) || (typeof window
+=== 'object' && window) || ... ` whose result escapes as an exported binding.
+
+Per this checkpoint's guidance (build only against real residual blockers, skip
+the full runtime machinery if none remain), estk6 did **not** build the
+`Arc/Rc`-backed shared `SmeltGlobalObject`. es-toolkit's in-scope usage never
+compares global identity, writes a dynamic slot onto the global, or reads a
+user-defined dynamic slot, so the existing per-value `__smelt_global_object`
+marker record (a concrete host-object `SmeltObject`) is sufficient and faithful.
+What estk6 added was the missing *folding* of the detection chain: a general
+recognizer for `(typeof X === 'object' && X) || ...` that short-circuits exactly
+like JavaScript — the first present-alias clause (`globalThis`/`global`/`self`)
+yields the global-object value, and clauses for the absent DOM alias (`window`)
+are skipped *without lowering* their dead identifier. The full shared-handle
+runtime object remains the correct model once identity or dynamic mutation
+becomes observable in a target corpus.
+
 ### Phase 2: HIR/MIR Global Operations
 
 - Add global-object expression and property operations to HIR and MIR.

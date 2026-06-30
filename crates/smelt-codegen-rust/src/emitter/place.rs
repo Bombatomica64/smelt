@@ -66,6 +66,24 @@ impl FunctionEmitter<'_> {
                             "match {base_text}.clone() {{ SmeltUnknown::Array(value) => smelt_array_sort_method(value), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"sort\"), _ => SmeltUnknown::Null }}"
                         ));
                     }
+                    // `AbortController`/`AbortSignal` methods are surfaced as
+                    // runtime-helper-bound closures that mutate the shared abort
+                    // record (see `smelt_abort_method`). Plain data fields
+                    // (`signal`, `aborted`, ...) keep the ordinary erased-object
+                    // read; the helper only intercepts a method read when the
+                    // receiver actually carries an abort marker.
+                    if matches!(
+                        field_name,
+                        "abort"
+                            | "addEventListener"
+                            | "removeEventListener"
+                            | "dispatchEvent"
+                            | "throwIfAborted"
+                    ) {
+                        return Ok(format!(
+                            "match {base_text}.clone() {{ SmeltUnknown::Object(map) if map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\") => smelt_abort_method(map, {field_name:?}), SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
+                        ));
+                    }
                     return Ok(format!(
                         "match {base_text}.clone() {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                     ));

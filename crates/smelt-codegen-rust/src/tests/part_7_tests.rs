@@ -3983,6 +3983,52 @@ test("timer isolation", () => {
 }
 
 #[test]
+fn instanceof_boxed_primitive_wrapper_emits_marker_check() {
+    // `value instanceof Boolean` / `String` / `Symbol` over an erased value emits
+    // a marker-key check on `SmeltUnknown::Object`. A primitive bool/string/symbol
+    // is not an `Object`, so the check is the correct `false`.
+    for (target, marker) in [
+        ("Boolean", "__smelt_boolean"),
+        ("String", "__smelt_string"),
+        ("Symbol", "__smelt_symbol"),
+    ] {
+        let source = source_for(&format!(
+            "export function f(value: any): boolean {{ return value instanceof {target}; }}"
+        ));
+        assert!(
+            source.contains(&format!("value.contains_key(\"{marker}\")")),
+            "expected `instanceof {target}` to emit a `{marker}` marker check:\n{source}"
+        );
+    }
+}
+
+#[test]
+fn set_interval_registers_repeating_timer_and_clear_interval_cancels() {
+    // `setInterval`/`clearInterval` must lower onto the same virtual-time timer
+    // queue as `setTimeout`, with the interval re-arming itself after each fire.
+    let source = source_for(
+        r#"
+const id = setInterval(() => {}, 10);
+clearInterval(id);
+"#,
+    );
+
+    // The dedicated repeating-timer helper is emitted and called.
+    assert!(source.contains("fn smelt_set_interval("), "{source}");
+    assert!(source.contains("smelt_set_interval("), "{source}");
+    // `clearInterval` reuses the cancel-by-id timer path.
+    assert!(source.contains("fn smelt_clear_interval"), "{source}");
+    assert!(source.contains("smelt_clear_interval("), "{source}");
+    // Interval timers carry a period and re-arm in the drain loop; one-shot
+    // timeouts carry `period_ms: None`.
+    assert!(source.contains("period_ms: Some(period_ms)"), "{source}");
+    assert!(
+        source.contains("if let Some(period_ms) = timer.period_ms {"),
+        "{source}"
+    );
+}
+
+#[test]
 fn drains_virtual_timers_before_async_sleep_can_change_threads() {
     let source = source_for(
         r#"
@@ -4653,5 +4699,468 @@ def update(model: Model) -> int:
     assert!(
         emitted.contains("model.value = 7;"),
         "instance storage must shadow a non-data descriptor\n{emitted}"
+    );
+}
+
+#[test]
+fn emits_abort_controller_concrete_cancellation_model() {
+    // `new AbortController()` emits two marker-bearing records sharing a mutable
+    // `aborted` flag; `controller.abort()` routes through the runtime helper that
+    // flips the flag and fires listeners; `instanceof` checks the markers.
+    let source = source_for(
+        r#"
+const controller = new AbortController();
+const signal = controller.signal;
+signal.addEventListener("abort", () => {});
+controller.abort();
+const aborted = signal.aborted;
+const isController = controller instanceof AbortController;
+const isSignal = signal instanceof AbortSignal;
+"#,
+    );
+
+    assert!(
+        source.contains("__smelt_abortcontroller") && source.contains("__smelt_abortsignal"),
+        "AbortController/AbortSignal records must carry their identity markers\n{source}"
+    );
+    assert!(
+        source.contains("smelt_abort_method"),
+        "abort/addEventListener reads must route through the runtime abort method helper\n{source}"
+    );
+    assert!(
+        source.contains("smelt_abort_signal_fire"),
+        "the runtime prelude must define the abort-firing helper\n{source}"
+    );
+    assert!(
+        source.contains(
+            "matches!(controller.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_abortcontroller\"))"
+        ),
+        "instanceof AbortController must check the controller marker\n{source}"
+    );
+    assert!(
+        source.contains(
+            "matches!(signal.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_abortsignal\"))"
+        ),
+        "instanceof AbortSignal must check the signal marker\n{source}"
+    );
+}
+
+#[test]
+fn lowers_numeric_truthy_condition_inside_callback() {
+    // A non-boolean numeric value used as a callback condition (the common
+    // `(value, index) => index ? a : b` index-guard idiom) lowers to an
+    // explicit `!= 0` test rather than rejecting the callback.
+    let source = source_for(
+        r#"
+function pick(values: number[]): number[] {
+  return values.map((value, index) => (index ? value * 2 : value));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("!= 0"),
+        "numeric callback condition must lower to a non-zero test: {source}"
+    );
+}
+
+#[test]
+fn falls_back_to_closure_body_for_try_catch_callback() {
+    // A `.map` callback whose body uses a statement form the side-effect-free
+    // callback IR cannot represent (here `try`/`catch`) must retry through full
+    // closure-body lowering instead of failing the whole file. `source_for`
+    // panics on any blocker, so reaching codegen proves the fallback fired.
+    let source = source_for(
+        r#"
+function run(values: string[]): Array<string | undefined> {
+  return values.map((value) => {
+    try {
+      return value;
+    } catch (e) {
+      return undefined;
+    }
+  });
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+}
+
+#[test]
+fn falls_back_to_closure_body_for_sort_comparator_with_loop() {
+    // An `Array.prototype.sort` comparator whose body uses a `for` loop must
+    // retry through full closure-body lowering rather than rejecting the file.
+    let source = source_for(
+        r#"
+function order(items: number[][]): number[][] {
+  return items.slice().sort((a, b) => {
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        return a[i] - b[i];
+      }
+    }
+    return 0;
+  });
+}
+"#,
+    );
+
+    assert!(source.contains("sort"), "{source}");
+}
+
+#[test]
+fn lowers_erased_local_value_passed_as_named_callback() {
+    // A local holding a callable value whose static type is erased (`any`) and
+    // handed to an array method as a named callback (`values.map(fn)`) lowers to
+    // a wrapper closure that calls the captured local, instead of rejecting it
+    // for not being an inline arrow / not having a callback entry.
+    let source = source_for(
+        r#"
+function apply(values: string[], fn: any): string[] {
+  return values.map(fn);
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+}
+
+#[test]
+fn lowers_array_concat_with_multiple_arguments() {
+    // `Array.prototype.concat` accepts any number of arguments; each array
+    // argument is spread and each scalar is appended, chained left to right.
+    let source = source_for(
+        r#"
+export function joinAll(a: number[], b: number[], c: number[]): number[] {
+  return a.concat(b, c);
+}
+export function appendScalars(a: number[], x: number, y: number): number[] {
+  return a.concat(x, y);
+}
+export function copy(a: number[]): number[] {
+  return a.concat();
+}
+"#,
+    );
+    // Two right-arguments produce chained list concatenations (`.chain(...)`),
+    // and the no-argument form is a shallow copy.
+    assert!(source.matches(".chain(").count() >= 3, "{source}");
+    assert!(source.contains("a.clone()"), "{source}");
+}
+
+#[test]
+fn lowers_typeof_in_array_element_position() {
+    // `typeof x` appearing as an array literal element (which routes through the
+    // generic `unary_expression` path rather than the top-level expression
+    // dispatcher) must lower instead of rejecting the file.
+    let source = source_for(
+        r#"
+export function tags(x: unknown): string[] {
+  return [typeof x, "tail"];
+}
+"#,
+    );
+    assert!(source.contains("vec!"), "{source}");
+}
+
+#[test]
+fn folds_number_constant_in_exported_const() {
+    // An exported const aliasing a well-known numeric member constant folds to a
+    // numeric literal instead of rejecting the initializer as non-foldable.
+    let source = source_for(
+        r#"
+export const SAFE = Number.MAX_SAFE_INTEGER;
+export function ceiling(): number {
+  return SAFE;
+}
+"#,
+    );
+    assert!(
+        source.contains("9007199254740991") || source.contains("9_007_199_254_740_991"),
+        "{source}"
+    );
+}
+
+#[test]
+fn lowers_array_push_with_multiple_arguments() {
+    // `Array.prototype.push` accepts any number of arguments, appending each in
+    // order and returning the new length; spread arguments extend the list.
+    let source = source_for(
+        r#"
+export function appendThree(a: number[]): number {
+  return a.push(1, 2, 3);
+}
+export function appendSpreadAndScalar(a: number[], b: number[]): void {
+  a.push(...b, 9);
+}
+"#,
+    );
+    // Three pushes for the scalar case, plus an extend + push for the second.
+    assert!(source.matches(".push(").count() >= 4, "{source}");
+    assert!(source.contains("extend") || source.contains(".chain("), "{source}");
+}
+
+#[test]
+fn lowers_array_length_from_optional_and_member_numeric() {
+    // `new Array(n)` where `n` is an optional/number-typed parameter, and
+    // `new Array(xs.length)` where the length is a numeric member read, both
+    // preallocate a list instead of rejecting the length as non-numeric.
+    let source = source_for(
+        r#"
+export function makeOptional(n?: number): number[] {
+  const result = new Array(n);
+  return result;
+}
+export function makeFromLength<T>(keys: T[]): T[] {
+  const result = new Array(keys.length);
+  return result;
+}
+"#,
+    );
+    assert!(source.contains("Vec::new") || source.contains("SmeltList"), "{source}");
+}
+
+#[test]
+fn lowers_new_set_from_optional_and_erased_iterables() {
+    // `new Set(iterable)` accepts an optional array, an existing set (copy), and
+    // an erased iterable surface, instead of requiring a concretely-typed array.
+    let source = source_for(
+        r#"
+export function fromOptional(xs?: string[]): Set<string> {
+  return new Set(xs);
+}
+export function fromSet(s: Set<number>): Set<number> {
+  return new Set(s);
+}
+"#,
+    );
+    assert!(source.contains("HashSet") || source.contains("SmeltSet") || source.contains("Set"), "{source}");
+}
+
+#[test]
+fn lowers_object_has_own_on_optional_array_and_generic_receivers() {
+    // `Object.hasOwn` lowers for an array receiver (numeric in-bounds check), an
+    // optional record receiver (asserted to its inner shape), and a generic
+    // `T extends object` receiver (treated as a string-keyed record).
+    let source = source_for(
+        r#"
+export function indexPresent(arr: number[], i: number): boolean {
+  return Object.hasOwn(arr, i);
+}
+export function keyPresent(obj?: Record<string, number>, key?: string): boolean {
+  return obj != null && key != null && Object.hasOwn(obj, key);
+}
+export function genericKey<T extends object>(object: T, key: string): boolean {
+  return Object.hasOwn(object, key);
+}
+"#,
+    );
+    // Array case becomes a length-bounded comparison.
+    assert!(source.contains(".len()") || source.contains("len("), "{source}");
+}
+
+#[test]
+fn lowers_string_methods_on_coercible_receivers() {
+    // String padding/charAt/repeat/trim and prefix/suffix-with-position accept
+    // string-compatible receivers (generic `T extends string`, erased returns),
+    // numeric-like length/index/count arguments, and an optional position.
+    let source = source_for(
+        r#"
+export function pad(s: string, n: number, c: string): string {
+  return s.padStart(n, c);
+}
+export function firstChar<T extends string>(s: T): string {
+  return s.charAt(0);
+}
+export function repeated(s: string, n: number): string {
+  return s.repeat(n);
+}
+export function startsAt(s: string, t: string, p: number): boolean {
+  return s.startsWith(t, p);
+}
+"#,
+    );
+    assert!(source.contains("starts_with") || source.contains("StringAffix") || source.contains("char"), "{source}");
+}
+
+#[test]
+fn lowers_for_in_over_generic_object_receiver() {
+    // `for...in` over an unconstrained generic / erased object receiver casts to
+    // a string-keyed record and iterates its keys.
+    let source = source_for(
+        r#"
+export function keysOf<T>(object: T): string[] {
+  const out: string[] = [];
+  for (const key in object) {
+    out.push(key);
+  }
+  return out;
+}
+"#,
+    );
+    assert!(source.contains("for "), "{source}");
+}
+
+#[test]
+fn lowers_array_fill_with_compatible_value() {
+    // `Array.prototype.fill` coerces an assignment-compatible value (generic
+    // element type) instead of requiring an exact element-type match.
+    let source = source_for(
+        r#"
+export function fillAll<T>(a: T[], v: T): T[] {
+  return a.fill(v);
+}
+export function fillRange(a: number[]): number[] {
+  return a.fill(0, 1, 2);
+}
+"#,
+    );
+    assert!(source.contains("fill"), "{source}");
+}
+
+#[test]
+fn lowers_truthy_guard_on_param_with_dependent_default() {
+    // A default-parameter initializer (`end = array ? array.length : 0`) can
+    // register a name in the lexical `locals` map whose `LocalId` is not
+    // materialized in the function body. A later bare-identifier truthy guard
+    // (`if (!end) { ... }`) must not panic looking that local up; it falls back
+    // to "no narrowing" instead. Regression for the es-toolkit `compat/array/
+    // fill.ts` frontend panic.
+    let source = source_for(
+        r#"
+export function fillRange<T>(
+  array: T[] | null | undefined,
+  value: T,
+  start = 0,
+  end = array ? array.length : 0
+): T[] {
+  start = Math.floor(start);
+  end = Math.floor(end);
+  if (!start) {
+    start = 0;
+  }
+  if (!end) {
+    end = 0;
+  }
+  return [];
+}
+"#,
+    );
+    assert!(source.contains("fill_range"), "{source}");
+}
+
+#[test]
+fn lowers_callback_that_reassigns_its_parameter() {
+    // A callback that reassigns its own parameter is not representable in the
+    // compact side-effect-free callback IR, but the full closure-body path
+    // makes parameters mutable locals. The fallback must retry there instead of
+    // failing with "callback parameter assignment is not supported yet".
+    let source = source_for(
+        r#"
+export function run(values: number[]): number[] {
+  return values.map(value => {
+    if (value < 0) {
+      value = 0;
+    }
+    return value + 1;
+  });
+}
+"#,
+    );
+    assert!(source.contains("fn run("), "{source}");
+}
+
+#[test]
+fn lowers_foreach_callback_without_fixed_item_parameter() {
+    // `forEach((...args) => ...)` and `forEach(() => ...)` have no fixed item
+    // parameter, so the statement-loop shortcut declines and the general
+    // callback lowering handles them instead of failing with "array forEach
+    // callbacks require an item parameter".
+    let source = source_for(
+        r#"
+export function run(sources: unknown[], apply: (...args: unknown[]) => void): void {
+  sources.forEach((...args: unknown[]) => apply(...args));
+}
+export function tick(values: number[], onTick: () => void): void {
+  values.forEach(() => onTick());
+}
+"#,
+    );
+    assert!(source.contains("fn run("), "{source}");
+    assert!(source.contains("fn tick("), "{source}");
+}
+
+#[test]
+fn lowers_named_opaque_predicate_for_array_some() {
+    // A named/opaque predicate passed to `some` (`xs.some(matchFunc)`) lowers to
+    // a wrapper closure returning an erased value. The truthy-predicate path must
+    // accept the erased return type instead of rejecting it with "array callback
+    // callback returns an unsupported type".
+    let source = source_for(
+        r#"
+export function run(values: unknown[], matchFunc: (value: unknown) => unknown): boolean {
+  return values.some(matchFunc);
+}
+"#,
+    );
+    assert!(source.contains("fn run("), "{source}");
+    assert!(source.contains(".any("), "expected a some/any lowering: {source}");
+}
+
+#[test]
+fn lowers_conditionally_selected_array_callback() {
+    // A callback chosen at runtime between callable values must lower as an
+    // opaque element-forwarding callback instead of being rejected with
+    // "array callback methods currently require arrow function callbacks".
+    let source = source_for(
+        r#"
+import { identity } from "./identity";
+export function run(values: unknown[], flag: boolean): unknown[] {
+  return values.map(flag ? Object : identity);
+}
+"#,
+    );
+    assert!(source.contains("fn run("), "{source}");
+}
+
+#[test]
+fn lowers_lodash_two_argument_collection_callback_form() {
+    // `import * as _ from "lodash"; _.map(values, cb)` is the lodash
+    // free-function form: collection first, iteratee second. The receiver is an
+    // opaque imported namespace, so the call stays a placeholder, but both the
+    // collection and the iteratee must lower (no "require exactly one callback
+    // argument" rejection of the trailing iteratee).
+    let source = source_for(
+        r#"
+import * as _ from "lodash";
+export function run(values: number[]): void {
+  _.map(values, value => value + 1);
+  _.some(values, value => value > 0);
+}
+"#,
+    );
+    assert!(source.contains("fn run("), "{source}");
+}
+
+#[test]
+fn lowers_compact_unsupported_method_inside_callback_through_closure_body() {
+    // `String.prototype.repeat` is modeled by the general method-call lowering
+    // but not by the restricted compact-callback method dispatcher. An
+    // expression-bodied `map` callback first lowers through the compact path,
+    // which rejects `repeat` with "is not lowered into closure bodies yet"; the
+    // fallback must retry through the full closure-body path, which routes the
+    // receiver through the general `expression` lowering and emits the real
+    // `.repeat(...)` call against the closure's element-typed parameter.
+    let source = source_for(
+        r#"
+export function cbRepeat(xs: string[]): string[] {
+  return xs.map(value => value.repeat(2));
+}
+"#,
+    );
+    assert!(
+        source.contains("closure_arg_0.clone().repeat("),
+        "callback body should emit the real string repeat call: {source}"
     );
 }

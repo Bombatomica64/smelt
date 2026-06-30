@@ -161,12 +161,42 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Normalize a `<global-alias>.<Member>` read to the bare `<Member>` value.
+    ///
+    /// Implements the read side of the plan §5 path normalization: a non-optional
+    /// static member whose receiver is a recognized global alias (`globalThis` /
+    /// `global` / `self`, or a tracked local alias) and whose member is a
+    /// recognized JavaScript global is lowered exactly like the bare identifier,
+    /// so `globalThis.Object` and `Object` produce the same concrete value. The
+    /// rewrite is gated on the member being a recognized builtin: an unmodeled
+    /// member such as `globalThis.Buffer` (whose bare form is itself unsupported)
+    /// returns `None` and falls through to ordinary member lowering, which keeps
+    /// the honest blocker rather than silently degrading to a dynamic read.
+    fn global_alias_member_read(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if member.optional || !self.expr_is_global_alias(&member.object) {
+            return Ok(None);
+        }
+        let name = member.property.name.as_str();
+        if !smelt_stdlib::is_javascript_global_builtin(name) {
+            return Ok(None);
+        }
+        self.identifier_expression(name, member.span.start, member.span.end, body)
+            .map(Some)
+    }
+
     /// Lower a static member access expression.
     fn static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(expr) = self.global_alias_member_read(member, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.symbol_static_member(member, body) {
             return Ok(expr);
         }
@@ -622,6 +652,28 @@ impl ModuleBuilder<'_> {
         }
         let span = self.span(member.span.start, member.span.end);
         let number_ty = self.ctx.krate.types.intern(Type::Float);
+        // `Math.PI` and the other `Math.*` numeric constants are values, not
+        // callables: fold them to their IEEE-754 double literal so a bare
+        // `Math.PI` reference (e.g. `chunk(xs, Math.PI)` in the chunk spec)
+        // resolves to a concrete number instead of an unresolved `Math`
+        // identifier. These match the ECMAScript spec constant values.
+        if let Some(constant) = match member.property.name.as_str() {
+            "PI" => Some(std::f64::consts::PI),
+            "E" => Some(std::f64::consts::E),
+            "LN2" => Some(std::f64::consts::LN_2),
+            "LN10" => Some(std::f64::consts::LN_10),
+            "LOG2E" => Some(std::f64::consts::LOG2_E),
+            "LOG10E" => Some(std::f64::consts::LOG10_E),
+            "SQRT2" => Some(std::f64::consts::SQRT_2),
+            "SQRT1_2" => Some(std::f64::consts::FRAC_1_SQRT_2),
+            _ => None,
+        } {
+            return Some(outer_body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(constant)),
+                ty: number_ty,
+                span,
+            }));
+        }
         let value_name = self.intern_source_name("value");
         let mut closure_body = Body::new(None, span);
         let value_local = closure_body.push_local(LocalDecl {
@@ -813,6 +865,18 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Some(expr) = self.dynamic_math_member_expression(member, body) {
             return Ok(expr);
+        }
+        // A dynamic computed read off the global object (`globalThis[key]`) is on
+        // the erasure denylist: the key is not statically known, so it genuinely
+        // needs the runtime global object's dynamic property store (plan Phase
+        // 2/3), which is not built. The global object resolves to a marker
+        // host-object value (see `global_object_value_expression`), so guard here
+        // to keep an honest blocker instead of indexing the empty marker record.
+        if !member.optional && self.expr_is_global_alias(&member.object) {
+            return Err(SmeltError::unsupported(
+                self.span(member.span.start, member.span.end),
+                "dynamic computed access on the global object requires the runtime global object (not yet modeled)",
+            ));
         }
         let receiver = self.expression(&member.object, body)?;
         let index = self.expression(&member.expression, body)?;

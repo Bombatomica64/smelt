@@ -42,6 +42,65 @@ pub fn is_javascript_global_builtin(name: &str) -> bool {
     )
 }
 
+/// Compile-time availability of a global object member in the active target profile.
+///
+/// The current target is a deterministic non-DOM, Node-compatible environment
+/// (the default generated Rust test profile from the global-objects plan). A
+/// feature probe such as `"X" in globalThis` may only fold to a literal when the
+/// answer is *known* for that profile; an [`Unknown`](GlobalPresence::Unknown)
+/// member must keep its runtime check so erased and runtime answers never
+/// disagree.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum GlobalPresence {
+    /// The member is a recognized builtin that exists in the non-DOM profile, so
+    /// `"X" in globalThis` is statically `true`.
+    Present,
+    /// The member is a recognized builtin that is intentionally absent from the
+    /// non-DOM profile (browser/DOM-only surfaces), so `"X" in globalThis` is
+    /// statically `false`.
+    Absent,
+    /// The member is not in any recognition registry, so its presence cannot be
+    /// decided at compile time and the probe must stay a runtime check.
+    Unknown,
+}
+
+/// Global members that the non-DOM Node-compatible profile treats as absent.
+///
+/// These names are still recognized JavaScript globals (see
+/// [`is_javascript_global_builtin`]) but only exist in a browser/DOM host, so the
+/// non-DOM profile answers `"X" in globalThis` with `false`. Keeping the absent
+/// set explicit means everything else recognized is derived as present, instead
+/// of maintaining a parallel hand-written "present" list that could drift from
+/// the recognition registry.
+const NON_DOM_ABSENT_GLOBALS: &[&str] = &["window", "self", "document"];
+
+/// Classify a candidate global member name for the non-DOM Node-compatible profile.
+///
+/// The result is derived from the recognition registries that codegen actually
+/// lowers — [`is_javascript_global_builtin`] plus the absent-in-non-DOM denylist —
+/// rather than a separate literal "present" list, so the compile-time answer to
+/// `"X" in globalThis` cannot drift from what Smelt can lower. Per the plan,
+/// `structuredClone` and `crypto` are *not* answered `Present` here: they are
+/// runtime functions whose probes may only fold once a deterministic runtime
+/// implementation exists, so they stay [`Unknown`](GlobalPresence::Unknown).
+#[must_use]
+pub fn global_member_presence(name: &str) -> GlobalPresence {
+    if NON_DOM_ABSENT_GLOBALS.contains(&name) {
+        return GlobalPresence::Absent;
+    }
+    // Runtime-capability functions are gated on real deterministic runtime
+    // support landing (plan section 7); until then their probe must not fold.
+    if matches!(name, "structuredClone" | "crypto" | "fetch") {
+        return GlobalPresence::Unknown;
+    }
+    if is_javascript_global_builtin(name) {
+        GlobalPresence::Present
+    } else {
+        GlobalPresence::Unknown
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,6 +118,44 @@ mod tests {
     fn rejects_user_identifiers() {
         for name in ["Foo", "curried", "myHelper", "Circle"] {
             assert!(!is_javascript_global_builtin(name), "{name} should not be a builtin");
+        }
+    }
+
+    /// Recognized non-DOM globals are present so `"X" in globalThis` folds true.
+    #[test]
+    fn recognized_node_globals_are_present() {
+        for name in ["Map", "Set", "ArrayBuffer", "Reflect", "Promise", "process"] {
+            assert_eq!(global_member_presence(name), GlobalPresence::Present, "{name}");
+        }
+    }
+
+    /// DOM-only globals are absent so `"X" in globalThis` folds false.
+    #[test]
+    fn dom_only_globals_are_absent() {
+        for name in ["window", "self", "document"] {
+            assert_eq!(global_member_presence(name), GlobalPresence::Absent, "{name}");
+        }
+    }
+
+    /// Unrecognized names and runtime-gated capabilities stay unknown.
+    #[test]
+    fn unmodeled_members_are_unknown() {
+        for name in ["DocumentFragment", "__feature", "structuredClone", "crypto"] {
+            assert_eq!(global_member_presence(name), GlobalPresence::Unknown, "{name}");
+        }
+    }
+
+    /// The present set is derived from the recognition registry, not a copy of it.
+    #[test]
+    fn presence_tracks_recognition_registry() {
+        // Every recognized builtin is either present or explicitly absent; none
+        // silently fall through to Unknown except the runtime-gated capabilities.
+        for name in ["Array", "JSON", "Math", "Buffer", "URL", "TextEncoder"] {
+            assert_ne!(
+                global_member_presence(name),
+                GlobalPresence::Unknown,
+                "recognized builtin {name} should have a decided presence"
+            );
         }
     }
 }

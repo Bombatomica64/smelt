@@ -182,8 +182,10 @@ impl ModuleBuilder<'_> {
                 "nested class definitions are not yet supported",
             )),
 
-            Stmt::Delete(_)
-            | Stmt::TypeAlias(_)
+            // `del target[, target]...` — currently only `del dict[key]` is lowered.
+            Stmt::Delete(delete_stmt) => self.delete_statement(delete_stmt, body, block),
+
+            Stmt::TypeAlias(_)
             | Stmt::Try(_)
             | Stmt::Global(_)
             | Stmt::Nonlocal(_)
@@ -192,6 +194,60 @@ impl ModuleBuilder<'_> {
                 format!("unsupported statement: {}", stmt_kind_name(stmt)),
             )),
         }
+    }
+
+    /// Lower a Python `del target[, target]...` statement.
+    ///
+    /// Only subscript deletion against a statically-known `dict` receiver is
+    /// supported, lowering `del d[key]` to a [`ExprKind::DictRemoveKey`] whose
+    /// (unused) `bool` result is discarded through an expression statement —
+    /// the same HIR shape TypeScript's `Map.delete(key)` produces. Other forms
+    /// (`del name`, `del list[i]`, `del obj.attr`, slice deletion) have no
+    /// general HIR lowering yet and are rejected with a specific message so the
+    /// blocker class stays narrow.
+    fn delete_statement(
+        &mut self,
+        delete_stmt: &ruff_python_ast::StmtDelete,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        for target in &delete_stmt.targets {
+            let Expr::Subscript(sub) = target else {
+                return Err(SmeltError::unsupported(
+                    self.span(target.range()),
+                    "only `del dict[key]` deletion is supported",
+                ));
+            };
+            if matches!(sub.slice.as_ref(), Expr::Slice(_)) {
+                return Err(SmeltError::unsupported(
+                    self.span(sub.range),
+                    "slice deletion (`del seq[a:b]`) is not supported",
+                ));
+            }
+            let dict = self.expression(&sub.value, body)?;
+            let dict_ty = Self::expr_ty(body, dict);
+            let Some(&Type::Dict(key_ty, _)) = self.ctx.krate.types.get(dict_ty) else {
+                return Err(SmeltError::unsupported(
+                    self.span(sub.range),
+                    "`del receiver[key]` requires a dict receiver",
+                ));
+            };
+            let key = self.expression(&sub.slice, body)?;
+            if Self::expr_ty(body, key) != key_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(sub.range),
+                    "`del dict[key]` key must match the dict key type",
+                ));
+            }
+            let bool_ty = self.intern_type(Type::Bool);
+            let remove = body.push_expr(HirExpr {
+                kind: ExprKind::DictRemoveKey { dict, key },
+                ty: bool_ty,
+                span: self.span(sub.range),
+            });
+            body.push_stmt_to_block(block, HirStmt::Expr(remove));
+        }
+        Ok(())
     }
 
     /// `x: T [= value]` → `Stmt::Let { pat, ty, value }`.

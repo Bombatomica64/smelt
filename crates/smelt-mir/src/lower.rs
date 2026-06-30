@@ -1719,6 +1719,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::NumericToFixed { operand, digits } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                let lowered_digits = self.lower_expr(*digits)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::NumericToFixed {
+                        operand: lowered_operand,
+                        digits: lowered_digits,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ParseIntRadix { operand, radix } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let lowered_radix = self.lower_expr(*radix)?;
@@ -3652,6 +3665,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::NumericRandom
             | ExprKind::NumericRandomInt { .. }
             | ExprKind::NumericToStringRadix { .. }
+            | ExprKind::NumericToFixed { .. }
             | ExprKind::ParseIntRadix { .. }
             | ExprKind::PrimitiveCast { .. }
             | ExprKind::StringCase { .. }

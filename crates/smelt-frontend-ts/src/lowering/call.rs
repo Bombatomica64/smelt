@@ -7,6 +7,23 @@ type BuiltinCallHandler<'builder> = fn(
     &mut Body,
 ) -> Result<Option<smelt_hir::ExprId>, SmeltError>;
 
+/// Stripped callee shape produced when normalizing a global-alias namespace call.
+///
+/// Used by [`ModuleBuilder::global_alias_namespace_call`] to record which bare
+/// spelling a global-rooted callee normalizes to before the synthetic call is
+/// rebuilt and re-dispatched through the ordinary call path.
+enum StrippedGlobalCallee<'a> {
+    /// `<alias>.<fn>(...)` normalizes to the bare free function `<fn>`.
+    FreeFn(&'a str),
+    /// `<alias>.<Namespace>.<method>(...)` normalizes to `<Namespace>.<method>`.
+    Namespace {
+        /// Bare namespace identifier the alias receiver is stripped down to.
+        namespace: &'a str,
+        /// Method invoked on the normalized namespace.
+        method: &'a str,
+    },
+}
+
 impl<'builder> ModuleBuilder<'builder> {
     /// Lower call expressions, including stdlib shims and direct function/method invokes.
     fn call_expression(
@@ -14,7 +31,13 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(expr) = self.global_alias_namespace_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.dispatch_builtin_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.immediately_invoked_function_call(call, body)? {
             return Ok(expr);
         }
         if let Expression::ComputedMemberExpression(member) = &call.callee {
@@ -615,6 +638,95 @@ impl<'builder> ModuleBuilder<'builder> {
         ))
     }
 
+    /// Lower an immediately-invoked function expression (IIFE).
+    ///
+    /// `(function (a, b) { ... })(1, 2)` and `((a) => ...)(5)` invoke a function
+    /// or arrow literal directly. The callee is lowered to a closure value, its
+    /// function type provides the parameter/return shape, and the call becomes a
+    /// `ClosureCall`. Spread arguments expand through the same rest-aware path
+    /// used by other closure calls. Returns `Ok(None)` when the callee is not a
+    /// function/arrow literal so the surrounding dispatch can continue.
+    fn immediately_invoked_function_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let callee = match &call.callee {
+            Expression::FunctionExpression(function) => {
+                self.function_expression_value(function, None, function.span, body)?
+            }
+            Expression::ArrowFunctionExpression(arrow) => {
+                self.arrow_function_expression(arrow, body)?
+            }
+            Expression::ParenthesizedExpression(paren) => match &paren.expression {
+                Expression::FunctionExpression(function) => {
+                    self.function_expression_value(function, None, function.span, body)?
+                }
+                Expression::ArrowFunctionExpression(arrow) => {
+                    self.arrow_function_expression(arrow, body)?
+                }
+                _ => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+        let callee_ty = Self::expr_ty(body, callee);
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "immediately-invoked function expression callee did not lower to a function",
+            ));
+        };
+        let rest = function.rest.and_then(|index| {
+            if let Some(Type::List(item_ty)) = function
+                .params
+                .get(index)
+                .and_then(|param| self.ctx.krate.types.get(*param))
+            {
+                Some(RestParam {
+                    index,
+                    item_ty: *item_ty,
+                })
+            } else {
+                None
+            }
+        });
+        let args = if rest.is_some() && call.arguments.iter().any(Argument::is_spread) {
+            self.spread_closure_call_arguments(&function, rest, call, body)?
+        } else {
+            let fixed_param_count = rest.map_or(function.params.len(), |rest| rest.index);
+            let mut args = call
+                .arguments
+                .iter()
+                .take(fixed_param_count)
+                .enumerate()
+                .map(|(index, arg)| {
+                    let hint = function.params.get(index).copied();
+                    self.argument_with_hint(arg, body, hint)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if let Some(rest) = rest {
+                let rest_args = call
+                    .arguments
+                    .iter()
+                    .skip(rest.index)
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let rest_ty = self.ctx.krate.types.intern(Type::List(rest.item_ty));
+                args.push(body.push_expr(Expr {
+                    kind: ExprKind::ListLit(rest_args),
+                    ty: rest_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+            args
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: function.return_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower a call through the ordered builtin/stdlib dispatch registry.
     ///
     /// This is the single seam that owns "which builtin lowering, if any, claims
@@ -640,6 +752,86 @@ impl<'builder> ModuleBuilder<'builder> {
             }
         }
         Ok(None)
+    }
+
+    /// Normalize a global-alias namespace call and re-dispatch it stripped.
+    ///
+    /// Implements the path-normalization layer from plan §5: a call whose callee
+    /// is rooted at a recognized global alias is rewritten so the alias receiver
+    /// is removed, then lowered through the *ordinary* call path. This guarantees
+    /// `globalThis.Object.keys(x)` and `g.Array.isArray(value)` (for a known alias
+    /// `g`) emit exactly what the bare `Object.keys(x)` / `Array.isArray(value)`
+    /// spellings do, instead of producing a parallel global-object slot read.
+    ///
+    /// Two shapes are normalized:
+    ///
+    /// - `<alias>.<Namespace>.<method>(...)` -> `<Namespace>.<method>(...)`
+    /// - `<alias>.<fn>(...)` -> `<fn>(...)`
+    ///
+    /// The rewrite only fires when the alias is *only* a namespace receiver here
+    /// (a static, non-optional member path); a computed key, optional chain, or
+    /// any deeper escape of the alias is left untouched so it keeps its honest
+    /// blocker. The synthetic call is allocated in a local arena and its
+    /// arguments are cloned into it, so no AST mutation of the original program
+    /// occurs and the rewrite cannot recurse (the stripped callee no longer has a
+    /// global-alias root).
+    fn global_alias_namespace_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        use oxc::allocator::{Allocator, Box as ArenaBox, CloneIn};
+        use oxc::ast::AstBuilder;
+        use oxc::ast::ast::TSTypeParameterInstantiation;
+
+        if call.optional {
+            return Ok(None);
+        }
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.optional {
+            return Ok(None);
+        }
+
+        // Decide the stripped callee shape without holding the arena yet.
+        let stripped = if self.expr_is_global_alias(&member.object) {
+            // `<alias>.<fn>(...)`.
+            StrippedGlobalCallee::FreeFn(member.property.name.as_str())
+        } else if let Expression::StaticMemberExpression(inner) = &member.object
+            && !inner.optional
+            && self.expr_is_global_alias(&inner.object)
+        {
+            // `<alias>.<Namespace>.<method>(...)`.
+            StrippedGlobalCallee::Namespace {
+                namespace: inner.property.name.as_str(),
+                method: member.property.name.as_str(),
+            }
+        } else {
+            return Ok(None);
+        };
+
+        let arena = Allocator::default();
+        let builder = AstBuilder::new(&arena);
+        let span = call.span;
+        let no_type_args: Option<ArenaBox<'_, TSTypeParameterInstantiation<'_>>> = None;
+        let callee = match stripped {
+            StrippedGlobalCallee::FreeFn(name) => {
+                builder.expression_identifier(member.property.span, name)
+            }
+            StrippedGlobalCallee::Namespace { namespace, method } => {
+                let object = builder.expression_identifier(member.span, namespace);
+                Expression::StaticMemberExpression(builder.alloc_static_member_expression(
+                    member.span,
+                    object,
+                    builder.identifier_name(member.property.span, method),
+                    false,
+                ))
+            }
+        };
+        let arguments = call.arguments.clone_in(&arena);
+        let synthetic = builder.call_expression(span, callee, no_type_args, arguments, false);
+        self.call_expression(&synthetic, body).map(Some)
     }
 
     /// Adapter so an infallible `Option`-returning handler fits the registry shape.
@@ -677,12 +869,16 @@ impl<'builder> ModuleBuilder<'builder> {
     /// The original guard turned a positive match into an immediate `Err`, never
     /// a handled expression, so this surfaces the probe's error and otherwise
     /// reports "not handled".
+    #[expect(
+        clippy::unused_self,
+        reason = "uniform BuiltinCallHandler dispatch-table signature; this stub probe needs no receiver state"
+    )]
     fn unsupported_object_collection_call_entry(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         _body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        self.unsupported_object_collection_call(call)
+        Self::unsupported_object_collection_call(call)
             .map_or(Ok(None), Err)
     }
 
@@ -715,6 +911,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::promise_continuation_call,
         Self::timer_call,
         Self::number_to_string_call,
+        Self::number_to_fixed_call,
         Self::node_process_version_match_call_entry,
         Self::node_process_cwd_call,
         Self::commonjs_require_call,

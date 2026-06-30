@@ -837,3 +837,179 @@ fn accepts_import_and_export_declarations() -> Result<(), String> {
     )?;
     Ok(())
 }
+
+#[test]
+fn lowers_rejects_to_throw_over_async_call_actual() -> Result<(), String> {
+    // An `async` helper resolves to `Promise<T>`; `.rejects.toThrow` awaits the
+    // actual (flattening through native exception flow) to assert it rejects.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+
+async function run(): Promise<number> {
+  throw new Error("boom");
+}
+
+it("rejects", async () => {
+  await expect(run()).rejects.toThrow("boom");
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_resolves_over_erased_promise_actual() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+import { run } from "./run";
+
+it("resolves", async () => {
+  await expect(run()).resolves.toBeUndefined();
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_to_have_property_over_erased_object_actual() -> Result<(), String> {
+    // The actual is the erased return of an imported helper; `toHaveProperty`
+    // lowers to a runtime key-containment check on the live `SmeltUnknown`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+import { transform } from "./transform";
+
+it("has property", () => {
+  const result = transform({ user_id: 1 });
+  expect(result).toHaveProperty("userId", 1);
+  expect(result).toHaveProperty("toString");
+});
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_mock_return_value_with_argument() -> Result<(), String> {
+    // `vi.fn().mockReturnValue(x)` configures a plain mock's return value; the
+    // configured value is accepted and the chainable mock handle is returned.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it, vi } from "vitest";
+
+it("configures return value", () => {
+  const mockFn = vi.fn();
+  mockFn.mockReturnValue(3);
+  expect(mockFn).toBe(mockFn);
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn captures_enclosing_locals_in_for_loop_closure_body() -> Result<(), String> {
+    // A returned `function (...)` whose body iterates over a captured enclosing
+    // rest parameter with a C-style `for (let i = 0; i < xs.length; ++i)` loop
+    // must capture `xs` (the overEvery/overSome/bind pattern). Before
+    // `collect_statement_capture_names` traversed `ForStatement`, the loop test,
+    // update, and body were skipped and `xs` failed with `unresolved identifier`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function overEvery(...xs: number[]): (v: number) => boolean {
+  return function (v: number): boolean {
+    let total = 0;
+    for (let i = 0; i < xs.length; ++i) {
+      total = total + xs[i];
+    }
+    return total > v;
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn captures_mutated_counter_across_arrow_closure() -> Result<(), String> {
+    // `after`-style closure: the returned arrow mutates a captured enclosing
+    // `let counter` and reads the captured parameter `n`. The closure-body
+    // capture machinery must record both across the C-style/conditional body.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function after(n: number, func: () => number): () => number {
+  let counter = 0;
+  return (): number => {
+    counter = counter + 1;
+    if (counter >= n) {
+      return func();
+    }
+    return 0;
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn capturing_const_function_binding_is_not_synthesized_as_class() -> Result<(), String> {
+    // `const bound = function (...) { … }` that captures enclosing locals is a
+    // constructable function *value*, not a static class. The binding must
+    // remain a closure value so its captures (`xs`) are preserved; synthesizing
+    // a top-level class would drop them and break the closure body. This must
+    // lower without an `unresolved identifier`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function bind(...xs: number[]): (v: number) => number {
+  const bound = function (v: number): number {
+    let total = v;
+    for (let i = 0; i < xs.length; i++) {
+      total = total + xs[i];
+    }
+    return total;
+  };
+  return bound;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

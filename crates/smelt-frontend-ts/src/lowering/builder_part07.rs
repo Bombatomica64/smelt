@@ -36,19 +36,7 @@ impl ModuleBuilder<'_> {
         };
         let loop_body = self.block_from_statement(&for_stmt.body, body)?;
         if let Some(update) = &for_stmt.update {
-            let (target, value) = match update {
-                Expression::AssignmentExpression(assign) => self.assignment_parts(assign, body)?,
-                Expression::UpdateExpression(update_expr) => {
-                    self.update_parts(update_expr, body)?
-                }
-                _ => {
-                    return Err(SmeltError::unsupported(
-                        self.expression_span(update),
-                        "for-loop update must be assignment or increment/decrement",
-                    ));
-                }
-            };
-            body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
+            self.push_for_update(update, body, loop_body)?;
         }
         body.push_stmt_to_block(
             block,
@@ -58,6 +46,44 @@ impl ModuleBuilder<'_> {
             },
         );
         Ok(())
+    }
+
+    /// Lower a C-style `for` loop update clause into assignment statements
+    /// appended to the loop body block.
+    ///
+    /// The update is either a single assignment (`i += 2`), an increment or
+    /// decrement (`i++`, `--j`), or a comma sequence of those forms
+    /// (`step++, resultIndex++`). A sequence evaluates each sub-expression
+    /// left-to-right, so each one is lowered into its own `Assign` statement in
+    /// source order.
+    fn push_for_update(
+        &mut self,
+        update: &Expression<'_>,
+        body: &mut Body,
+        loop_body: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        match update {
+            Expression::SequenceExpression(sequence) => {
+                for sub_update in &sequence.expressions {
+                    self.push_for_update(sub_update, body, loop_body)?;
+                }
+                Ok(())
+            }
+            Expression::AssignmentExpression(assign) => {
+                let (target, value) = self.assignment_parts(assign, body)?;
+                body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
+                Ok(())
+            }
+            Expression::UpdateExpression(update_expr) => {
+                let (target, value) = self.update_parts(update_expr, body)?;
+                body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
+                Ok(())
+            }
+            _ => Err(SmeltError::unsupported(
+                self.expression_span(update),
+                "for-loop update must be assignment or increment/decrement",
+            )),
+        }
     }
 
     /// Extract pattern from for-of left side.
@@ -237,7 +263,11 @@ impl ModuleBuilder<'_> {
                     span: self.expression_span(source),
                 }))
             }
-            Some(Type::Unknown | Type::Class { .. }) => {
+            Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. } |
+Type::Optional(_)) => {
+                // A `for...in` over an erased object surface — an unconstrained
+                // generic `T`, an erased object, or an optional object — iterates
+                // string-keyed properties, so it is cast to `Record<string, unknown>`.
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
@@ -267,16 +297,25 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert a switch case label expression to a literal.
-    fn literal_case_label(&self, expression: &Expression<'_>) -> Result<Literal, SmeltError> {
+    ///
+    /// Beyond direct literals, lodash/es-toolkit compat code labels cases with
+    /// references to module string constants such as `case stringTag:` where
+    /// `export const stringTag = '[object String]'`. These fold to the same
+    /// literal at compile time, so resolve any constant-foldable label through
+    /// the shared exported-const folder before failing.
+    fn literal_case_label(&mut self, expression: &Expression<'_>) -> Result<Literal, SmeltError> {
         match expression {
             Expression::StringLiteral(lit) => Ok(Literal::String(lit.value.to_string())),
             Expression::NumericLiteral(lit) => Ok(Literal::Float(lit.value)),
             Expression::BooleanLiteral(lit) => Ok(Literal::Bool(lit.value)),
             Expression::NullLiteral(_) => Ok(Literal::None),
-            _ => Err(SmeltError::unsupported(
-                self.expression_span(expression),
-                "switch case labels must be string, number, boolean, or null literals",
-            )),
+            _ => match self.literal_const_expression(expression) {
+                Ok(value) => Ok(value.literal),
+                Err(_) => Err(SmeltError::unsupported(
+                    self.expression_span(expression),
+                    "switch case labels must be string, number, boolean, or null literals",
+                )),
+            },
         }
     }
 

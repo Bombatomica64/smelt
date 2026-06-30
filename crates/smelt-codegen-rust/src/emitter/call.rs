@@ -157,6 +157,48 @@ impl FunctionEmitter<'_> {
                     clear_timeout = smelt_stdlib::runtime_symbols::timers::CLEAR_TIMEOUT,
                 ))
             }
+            smelt_hir::AsyncOp::SetInterval => {
+                // `setInterval(callback, period)` shares the timer-callback shape
+                // with `setTimeout`: the only difference is that the runtime helper
+                // re-arms the timer after each fire (see `smelt_set_interval`). The
+                // callback-invocation snippet is identical to the timeout case.
+                let [callback, duration] = args else {
+                    return Err(EmitError::new(
+                        "setInterval requires callback and period operands",
+                    ));
+                };
+                let callback_text = self.operand_text(callback)?;
+                let callback_call = if let Some(Type::Function(function)) =
+                    self.mir.types.get(self.operand_ty(callback)?)
+                    && function.params.is_empty()
+                {
+                    if function.may_throw {
+                        "(smelt_timer_callback)().map(|_| ())".to_owned()
+                    } else {
+                        "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
+                            .to_owned()
+                    }
+                } else {
+                    "{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(Vec::new()).map(|_| ()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) } }".to_owned()
+                };
+                Ok(format!(
+                    "{{ let smelt_timer_callback = {callback_text}.clone(); {set_interval}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
+                    self.value_at_type(duration, self.type_id(Type::Float)?)?,
+                    set_interval = smelt_stdlib::runtime_symbols::timers::SET_INTERVAL,
+                ))
+            }
+            smelt_hir::AsyncOp::ClearInterval => {
+                let Some(timer) = args.first() else {
+                    return Err(EmitError::new(
+                        "clearInterval requires an interval handle operand",
+                    ));
+                };
+                Ok(format!(
+                    "{clear_interval}({})",
+                    self.operand_text(timer)?,
+                    clear_interval = smelt_stdlib::runtime_symbols::timers::CLEAR_INTERVAL,
+                ))
+            }
             smelt_hir::AsyncOp::Promise => {
                 let [executor] = args else {
                     return Err(EmitError::new("Promise requires an executor operand"));
@@ -1010,6 +1052,38 @@ impl FunctionEmitter<'_> {
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\"))"
             ));
         }
+        if class_name == "Blob"
+            && matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            )
+        {
+            let value_text = self.operand_text(value)?;
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                return Ok(format!(
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_blob\"))"
+                ));
+            }
+            return Ok(format!(
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_blob\"))"
+            ));
+        }
+        if class_name == "Number"
+            && matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            )
+        {
+            let value_text = self.operand_text(value)?;
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                return Ok(format!(
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_number\"))"
+                ));
+            }
+            return Ok(format!(
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_number\"))"
+            ));
+        }
         if class_name == "Promise"
             && matches!(
                 self.mir.types.get(value_ty),
@@ -1025,6 +1099,52 @@ impl FunctionEmitter<'_> {
             return Ok(format!(
                 "matches!({value_text}.clone(), SmeltUnknown::Promise(_))"
             ));
+        }
+        // `AbortController`/`AbortSignal` erase to marker-bearing records (see
+        // `abort_controller_constructor_expression`). They are recognized by
+        // their `__smelt_abortcontroller` / `__smelt_abortsignal` markers on the
+        // erased object, whether the static value type is dynamic (`unknown`,
+        // generics, unions) or the erased abort class itself.
+        // Marker-only host builtins (WeakMap/WeakSet/DataView/SharedArrayBuffer/
+        // File) erase to records carrying a dedicated identity marker (see
+        // `marker_only_builtin_constructor_expression` in the frontend). They
+        // share the abort-marker recognition path: a dynamic or erased-class
+        // value resolves `instanceof X` through its marker key.
+        // Boxed primitive wrappers (`Boolean`/`String`) share the same marker
+        // recognition path: a primitive `true`/`"a"` erases to `SmeltUnknown::Bool`
+        // / `SmeltUnknown::String` (never an `Object`), so the marker check is the
+        // correct `false`, while a boxed wrapper object carrying the dedicated
+        // marker resolves to `true`.
+        let abort_marker = match class_name {
+            "AbortController" => Some("__smelt_abortcontroller"),
+            "AbortSignal" => Some("__smelt_abortsignal"),
+            "WeakMap" => Some("__smelt_weakmap"),
+            "WeakSet" => Some("__smelt_weakset"),
+            "DataView" => Some("__smelt_dataview"),
+            "SharedArrayBuffer" => Some("__smelt_sharedarraybuffer"),
+            "File" => Some("__smelt_file"),
+            "DOMException" => Some("__smelt_domexception"),
+            "Boolean" => Some("__smelt_boolean"),
+            "String" => Some("__smelt_string"),
+            "Symbol" => Some("__smelt_symbol"),
+            _ => None,
+        };
+        if let Some(marker) = abort_marker {
+            let value_is_dynamic = matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            );
+            if value_is_dynamic || self.is_erased_class_type(value_ty) {
+                let value_text = self.operand_text(value)?;
+                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                    return Ok(format!(
+                        "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{marker}\"))"
+                    ));
+                }
+                return Ok(format!(
+                    "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{marker}\"))"
+                ));
+            }
         }
         let result = match self.mir.types.get(value_ty) {
             Some(Type::Class { name, .. }) => self.class_extends_or_equals(*name, class),

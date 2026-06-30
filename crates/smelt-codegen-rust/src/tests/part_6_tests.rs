@@ -210,6 +210,31 @@ async function run(): Promise<unknown[]> {
 }
 
 #[test]
+fn promise_resolve_pushes_into_zero_arg_callback_queue() {
+    // A `Promise<void>` executor's `resolve` is typed `(value?) => void`, so it
+    // must satisfy a `() => void` FIFO queue slot (the semaphore deferred-task
+    // pattern). The emitted push wraps the 1-arg resolve closure in a 0-arg
+    // adapter that forwards a default value, rather than failing the build.
+    let source = source_for(
+        r#"
+class Sema {
+  private deferredTasks: Array<() => void> = [];
+  acquire(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.deferredTasks.push(resolve);
+    });
+  }
+}
+export { Sema };
+"#,
+    );
+
+    assert!(source.contains("smelt_promise_result"), "{source}");
+    // The resolve callback is adapted into the zero-argument queue element type.
+    assert!(source.contains("smelt_adapted"), "{source}");
+}
+
+#[test]
 fn promise_bare_delay_settimeout_lowers_to_sleep() {
     // The pure-delay shape `new Promise(resolve => setTimeout(resolve, ms))`
     // resolves `undefined` after the delay and carries no value, so collapsing

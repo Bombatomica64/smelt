@@ -521,3 +521,119 @@ result: None = values.reverse()
         "expected list reverse lowering",
     )
 }
+
+#[test]
+fn del_dict_key_lowers_to_dict_remove_key() -> TestResult {
+    let source = py!(r#"
+def drop(scores: dict[str, int]) -> None:
+    del scores["a"]
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let drop_id = module
+        .items
+        .first()
+        .copied()
+        .ok_or_else(|| "expected drop function".to_owned())?;
+    let Item::Function(drop) = item(&ctx, drop_id)? else {
+        return Err("expected function item for drop".to_owned());
+    };
+    let drop_body_id = drop.body.ok_or_else(|| "expected drop body".to_owned())?;
+    let drop_body = body(&ctx, drop_body_id)?;
+    ensure(
+        drop_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictRemoveKey { .. })),
+        "expected `del dict[key]` to lower to DictRemoveKey",
+    )
+}
+
+#[test]
+fn del_non_dict_subscript_is_rejected() -> TestResult {
+    let source = py!(r#"
+def drop(values: list[int]) -> None:
+    del values[0]
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    let first = first_error(&errors)?;
+    ensure(
+        first.message.contains("requires a dict receiver"),
+        format!("expected dict-receiver rejection, got {:?}", first.message),
+    )
+}
+
+#[test]
+fn del_bare_name_is_rejected() -> TestResult {
+    let source = py!(r#"
+x: int = 1
+del x
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    let first = first_error(&errors)?;
+    ensure(
+        first.message.contains("only `del dict[key]`"),
+        format!("expected del-form rejection, got {:?}", first.message),
+    )
+}
+
+#[test]
+fn map_lambda_with_unary_negation_lowers() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2, 3]
+negated: list[int] = list(map(lambda value: -value, values))
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                &expr.kind,
+                ExprKind::ListCallback {
+                    op: smelt_hir::ListCallbackOp::Map,
+                    ..
+                }
+            )
+        }),
+        "expected map lambda with unary negation to lower",
+    )
+}
+
+#[test]
+fn map_lambda_with_conditional_body_lowers() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, -2, 3]
+clamped: list[int] = list(map(lambda value: value if value > 0 else 0, values))
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                &expr.kind,
+                ExprKind::ListCallback {
+                    op: smelt_hir::ListCallbackOp::Map,
+                    ..
+                }
+            )
+        }),
+        "expected map lambda with conditional body to lower",
+    )
+}

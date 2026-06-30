@@ -54,6 +54,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             allow_unknown_index_access,
             preserve_specialization_receiver: false,
             test_builtins: HashSet::new(),
+            global_object_aliases: HashSet::new(),
             namespace_imports: HashSet::new(),
             type_only_imports: HashSet::new(),
             value_imports: HashSet::new(),
@@ -1333,6 +1334,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Build the body-less function item used by declaration hoisting.
+    ///
+    /// A later parameter's default initializer may reference an earlier
+    /// parameter (`function f(array, value, end = array.length)`), so each
+    /// parameter binding is registered as a local before the next parameter's
+    /// type (and any default initializer it lowers) is inferred. The local
+    /// scope is saved and restored around the loop because this prepass runs
+    /// before the function body is lowered and must not leak parameter bindings
+    /// into the surrounding module scope.
     fn predeclared_function(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
@@ -1340,10 +1349,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<Function, SmeltError> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
+        let saved_locals = std::mem::take(&mut self.locals);
         for (index, param) in function.params.items.iter().enumerate() {
-            let ty = self.function_parameter_type(param)?;
+            let ty = match self.function_parameter_type(param) {
+                Ok(ty) => ty,
+                Err(error) => {
+                    self.locals = saved_locals;
+                    return Err(error);
+                }
+            };
+            let local = smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX));
             let (param_name, span) =
                 if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                    self.locals.insert(binding.name.to_string(), local);
                     (
                         self.intern_source_name(binding.name.as_str()),
                         self.span(binding.span.start, binding.span.end),
@@ -1356,11 +1374,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 };
             params.push(Param {
                 name: param_name,
-                local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
+                local,
                 ty,
                 span,
             });
         }
+        self.locals = saved_locals;
         let mut rest_index = None;
         if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
@@ -1659,6 +1678,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Item::Interface(_) => {
                     self.interfaces.insert(local.to_owned(), item);
                 }
+                // Imported primitive const literals (e.g. `export const stringTag
+                // = '[object String]'`) must be foldable in the importer so they
+                // can appear in switch case labels and other constant positions.
+                // The construction-time `visible_const_literals` snapshot misses
+                // imports whose source module is lowered after this one, so fold
+                // the resolved crate item here where the dependency is guaranteed
+                // present.
+                Item::Const(const_item) => {
+                    if let Some(value) = const_literal_from_item(&self.ctx.krate, const_item) {
+                        self.const_literals.insert(local.to_owned(), value);
+                    }
+                }
                 _ => {}
             }
             return;
@@ -1792,6 +1823,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Expression::ArrowFunctionExpression(arrow) = init {
                 let item =
                     self.arrow_function_const_declaration(binding.name.as_str(), arrow, type_hint)?;
+                items.push(item);
+                continue;
+            }
+            if let Expression::FunctionExpression(function) = init
+                && function.body.is_some()
+            {
+                // `export const stub = function () { ... }` binds an anonymous
+                // function expression to a module name. It is semantically the
+                // same as `function stub() { ... }`, so lower it through the
+                // shared named-function path rather than the literal folder.
+                let item =
+                    self.function_declaration_named(function, binding.name.as_str())?;
                 items.push(item);
                 continue;
             }

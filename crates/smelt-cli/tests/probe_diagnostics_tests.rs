@@ -34,8 +34,10 @@ clone-strategy = "aggressive"
     )?;
     // First file references an unknown user symbol; second references a known
     // builtin Smelt does not model. A fail-fast pass would only report the first.
+    // (`Reflect`/`Math`/`JSON` now resolve as namespace values, so this uses
+    // `structuredClone`, which has no runtime implementation yet.)
     fs::write(project_path.join("src/a.ts"), "console.log(missingAlpha);\n")?;
-    fs::write(project_path.join("src/b.ts"), "console.log(Reflect);\n")?;
+    fs::write(project_path.join("src/b.ts"), "const f = structuredClone;\n")?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     let json = smelt(&[
@@ -48,7 +50,10 @@ clone-strategy = "aggressive"
 
     // Both files surface (recovery past the first failure).
     ensure(json.contains("missingAlpha"), "missing first-file diagnostic")?;
-    ensure(json.contains("Reflect"), "missing second-file diagnostic")?;
+    ensure(
+        json.contains("structuredClone"),
+        "missing second-file diagnostic",
+    )?;
     // Categories are decided in the frontend and serialized in kebab-case.
     ensure(
         json.contains("\"unresolved-reference\""),

@@ -669,11 +669,20 @@ return_ty: function.return_ty,
             .flatten()
     }
 
-    /// Extract `asserts value is T` metadata from a TypeScript return annotation.
+    /// Extract assertion-signature metadata from a TypeScript return annotation.
+    ///
+    /// Two assertion forms are recognized:
+    /// - `asserts value is T` carries a narrowing target `T` and yields
+    ///   `Some(Ok((value, Some(T))))`.
+    /// - `asserts value` (a bare condition assertion, e.g. `invariant`) has no
+    ///   structural narrowing target and yields `Some(Ok((value, None)))`.
+    ///
+    /// In both cases the function's runtime return type is void; the `Option`
+    /// target only drives optional parameter narrowing at call sites.
     fn assertion_return_type(
         &mut self,
         ty: &TSType<'_>,
-    ) -> Option<Result<(String, smelt_hir::TypeId), SmeltError>> {
+    ) -> Option<Result<(String, Option<smelt_hir::TypeId>), SmeltError>> {
         let TSType::TSTypePredicate(predicate) = ty else {
             return None;
         };
@@ -688,14 +697,11 @@ return_ty: function.return_ty,
             )));
         };
         let Some(annotation) = &predicate.type_annotation else {
-            return Some(Err(SmeltError::unsupported(
-                self.span(predicate.span.start, predicate.span.end),
-                "assertion functions must use `asserts value is T`",
-            )));
+            return Some(Ok((parameter.name.to_string(), None)));
         };
         Some(
             self.ts_type_to_hir(&annotation.type_annotation)
-                .map(|target| (parameter.name.to_string(), target)),
+                .map(|target| (parameter.name.to_string(), Some(target))),
         )
     }
 
@@ -1145,12 +1151,11 @@ return_ty: function.return_ty,
         &mut self,
         function: &oxc::ast::ast::TSFunctionType<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        if function.this_param.is_some() {
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "this-parameter function types are not lowered yet",
-            ));
-        }
+        // An explicit `this` parameter in a function *type* is purely type-level:
+        // JavaScript drops the bound receiver at call sites, so the runtime signature
+        // is just the declared `params`. oxc keeps `this_param` separate from
+        // `params.items`, so erasing it here needs no further filtering.
+        let _ = &function.this_param;
         self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let mut params = Vec::new();
         let result = (|| {
@@ -1729,7 +1734,16 @@ return_ty: function.return_ty,
                 }
             }
             Type::Class { name, args } => {
-                if self.ctx.krate.symbols.get(field) == Some("constructor") {
+                // `constructor` and `prototype` are universal members of any
+                // class/constructor value. `constructor` yields the class
+                // object and `prototype` yields the prototype object; both are
+                // dynamic property bags (es-toolkit mutates them through
+                // `Foo.prototype.a = 1`), so they lower to the `Unknown`
+                // dynamic boundary rather than a concrete shape.
+                if matches!(
+                    self.ctx.krate.symbols.get(field),
+                    Some("constructor" | "prototype")
+                ) {
                     return Ok(self.ctx.krate.types.intern(Type::Unknown));
                 }
                 let class_item = self.class_by_symbol(name).cloned();
@@ -2302,6 +2316,16 @@ return_ty: function.return_ty,
             Some(Type::String) => Ok(self.ctx.krate.types.intern(Type::String)),
             Some(Type::Dict(_, value)) => Ok(*value),
             Some(Type::Unknown | Type::None) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            // Dynamically indexing a JavaScript boolean primitive with a key is a
+            // property lookup on the autoboxed `Boolean` wrapper. For an
+            // arbitrary key that has no own indexed element this yields
+            // `undefined`, so the element type is the dynamic `Unknown` boundary
+            // rather than a lowering failure. This is the shape produced by
+            // `(a && b)[key]` chains whose `&&` short-circuit value is a boolean.
+            // Numeric primitives are intentionally excluded: iterating or
+            // indexing a bare number is almost always a real source error (e.g.
+            // `for (x of 1)`) that should stay an honest blocker.
+            Some(Type::Bool) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
@@ -2418,6 +2442,9 @@ return_ty: function.return_ty,
                 | BinOp::Shl
                 | BinOp::Shr
                 | BinOp::UShr
+                | BinOp::BitAnd
+                | BinOp::BitOr
+                | BinOp::BitXor
         ) && (self.is_erased_numeric_operand(lhs_ty)
             || self.is_erased_numeric_operand(rhs_ty)
             || self.is_optional_numeric_operand(lhs_ty)
@@ -2633,4 +2660,23 @@ return_ty: function.return_ty,
         }
     }
 
+    /// Return the resolved item type for any awaitable actual value.
+    ///
+    /// A statically-typed `Promise<T>` / `Future<T>` yields its inner `T`. An
+    /// erased actual (`Type::Unknown`) is a `SmeltUnknown::Promise` thunk — for
+    /// example an `async` call across an import boundary whose generic return
+    /// type was erased — and resolves to an erased `Unknown` value once awaited.
+    /// Anything else is not awaitable and returns `None`. This keeps the Vitest
+    /// `resolves`/`rejects` matchers general over both concrete and erased
+    /// promise actuals instead of demanding a statically-spelled `Promise<T>`.
+    pub(super) fn awaitable_inner_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Future(inner)) => Some(*inner),
+            // An erased actual is itself the `Unknown` type id; awaiting it
+            // yields another erased value, so reuse the same id rather than
+            // re-interning.
+            Some(Type::Unknown) => Some(ty),
+            _ => None,
+        }
+    }
 }

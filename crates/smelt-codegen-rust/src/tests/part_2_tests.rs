@@ -226,6 +226,51 @@ const number = isDate(1);
 }
 
 #[test]
+fn emits_runtime_blob_identity_for_unknown_instanceof_guard() {
+    let source = source_for(
+        r#"
+function isBlob(value: unknown): boolean {
+  if (typeof Blob === "undefined") {
+    return false;
+  }
+  return value instanceof Blob;
+}
+
+const candidate = new Blob(["content"], { type: "text/plain" });
+const yes = isBlob(candidate);
+const no = isBlob(1);
+"#,
+    );
+
+    assert!(source.contains("\"__smelt_blob\".to_owned()"), "{source}");
+    assert!(
+        source.contains("value.contains_key(\"__smelt_blob\")"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_runtime_boxed_number_identity_for_unknown_instanceof_guard() {
+    let source = source_for(
+        r#"
+function isBoxedNumber(value: unknown): boolean {
+  return value instanceof Number;
+}
+
+const boxed = new Number(42);
+const yes = isBoxedNumber(boxed);
+const no = isBoxedNumber(42);
+"#,
+    );
+
+    assert!(source.contains("\"__smelt_number\".to_owned()"), "{source}");
+    assert!(
+        source.contains("value.contains_key(\"__smelt_number\")"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_vitest_to_be_nan_using_same_value_semantics() {
     let source = source_for(
         r#"

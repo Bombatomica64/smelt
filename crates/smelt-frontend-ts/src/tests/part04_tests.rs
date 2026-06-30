@@ -953,15 +953,17 @@ values.push("x");
     )?;
     assert_unsupported_ts(&wrong_type, "argument must match")?;
 
+    // Multiple homogeneous items are now supported and lower cleanly (the old
+    // "exactly one item argument" restriction was lifted by multi-arg push).
     let mut ctx = HirCtx::new();
-    let too_many = lowering_errors(
+    lower_ok(
         ts!(r#"
 let values: number[] = [1, 2];
 values.push(3, 4);
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&too_many, "exactly one item argument")
+    Ok(())
 }
 
 #[test]
@@ -1171,6 +1173,128 @@ const missing = undefined;
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Undefined)))
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_bare_builtin_functions_as_closure_values() -> Result<(), String> {
+    // Recognized global coercion/parse/predicate functions referenced as bare
+    // values (passed to a higher-order function) must lower to concrete
+    // closures running the builtin's IR op, not to an unresolved identifier or
+    // an erased `SmeltUnknown` tag.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function take<A, R>(fn: (a: A) => R): (a: A) => R {
+  return (a: A) => fn(a);
+}
+const asNumber = take(Number);
+const asString = take(String);
+const asBool = take(Boolean);
+const asInt = take(parseInt);
+const asFloat = take(parseFloat);
+const checkNaN = take(isNaN);
+const checkFinite = take(isFinite);
+"#),
+        &mut ctx,
+    )?;
+    let lowered_module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, lowered_module)?;
+
+    // Each builtin value must be a closure expression in the module body.
+    let closure_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::Closure(_)))
+        .count();
+    ensure!(closure_count >= 7, "expected at least 7 builtin closure values, got {closure_count}");
+
+    // The closure bodies must contain the concrete coercion/predicate ops.
+    let mut cast_ops: Vec<PrimitiveCastOp> = Vec::new();
+    let mut predicate_ops: Vec<NumericPredicateOp> = Vec::new();
+    for closure in body.exprs.iter().filter_map(|expr| match &expr.kind {
+        ExprKind::Closure(closure) => Some(closure),
+        _ => None,
+    }) {
+        let Some(closure_body) = ctx.krate.bodies.get(closure.body.0 as usize) else {
+            continue;
+        };
+        for inner in &closure_body.exprs {
+            match inner.kind {
+                ExprKind::PrimitiveCast { op, .. } => {
+                    if !cast_ops.contains(&op) {
+                        cast_ops.push(op);
+                    }
+                }
+                ExprKind::NumericPredicate { op, .. } => {
+                    if !predicate_ops.contains(&op) {
+                        predicate_ops.push(op);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    for expected in [
+        PrimitiveCastOp::ToJsNumber, // Number
+        PrimitiveCastOp::ToString,   // String
+        PrimitiveCastOp::ToBool,     // Boolean
+        PrimitiveCastOp::ToInt,      // parseInt
+        PrimitiveCastOp::ToFloat,    // parseFloat
+    ] {
+        ensure!(cast_ops.contains(&expected), "missing cast op {expected:?}");
+    }
+    for expected in [NumericPredicateOp::IsNaN, NumericPredicateOp::IsFinite] {
+        ensure!(
+            predicate_ops.contains(&expected),
+            "missing predicate op {expected:?}"
+        );
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_bare_builtin_functions_as_array_callbacks() -> Result<(), String> {
+    // The same recognized builtins passed directly to array methods
+    // (`xs.map(Number)`, `xs.filter(isFinite)`) lower to concrete callbacks
+    // rather than the previous placeholder / unresolved-callback error.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const nums = ["1", "2", "3"].map(Number);
+const ints = ["4", "5"].map(parseInt);
+const strs = [1, 2].map(String);
+const truthy = [0, 1].map(Boolean);
+const finite = [1, 2, 3].filter(isFinite);
+"#),
+        &mut ctx,
+    )?;
+    let lowered_module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, lowered_module)?;
+
+    // Every array callback method must have lowered (no unresolved blockers),
+    // and the synthesized callbacks must carry the concrete coercion ops.
+    let has_to_js_number = body
+        .exprs
+        .iter()
+        .filter_map(|expr| match &expr.kind {
+            ExprKind::Closure(closure) => ctx.krate.bodies.get(closure.body.0 as usize),
+            _ => None,
+        })
+        .any(|closure_body| {
+            closure_body.exprs.iter().any(|inner| {
+                matches!(
+                    inner.kind,
+                    ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToJsNumber,
+                        ..
+                    }
+                )
+            })
+        });
+    ensure!(has_to_js_number, "map(Number) callback did not lower to a ToJsNumber cast");
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -1615,6 +1739,37 @@ function outer(value: number): { inner: (next: number) => void } {
 }
 
 #[test]
+fn lowers_nested_function_declaration_with_rest_parameter() -> Result<(), String> {
+    // A nested `function name(...args)` declaration is a real local closure
+    // (the curry/curryRight `makeCurry` family). Its trailing `...rest`
+    // parameter must lower into a packed list local on the closure body the
+    // same way top-level functions, arrows, and function-expression values do,
+    // rather than aborting with "nested function rest parameters are not
+    // lowered yet".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function outer(): (value: number) => number {
+  function collect(first: number, ...rest: number[]): number {
+    let total = first;
+    for (const value of rest) {
+      total = total + value;
+    }
+    return total;
+  }
+  return function (value: number) {
+    return collect(value, value, value);
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_sinon_fake_timers_helper_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -2005,6 +2160,34 @@ function add(transforms: Array<(data: Data) => Data | Promise<Data>>): void {
   const routeBodySanitizeTransform = async (data: Data): Promise<Data> => data;
   (transforms as Array<(data: Data) => Data | Promise<Data>>).push(routeBodySanitizeTransform);
 }
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn pushes_optional_param_callback_into_shorter_function_array() -> Result<(), String> {
+    // A callback that declares an optional trailing parameter is assignable to a
+    // function slot with fewer parameters (TypeScript structural arity). The
+    // canonical case is a `Promise<void>` `resolve`, typed `(value?) => void`,
+    // pushed into the `Array<() => void>` FIFO deferred-task queue used by promise
+    // concurrency primitives such as `Semaphore`. This must lower instead of
+    // raising "array push argument must match the array element type".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Sema {
+  private deferredTasks: Array<() => void> = [];
+  acquire(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.deferredTasks.push(resolve);
+    });
+  }
+}
+export { Sema };
 "#),
         &mut ctx,
     )?;
@@ -4711,6 +4894,216 @@ const pivot = (4 + 10) >>> 1;
             .any(|expr| matches!(expr.kind, ExprKind::NumericToStringRadix { .. })),
         "number.toString(radix) did not lower"
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_bitwise_and_or_xor_operators() -> Result<(), String> {
+    // JavaScript `&`, `|`, `^` must lower to dedicated bitwise `BinOp`s rather
+    // than being rejected as unsupported binary operators. Mirrors the shape used
+    // by es-toolkit's `parseHex` (`(colorValue >> 16) & 0xff`).
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function parseHex(value: number): [number, number, number] {
+  const red = (value >> 16) & 0xff;
+  const green = (value >> 8) & 0xff;
+  const blue = value & 0xff;
+  const mixed = (red | green) ^ blue;
+  return [red, green, mixed];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::BinOp {
+                        op: BinOp::BitAnd,
+                        ..
+                    }
+                )
+            })
+        }),
+        "bitwise AND did not lower"
+    );
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::BinOp {
+                        op: BinOp::BitOr,
+                        ..
+                    }
+                )
+            })
+        }),
+        "bitwise OR did not lower"
+    );
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::BinOp {
+                        op: BinOp::BitXor,
+                        ..
+                    }
+                )
+            })
+        }),
+        "bitwise XOR did not lower"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_number_to_fixed_method_call() -> Result<(), String> {
+    // `n.toFixed(digits)` on a numeric receiver lowers to a fixed-point string
+    // format expression (`NumericToFixed`) returning a string, with the digit
+    // count defaulting to zero when omitted. Mirrors the flow.spec.ts
+    // `n.toFixed(1)` method call.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function fmt(n: number): string {
+  return n.toFixed(1);
+}
+export function fmtDefault(n: number): string {
+  return n.toFixed();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let count = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::NumericToFixed { .. }))
+        .count();
+    ensure!(
+        count >= 2,
+        "expected each toFixed call to lower to NumericToFixed, found {count}"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_immediately_invoked_function_expressions() -> Result<(), String> {
+    // `(function (...) { ... })(...)` and `((...) => ...)(...)` invoke a function
+    // or arrow literal directly. The callee lowers to a closure value and the
+    // call becomes a `ClosureCall`, including the rest/spread case. Mirrors the
+    // IIFE shape used throughout es-toolkit's compat predicate specs.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const sum = (function (a: number, b: number): number { return a + b; })(1, 2);
+export const doubled = ((a: number): number => a * 2)(5);
+export const packed = (function (...rest: number[]): number { return rest.length; })(1, 2, 3);
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let closure_call_count = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+        .count();
+    ensure!(
+        closure_call_count >= 3,
+        "expected each IIFE to lower to a ClosureCall, found {closure_call_count}"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_dynamic_index_access_on_boolean_primitive() -> Result<(), String> {
+    // Dynamically indexing a boolean primitive (the value produced by an `&&`
+    // short-circuit chain) is a JavaScript property lookup that yields
+    // `undefined`. It must lower to the dynamic `Unknown` boundary instead of
+    // aborting as an unsupported index receiver. Mirrors es-toolkit's
+    // transform.spec.ts `root[type]` where `root` came from `a && b`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function pick(a: boolean, b: boolean, key: string): unknown {
+  const root = a && b;
+  return root[key];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_conditional_with_list_branches_of_differing_element_types() -> Result<(), String> {
+    // A ternary whose two branches are arrays with different element types
+    // (here `number[]` vs `(number | null)[]`) must unify to a single array
+    // type rather than aborting. Mirrors es-toolkit's reverse.spec.ts
+    // `(index ? largeArray : smallArray).slice()`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function pick(index: number): number[] {
+  const a = [1, 2, 3];
+  const b = [4, 5, 6, null];
+  return (index ? a : b).slice() as number[];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(expr.kind, ExprKind::Conditional { .. })
+                    && matches!(ctx.krate.types.get(expr.ty), Some(Type::List(_)))
+            })
+        }),
+        "conditional with list branches did not unify to a list type"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_in_operator_in_array_element_position() -> Result<(), String> {
+    // The no-hint binary lowering path (used for array elements and other
+    // non-hinted positions) must dispatch `in` to the dedicated key-membership
+    // lowering instead of rejecting it as an unsupported binary operator.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function membership(record: Record<string, number>): boolean[] {
+  return ["a" in record, "b" in record];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
+        }),
+        "`in` operator did not lower to a key-membership test"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 

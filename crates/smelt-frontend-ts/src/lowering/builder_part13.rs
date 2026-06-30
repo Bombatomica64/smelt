@@ -22,37 +22,26 @@ impl ModuleBuilder<'_> {
                     "static array concat requires a receiver argument",
                 ));
             };
-            if right_arguments.len() != 1 {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "array concat currently requires exactly one array argument",
-                ));
-            }
-            let Some(right_argument) = right_arguments.first() else {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "array concat currently requires exactly one array argument",
-                ));
-            };
             let left = self.argument(left_argument, body)?;
-            return self.finish_list_concat_call(call, left, right_argument, true, body);
+            return self.finish_list_concat_call(call, left, right_arguments, true, body);
         }
-        let [right_argument] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "array concat currently requires exactly one array argument",
-            ));
-        };
         let left = self.expression(&member.object, body)?;
-        self.finish_list_concat_call(call, left, right_argument, false, body)
+        self.finish_list_concat_call(call, left, &call.arguments, false, body)
     }
 
-    /// Finish array concat lowering after receiver-style or helper-style arguments are known.
+    /// Finish array concat lowering after the receiver and the list of
+    /// `concat(...)` arguments are known.
+    ///
+    /// JavaScript `Array.prototype.concat` accepts any number of arguments, each
+    /// of which is either another array (spread into the result) or a scalar
+    /// element (appended). This folds every argument onto the receiver list left
+    /// to right so `a.concat(b, c, d)` and `a.concat(x)` both lower through the
+    /// same per-argument path.
     fn finish_list_concat_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         mut left: smelt_hir::ExprId,
-        right_argument: &Argument<'_>,
+        right_arguments: &[Argument<'_>],
         right_prefers_list: bool,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
@@ -121,6 +110,43 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
+        if right_arguments.is_empty() {
+            // `arr.concat()` with no arguments is a shallow copy.
+            return Ok(Some(left));
+        }
+        for right_argument in right_arguments {
+            let right = self.list_concat_argument(
+                call,
+                right_argument,
+                ty,
+                item_ty,
+                right_prefers_list,
+                body,
+            )?;
+            left = body.push_expr(Expr {
+                kind: ExprKind::ListConcat { left, right },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            });
+        }
+        Ok(Some(left))
+    }
+
+    /// Normalize a single `concat(...)` argument into a list of the receiver's
+    /// element type so it can be appended with [`ExprKind::ListConcat`].
+    ///
+    /// `concat` accepts both arrays (spread) and scalar elements (wrapped into a
+    /// singleton list); this picks between the two based on the argument's lowered
+    /// type, matching the receiver's element type (`item_ty`) and list type (`ty`).
+    fn list_concat_argument(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        right_argument: &Argument<'_>,
+        ty: smelt_hir::TypeId,
+        item_ty: smelt_hir::TypeId,
+        right_prefers_list: bool,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let mut right = self.argument(right_argument, body)?;
         let right_ty = Self::expr_ty(body, right);
         let right = if right_ty == ty {
@@ -179,11 +205,7 @@ impl ModuleBuilder<'_> {
                 "array concat requires an array or element argument matching the receiver",
             ));
         };
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListConcat { left, right },
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
+        Ok(right)
     }
 
     /// Lower callback-heavy TypeScript array methods.
@@ -205,13 +227,27 @@ impl ModuleBuilder<'_> {
             "forEach" => ListCallbackOp::ForEach,
             _ => return Ok(None),
         };
-        let [callback_argument] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "array callback methods require exactly one callback argument",
-            ));
-        };
+        // A method-style callback on an imported utility object is the lodash
+        // free-function form `_.map(collection, iteratee)` (and `filter`, `some`,
+        // etc.), not a `Array.prototype.map` receiver. The collection is the
+        // first argument and the iteratee the second; the older single-argument
+        // shape (`_.map(iteratee)` as a partially-applied factory) is also
+        // accepted. The receiver is an opaque imported lodash value, so the call
+        // result stays a placeholder — but every argument is still lowered so
+        // captures and side effects are honored.
         if self.imported_utility_object(&member.object) {
+            let (collection_argument, callback_argument) = match call.arguments.as_slice() {
+                [callback_argument] => (None, callback_argument),
+                [collection_argument, callback_argument] => {
+                    (Some(collection_argument), callback_argument)
+                }
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "lodash collection callbacks accept a collection and one iteratee",
+                    ));
+                }
+            };
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
             let return_ty = match op {
@@ -222,6 +258,9 @@ impl ModuleBuilder<'_> {
                 ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
                 _ => unknown_ty,
             };
+            if let Some(collection_argument) = collection_argument {
+                let _ = self.argument(collection_argument, body)?;
+            }
             let index_ty = self.ctx.krate.types.intern(Type::Int);
             let _ = self.callback_argument_with_body_fallback(
                 callback_argument,
@@ -245,6 +284,12 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        let [callback_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array callback methods require exactly one callback argument",
+            ));
+        };
         let mut list = self.expression(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let list_ty = match self.ctx.krate.types.get(list_ty).cloned() {
@@ -2741,6 +2786,18 @@ impl ModuleBuilder<'_> {
             if let Argument::StaticMemberExpression(_member) = argument {
                 return Ok(self.opaque_member_callback(expected_param_tys));
             }
+            // A callback chosen at runtime between callable values
+            // (`xs.map(cond ? Object : identity)`) or coalesced from one
+            // (`xs.map(maybeFn ?? identity)`). The selected callee is an opaque
+            // callable surface here, so model the whole argument as an opaque
+            // callback that forwards the receiver's element arguments, the same
+            // way a member or imported-value callback is handled.
+            if matches!(
+                argument,
+                Argument::ConditionalExpression(_) | Argument::LogicalExpression(_)
+            ) {
+                return Ok(self.opaque_member_callback(expected_param_tys));
+            }
             if let Argument::Identifier(identifier) = argument
                 && self.is_opaque_callback_value(identifier.name.as_str())
             {
@@ -2967,10 +3024,79 @@ impl ModuleBuilder<'_> {
             Expression::StaticMemberExpression(_member) => {
                 Ok(self.opaque_member_callback(expected_param_tys))
             }
+            Expression::ConditionalExpression(_) | Expression::LogicalExpression(_) => {
+                Ok(self.opaque_member_callback(expected_param_tys))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(expression.span().start, expression.span().end),
                 "array callback methods currently require arrow function callbacks",
             )),
+        }
+    }
+
+    /// Return whether a local's type can hold a callable value handed to an
+    /// array method as a named callback.
+    ///
+    /// `Type::Function` locals are lowered directly elsewhere; this covers the
+    /// erased/generic surfaces — `unknown`/`any`, type parameters, and unions
+    /// that include a function or erased branch — where the value is genuinely
+    /// callable at runtime but lacks a clean static function type.
+    fn callback_local_value_is_callable_surface(&self, ty: smelt_hir::TypeId) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. }) => true,
+            Some(Type::Union(items)) => items.iter().copied().any(|item| {
+                matches!(
+                    self.ctx.krate.types.get(item),
+                    Some(Type::Function(_) | Type::Unknown)
+                )
+            }),
+            _ => false,
+        }
+    }
+
+    /// Build an opaque callback that calls a captured outer local value.
+    ///
+    /// Mirrors [`Self::opaque_member_callback`], but the callee is the named
+    /// local itself (captured by id) instead of a `None` placeholder resolved by
+    /// name. This lowers `xs.map(fn)` where `fn` is a local holding a callable
+    /// value whose static type is erased (`any`/`unknown`), a type parameter, or
+    /// a union that includes a function — cases where the local is genuinely
+    /// callable but does not have a clean `Type::Function`, so the direct
+    /// local-value branch above does not fire. The wrapper closure forwards the
+    /// receiver's element arguments, matching how a direct `fn(...)` call lowers.
+    fn opaque_local_callback(
+        &mut self,
+        local: smelt_hir::LocalId,
+        local_ty: smelt_hir::TypeId,
+        expected_param_tys: &[smelt_hir::TypeId],
+    ) -> CallbackExpr {
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let args = expected_param_tys
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, ty)| CallbackCallArg {
+                expr: CallbackExpr {
+                    kind: CallbackExprKind::Param(index),
+                    ty,
+                },
+                spread: false,
+            })
+            .collect();
+        CallbackExpr {
+            kind: CallbackExprKind::Call {
+                callee: Box::new(CallbackExpr {
+                    kind: CallbackExprKind::Capture(local),
+                    ty: local_ty,
+                }),
+                args,
+            },
+            ty: unknown_ty,
         }
     }
 
@@ -3544,6 +3670,57 @@ impl ModuleBuilder<'_> {
                     }),
                 },
                 ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Int) {
+            // JavaScript number truthiness: a non-NaN integer is truthy iff it is
+            // non-zero. Integers are never NaN, so `n != 0` is exact (this lowers
+            // the common `(value, index) => index ? a : b` index-guard idiom).
+            let int_ty = self.ctx.krate.types.intern(Type::Int);
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::NotEq,
+                    lhs: Box::new(expr),
+                    rhs: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::Int(0)),
+                        ty: int_ty,
+                    }),
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Float) {
+            // JavaScript number truthiness: a float is truthy iff it is non-zero
+            // (covering both `+0` and `-0`) and not `NaN`. `n != 0.0` rejects the
+            // zeroes; `n == n` rejects `NaN` (the only value not equal to itself).
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            let non_zero = CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::NotEq,
+                    lhs: Box::new(expr.clone()),
+                    rhs: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::Float(0.0)),
+                        ty: float_ty,
+                    }),
+                },
+                ty: bool_ty,
+            };
+            let not_nan = CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::Eq,
+                    lhs: Box::new(expr.clone()),
+                    rhs: Box::new(expr),
+                },
+                ty: bool_ty,
+            };
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::And,
+                    lhs: Box::new(non_zero),
+                    rhs: Box::new(not_nan),
+                },
+                ty: bool_ty,
             });
         }
         if self.ctx.krate.types.get(expr_ty) == Some(&Type::Unknown) {
@@ -4686,6 +4863,49 @@ impl ModuleBuilder<'_> {
                 }
                 ChainElement::PrivateFieldExpression(_) => {}
             },
+            Expression::UpdateExpression(update) => {
+                self.collect_simple_assignment_target_capture_names(
+                    &update.argument,
+                    param_names,
+                    captures,
+                );
+            }
+            Expression::SequenceExpression(sequence) => {
+                for expression in &sequence.expressions {
+                    self.collect_expression_capture_names(expression, param_names, captures);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Collect captured locals referenced by a simple assignment target
+    /// (the target of `x++`, `--y`, or `obj[i]++`).
+    ///
+    /// `++counter` and `startIndex++` in the curry/bind/after family mutate a
+    /// captured enclosing local; without traversing the update target the
+    /// mutated local is never recorded as a capture and the closure body fails
+    /// with `unresolved identifier`.
+    fn collect_simple_assignment_target_capture_names(
+        &self,
+        target: &SimpleAssignmentTarget<'_>,
+        param_names: &HashSet<String>,
+        captures: &mut Vec<String>,
+    ) {
+        match target {
+            SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+                let name = identifier.name.as_str();
+                if !param_names.contains(name) && self.locals.contains_key(name) {
+                    captures.push(name.to_owned());
+                }
+            }
+            SimpleAssignmentTarget::StaticMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
+            SimpleAssignmentTarget::ComputedMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+                self.collect_expression_capture_names(&member.expression, param_names, captures);
+            }
             _ => {}
         }
     }
@@ -4796,6 +5016,72 @@ impl ModuleBuilder<'_> {
             Statement::ThrowStatement(statement) => {
                 self.collect_expression_capture_names(&statement.argument, param_names, captures);
             }
+            Statement::ForStatement(statement) => {
+                // C-style `for (let i = 0; i < n; ++i)` loops appear throughout
+                // the curry/bind/partial family's returned closures. The init
+                // declaration introduces loop-scoped locals (`i`); the test,
+                // update, and body all reference enclosing captures
+                // (`partialArgs.length`, `predicates[i]`). Thread the init's
+                // declared names so the loop variable is not treated as a
+                // capture while the genuinely-enclosing locals still are.
+                let mut local_names = param_names.clone();
+                if let Some(ForStatementInit::VariableDeclaration(decl)) = &statement.init {
+                    for declarator in &decl.declarations {
+                        let mut binding_names = Vec::new();
+                        Self::binding_pattern_names(&declarator.id, &mut binding_names);
+                        local_names.extend(binding_names);
+                    }
+                }
+                match &statement.init {
+                    Some(ForStatementInit::VariableDeclaration(decl)) => {
+                        for declarator in &decl.declarations {
+                            if let Some(init) = &declarator.init {
+                                self.collect_expression_capture_names(
+                                    init,
+                                    &local_names,
+                                    captures,
+                                );
+                            }
+                        }
+                    }
+                    Some(init) => {
+                        if let Some(expression) = init.as_expression() {
+                            self.collect_expression_capture_names(
+                                expression,
+                                &local_names,
+                                captures,
+                            );
+                        }
+                    }
+                    None => {}
+                }
+                if let Some(test) = &statement.test {
+                    self.collect_expression_capture_names(test, &local_names, captures);
+                }
+                if let Some(update) = &statement.update {
+                    self.collect_expression_capture_names(update, &local_names, captures);
+                }
+                self.collect_statement_capture_names(&statement.body, &local_names, captures);
+            }
+            Statement::DoWhileStatement(statement) => {
+                self.collect_statement_capture_names(&statement.body, param_names, captures);
+                self.collect_expression_capture_names(&statement.test, param_names, captures);
+            }
+            Statement::SwitchStatement(statement) => {
+                self.collect_expression_capture_names(
+                    &statement.discriminant,
+                    param_names,
+                    captures,
+                );
+                for case in &statement.cases {
+                    if let Some(test) = &case.test {
+                        self.collect_expression_capture_names(test, param_names, captures);
+                    }
+                    for child in &case.consequent {
+                        self.collect_statement_capture_names(child, param_names, captures);
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -4863,21 +5149,33 @@ impl ModuleBuilder<'_> {
                 )?;
                 return Ok(ClosureCallback { expr, return_ty });
             }
+            // Recognized global builtin *functions* passed as callbacks
+            // (`xs.map(Number)`, `xs.filter(Boolean)`, `xs.map(parseInt)`).
+            // Lower them to the same concrete single-argument closures used in
+            // ordinary value position so the array method runs the builtin's
+            // real behavior instead of a placeholder.
+            if let Some(expr) = self.builtin_function_value_expression(
+                identifier.name.as_str(),
+                identifier.span.start,
+                identifier.span.end,
+                body,
+            ) {
+                let return_ty = self.closure_value_return_ty(expr, body);
+                return Ok(ClosureCallback { expr, return_ty });
+            }
+            // Imported es-toolkit/lodash predicates whose bodies are opaque here
+            // but whose `(value) => bool` shape is known. These are not builtins,
+            // so they are gated on being a value import.
             if matches!(
                 identifier.name.as_str(),
-                "Boolean" | "String" | "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
-            ) && (matches!(identifier.name.as_str(), "Boolean" | "String")
-                || self.value_imports.contains(identifier.name.as_str()))
+                "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
+            ) && self.value_imports.contains(identifier.name.as_str())
             {
                 let param_ty = expected_param_tys
                     .first()
                     .copied()
                     .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                let return_ty = if identifier.name == "String" {
-                    self.ctx.krate.types.intern(Type::String)
-                } else {
-                    self.ctx.krate.types.intern(Type::Bool)
-                };
+                let return_ty = self.ctx.krate.types.intern(Type::Bool);
                 let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params: vec![param_ty],
                     rest: None,
@@ -4921,6 +5219,29 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let Some(callback) = self.local_callbacks.get(identifier.name.as_str()).cloned() else {
+                // The name is a local holding a value but is not an inlined
+                // callback literal. If its (possibly erased) type is a callable
+                // surface — `any`/`unknown`, a type parameter, or a union that
+                // includes a function — call it through a wrapper closure that
+                // captures the local and forwards the receiver's element
+                // arguments, the same way a direct `fn(...)` call would lower.
+                let local = self
+                    .locals
+                    .get(identifier.name.as_str())
+                    .copied()
+                    .expect("local checked present above");
+                let local_ty = Self::local_ty(body, local);
+                if self.callback_local_value_is_callable_surface(local_ty) {
+                    let callback = self.opaque_local_callback(local, local_ty, expected_param_tys);
+                    let return_ty = callback.ty;
+                    let expr = self.callback_expr_to_closure(
+                        &callback,
+                        expected_param_tys,
+                        self.span(identifier.span.start, identifier.span.end),
+                        body,
+                    )?;
+                    return Ok(ClosureCallback { expr, return_ty });
+                }
                 return Err(SmeltError::unsupported(
                     self.span(identifier.span.start, identifier.span.end),
                     format!(
@@ -5039,6 +5360,21 @@ impl ModuleBuilder<'_> {
                     self.callback_argument(argument, expected_param_tys, context, body)?;
                 if callback.return_ty == bool_ty {
                     Ok(callback)
+                } else if matches!(
+                    self.ctx.krate.types.get(callback.return_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. })
+                ) || self.erased_or_union_surface(callback.return_ty)
+                {
+                    // An opaque/named predicate (`xs.some(matchFunc)`) lowers to a
+                    // wrapper closure whose result is an erased `unknown` value.
+                    // JavaScript predicates use the truthiness of that result, and
+                    // the downstream array predicate op coerces an erased callback
+                    // result to bool, so accept the erased return type instead of
+                    // rejecting the named-callback form.
+                    Ok(ClosureCallback {
+                        expr: callback.expr,
+                        return_ty: bool_ty,
+                    })
                 } else {
                     Err(SmeltError::unsupported(
                         self.span(argument.span().start, argument.span().end),
@@ -5164,13 +5500,32 @@ impl ModuleBuilder<'_> {
     fn should_fallback_to_closure_body_for_callback(error: &SmeltError) -> bool {
         error.message == "callback expression kind is not supported yet"
             || error.message == "callback member assignment needs closure-body lowering"
+            // Reassigning a callback parameter (`(value) => { value = ...; }`)
+            // cannot be modeled by the side-effect-free expression IR, but the
+            // full closure-body path makes parameters mutable locals, so retry
+            // there.
+            || error.message == "callback parameter assignment is not supported yet"
             || error.message
                 == "callback expression statements must be followed by a return or throw"
             || error.message == "callback side-effect blocks only support expression statements"
             || error.message
                 == "callback side-effect blocks only support expression and throw statements"
             || error.message == "callback block declarations require simple bindings"
+            // A callback body statement form the side-effect-free expression IR
+            // cannot represent (e.g. `try`/`catch`, loops, `let` reassignment).
+            // Full closure-body lowering supports these statements, so retry there.
+            || error.message
+                == "callback block statements must be const declarations, if guards, return, or throw"
             || error.message == "async callbacks need closure-body lowering"
+            // A method/receiver call the compact callback dispatcher does not
+            // model but the full method-call lowering does (e.g. `String.repeat`,
+            // `Array.at` on a richer receiver). Retrying through the closure body
+            // routes the receiver through the general `expression` path, which
+            // knows the full method table and the closure parameter element
+            // types, so it can lower calls the restricted dispatcher rejects.
+            || error
+                .message
+                .ends_with("is not lowered into closure bodies yet")
             || error
                 .message
                 .starts_with("unresolved callback identifier `")

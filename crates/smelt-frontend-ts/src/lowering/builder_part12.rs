@@ -76,7 +76,7 @@ impl ModuleBuilder<'_> {
                     && self.type_assignable_to_inner(actual_value, expected_value, depth + 1)
             }
             (Type::Function(actual_fn), Type::Function(expected_fn)) => {
-                actual_fn.params.len() == expected_fn.params.len()
+                Self::function_arity_assignable(&actual_fn, &expected_fn)
                     && self.function_async_assignable(&actual_fn, &expected_fn, depth)
                     && actual_fn
                         .params
@@ -116,6 +116,34 @@ impl ModuleBuilder<'_> {
             }
             (actual_ty, expected_ty) => actual_ty == expected_ty,
         }
+    }
+
+    /// Return whether a source function's arity can satisfy an expected function type.
+    ///
+    /// TypeScript permits assigning a function to a target type that calls it with
+    /// fewer arguments, provided every parameter the target would *not* supply is
+    /// optional (declared after the source's required-parameter count) or absorbed
+    /// by a rest parameter. This is what makes a `Promise<void>` `resolve`, typed
+    /// `(value?: T) => void`, assignable to a `() => void` slot such as the FIFO
+    /// `Array<() => void>` deferred-task queue in a semaphore.
+    ///
+    /// A target with *more* parameters than the source is only acceptable when the
+    /// source has a rest parameter to absorb the extras; otherwise the source could
+    /// not be called with all the arguments the target promises to pass.
+    fn function_arity_assignable(actual: &FunctionType, expected: &FunctionType) -> bool {
+        let actual_required = actual.required_params.unwrap_or(actual.params.len());
+        if expected.params.len() < actual_required {
+            // The target would call the source with fewer arguments than the
+            // source requires — only legal if those extra source params are
+            // optional, which they are not here.
+            return false;
+        }
+        if expected.params.len() > actual.params.len() {
+            // The target promises to pass more arguments than the source declares;
+            // only a source rest parameter can absorb the surplus.
+            return actual.rest.is_some();
+        }
+        true
     }
 
     /// Return whether function async metadata is compatible for assignment.
@@ -199,6 +227,29 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Return whether a type is an `Optional<...>` (or union containing one)
+    /// wrapping a numeric-like inner type, i.e. the surface produced by a JS
+    /// `number | undefined` / optional parameter.
+    fn optional_numeric_surface(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::Optional(inner)) => {
+                let inner = *inner;
+                self.is_numeric_like_type(inner) || self.optional_numeric_surface(inner)
+            }
+            Some(Type::Union(items)) => {
+                let items = items.clone();
+                items.iter().copied().all(|item| {
+                    self.ctx.krate.types.get(item) == Some(&Type::None)
+                        || self.is_numeric_like_type(item)
+                }) && items
+                    .iter()
+                    .copied()
+                    .any(|item| self.is_numeric_like_type(item))
+            }
+            _ => false,
+        }
+    }
+
     /// Return whether a type comes from an erased JavaScript surface.
     fn erased_or_union_surface(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
@@ -210,6 +261,37 @@ impl ModuleBuilder<'_> {
                 .any(|item| self.erased_or_union_surface(item)),
             _ => false,
         }
+    }
+
+    /// Coerce a padding operand (receiver or pad string) to `Type::String`.
+    ///
+    /// `String.prototype.padStart`/`padEnd` receivers and pad arguments commonly
+    /// arrive as `toString(...)` returns or erased/optional surfaces. A value
+    /// already typed `String` is returned unchanged; a string-compatible surface
+    /// is converted with a JS `ToString` cast so the runtime padding sees a
+    /// concrete string.
+    fn coerce_pad_string_operand(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) == Some(&Type::String) {
+            return Ok(operand);
+        }
+        if self.is_string_compatible_type(operand_ty) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToString,
+                    operand,
+                },
+                ty: string_ty,
+                span,
+            }));
+        }
+        Ok(operand)
     }
 
     /// Lower supported string padding calls into HIR string runtime calls.
@@ -265,12 +347,42 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })
         };
+        let span = self.span(call.span.start, call.span.end);
+        // Coerce the receiver/pad to `String` and the target length to a number
+        // when they arrive as string/numeric-compatible or erased surfaces
+        // (e.g. `length = 0` numeric defaults, `toString(...)` returns), instead
+        // of requiring exact `String`/`Float` types.
+        let operand = self.coerce_pad_string_operand(operand, span, body)?;
+        let pad = self.coerce_pad_string_operand(pad, span, body)?;
+        let target_len = {
+            let target_ty = Self::expr_ty(body, target_len);
+            if self.ctx.krate.types.get(target_ty) == Some(&Type::Float) {
+                target_len
+            } else if self.is_numeric_like_type(target_ty)
+                || self.optional_numeric_surface(target_ty)
+                || self.erased_or_union_surface(target_ty)
+            {
+                let float_ty = self.ctx.krate.types.intern(Type::Float);
+                body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToJsNumber,
+                        operand: target_len,
+                    },
+                    ty: float_ty,
+                    span,
+                })
+            } else {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "string padding requires a string receiver, number target length, and string padding",
+                ));
+            }
+        };
         if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, target_len)) != Some(&Type::Float)
             || self.ctx.krate.types.get(Self::expr_ty(body, pad)) != Some(&Type::String)
         {
             return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
+                span,
                 "string padding requires a string receiver, number target length, and string padding",
             ));
         }
@@ -307,8 +419,39 @@ impl ModuleBuilder<'_> {
                 "string charAt/charCodeAt requires exactly one number argument",
             ));
         };
-        let operand = self.expression(&member.object, body)?;
-        let index = self.argument(index_argument, body)?;
+        let span = self.span(call.span.start, call.span.end);
+        let mut operand = self.expression(&member.object, body)?;
+        let mut index = self.argument(index_argument, body)?;
+        // Coerce a string-compatible receiver (e.g. `T extends string` generic)
+        // to `String` and a numeric-like index to a JS number, instead of
+        // requiring exact `String`/`Float` types.
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::String)
+            && self.is_string_compatible_type(operand_ty)
+        {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            operand = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: operand },
+                ty: string_ty,
+                span,
+            });
+        }
+        let index_ty = Self::expr_ty(body, index);
+        if self.ctx.krate.types.get(index_ty) != Some(&Type::Float)
+            && (self.is_numeric_like_type(index_ty)
+                || self.optional_numeric_surface(index_ty)
+                || self.erased_or_union_surface(index_ty))
+        {
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            index = body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToJsNumber,
+                    operand: index,
+                },
+                ty: float_ty,
+                span,
+            });
+        }
         if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, index)) != Some(&Type::Float)
         {

@@ -3251,6 +3251,93 @@ function read(parsers: Record<string, Parser>, key: string): number {
     Ok(())
 }
 
+/// Collect the source-level names of every test function item in a module.
+fn test_function_names(ctx: &HirCtx, module: &smelt_hir::Module) -> Vec<String> {
+    let mut names = Vec::new();
+    for index in 0..module.items.len() {
+        if let Ok(function) = function_item(ctx, module, index)
+            && function.is_test
+            && let Some(name) = ctx.krate.symbols.get(function.name)
+        {
+            names.push(name.to_owned());
+        }
+    }
+    names
+}
+
+#[test]
+fn vitest_describe_foreach_literal_unrolls_one_test_per_element() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, it, expect } from "vitest";
+
+describe("escape", () => {
+  ["a", "b", "c"].forEach((chr) => {
+    it(`escapes ${chr}`, () => {
+      expect(chr).toBe(chr);
+    });
+  });
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/foreach.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let names = test_function_names(&ctx, module);
+    ensure_eq!(names.len(), 3);
+    // Distinct elements that sanitize identically still get unique names.
+    ensure!(names.iter().any(|name| name.contains("case_0")));
+    ensure!(names.iter().any(|name| name.contains("case_2")));
+    // The template loop variable folds into the resolved test title.
+    ensure!(names.iter().any(|name| name.contains("escapes_a")));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn vitest_describe_for_of_literal_unrolls_one_test_per_element() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, it, expect } from "vitest";
+
+describe("group", () => {
+  for (const value of [1, 2]) {
+    it(`handles ${value}`, () => {
+      expect(value).toBe(value);
+    });
+  }
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/for-of.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let names = test_function_names(&ctx, module);
+    ensure_eq!(names.len(), 2);
+    ensure!(names.iter().any(|name| name.contains("handles_1")));
+    ensure!(names.iter().any(|name| name.contains("handles_2")));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn vitest_template_test_name_without_bound_expression_is_rejected() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, it, expect } from "vitest";
+
+describe("group", () => {
+  const value = compute();
+  it(`handles ${value}`, () => {
+    expect(value).toBe(value);
+  });
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(source, &mut ctx)?;
+    ensure!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("test case names must be string literals"))
+    );
+    Ok(())
+}
+
 #[test]
 fn mapped_types_over_iterable_keys_preserve_list_shape() -> Result<(), String> {
     let mut ctx = HirCtx::new();

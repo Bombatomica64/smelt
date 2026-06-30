@@ -66,15 +66,34 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        let length = self.array_from_length_argument(source_arg, body)?;
+        let mut length = self.array_from_length_argument(source_arg, body)?;
+        let length_ty = Self::expr_ty(body, length);
         if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, length)),
+            self.ctx.krate.types.get(length_ty),
             Some(Type::Int | Type::Float)
         ) {
-            return Err(SmeltError::unsupported(
-                self.span(source_arg.span().start, source_arg.span().end),
-                "Array.from({ length }, mapper) length must be numeric",
-            ));
+            // Accept numeric-like, optional-numeric, and erased length surfaces
+            // (e.g. `{ length: n }` where `n` is `number | undefined`), coercing
+            // them to a JS number so the allocation count is concrete.
+            if self.is_numeric_like_type(length_ty)
+                || self.optional_numeric_surface(length_ty)
+                || self.erased_or_union_surface(length_ty)
+            {
+                let float_ty = self.ctx.krate.types.intern(Type::Float);
+                length = body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToJsNumber,
+                        operand: length,
+                    },
+                    ty: float_ty,
+                    span: self.span(source_arg.span().start, source_arg.span().end),
+                });
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(source_arg.span().start, source_arg.span().end),
+                    "Array.from({ length }, mapper) length must be numeric",
+                ));
+            }
         }
         let Some(mapper_arg) = mapper_arg else {
             let item_ty = self.ctx.krate.types.intern(Type::Unknown);
@@ -213,10 +232,20 @@ impl ModuleBuilder<'_> {
         }
         if let Some(length) = arguments.first() {
             let length = self.argument(length, body)?;
-            if !matches!(
-                self.ctx.krate.types.get(Self::expr_ty(body, length)),
-                Some(Type::Int | Type::Float)
-            ) {
+            // The preallocation length is only used to size the (initially empty)
+            // list, which Smelt models through later indexed writes, so the value
+            // itself is discarded. Accept any numeric-like type plus the erased /
+            // optional-numeric surfaces that flow from JS `number | undefined`
+            // parameters; only reject clearly non-numeric arguments.
+            let length_ty = Self::expr_ty(body, length);
+            let numeric = self.is_numeric_like_type(length_ty)
+                || matches!(
+                    self.ctx.krate.types.get(length_ty),
+                    Some(Type::Int | Type::Float)
+                )
+                || self.optional_numeric_surface(length_ty)
+                || self.erased_or_union_surface(length_ty);
+            if !numeric {
                 return Err(SmeltError::unsupported(
                     self.span(start, end),
                     "Array(...) length must be numeric",
@@ -588,13 +617,66 @@ impl ModuleBuilder<'_> {
                 (items, ty)
             }
             [argument] => {
-                let list = self.argument(argument, body)?;
-                let list_ty = self.type_param_constraint_or_self(Self::expr_ty(body, list));
-                let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
-                    return Err(SmeltError::unsupported(
-                        self.span(argument.span().start, argument.span().end),
-                        "new Set(iterable) currently requires an array argument",
-                    ));
+                let mut list = self.argument(argument, body)?;
+                let raw_ty = Self::expr_ty(body, list);
+                let list_ty = self.type_param_constraint_or_self(raw_ty);
+                // `new Set(iterable)` accepts arrays directly. Optional arrays are
+                // asserted to their inner list, an existing Set is already in set
+                // shape, and erased/union surfaces (e.g. a generic helper return
+                // typed `unknown`) are asserted to `List<Unknown>` so the
+                // list-to-set conversion can proceed instead of being rejected.
+                let item_ty = match self.ctx.krate.types.get(list_ty).cloned() {
+                    Some(Type::List(item_ty)) => item_ty,
+                    Some(Type::Optional(inner)) => {
+                        if let Some(Type::List(item_ty)) =
+                            self.ctx.krate.types.get(inner).cloned()
+                        {
+                            list = body.push_expr(Expr {
+                                kind: ExprKind::TypeAssert { value: list },
+                                ty: inner,
+                                span: self.span(argument.span().start, argument.span().end),
+                            });
+                            item_ty
+                        } else {
+                            return Err(SmeltError::unsupported(
+                                self.span(argument.span().start, argument.span().end),
+                                "new Set(iterable) currently requires an array argument",
+                            ));
+                        }
+                    }
+                    Some(Type::Set(item_ty)) => {
+                        // `new Set(otherSet)` copies an existing set: keep its
+                        // element type and short-circuit (no list conversion).
+                        let ty = if let Some(hint) = type_hint
+                            && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                        {
+                            hint
+                        } else {
+                            self.ctx.krate.types.intern(Type::Set(item_ty))
+                        };
+                        return Ok(Some(body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value: list },
+                            ty,
+                            span: self.span(new_expr.span.start, new_expr.span.end),
+                        })));
+                    }
+                    _ if self.erased_or_union_surface(list_ty) => {
+                        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let asserted_list_ty =
+                            self.ctx.krate.types.intern(Type::List(item_ty));
+                        list = body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value: list },
+                            ty: asserted_list_ty,
+                            span: self.span(argument.span().start, argument.span().end),
+                        });
+                        item_ty
+                    }
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(argument.span().start, argument.span().end),
+                            "new Set(iterable) currently requires an array argument",
+                        ));
+                    }
                 };
                 let ty = if let Some(hint) = type_hint {
                     if !matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) {
@@ -605,7 +687,7 @@ impl ModuleBuilder<'_> {
                     }
                     hint
                 } else {
-                    self.ctx.krate.types.intern(Type::Set(*item_ty))
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
                 };
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ListToSet { list },
@@ -967,6 +1049,15 @@ impl ModuleBuilder<'_> {
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // `instanceof` and `in` are not arithmetic/comparison operators that map
+        // onto a `BinOp`; they have dedicated lowering (predicate and key-membership
+        // respectively) shared with the hinted expression path in builder_part08.
+        if binary.operator == BinaryOperator::Instanceof {
+            return self.instanceof_expression(binary, body);
+        }
+        if binary.operator == BinaryOperator::In {
+            return self.in_expression(binary, body);
+        }
         if binary.operator == BinaryOperator::Exponential {
             let base = self.expression(&binary.left, body)?;
             let exponent = self.expression(&binary.right, body)?;
@@ -996,6 +1087,9 @@ impl ModuleBuilder<'_> {
             BinaryOperator::ShiftLeft => BinOp::Shl,
             BinaryOperator::ShiftRight => BinOp::Shr,
             BinaryOperator::ShiftRightZeroFill => BinOp::UShr,
+            BinaryOperator::BitwiseAnd => BinOp::BitAnd,
+            BinaryOperator::BitwiseOR => BinOp::BitOr,
+            BinaryOperator::BitwiseXOR => BinOp::BitXor,
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(binary.span.start, binary.span.end),
@@ -1021,6 +1115,12 @@ impl ModuleBuilder<'_> {
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // The `(typeof X === 'object' && X) || ...` global-detection chain folds
+        // to the global-object value before ordinary `||` lowering, so the dead
+        // absent-alias clauses (e.g. `&& window`) are never lowered.
+        if let Some(expr) = self.global_detection_chain_expression(logical, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.logical_or_fallback_expression(logical, body)? {
             return Ok(expr);
         }
@@ -1671,6 +1771,41 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Fold a `"<key>" in <global-alias>` feature probe to a literal.
+    ///
+    /// The receiver must be a recognized global alias (bare `globalThis` /
+    /// `global` / `self`, or a local known to alias the global object) and the key
+    /// must be a string literal — a dynamic key is on the erasure denylist and
+    /// stays a runtime check. The presence answer is derived from the
+    /// recognition registries via [`smelt_stdlib::global_member_presence`], so an
+    /// unmodeled key (`Unknown`) is *not* folded: it returns `None` and falls
+    /// through to ordinary lowering instead of guessing.
+    fn global_contains_key_probe(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if !self.expr_is_global_alias(&binary.right) {
+            return None;
+        }
+        let Expression::StringLiteral(key_lit) = &binary.left else {
+            return None;
+        };
+        let presence = smelt_stdlib::global_member_presence(key_lit.value.as_str());
+        let value = match presence {
+            smelt_stdlib::GlobalPresence::Present => true,
+            smelt_stdlib::GlobalPresence::Absent => false,
+            // `Unknown` (and any future undecided presence) must not fold.
+            _ => return None,
+        };
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(value)),
+            ty: bool_ty,
+            span: self.span(binary.span.start, binary.span.end),
+        }))
+    }
+
     /// Lower JavaScript `key in object` checks for dictionaries and static objects.
     ///
     /// Static object constants are often erased to reusable metadata before a
@@ -1685,6 +1820,25 @@ impl ModuleBuilder<'_> {
         let span = self.span(binary.span.start, binary.span.end);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let string_ty = self.ctx.krate.types.intern(Type::String);
+
+        if let Some(expr) = self.global_contains_key_probe(binary, body) {
+            return Ok(expr);
+        }
+
+        // A `<key> in <global-alias>` membership test that the registry-derived
+        // probe above could not fold (an unknown/undecided member, or a
+        // non-literal key) must stay an honest blocker. The global object now
+        // resolves to a marker host-object value (see
+        // `global_object_value_expression`), so without this guard the test
+        // would silently evaluate against the empty marker record and answer
+        // `false` for members the real global actually has. Presence of the
+        // global object as a value does not make its full key set known.
+        if self.expr_is_global_alias(&binary.right) {
+            return Err(SmeltError::unsupported(
+                span,
+                "`in` on the global object is only lowered for registry-decidable string-literal keys",
+            ));
+        }
 
         if let Expression::Identifier(receiver_ident) = &binary.right
             && let Some(object_const) = self
@@ -1821,6 +1975,9 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if unary.operator == UnaryOperator::Delete {
             return self.delete_unary_expression(unary, body);
+        }
+        if unary.operator == UnaryOperator::Typeof {
+            return self.typeof_expression(unary, body);
         }
         if unary.operator == UnaryOperator::Void {
             let ty = self.ctx.krate.types.intern(Type::None);

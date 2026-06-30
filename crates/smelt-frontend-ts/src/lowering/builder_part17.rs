@@ -12,10 +12,31 @@ impl ModuleBuilder<'_> {
                 Ok(self.intern_source_name(ident.name.as_str()))
             }
             PropertyKey::StringLiteral(lit) => Ok(self.intern_source_name(lit.value.as_str())),
+            PropertyKey::NumericLiteral(lit) => {
+                // JavaScript coerces numeric property keys to their string form
+                // (`{ 0: x }` names the member `"0"`). Prefer the raw spelling
+                // when available so canonical integer keys round-trip cleanly.
+                let name = lit
+                    .raw
+                    .as_ref().map_or_else(|| Self::numeric_property_key_name(lit.value), ToString::to_string);
+                Ok(self.intern_source_name(&name))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(key.span().start, key.span().end),
                 "property names must be static identifiers or string literals",
             )),
+        }
+    }
+
+    /// Render a numeric property-key value as the string member name JavaScript
+    /// would use when no raw source spelling is available (e.g. `0` -> "0").
+    fn numeric_property_key_name(value: f64) -> String {
+        if value.fract() == 0.0 && value.is_finite() {
+            // Whole, finite key: render without a fractional part (`0` -> "0",
+            // `5` -> "5") via precision formatting, avoiding a lossy f64->int cast.
+            format!("{value:.0}")
+        } else {
+            format!("{value}")
         }
     }
 
@@ -290,6 +311,20 @@ impl ModuleBuilder<'_> {
             .get(index)
             .expect("local id should point to an existing local")
             .ty
+    }
+
+    /// Look up the type of a local that may not exist in this `body`.
+    ///
+    /// The lexical `locals` name map can outlive the body that actually owns a
+    /// binding — for example when a default-parameter initializer registers a
+    /// name that the enclosing function body never materializes as a local. In
+    /// those cases the recorded [`LocalId`] points past `body.locals`, so a
+    /// plain [`Self::local_ty`] would panic. Callers performing best-effort type
+    /// narrowing use this checked variant and treat a missing local as "no
+    /// narrowing information available".
+    fn local_ty_checked(body: &Body, local: smelt_hir::LocalId) -> Option<smelt_hir::TypeId> {
+        let index = usize::try_from(local.0).ok()?;
+        body.locals.get(index).map(|local| local.ty)
     }
 
     /// Look up a lowered item by id.

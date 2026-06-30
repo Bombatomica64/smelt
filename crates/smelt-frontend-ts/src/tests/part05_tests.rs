@@ -661,3 +661,179 @@ class User implements Named {
     )?;
     assert_unsupported_ts(&errors, "mismatched signature")
 }
+
+/// Return whether the lowered crate contains a test function with the given
+/// sanitized Rust name.
+fn has_test_named(ctx: &HirCtx, name: &str) -> bool {
+    ctx.krate.items.iter().any(|item| {
+        matches!(item, Item::Function(function)
+            if function.is_test && ctx.krate.symbols.get(function.name) == Some(name))
+    })
+}
+
+#[test]
+fn describe_body_class_declaration_registers_suite_helper_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+
+describe("pairs", () => {
+  class Pair {
+    constructor(
+      public a: number,
+      public b: number,
+    ) {}
+  }
+
+  it("builds a pair", () => {
+    const pair = new Pair(1, 2);
+    expect(pair.a).toBe(1);
+  });
+});
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate.items.iter().any(|item| matches!(item, Item::Class(class)
+            if ctx.krate.symbols.get(class.name) == Some("Pair"))),
+        "a class declared in a describe body should register as a suite-level class",
+    );
+    ensure!(
+        has_test_named(&ctx, "test_pairs_builds_a_pair"),
+        "the suite test case should still lower alongside the helper class",
+    );
+    Ok(())
+}
+
+#[test]
+fn test_title_folds_suite_const_string_interpolation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+
+describe("pull", () => {
+  const methodName = "pull";
+
+  it(`\`_.${methodName}\` should work`, () => {
+    expect(1).toBe(1);
+  });
+});
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        has_test_named(&ctx, "test_pull_pull_should_work"),
+        "a suite const-string interpolation should fold into the test name",
+    );
+    Ok(())
+}
+
+#[test]
+fn test_title_folds_loop_conditional_interpolation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+
+describe("throttle", () => {
+  [0, 1].forEach(index => {
+    it(`should call${index ? " and reset" : ""}`, () => {
+      expect(index).toBe(index);
+    });
+  });
+});
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        has_test_named(&ctx, "test_throttle_case_0_should_call"),
+        "the falsy-index iteration should fold the empty conditional branch",
+    );
+    ensure!(
+        has_test_named(&ctx, "test_throttle_case_1_should_call_and_reset"),
+        "the truthy-index iteration should fold the non-empty conditional branch",
+    );
+    Ok(())
+}
+
+#[test]
+fn test_title_folds_const_array_index_interpolation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+
+describe("findLast", () => {
+  const expected = [1, undefined, 3];
+
+  it(`returns \`${expected[1]}\` if missing`, () => {
+    expect(1).toBe(1);
+  });
+});
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        has_test_named(&ctx, "test_findlast_returns_undefined_if_missing"),
+        "indexing a const array literal by a literal index should fold into the title",
+    );
+    Ok(())
+}
+
+#[test]
+fn expect_to_throw_accepts_erased_callable_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    // `makeThrower` resolves to an erased callable here (no concrete function
+    // type), as a cross-module helper would; `toThrow` must still lower.
+    lower_path_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+import { makeThrower } from "./makeThrower";
+
+describe("once", () => {
+  it("throws", () => {
+    const resultFunc = makeThrower();
+    expect(resultFunc).toThrow();
+  });
+});
+"#),
+        "src/once.spec.ts",
+        &mut ctx,
+    )?;
+    ensure!(
+        has_test_named(&ctx, "test_once_throws"),
+        "expect(value).toThrow() over an erased callable should lower the test",
+    );
+    Ok(())
+}
+
+#[test]
+fn expect_to_contain_accepts_erased_expected_in_collection() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    // `pick(array)` resolves to an erased value; toContain over a concrete list
+    // actual must still lower via the runtime containment check.
+    lower_path_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+import { pick } from "./pick";
+
+describe("sample", () => {
+  const array = [1, 2, 3, 4, 5];
+
+  it("contains the picked element", () => {
+    const actual = pick(array);
+    expect(array).toContain(actual);
+  });
+});
+"#),
+        "src/sample.spec.ts",
+        &mut ctx,
+    )?;
+    ensure!(
+        has_test_named(&ctx, "test_sample_contains_the_picked_element"),
+        "expect(collection).toContain(erased) should lower the test",
+    );
+    Ok(())
+}

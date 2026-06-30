@@ -1,6 +1,7 @@
 //! TypeScript AST lowering into Smelt HIR.
 
 mod specialization;
+mod ambient_globals;
 mod stdlib;
 mod stdlib_dispatch;
 use std::{
@@ -408,6 +409,14 @@ struct ModuleBuilder<'ctx> {
     preserve_specialization_receiver: bool,
     /// Test-framework API names imported from Vitest-compatible modules.
     test_builtins: HashSet<String>,
+    /// Local names statically known to alias the ambient global object.
+    ///
+    /// Populated for `const g = globalThis;` style bindings so that global-path
+    /// normalization and feature-probe erasure recognize `g.Object.keys(x)` and
+    /// `"Map" in g` as global references. Used only for preserving known member
+    /// types and stdlib dispatch; dynamic correctness would come from a shared
+    /// runtime object if Phase 2/3 lands.
+    global_object_aliases: HashSet<String>,
     /// Local names bound by namespace imports such as `import * as MathApi from "./math"`.
     namespace_imports: HashSet<String>,
     /// Local names imported only for TypeScript type positions.
@@ -485,6 +494,7 @@ include!("lowering/types.rs");
 include!("lowering/builder_part16.rs");
 include!("lowering/builder_part17.rs");
 include!("lowering/builder_part18.rs");
+include!("lowering/constructor_function.rs");
 
 // Top-level lowering helper functions split into include files.
 include!("lowering/helpers_part01.rs");

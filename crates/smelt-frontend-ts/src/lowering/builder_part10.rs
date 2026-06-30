@@ -806,6 +806,64 @@ return_ty: string_ty,
         })))
     }
 
+    /// Lower direct TypeScript `.toFixed(digits)` calls on a numeric receiver.
+    ///
+    /// `Number.prototype.toFixed` renders the receiver as a fixed-point decimal
+    /// string with the given number of fractional digits (defaulting to `0`).
+    /// Only numeric receivers and an optional numeric digit count are accepted;
+    /// other shapes are left for later dispatch.
+    fn number_to_fixed_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "toFixed" {
+            return Ok(None);
+        }
+        let operand = self.expression(&member.object, body)?;
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Ok(None);
+        }
+        if call.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "number.toFixed accepts at most one digit-count argument",
+            ));
+        }
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let digits = if let Some(argument) = call.arguments.first() {
+            let digits = self.argument(argument, body)?;
+            if !matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, digits)),
+                Some(Type::Int | Type::Float)
+            ) {
+                return Err(SmeltError::unsupported(
+                    self.span(argument.span().start, argument.span().end),
+                    "number.toFixed digit-count argument must be numeric",
+                ));
+            }
+            digits
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: float_ty,
+                span: self.span(call.span.start, call.span.end),
+            })
+        };
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumericToFixed { operand, digits },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower `crypto.getRandomValues(output)` as an accepted typed-array surface.
     fn crypto_get_random_values_call(
         &mut self,

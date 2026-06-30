@@ -420,17 +420,30 @@ impl ModuleBuilder<'_> {
             try_block
         } else {
             let mut callee = self.argument(actual_arg, body)?;
-            let Some(Type::Function(mut function)) = self
-                .ctx
-                .krate
-                .types
-                .get(Self::expr_ty(body, callee))
-                .cloned()
-            else {
-                return Err(SmeltError::unsupported(
-                    self.span(actual_arg.span().start, actual_arg.span().end),
-                    "expect(...).toThrow(...) requires a zero-argument callback",
-                ));
+            let callee_ty = self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned();
+            let mut function = match callee_ty {
+                Some(Type::Function(function)) => function,
+                // `expect(value).toThrow()` may name a callable whose static
+                // shape is erased here (a cross-module helper such as
+                // `once(...)` resolves to `Unknown` under single-file lowering).
+                // It is still a zero-argument callable observed only for whether
+                // it throws, so adapt it through a synthesized throwing signature
+                // rather than rejecting the matcher.
+                Some(Type::Unknown) => FunctionType {
+                    params: Vec::new(),
+                    rest: None,
+                    required_params: Some(0),
+                    mutable_params: Vec::new(),
+                    return_ty: self.ctx.krate.types.intern(Type::None),
+                    is_async: false,
+                    may_throw: true,
+                },
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(actual_arg.span().start, actual_arg.span().end),
+                        "expect(...).toThrow(...) requires a zero-argument callback",
+                    ));
+                }
             };
             if Self::is_bind_call_argument(actual_arg) {
                 function.params.clear();
@@ -722,29 +735,36 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let expected_ty = Self::expr_ty(body, expected);
+        // The expected value may be erased (`Unknown`) when it comes from a
+        // cross-module helper, as in `expect(array).toContain(sample(array))`.
+        // A concrete collection actual still supports the runtime containment
+        // check against such a value, so an erased expected matches any item
+        // type rather than forcing a static element-type equality.
+        let expected_is_erased = matches!(self.ctx.krate.types.get(expected_ty), Some(Type::Unknown));
         let kind = match self.ctx.krate.types.get(Self::expr_ty(body, actual)) {
             Some(Type::String)
-                if self.ctx.krate.types.get(Self::expr_ty(body, expected))
-                    == Some(&Type::String) =>
+                if self.ctx.krate.types.get(expected_ty) == Some(&Type::String)
+                    || expected_is_erased =>
             {
                 ExprKind::StringContains {
                     haystack: actual,
                     needle: expected,
                 }
             }
-            Some(Type::List(item_ty)) if Self::expr_ty(body, expected) == *item_ty => {
+            Some(Type::List(item_ty)) if expected_ty == *item_ty || expected_is_erased => {
                 ExprKind::ListContains {
                     list: actual,
                     item: expected,
                 }
             }
-            Some(Type::Set(item_ty)) if Self::expr_ty(body, expected) == *item_ty => {
+            Some(Type::Set(item_ty)) if expected_ty == *item_ty || expected_is_erased => {
                 ExprKind::SetContains {
                     set: actual,
                     item: expected,
                 }
             }
-            Some(Type::Tuple(items)) if items.contains(&Self::expr_ty(body, expected)) => {
+            Some(Type::Tuple(items)) if items.contains(&expected_ty) || expected_is_erased => {
                 ExprKind::TupleContains {
                     tuple: actual,
                     item: expected,
@@ -765,6 +785,15 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a dictionary key containment expression for `toHaveProperty`.
+    ///
+    /// A statically-typed record/map (`Type::Dict`) checks key membership
+    /// directly and requires the key type to match. An erased actual
+    /// (`Unknown`/`Union`/unconstrained type param) is a runtime JavaScript
+    /// value — for example the erased return of an imported helper — so the
+    /// emitted `DictContainsKey` inspects the live `SmeltUnknown::Object` at
+    /// runtime; the key may be any string-convertible value there, so no
+    /// static key-type match is demanded. This keeps `toHaveProperty` general
+    /// over both concrete records and erased object actuals.
     fn dict_contains_key_expr(
         &mut self,
         actual: smelt_hir::ExprId,
@@ -772,18 +801,23 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(Self::expr_ty(body, actual))
-        else {
-            return Err(SmeltError::unsupported(
-                self.span(span.start, span.end),
-                "expect(...).toHaveProperty(...) requires an object or map actual value",
-            ));
-        };
-        if Self::expr_ty(body, expected) != *key_ty {
-            return Err(SmeltError::unsupported(
-                self.span(span.start, span.end),
-                "expect(...).toHaveProperty(...) key must match the object key type",
-            ));
+        let actual_ty = Self::expr_ty(body, actual);
+        match self.ctx.krate.types.get(actual_ty) {
+            Some(Type::Dict(key_ty, _)) => {
+                if Self::expr_ty(body, expected) != *key_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(span.start, span.end),
+                        "expect(...).toHaveProperty(...) key must match the object key type",
+                    ));
+                }
+            }
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {}
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(span.start, span.end),
+                    "expect(...).toHaveProperty(...) requires an object or map actual value",
+                ));
+            }
         }
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(body.push_expr(Expr {
@@ -1413,9 +1447,10 @@ impl ModuleBuilder<'_> {
         };
         let name = identifier.name.as_str();
         let local = self.locals.get(name).copied()?;
-        let local_ty = self
-            .narrowed_type(name)
-            .unwrap_or_else(|| Self::local_ty(body, local));
+        let local_ty = match self.narrowed_type(name) {
+            Some(ty) => ty,
+            None => Self::local_ty_checked(body, local)?,
+        };
         match self.ctx.krate.types.get(local_ty).cloned() {
             Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
             Some(Type::Union(items)) => {
@@ -1586,6 +1621,10 @@ impl ModuleBuilder<'_> {
         statements: &[Statement<'_>],
         body: &mut Body,
     ) -> Result<(), SmeltError> {
+        // `const Foo = function () { … }` constructor bindings used with
+        // `new`/`instanceof`/`Foo.prototype.x = …` in this block are synthesized
+        // into classes here, before the binding is treated as a function value.
+        self.synthesize_const_constructor_functions(statements)?;
         for statement in statements {
             let Statement::FunctionDeclaration(function) = statement else {
                 continue;
@@ -1594,6 +1633,16 @@ impl ModuleBuilder<'_> {
                 continue;
             };
             if self.locals.contains_key(id.name.as_str()) {
+                continue;
+            }
+            // A `function Foo(){}` used as `new Foo()` / `instanceof Foo` /
+            // `Foo.prototype.x = …` in this block is a JavaScript constructor
+            // function: synthesize a class for it instead of a plain local
+            // function so the construction and prototype-chain sites resolve.
+            if !self.classes.contains_key(id.name.as_str())
+                && Self::statements_use_function_as_constructor(id.name.as_str(), statements)
+            {
+                self.synthesize_constructor_function_class(function, statements)?;
                 continue;
             }
             self.push_type_parameter_scope(function.type_parameters.as_deref())?;
@@ -1654,6 +1703,31 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         for declarator in &decl.declarations {
+            // A `const Foo = function () { … }` binding recognized as a
+            // constructor function was already synthesized into a class during
+            // the block prepass; its declarator contributes no runtime binding.
+            if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                && Self::const_constructor_function(declarator).is_some()
+                && self.classes.contains_key(binding.name.as_str())
+            {
+                continue;
+            }
+            // `const g = globalThis;` records a local global-object alias so that
+            // later `g.Object.keys(x)` / `"Map" in g` normalize and erase exactly
+            // like the bare `globalThis` spelling. The alias is purely a
+            // compile-time name-tracking aid; no HIR local is emitted because the
+            // global object is never materialized in Phase 1. A `let` is allowed:
+            // a later reassignment off the alias is handled where assignments are
+            // lowered (the name is cleared), and a write *through* the alias stays
+            // on the erasure denylist and produces an honest blocker.
+            if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                && let Some(initializer) = &declarator.init
+                && self.expr_is_global_alias(initializer)
+            {
+                self.global_object_aliases
+                    .insert(binding.name.as_str().to_owned());
+                continue;
+            }
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init
             {
@@ -2007,6 +2081,12 @@ impl ModuleBuilder<'_> {
                 "anonymous local function declarations are not lowered yet",
             )
         })?;
+        // A constructor function recognized during the block prepass was already
+        // synthesized into a class; its declaration statement contributes no
+        // local closure.
+        if self.classes.contains_key(id.name.as_str()) {
+            return Ok(());
+        }
         let Some(function_body) = &function.body else {
             return Ok(());
         };
@@ -2056,12 +2136,56 @@ impl ModuleBuilder<'_> {
                 }
             }
 
-            if function.params.rest.is_some() {
-                return Err(SmeltError::unsupported(
-                    self.span(function.params.span.start, function.params.span.end),
-                    "nested function rest parameters are not lowered yet",
-                ));
-            }
+            // Lower an optional `...rest` parameter exactly as top-level functions,
+            // arrow expressions, and function-expression values do: resolve its
+            // array element type, push a packed list local/param into the closure
+            // body, bind its source name, and record the rest index so the closure
+            // collects the trailing source arguments into one list. A nested
+            // `function name(...args) { ... }` is a real local closure (e.g. the
+            // curry/curryRight `makeCurry` family), so it must carry rest the same
+            // way every other closure form does instead of aborting.
+            let rest_index = if let Some(rest_param) = &function.params.rest {
+                let BindingPattern::BindingIdentifier(binding) = &rest_param.rest.argument else {
+                    return Err(SmeltError::unsupported(
+                        self.span(rest_param.span.start, rest_param.span.end),
+                        "nested function destructured rest parameters need rest binding lowering",
+                    ));
+                };
+                let source_ty = rest_param
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                let Ok((ty, _item_ty)) = self.rest_param_array_type(source_ty) else {
+                    return Err(SmeltError::unsupported(
+                        self.span(rest_param.span.start, rest_param.span.end),
+                        "nested function rest parameter type must be an array type",
+                    ));
+                };
+                let rest_index = closure_params.len();
+                let symbol = self.intern_source_name(binding.name.as_str());
+                let local = closure_body.push_local(LocalDecl {
+                    name: Some(symbol),
+                    ty,
+                    mutable: false,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                closure_body.params.push(local);
+                closure_params.push(Param {
+                    name: symbol,
+                    local,
+                    ty,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                param_tys.push(ty);
+                let source_name = binding.name.as_str().to_owned();
+                param_names.insert(source_name.clone());
+                saved_locals.push((source_name.clone(), self.locals.insert(source_name, local)));
+                Some(rest_index)
+            } else {
+                None
+            };
 
             let declared_return_ty = function
                 .return_type
@@ -2072,7 +2196,7 @@ impl ModuleBuilder<'_> {
                 declared_return_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
             let provisional_fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys.clone(),
-                rest: None,
+                rest: rest_index,
                 required_params: None,
                     mutable_params: Vec::new(),
                 return_ty: provisional_return_ty,
@@ -2169,7 +2293,7 @@ impl ModuleBuilder<'_> {
             let body_id = self.ctx.krate.push_body(closure_body);
             let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys,
-                rest: None,
+                rest: rest_index,
                 required_params: None,
                     mutable_params: Vec::new(),
                 return_ty,
@@ -2202,7 +2326,7 @@ impl ModuleBuilder<'_> {
             let value = outer_body.push_expr(Expr {
                 kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                     params: closure_params,
-                    rest: None,
+                    rest: rest_index,
                     required_params: None,
                     return_ty,
                     captures,

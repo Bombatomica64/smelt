@@ -691,6 +691,14 @@ pub enum Rvalue {
         /// Numeric radix operand.
         radix: Operand,
     },
+    /// Format a numeric value as a fixed-point decimal string
+    /// (`Number.prototype.toFixed`).
+    NumericToFixed {
+        /// Numeric operand being formatted.
+        operand: Operand,
+        /// Number of fractional digits to render.
+        digits: Operand,
+    },
     /// Parse an integer from a string with a numeric radix.
     ParseIntRadix {
         /// String operand.
