@@ -1122,7 +1122,19 @@ return_ty: none,
                 else {
                     return None;
                 };
-                let index = usize::try_from(index_literal.value as i64).ok()?;
+                let raw = index_literal.value;
+                if !raw.is_finite() || raw.fract() != 0.0 || raw < 0.0 {
+                    return None;
+                }
+                // `raw` is a non-negative whole finite number, so converting it to
+                // an array index is exact (indices are far below 2^53). `usize` has
+                // no `TryFrom<f64>`, so a guarded `as` cast is the conversion here.
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "raw is a guarded non-negative whole finite f64, so the index conversion is exact; usize has no TryFrom<f64>"
+                )]
+                let index = raw as usize;
                 let element = array.elements.get(index)?;
                 Self::array_element_constant_text(element)
             }

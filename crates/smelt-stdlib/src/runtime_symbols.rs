@@ -38,6 +38,7 @@ pub mod timers {
     pub const CLEAR_TIMEOUT: &str = "smelt_clear_timeout";
 
     /// Registers a repeating timer callback with a period; backs `setInterval`.
+    ///
     /// The callback re-arms itself for the next period each time it fires, so the
     /// existing virtual-time timer queue drives it without special-casing.
     pub const SET_INTERVAL: &str = "smelt_set_interval";

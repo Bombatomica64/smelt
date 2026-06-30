@@ -869,12 +869,16 @@ impl<'builder> ModuleBuilder<'builder> {
     /// The original guard turned a positive match into an immediate `Err`, never
     /// a handled expression, so this surfaces the probe's error and otherwise
     /// reports "not handled".
+    #[expect(
+        clippy::unused_self,
+        reason = "uniform BuiltinCallHandler dispatch-table signature; this stub probe needs no receiver state"
+    )]
     fn unsupported_object_collection_call_entry(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         _body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        self.unsupported_object_collection_call(call)
+        Self::unsupported_object_collection_call(call)
             .map_or(Ok(None), Err)
     }
 

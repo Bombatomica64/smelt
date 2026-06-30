@@ -76,7 +76,7 @@ impl ModuleBuilder<'_> {
                     && self.type_assignable_to_inner(actual_value, expected_value, depth + 1)
             }
             (Type::Function(actual_fn), Type::Function(expected_fn)) => {
-                self.function_arity_assignable(&actual_fn, &expected_fn)
+                Self::function_arity_assignable(&actual_fn, &expected_fn)
                     && self.function_async_assignable(&actual_fn, &expected_fn, depth)
                     && actual_fn
                         .params
@@ -130,7 +130,7 @@ impl ModuleBuilder<'_> {
     /// A target with *more* parameters than the source is only acceptable when the
     /// source has a rest parameter to absorb the extras; otherwise the source could
     /// not be called with all the arguments the target promises to pass.
-    fn function_arity_assignable(&self, actual: &FunctionType, expected: &FunctionType) -> bool {
+    fn function_arity_assignable(actual: &FunctionType, expected: &FunctionType) -> bool {
         let actual_required = actual.required_params.unwrap_or(actual.params.len());
         if expected.params.len() < actual_required {
             // The target would call the source with fewer arguments than the

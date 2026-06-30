@@ -18,9 +18,7 @@ impl ModuleBuilder<'_> {
                 // when available so canonical integer keys round-trip cleanly.
                 let name = lit
                     .raw
-                    .as_ref()
-                    .map(|raw| raw.to_string())
-                    .unwrap_or_else(|| Self::numeric_property_key_name(lit.value));
+                    .as_ref().map_or_else(|| Self::numeric_property_key_name(lit.value), ToString::to_string);
                 Ok(self.intern_source_name(&name))
             }
             _ => Err(SmeltError::unsupported(
@@ -34,7 +32,9 @@ impl ModuleBuilder<'_> {
     /// would use when no raw source spelling is available (e.g. `0` -> "0").
     fn numeric_property_key_name(value: f64) -> String {
         if value.fract() == 0.0 && value.is_finite() {
-            format!("{}", value as i64)
+            // Whole, finite key: render without a fractional part (`0` -> "0",
+            // `5` -> "5") via precision formatting, avoiding a lossy f64->int cast.
+            format!("{value:.0}")
         } else {
             format!("{value}")
         }

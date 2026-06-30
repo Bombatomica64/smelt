@@ -1600,7 +1600,6 @@ impl ModuleBuilder<'_> {
     /// rejected here. The hook is kept as the place to surface future
     /// deferred object/collection method diagnostics.
     fn unsupported_object_collection_call(
-        &self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Option<SmeltError> {
         let Expression::StaticMemberExpression(_) = &call.callee else {

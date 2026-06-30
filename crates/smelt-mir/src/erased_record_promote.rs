@@ -105,8 +105,8 @@ fn promote_body(
                 }
                 Statement::Assign { dest, value } => {
                     match value {
-                        Rvalue::Use(Operand::Copy(Place::Local(src)))
-                        | Rvalue::Use(Operand::Move(Place::Local(src))) => {
+                        Rvalue::Use(Operand::Copy(Place::Local(src)) |
+Operand::Move(Place::Local(src))) => {
                             copy_edges.push((*dest, *src));
                         }
                         Rvalue::UnknownCast { value, .. } => {

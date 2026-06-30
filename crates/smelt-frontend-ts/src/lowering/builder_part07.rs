@@ -237,8 +237,8 @@ impl ModuleBuilder<'_> {
                     span: self.expression_span(source),
                 }))
             }
-            Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. })
-            | Some(Type::Optional(_)) => {
+            Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. } |
+Type::Optional(_)) => {
                 // A `for...in` over an erased object surface — an unconstrained
                 // generic `T`, an erased object, or an optional object — iterates
                 // string-keyed properties, so it is cast to `Record<string, unknown>`.
