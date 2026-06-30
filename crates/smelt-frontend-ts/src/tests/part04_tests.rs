@@ -4932,6 +4932,37 @@ export function parseHex(value: number): [number, number, number] {
 }
 
 #[test]
+fn lowers_conditional_with_list_branches_of_differing_element_types() -> Result<(), String> {
+    // A ternary whose two branches are arrays with different element types
+    // (here `number[]` vs `(number | null)[]`) must unify to a single array
+    // type rather than aborting. Mirrors es-toolkit's reverse.spec.ts
+    // `(index ? largeArray : smallArray).slice()`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function pick(index: number): number[] {
+  const a = [1, 2, 3];
+  const b = [4, 5, 6, null];
+  return (index ? a : b).slice() as number[];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(expr.kind, ExprKind::Conditional { .. })
+                    && matches!(ctx.krate.types.get(expr.ty), Some(Type::List(_)))
+            })
+        }),
+        "conditional with list branches did not unify to a list type"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_in_operator_in_array_element_position() -> Result<(), String> {
     // The no-hint binary lowering path (used for array elements and other
     // non-hinted positions) must dispatch `in` to the dedicated key-membership

@@ -1232,6 +1232,16 @@ impl ModuleBuilder<'_> {
                         .krate
                         .types
                         .intern(Type::Union(vec![then_ty, else_ty]))
+                } else if let (Some(Type::List(then_item)), Some(Type::List(else_item))) = (
+                    self.ctx.krate.types.get(then_ty).cloned(),
+                    self.ctx.krate.types.get(else_ty).cloned(),
+                ) {
+                    // Both branches are arrays whose element types differ. Unify
+                    // the element types with the same branch rules and keep an
+                    // array shape, falling back to a list of the union of the
+                    // element types when they have no closer common shape.
+                    let item_ty = self.unify_conditional_list_item_type(then_item, else_item);
+                    self.ctx.krate.types.intern(Type::List(item_ty))
                 } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
                 {
                     self.ctx.krate.types.intern(Type::Unknown)
@@ -1568,6 +1578,17 @@ impl ModuleBuilder<'_> {
             Ok(then_ty)
         } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty)) {
             Ok(else_ty)
+        } else if let (Some(Type::List(then_item)), Some(Type::List(else_item))) = (
+            self.ctx.krate.types.get(then_ty).cloned(),
+            self.ctx.krate.types.get(else_ty).cloned(),
+        ) {
+            // Both branches are arrays whose element types differ (e.g.
+            // `index ? numberArray : numberOrNullArray`). Unify the element
+            // types and return a list of the unified element type so the array
+            // shape is preserved instead of collapsing the whole value to
+            // `unknown`.
+            let item_ty = self.unify_conditional_list_item_type(then_item, else_item);
+            Ok(self.ctx.krate.types.intern(Type::List(item_ty)))
         } else if type_hint
             .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
             || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
@@ -1589,6 +1610,42 @@ impl ModuleBuilder<'_> {
                     self.ctx.krate.types.get(else_ty)
                 ),
             ))
+        }
+    }
+
+    /// Unify the element types of two array branches of a conditional expression.
+    ///
+    /// Both branches are already known to be `List<...>`; this picks an element
+    /// type for the merged `List<...>` result. It never fails: when the elements
+    /// have no closer common shape it widens to their union (or `unknown` when an
+    /// element is itself erased), so an array-producing ternary always keeps an
+    /// array shape rather than aborting lowering.
+    fn unify_conditional_list_item_type(
+        &mut self,
+        then_item: smelt_hir::TypeId,
+        else_item: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        if then_item == else_item {
+            then_item
+        } else if self.numeric_type_compatible(then_item, else_item) {
+            self.ctx.krate.types.intern(Type::Float)
+        } else if self.ctx.krate.types.get(then_item) == Some(&Type::None) {
+            self.ctx.krate.types.intern(Type::Optional(else_item))
+        } else if self.ctx.krate.types.get(else_item) == Some(&Type::None) {
+            self.ctx.krate.types.intern(Type::Optional(then_item))
+        } else if let (Some(Type::List(then_inner)), Some(Type::List(else_inner))) = (
+            self.ctx.krate.types.get(then_item).cloned(),
+            self.ctx.krate.types.get(else_item).cloned(),
+        ) {
+            let inner = self.unify_conditional_list_item_type(then_inner, else_inner);
+            self.ctx.krate.types.intern(Type::List(inner))
+        } else if self.type_contains_unknown(then_item) || self.type_contains_unknown(else_item) {
+            self.ctx.krate.types.intern(Type::Unknown)
+        } else {
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![then_item, else_item]))
         }
     }
 
