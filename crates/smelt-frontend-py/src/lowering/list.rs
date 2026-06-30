@@ -869,6 +869,29 @@ impl ModuleBuilder<'_> {
                 lhs: self.callback_expr_to_body_expr(lhs, params, capture_locals, body)?,
                 rhs: self.callback_expr_to_body_expr(rhs, params, capture_locals, body)?,
             },
+            CallbackExprKind::Unary { op, operand } => ExprKind::UnaryOp {
+                op: *op,
+                operand: self.callback_expr_to_body_expr(operand, params, capture_locals, body)?,
+            },
+            CallbackExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => ExprKind::Conditional {
+                cond: self.callback_expr_to_body_expr(cond, params, capture_locals, body)?,
+                then_expr: self.callback_expr_to_body_expr(
+                    then_expr,
+                    params,
+                    capture_locals,
+                    body,
+                )?,
+                else_expr: self.callback_expr_to_body_expr(
+                    else_expr,
+                    params,
+                    capture_locals,
+                    body,
+                )?,
+            },
             _ => {
                 return Err(SmeltError::unsupported(
                     span,
@@ -1227,6 +1250,51 @@ impl ModuleBuilder<'_> {
                         rhs: Box::new(rhs),
                     },
                     ty: self.intern_type(Type::Bool),
+                })
+            }
+            Expr::UnaryOp(unary) => {
+                let (op, result_is_bool) = match unary.op {
+                    RuffUnaryOp::Not => (UnaryOp::Not, true),
+                    RuffUnaryOp::USub => (UnaryOp::Neg, false),
+                    RuffUnaryOp::Invert | RuffUnaryOp::UAdd => {
+                        return Err(SmeltError::unsupported(
+                            self.span(unary.range),
+                            format!("callback unary operator '{}' is not supported", unary.op),
+                        ));
+                    }
+                };
+                let operand = self.python_callback_expr(&unary.operand, params, body)?;
+                let ty = if result_is_bool {
+                    self.intern_type(Type::Bool)
+                } else {
+                    operand.ty
+                };
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Unary {
+                        op,
+                        operand: Box::new(operand),
+                    },
+                    ty,
+                })
+            }
+            Expr::If(if_expr) => {
+                let cond = self.python_callback_expr(&if_expr.test, params, body)?;
+                let then_expr = self.python_callback_expr(&if_expr.body, params, body)?;
+                let else_expr = self.python_callback_expr(&if_expr.orelse, params, body)?;
+                if then_expr.ty != else_expr.ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(if_expr.range),
+                        "callback conditional branches must have the same type",
+                    ));
+                }
+                let ty = then_expr.ty;
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Conditional {
+                        cond: Box::new(cond),
+                        then_expr: Box::new(then_expr),
+                        else_expr: Box::new(else_expr),
+                    },
+                    ty,
                 })
             }
             Expr::Subscript(sub) => {
