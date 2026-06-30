@@ -888,6 +888,28 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
+        if member.property.name == "call" {
+            let callable = self.expression(&member.object, body)?;
+            let callable_ty = Self::expr_ty(body, callable);
+            if let Some(function_ty) = self.function_member_type(callable_ty)
+                && let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(function_ty).cloned()
+            {
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|argument| self.argument(argument, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall {
+                        callee: callable,
+                        args,
+                    },
+                    ty: function.return_ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
+        }
         let Ok(callee) = self.static_member(member, body) else {
             return Ok(None);
         };

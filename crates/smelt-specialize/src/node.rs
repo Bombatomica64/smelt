@@ -560,6 +560,16 @@ function decorateMember(value: any, context: any): any {
     return value;
 }
 
+function decorateFactory(_label: string) {
+    return decorateMember;
+}
+
+function replaceClass(_value: any, _context: ClassDecoratorContext) {
+    return class Replacement {
+        static marker = "replacement";
+    };
+}
+
 @decorate
 export class Example {
     @decorateMember
@@ -575,9 +585,23 @@ export class Example {
     #secret = 3;
 
     @decorateMember
+    @decorateFactory("stacked")
     greet(name: string): string {
         return `hello ${name}`;
     }
+
+    @decorateMember
+    #hidden(): string {
+        return "hidden";
+    }
+
+    @decorateMember
+    static ping(): string {
+        return "pong";
+    }
+
+    @decorateMember
+    accessor #privateCount = 4;
 
     @decorateMember
     get title(): string {
@@ -595,6 +619,9 @@ export class Example {
     @decorateMember
     static set version(_value: string) {}
 }
+
+@replaceClass
+export class Replaced {}
 
 export const cycle: any = {};
 cycle.self = cycle;
@@ -661,6 +688,12 @@ cycle.self = cycle;
         if example.methods.iter().all(|method| method.name != "greet") {
             return Err("decorated class method is absent".to_owned());
         }
+        if example.methods.iter().all(|method| method.name != "#hidden") {
+            return Err("decorated private method is absent".to_owned());
+        }
+        if example.methods.iter().all(|method| method.name != "ping") {
+            return Err("decorated static method is absent".to_owned());
+        }
         if example.fields.iter().all(|field| field.name != "field")
             || example.fields.iter().all(|field| field.name != "count")
             || example
@@ -690,6 +723,13 @@ cycle.self = cycle;
             .all(|descriptor| descriptor.name != "version" || !descriptor.is_static)
         {
             return Err("decorated static accessor is absent".to_owned());
+        }
+        if example
+            .descriptors
+            .iter()
+            .all(|descriptor| descriptor.name != "#privateCount")
+        {
+            return Err("decorated private auto-accessor is absent".to_owned());
         }
         if example.initializers.is_empty()
             || example
@@ -726,6 +766,16 @@ cycle.self = cycle;
         if !example.static_values.contains_key("ready") {
             return Err("class addInitializer static state is absent".to_owned());
         }
+        if !example
+            .initializers
+            .windows(2)
+            .all(|pair| pair[0].order < pair[1].order)
+        {
+            return Err(format!(
+                "decorator initializer order is unstable: {:?}",
+                example.initializers
+            ));
+        }
         if example
             .metadata
             .iter()
@@ -750,6 +800,19 @@ cycle.self = cycle;
                 "source-defined decorated fixture requested adapters: {:?}",
                 manifest.required_adapters
             ));
+        }
+        let replaced = module
+            .definitions
+            .iter()
+            .find(|definition| definition.binding_name == "Replaced")
+            .ok_or_else(|| "replacement constructor binding is absent".to_owned())?;
+        let crate::Definition::Class(replaced) = &replaced.definition else {
+            return Err("replacement constructor did not materialize a class".to_owned());
+        };
+        if !replaced.static_values.contains_key("marker")
+            || replaced.constructor.replacement.is_none()
+        {
+            return Err("replacement constructor state or provenance is absent".to_owned());
         }
         Ok(())
     }

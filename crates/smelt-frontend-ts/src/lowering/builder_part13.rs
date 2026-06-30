@@ -1792,13 +1792,45 @@ impl ModuleBuilder<'_> {
     fn callback_call_method_to_body_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
-        receiver_ty: smelt_hir::TypeId,
+        _receiver_ty: smelt_hir::TypeId,
         raw_args: &[CallbackCallArg],
         ty: smelt_hir::TypeId,
         callback_args: &[smelt_hir::ExprId],
         body: &mut Body,
         span: Span,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let mut callable_receiver = receiver;
+        loop {
+            let receiver_index = usize::try_from(callable_receiver.0).unwrap_or(usize::MAX);
+            let Some(Expr {
+                kind: ExprKind::TypeAssert { value },
+                ..
+            }) = body.exprs.get(receiver_index)
+            else {
+                break;
+            };
+            callable_receiver = *value;
+        }
+        let receiver_index = usize::try_from(callable_receiver.0).unwrap_or(usize::MAX);
+        if matches!(
+            body.exprs.get(receiver_index),
+            Some(Expr {
+                kind: ExprKind::Closure(_),
+                ..
+            })
+        ) {
+            let args =
+                self.callback_call_args_to_body_exprs(raw_args, callback_args, body, span)?;
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall {
+                    callee: callable_receiver,
+                    args,
+                },
+                ty,
+                span,
+            }));
+        }
+        let receiver_ty = Self::expr_ty(body, receiver);
         let receiver_function = self
             .ctx
             .krate

@@ -404,6 +404,8 @@ struct ModuleBuilder<'ctx> {
     deferred_postfix_updates: Option<Vec<Stmt>>,
     /// Whether type-test-only lowering may index erased unknown metadata.
     allow_unknown_index_access: bool,
+    /// Whether a lifted specialization callable keeps its concrete `this` type through assertions.
+    preserve_specialization_receiver: bool,
     /// Test-framework API names imported from Vitest-compatible modules.
     test_builtins: HashSet<String>,
     /// Local names bound by namespace imports such as `import * as MathApi from "./math"`.

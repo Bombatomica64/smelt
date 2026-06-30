@@ -441,6 +441,17 @@ impl ModuleBuilder<'_> {
         function: &oxc::ast::ast::Function<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.function_expression_item_with_receiver(name_text, function, type_hint, None)
+    }
+
+    /// Lift a function expression, optionally binding it as a class method.
+    fn function_expression_item_with_receiver(
+        &mut self,
+        name_text: &str,
+        function: &oxc::ast::ast::Function<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+        receiver: Option<(smelt_hir::Symbol, smelt_hir::TypeId)>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &function.body else {
             return Err(SmeltError::unsupported(
                 self.span(function.span.start, function.span.end),
@@ -488,14 +499,33 @@ impl ModuleBuilder<'_> {
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
+        let saved_preserve_receiver = self.preserve_specialization_receiver;
         self.current_async = function.r#async;
         self.current_return_ty = Some(return_ty);
+        self.preserve_specialization_receiver = receiver.is_some();
         let mut body = Body::new(
             None,
             self.span(function_body.span.start, function_body.span.end),
         );
         let mut params = Vec::new();
         let mut errors = Vec::new();
+        if let Some((_, receiver_ty)) = receiver {
+            let this_name = self.intern_source_name("this");
+            let this_local = body.push_local(LocalDecl {
+                name: Some(this_name),
+                ty: receiver_ty,
+                mutable: true,
+                span: self.span(function.span.start, function.span.start),
+            });
+            body.params.push(this_local);
+            self.locals.insert("this".to_owned(), this_local);
+            params.push(Param {
+                name: this_name,
+                local: this_local,
+                ty: receiver_ty,
+                span: self.span(function.span.start, function.span.start),
+            });
+        }
 
         for (index, param) in function.params.items.iter().enumerate() {
             let result = (|| {
@@ -537,7 +567,7 @@ impl ModuleBuilder<'_> {
                 });
                 debug_assert_eq!(
                     usize::try_from(local.0).unwrap_or(usize::MAX),
-                    index,
+                    index + usize::from(receiver.is_some()),
                     "function expression parameters should be added in source order",
                 );
                 Ok(())
@@ -547,16 +577,18 @@ impl ModuleBuilder<'_> {
                 break;
             }
         }
+        let receiver_count = usize::from(receiver.is_some());
+        let source_param_count = params.len().saturating_sub(receiver_count);
         if errors.is_empty()
             && let Some(function_ty) = &hinted_function
-            && function_ty.params.len() > params.len()
+            && function_ty.params.len() > source_param_count
         {
             for (index, ty) in function_ty
                 .params
                 .iter()
                 .copied()
                 .enumerate()
-                .skip(params.len())
+                .skip(source_param_count)
             {
                 let param_name = self.intern_source_name(&format!("__unused{index}"));
                 let local = body.push_local(LocalDecl {
@@ -587,6 +619,7 @@ impl ModuleBuilder<'_> {
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
+        self.preserve_specialization_receiver = saved_preserve_receiver;
         self.pop_type_parameter_scope();
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
@@ -603,7 +636,12 @@ impl ModuleBuilder<'_> {
             is_async: function.r#async,
             is_test: false,
             body: Some(body_id),
-            owner: FunctionOwner::Module,
+            owner: receiver.map_or(FunctionOwner::Module, |(class, _)| {
+                FunctionOwner::ClassMethod {
+                    class,
+                    method: name,
+                }
+            }),
         })))
     }
 
@@ -910,9 +948,8 @@ impl ModuleBuilder<'_> {
                                 method.kind,
                                 item,
                             ));
-                        } else {
-                            methods.push(item);
                         }
+                        methods.push(item);
                         item
                     };
                     let _ = item;
@@ -947,6 +984,56 @@ impl ModuleBuilder<'_> {
             }
         }
 
+        if let Some(materialized_class) = &materialized {
+            let lifted_methods = materialized_class
+                .methods
+                .iter()
+                .filter(|method| {
+                    method.binding_mode == smelt_specialize::BindingMode::Instance
+                        && self.materialized_callable_needs_lift(&method.callable)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            for materialized_method in lifted_methods {
+                let method_name =
+                    self.intern_source_name(specialization::materialized_member_name(
+                        &materialized_method.name,
+                    ));
+                let lifted = self.lift_materialized_class_callable(
+                    &materialized_method.callable,
+                    &materialized_method.signature,
+                    specialization::materialized_member_name(&materialized_method.name),
+                    class_name,
+                    class_ty,
+                )?;
+                let original_name =
+                    self.intern_source_name(&format!("__smelt_original_{}", materialized_method.name));
+                let originals = methods
+                    .iter()
+                    .copied()
+                    .filter(|item| {
+                        matches!(
+                            self.item_ref(*item),
+                            Item::Function(function) if function.name == method_name
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                for original in originals {
+                    let index = usize::try_from(original.0).unwrap_or(usize::MAX);
+                    if let Some(Item::Function(function)) =
+                        self.ctx.krate.items.get_mut(index)
+                    {
+                        function.name = original_name;
+                        function.owner = FunctionOwner::ClassMethod {
+                            class: class_name,
+                            method: original_name,
+                        };
+                    }
+                }
+                methods.push(lifted);
+            }
+        }
+
         if constructor.is_none() {
             constructor = Some(self.synthesize_default_class_constructor(
                 class_text,
@@ -956,6 +1043,41 @@ impl ModuleBuilder<'_> {
                 &field_initializers,
                 self.span(class.span.start, class.span.end),
             )?);
+        }
+        let mut instance_initializers = Vec::new();
+        if let Some(materialized_class) = &materialized {
+            let initializer_signature = smelt_specialize::FunctionSignature {
+                parameters: Vec::new(),
+                return_type: smelt_specialize::StaticType::Null,
+                is_async: false,
+                throws: false,
+            };
+            for initializer in materialized_class.initializers.iter().filter(|initializer| {
+                initializer.kind == smelt_specialize::InitializerKind::Instance
+            }) {
+                let hidden_name = format!("__smelt_initializer_{}", initializer.order);
+                let item = self.lift_materialized_class_callable(
+                    &initializer.callable,
+                    &initializer_signature,
+                    &hidden_name,
+                    class_name,
+                    class_ty,
+                )?;
+                methods.push(item);
+                instance_initializers.push((
+                    item,
+                    initializer.target_kind.clone(),
+                    initializer.target_name.clone(),
+                ));
+            }
+        }
+        if let Some(constructor) = constructor {
+            self.prepend_materialized_initializer_calls(
+                constructor,
+                &instance_initializers,
+                class_ty,
+                class_span,
+            )?;
         }
         let descriptors = materialized
             .as_ref()

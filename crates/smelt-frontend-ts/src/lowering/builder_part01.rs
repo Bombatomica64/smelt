@@ -52,6 +52,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_statement_block: None,
             deferred_postfix_updates: None,
             allow_unknown_index_access,
+            preserve_specialization_receiver: false,
             test_builtins: HashSet::new(),
             namespace_imports: HashSet::new(),
             type_only_imports: HashSet::new(),

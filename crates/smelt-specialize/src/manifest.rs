@@ -291,6 +291,12 @@ pub struct InitializerRecord {
     pub kind: InitializerKind,
     /// Source callable to lift into HIR.
     pub callable: CallableProvenance,
+    /// Standard-decorator target kind controlling constructor placement.
+    #[serde(default)]
+    pub target_kind: Option<String>,
+    /// Standard-decorator member name controlling field-relative placement.
+    #[serde(default)]
+    pub target_name: Option<String>,
 }
 
 /// Initializer execution boundary.

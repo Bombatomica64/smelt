@@ -3,8 +3,9 @@
 use std::path::Path;
 
 use super::{
-    Body, Expr, ExprKind, Expression, Field, FunctionType, Item, Literal, MethodDefinitionKind,
-    ModuleBuilder, SmeltError, Span, SpecializationData, Type, Visibility,
+    Allocator, Body, Expr, ExprKind, Expression, Field, FunctionType, Item, Literal,
+    MethodDefinitionKind, ModuleBuilder, ParseOptions, Parser, SmeltError, SourceType, Span,
+    SpecializationData, Statement, Type, Visibility,
 };
 
 /// Returns specialization data for one exact TypeScript source path.
@@ -48,6 +49,316 @@ fn paths_match(frontend: &str, materialized: &str) -> bool {
 }
 
 impl ModuleBuilder<'_> {
+    /// Returns whether provenance points at a nested function expression.
+    pub(super) fn materialized_callable_needs_lift(
+        &self,
+        provenance: &smelt_specialize::CallableProvenance,
+    ) -> bool {
+        let start = usize::try_from(provenance.span.start).unwrap_or(usize::MAX);
+        let end = usize::try_from(provenance.span.end).unwrap_or(usize::MAX);
+        self.source
+            .get(start..end)
+            .is_some_and(|source| source.trim_start().starts_with("function"))
+    }
+
+    /// Lifts a source-mapped decorator callable into a hidden class method.
+    pub(super) fn lift_materialized_class_callable(
+        &mut self,
+        provenance: &smelt_specialize::CallableProvenance,
+        signature: &smelt_specialize::FunctionSignature,
+        hidden_name: &str,
+        class_name: smelt_hir::Symbol,
+        class_ty: smelt_hir::TypeId,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let start = usize::try_from(provenance.span.start).unwrap_or(usize::MAX);
+        let end = usize::try_from(provenance.span.end).unwrap_or(usize::MAX);
+        let source = self.source.get(start..end).ok_or_else(|| {
+            SmeltError::native_specialization_adapter_required(
+                self.materialized_span(&provenance.span),
+                "typescript.callable-source",
+                &format!(
+                    "callable '{}' has an invalid source span",
+                    provenance.qualified_name
+                ),
+            )
+        })?;
+        let function_start = source.find("function").ok_or_else(|| {
+            SmeltError::native_specialization_adapter_required(
+                self.materialized_span(&provenance.span),
+                "typescript.callable-source",
+                &format!(
+                    "callable '{}' does not map to a source function expression",
+                    provenance.qualified_name
+                ),
+            )
+        })?;
+        let function_end = source.rfind('}').ok_or_else(|| {
+            SmeltError::native_specialization_adapter_required(
+                self.materialized_span(&provenance.span),
+                "typescript.callable-source",
+                &format!(
+                    "callable '{}' has no complete source body",
+                    provenance.qualified_name
+                ),
+            )
+        })?;
+        let callable_source = &source[function_start..=function_end];
+        let wrapped = format!("const __smelt_lifted = {callable_source};");
+        let allocator = Allocator::default();
+        let parsed = Parser::new(
+            &allocator,
+            &wrapped,
+            SourceType::default().with_typescript(true),
+        )
+        .with_options(ParseOptions::default())
+        .parse();
+        if !parsed.errors.is_empty() {
+            return Err(SmeltError::native_specialization_adapter_required(
+                self.materialized_span(&provenance.span),
+                "typescript.callable-source",
+                &format!(
+                    "callable '{}' could not be parsed from its source span",
+                    provenance.qualified_name
+                ),
+            ));
+        }
+        let function = parsed
+            .program
+            .body
+            .first()
+            .and_then(|statement| match statement {
+                Statement::VariableDeclaration(variable) => variable.declarations.first(),
+                _ => None,
+            })
+            .and_then(|declaration| declaration.init.as_ref())
+            .and_then(|expression| match expression {
+                Expression::FunctionExpression(function) => Some(function.as_ref()),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                SmeltError::native_specialization_adapter_required(
+                    self.materialized_span(&provenance.span),
+                    "typescript.callable-source",
+                    &format!(
+                        "callable '{}' is not a liftable function expression",
+                        provenance.qualified_name
+                    ),
+                )
+            })?;
+        let hint = self.materialized_static_type(
+            &smelt_specialize::StaticType::Function(Box::new(signature.clone())),
+        );
+        let capture_items = provenance
+            .captures
+            .iter()
+            .map(|(name, value)| {
+                let capture = self.materialized_value(*value).ok_or_else(|| {
+                    SmeltError::native_specialization_adapter_required(
+                        self.materialized_span(&provenance.span),
+                        "typescript.callable-captures",
+                        &format!("capture '{name}' is absent from the value graph"),
+                    )
+                })?;
+                let smelt_specialize::GraphValueKind::FunctionRef(capture) = &capture.value else {
+                    return Err(SmeltError::native_specialization_adapter_required(
+                        self.materialized_span(&provenance.span),
+                        "typescript.callable-captures",
+                        &format!("capture '{name}' is not a source callable"),
+                    ));
+                };
+                let expected = capture
+                    .qualified_name
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(&capture.qualified_name);
+                let item = self
+                    .ctx
+                    .krate
+                    .items
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, item)| {
+                        let Item::Function(candidate_function) = item else {
+                            return None;
+                        };
+                        let function_name =
+                            self.ctx.krate.symbols.get(candidate_function.name)?;
+                        let owner_name = match candidate_function.owner {
+                            smelt_hir::FunctionOwner::ClassMethod { method, .. } => {
+                                self.ctx.krate.symbols.get(method)
+                            }
+                            _ => None,
+                        };
+                        (function_name == expected || owner_name == Some(expected)).then_some((
+                            candidate_function.span.start.abs_diff(capture.span.start),
+                            index,
+                        ))
+                    })
+                    .min_by_key(|(distance, _)| *distance)
+                    .and_then(|(_, index)| u32::try_from(index).ok())
+                    .map(smelt_hir::ItemId)
+                    .ok_or_else(|| {
+                        SmeltError::native_specialization_adapter_required(
+                            self.materialized_span(&provenance.span),
+                            "typescript.callable-captures",
+                            &format!("capture '{name}' has no lowered source callable"),
+                        )
+                    })?;
+                Ok((name.clone(), item))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let previous = capture_items
+            .iter()
+            .map(|(name, item)| (name.clone(), self.items.insert(name.clone(), *item)))
+            .collect::<Vec<_>>();
+        let lifted = self.function_expression_item_with_receiver(
+            hidden_name,
+            function,
+            Some(hint),
+            Some((class_name, class_ty)),
+        );
+        for (name, item) in previous {
+            if let Some(item) = item {
+                self.items.insert(name, item);
+            } else {
+                self.items.remove(&name);
+            }
+        }
+        lifted.map_err(|error| {
+            SmeltError::native_specialization_adapter_required(
+                self.materialized_span(&provenance.span),
+                "typescript.callable-lift",
+                &format!(
+                    "callable '{}' could not be lifted: {}",
+                    provenance.qualified_name, error.message
+                ),
+            )
+        })
+    }
+
+    /// Inserts ordered instance initializer calls at constructor entry.
+    pub(super) fn prepend_materialized_initializer_calls(
+        &mut self,
+        constructor: smelt_hir::ItemId,
+        initializers: &[(smelt_hir::ItemId, Option<String>, Option<String>)],
+        class_ty: smelt_hir::TypeId,
+        span: Span,
+    ) -> Result<(), SmeltError> {
+        let body_id = match self.item_ref(constructor) {
+            Item::Function(function) => function.body,
+            _ => None,
+        }
+        .ok_or_else(|| SmeltError::unsupported(span, "class constructor body is missing"))?;
+        let methods = initializers
+            .iter()
+            .map(|(item, kind, name)| match self.item_ref(*item) {
+                Item::Function(function) => Ok((function.name, kind.clone(), name.clone())),
+                _ => Err(SmeltError::unsupported(
+                    span,
+                    "materialized initializer is not a function",
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let this_symbol = self.ctx.krate.symbols.intern("this");
+        let body_index = usize::try_from(body_id.0).unwrap_or(usize::MAX);
+        let body = self
+            .ctx
+            .krate
+            .bodies
+            .get_mut(body_index)
+            .ok_or_else(|| SmeltError::unsupported(span, "class constructor body is missing"))?;
+        let this_local = body
+            .locals
+            .iter()
+            .enumerate()
+            .find_map(|(index, local)| {
+                local
+                    .name
+                    .and_then(|name| (name == this_symbol).then_some(index))
+            })
+            .and_then(|index| u32::try_from(index).ok())
+            .map(smelt_hir::LocalId)
+            .ok_or_else(|| SmeltError::unsupported(span, "class constructor receiver is missing"))?;
+        let none = self.ctx.krate.types.intern(Type::None);
+        let mut inserted = Vec::new();
+        for (order, (method, kind, target_name)) in methods.into_iter().enumerate() {
+            let receiver = body.push_expr(Expr {
+                kind: ExprKind::Local(this_local),
+                ty: class_ty,
+                span,
+            });
+            let call = body.push_expr(Expr {
+                kind: ExprKind::Method {
+                    receiver,
+                    method,
+                    args: Vec::new(),
+                },
+                ty: none,
+                span,
+            });
+            inserted.push((
+                order,
+                kind,
+                target_name,
+                body.push_stmt(smelt_hir::Stmt::Expr(call)),
+            ));
+        }
+        let root_index = usize::try_from(body.root.0).unwrap_or(usize::MAX);
+        let original_len = body
+            .blocks
+            .get(root_index)
+            .map_or(0, |root| root.stmts.len().saturating_sub(inserted.len()));
+        let original_stmts = body
+            .blocks
+            .get(root_index)
+            .and_then(|root| root.stmts.get(..original_len))
+            .map_or_else(Vec::new, <[smelt_hir::StmtId]>::to_vec);
+        let mut placed = inserted
+            .into_iter()
+            .map(|(order, kind, target_name, statement)| {
+                let position = if matches!(kind.as_deref(), Some("field" | "accessor")) {
+                    target_name
+                        .as_deref()
+                        .map(materialized_member_name)
+                        .and_then(|name| {
+                            let symbol = self.ctx.krate.symbols.intern(name);
+                            original_stmts.iter().position(|statement_id| {
+                                let statement_index =
+                                    usize::try_from(statement_id.0).unwrap_or(usize::MAX);
+                                let Some(smelt_hir::Stmt::Assign { target, .. }) =
+                                    body.stmts.get(statement_index)
+                                else {
+                                    return false;
+                                };
+                                let target_index =
+                                    usize::try_from(target.0).unwrap_or(usize::MAX);
+                                matches!(
+                                    body.exprs.get(target_index),
+                                    Some(Expr {
+                                        kind: ExprKind::Field { field, .. },
+                                        ..
+                                    }) if *field == symbol
+                                )
+                            })
+                        })
+                        .map_or(original_len, |position| position.saturating_add(1))
+                } else {
+                    0
+                };
+                (position, order, statement)
+            })
+            .collect::<Vec<_>>();
+        placed.sort_by_key(|(position, order, _)| (*position, *order));
+        if let Some(root) = body.blocks.get_mut(root_index) {
+            root.stmts.truncate(original_len);
+            for (offset, (position, _, statement)) in placed.into_iter().enumerate() {
+                root.stmts
+                    .insert(position.saturating_add(offset), statement);
+            }
+        }
+        Ok(())
+    }
+
     /// Lowers a materialized primitive static member as an ordinary literal.
     pub(super) fn materialized_static_member(
         &self,
@@ -176,9 +487,13 @@ impl ModuleBuilder<'_> {
                 .get(&materialized.name)
                 .copied()
                 .or(materialized.default);
+            let value_type = value
+                .and_then(|value| self.materialized_value(value))
+                .map(|node| node.ty.clone());
+            let ty = value_type.as_ref().unwrap_or(&materialized.ty);
             static_fields.push(smelt_hir::StaticField {
                 name: self.intern_source_name(materialized_member_name(&materialized.name)),
-                ty: self.materialized_static_type(&materialized.ty),
+                ty: self.materialized_static_type(ty),
                 visibility: if materialized.is_private {
                     Visibility::Private
                 } else {
@@ -346,6 +661,6 @@ impl ModuleBuilder<'_> {
 }
 
 /// Converts standard-decorator private names to the frontend's field spelling.
-fn materialized_member_name(name: &str) -> &str {
+pub(super) fn materialized_member_name(name: &str) -> &str {
     name.strip_prefix('#').unwrap_or(name)
 }
