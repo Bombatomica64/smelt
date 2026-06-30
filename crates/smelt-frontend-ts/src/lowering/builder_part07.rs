@@ -271,16 +271,25 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert a switch case label expression to a literal.
-    fn literal_case_label(&self, expression: &Expression<'_>) -> Result<Literal, SmeltError> {
+    ///
+    /// Beyond direct literals, lodash/es-toolkit compat code labels cases with
+    /// references to module string constants such as `case stringTag:` where
+    /// `export const stringTag = '[object String]'`. These fold to the same
+    /// literal at compile time, so resolve any constant-foldable label through
+    /// the shared exported-const folder before failing.
+    fn literal_case_label(&mut self, expression: &Expression<'_>) -> Result<Literal, SmeltError> {
         match expression {
             Expression::StringLiteral(lit) => Ok(Literal::String(lit.value.to_string())),
             Expression::NumericLiteral(lit) => Ok(Literal::Float(lit.value)),
             Expression::BooleanLiteral(lit) => Ok(Literal::Bool(lit.value)),
             Expression::NullLiteral(_) => Ok(Literal::None),
-            _ => Err(SmeltError::unsupported(
-                self.expression_span(expression),
-                "switch case labels must be string, number, boolean, or null literals",
-            )),
+            _ => match self.literal_const_expression(expression) {
+                Ok(value) => Ok(value.literal),
+                Err(_) => Err(SmeltError::unsupported(
+                    self.expression_span(expression),
+                    "switch case labels must be string, number, boolean, or null literals",
+                )),
+            },
         }
     }
 

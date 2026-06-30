@@ -1670,6 +1670,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Item::Interface(_) => {
                     self.interfaces.insert(local.to_owned(), item);
                 }
+                // Imported primitive const literals (e.g. `export const stringTag
+                // = '[object String]'`) must be foldable in the importer so they
+                // can appear in switch case labels and other constant positions.
+                // The construction-time `visible_const_literals` snapshot misses
+                // imports whose source module is lowered after this one, so fold
+                // the resolved crate item here where the dependency is guaranteed
+                // present.
+                Item::Const(const_item) => {
+                    if let Some(value) = const_literal_from_item(&self.ctx.krate, const_item) {
+                        self.const_literals.insert(local.to_owned(), value);
+                    }
+                }
                 _ => {}
             }
             return;

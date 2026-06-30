@@ -486,6 +486,93 @@ clone-strategy = "aggressive"
 }
 
 #[test]
+fn build_resolves_typescript_exported_function_expression_consts() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-exported-fn-expr-const"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts", "src/stub.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_exported_fn_expr_const"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    // `export const stub = function () { ... }` binds an anonymous function
+    // expression to a module name and must lower like `function stub() { ... }`.
+    fs::write(
+        project_path.join("src/stub.ts"),
+        "export const stubThree = function () {\n  return 3;\n};\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { stubThree } from './stub';\nconst result = stubThree();\nconsole.log(result);\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"3\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_resolves_switch_case_labels_from_imported_string_consts() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-switch-const-labels"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts", "src/tags.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_switch_const_labels"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    // lodash/es-toolkit compat code labels switch cases with references to
+    // module string constants (`case stringTag:`). The dependency module is
+    // lowered first, so the importer folds these to literals.
+    fs::write(
+        project_path.join("src/tags.ts"),
+        "export const stringTag = '[object String]';\nexport const numberTag = '[object Number]';\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { stringTag, numberTag } from './tags';\nexport function classify(tag: string): number {\n  switch (tag) {\n    case stringTag:\n      return 1;\n    case numberTag:\n      return 2;\n    default:\n      return 0;\n  }\n}\nconst result = classify('[object Number]');\nconsole.log(result);\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"2\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
 fn build_resolves_typescript_object_namespace_consts() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();
