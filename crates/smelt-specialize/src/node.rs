@@ -28,6 +28,8 @@ pub struct NodeModule {
     pub source_path: PathBuf,
     /// Canonical JavaScript artifact emitted by the configured TypeScript toolchain.
     pub emitted_path: PathBuf,
+    /// Source map emitted by the same canonical TypeScript invocation.
+    pub source_map_path: Option<PathBuf>,
 }
 
 /// Inputs for one batched sandboxed Node specialization process.
@@ -282,7 +284,10 @@ fn validate_node_request(
                 "candidate module names must be non-empty".to_owned(),
             ));
         }
-        for path in [&module.source_path, &module.emitted_path] {
+        for path in [&module.source_path, &module.emitted_path]
+            .into_iter()
+            .chain(module.source_map_path.as_ref())
+        {
             let canonical = fs::canonicalize(path)?;
             if !canonical.starts_with(&canonical_root) {
                 return Err(NodeSpecializationError::InvalidRequest(format!(
@@ -379,13 +384,14 @@ mod tests {
             .arg(&source)
             .args(["--target", "ES2022", "--module", "commonjs", "--outDir"])
             .arg(&emitted_dir)
-            .args(["--skipLibCheck", "--pretty", "false"])
+            .args(["--sourceMap", "--skipLibCheck", "--pretty", "false"])
             .output()
             .map_err(|error| error.to_string())?;
         if !compile.status.success() {
             return Err(String::from_utf8_lossy(&compile.stderr).into_owned());
         }
         let emitted = emitted_dir.join("fixture.js");
+        let source_map = emitted_dir.join("fixture.js.map");
         let request = NodeSpecializationRequest {
             smelt_version: "test".to_owned(),
             node_executable: node.to_path_buf(),
@@ -394,6 +400,7 @@ mod tests {
                 name: "fixture".to_owned(),
                 source_path: source,
                 emitted_path: emitted,
+                source_map_path: Some(source_map),
             }],
             typescript_version: "5.9.3".to_owned(),
             decorators_revision: "2023-11".to_owned(),
@@ -432,6 +439,7 @@ mod tests {
                 name: "legacy".to_owned(),
                 source_path: source,
                 emitted_path: emitted,
+                source_map_path: None,
             }],
             typescript_version: "5.9.3".to_owned(),
             decorators_revision: "2023-11".to_owned(),
@@ -486,6 +494,7 @@ mod tests {
                     name: "dynamic".to_owned(),
                     source_path: source,
                     emitted_path: emitted,
+                    source_map_path: None,
                 }],
                 typescript_version: "5.9.3".to_owned(),
                 decorators_revision: "2023-11".to_owned(),
@@ -694,6 +703,23 @@ cycle.self = cycle;
         {
             return Err(format!(
                 "decorator initializers are incomplete: {:?}",
+                example.initializers
+            ));
+        }
+        let source = decorated_fixture();
+        if example.initializers.iter().all(|initializer| {
+            let start = usize::try_from(initializer.callable.span.start).unwrap_or(usize::MAX);
+            let end = usize::try_from(initializer.callable.span.end).unwrap_or(usize::MAX);
+            let line_start = source
+                .get(..start)
+                .and_then(|prefix| prefix.rfind('\n'))
+                .map_or(0, |newline| newline.saturating_add(1));
+            source.get(line_start..end).is_none_or(|text| {
+                !text.contains("addInitializer")
+            })
+        }) {
+            return Err(format!(
+                "initializer provenance did not map back to its nested TypeScript source: {:?}",
                 example.initializers
             ));
         }
