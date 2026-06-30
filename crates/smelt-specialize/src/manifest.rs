@@ -595,6 +595,14 @@ fn validate_adapters(adapters: &[AdapterRequirement], errors: &mut Vec<ManifestE
                 "smelt::specialization-invalid-adapter",
                 "native adapter IDs and versions must be non-empty".to_owned(),
             ));
+        } else if adapter.id != adapter.id.trim() || adapter.version != adapter.version.trim() {
+            errors.push(error(
+                "smelt::specialization-invalid-adapter",
+                format!(
+                    "native adapter '{}' has surrounding whitespace in its ID or version",
+                    adapter.id
+                ),
+            ));
         } else if !seen.insert(adapter.id.as_str()) {
             errors.push(error(
                 "smelt::specialization-duplicate-adapter",
@@ -857,5 +865,35 @@ mod tests {
             return Err("schema mismatch did not use its stable diagnostic".to_owned());
         }
         Ok(())
+    }
+
+    #[test]
+    fn adapter_ids_reject_surrounding_whitespace() -> Result<(), String> {
+        let mut manifest = empty_manifest();
+        manifest.required_adapters = vec![
+            AdapterRequirement {
+                id: "adapter.example".to_owned(),
+                version: "1".to_owned(),
+                reason: "first".to_owned(),
+                span: None,
+            },
+            AdapterRequirement {
+                id: " adapter.example ".to_owned(),
+                version: "1".to_owned(),
+                reason: "duplicate".to_owned(),
+                span: None,
+            },
+        ];
+        let Err(errors) = validate_manifest(&manifest) else {
+            return Err("whitespace-variant adapter IDs were accepted".to_owned());
+        };
+        if errors
+            .iter()
+            .any(|error| error.code == "smelt::specialization-invalid-adapter")
+        {
+            Ok(())
+        } else {
+            Err(format!("invalid adapter diagnostic is absent: {errors:?}"))
+        }
     }
 }

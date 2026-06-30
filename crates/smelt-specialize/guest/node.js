@@ -11,6 +11,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
+const { types: utilTypes } = require("node:util");
 
 const decoratorRecords = [];
 
@@ -53,6 +54,14 @@ globalThis.__smeltFinishDecorator = function finishDecorator(
 function rejectOperation(name) {
   throw new Error(
     `native specialization adapter required: forbidden definition-time operation '${name}'`,
+  );
+}
+
+/** Reject a runtime-dynamic property surface with a stable diagnostic. */
+function rejectDynamicAttribute(qualifiedName, detail, sourcePath = null) {
+  const location = sourcePath ? ` at ${sourcePath}` : "";
+  throw new Error(
+    `smelt::dynamic-attribute-access: '${qualifiedName}' ${detail}${location}; runtime-dynamic properties cannot be specialized`,
   );
 }
 
@@ -299,12 +308,29 @@ class Serializer {
         { kind: "function_ref", value: provenance },
       ];
     }
-    const fields = Object.fromEntries(
-      Reflect.ownKeys(value)
-        .filter((key) => typeof key === "string")
-        .sort()
-        .map((key) => [key, this.value(value[key], moduleRecord)]),
-    );
+    const objectName = qualifiedName || qualifiedTypeName(value);
+    if (utilTypes.isProxy(value)) {
+      rejectDynamicAttribute(
+        objectName,
+        "is a Proxy",
+        moduleRecord && moduleRecord.source_path,
+      );
+    }
+    const fields = {};
+    for (const key of Reflect.ownKeys(value)
+      .filter((candidate) => typeof candidate === "string")
+      .sort()) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor) continue;
+      if (descriptor.get || descriptor.set) {
+        rejectDynamicAttribute(
+          `${objectName}.${key}`,
+          "uses an accessor property",
+          moduleRecord && moduleRecord.source_path,
+        );
+      }
+      fields[key] = this.value(descriptor.value, moduleRecord);
+    }
     return [
       namedType(qualifiedTypeName(value)),
       {
@@ -484,6 +510,13 @@ function classDecoratorRecords(classValue, moduleRecord) {
 
 /** Materialize a decorated class after static initialization. */
 function classDefinition(classValue, moduleRecord, serializer) {
+  if (utilTypes.isProxy(classValue)) {
+    rejectDynamicAttribute(
+      classValue.name || "anonymous",
+      "is a Proxy class",
+      moduleRecord.source_path,
+    );
+  }
   const methods = [];
   const descriptors = [];
   const fields = [];
@@ -544,7 +577,16 @@ function classDefinition(classValue, moduleRecord, serializer) {
   const staticValues = {};
   for (const name of Object.getOwnPropertyNames(classValue).sort()) {
     if (["length", "name", "prototype"].includes(name)) continue;
-    const value = classValue[name];
+    const descriptor = Object.getOwnPropertyDescriptor(classValue, name);
+    if (!descriptor) continue;
+    if (descriptor.get || descriptor.set) {
+      rejectDynamicAttribute(
+        `${classValue.name}.${name}`,
+        "uses a static accessor property",
+        moduleRecord.source_path,
+      );
+    }
+    const value = descriptor.value;
     if (typeof value === "function") {
       methods.push(
         functionDefinition(
@@ -801,9 +843,35 @@ function buildManifest(request) {
   const modules = loaded.map((record) => {
     const definitions = [];
     const globals = {};
+    if (utilTypes.isProxy(record.exports)) {
+      rejectDynamicAttribute(
+        record.name,
+        "exports a Proxy namespace",
+        record.source_path,
+      );
+    }
     for (const name of Object.keys(record.exports).sort()) {
       if (name.startsWith("__")) continue;
-      const value = record.exports[name];
+      const descriptor = Object.getOwnPropertyDescriptor(record.exports, name);
+      if (!descriptor) continue;
+      let value = descriptor.value;
+      if (descriptor.get) {
+        try {
+          value = descriptor.get.call(record.exports);
+        } catch (error) {
+          rejectDynamicAttribute(
+            `${record.name}.${name}`,
+            `has a throwing export getter (${String(error)})`,
+            record.source_path,
+          );
+        }
+      } else if (descriptor.set) {
+        rejectDynamicAttribute(
+          `${record.name}.${name}`,
+          "exports a setter-only binding",
+          record.source_path,
+        );
+      }
       definitions.push(materializedDefinition(name, value, record, serializer));
       globals[name] = serializer.value(value, record, name);
     }

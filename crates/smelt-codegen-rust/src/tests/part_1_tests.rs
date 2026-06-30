@@ -12,6 +12,34 @@ fn emits_main_with_console_log() {
 }
 
 #[test]
+fn exact_console_write_uses_debug_format_for_lists() {
+    use smelt_mir::{BuiltinFn, Callee, Terminator};
+
+    let mut ctx = HirCtx::new();
+    assert!(
+        to_hir(
+            "const values: number[] = [1, 2];\nconsole.log(values);\n",
+            FileId(0),
+            &mut ctx,
+        )
+        .is_ok(),
+        "HIR"
+    );
+    let mut mir = smelt_mir::lower_hir(&ctx.krate).unwrap_or_else(|_| panic!("MIR"));
+    for function in &mut mir.functions {
+        for block in &mut function.blocks {
+            if let Some(Terminator::Call { callee, .. }) = &mut block.terminator
+                && matches!(callee, Callee::Builtin(BuiltinFn::ConsoleLog))
+            {
+                *callee = Callee::Builtin(BuiltinFn::ConsoleWrite);
+            }
+        }
+    }
+    let source = emit_source(&mir).unwrap_or_else(|error| panic!("Rust source: {error}"));
+    assert!(source.contains("print!(\"{:?}\", values"), "{source}");
+}
+
+#[test]
 fn emits_owned_string_literals() {
     let source = source_for("const message = \"hello smelt\";\nconsole.log(message);\n");
 
@@ -334,7 +362,10 @@ const total = sum(2, 3, 4);
 "#,
     );
 
-    assert!(source.contains("|closure_arg_0: SmeltList<f64>|"), "{source}");
+    assert!(
+        source.contains("|closure_arg_0: SmeltList<f64>|"),
+        "{source}"
+    );
     assert!(source.contains("vec![2.0, 3.0, 4.0]"));
     assert!(source.contains("closure_arg_0.get("), "{source}");
     assert!(

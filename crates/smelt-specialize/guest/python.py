@@ -229,10 +229,17 @@ def stable_key(value: object) -> tuple[str, str]:
 
 def object_fields(value: object) -> dict[str, object] | None:
     """Return concrete instance state without invoking arbitrary properties."""
+    dynamic_attribute_override(value)
     if dataclasses.is_dataclass(value) and not inspect.isclass(value):
+        try:
+            fields = dataclasses.fields(value)
+        except (AttributeError, TypeError, ValueError) as error:
+            raise RuntimeError(
+                "smelt::specialization-required: "
+                f"cannot inspect dataclass '{qualified_type_name(type(value))}': {error}"
+            ) from error
         return {
-            field.name: object.__getattribute__(value, field.name)
-            for field in dataclasses.fields(value)
+            field.name: object.__getattribute__(value, field.name) for field in fields
         }
     try:
         namespace = object.__getattribute__(value, "__dict__")
@@ -252,6 +259,33 @@ def object_fields(value: object) -> dict[str, object] | None:
                 continue
         return result
     return None
+
+
+def dynamic_attribute_override(value: object) -> None:
+    """Reject runtime-dynamic attribute protocols before serializing a partial shell."""
+    hooks = ("__getattr__", "__getattribute__", "__setattr__", "__delattr__")
+    for owner in type(value).__mro__:
+        if owner is object:
+            continue
+        namespace = vars(owner)
+        for hook in hooks:
+            if hook not in namespace:
+                continue
+            implementation = namespace[hook]
+            try:
+                source_file = inspect.getsourcefile(implementation) or inspect.getfile(owner)
+            except TypeError:
+                source_file = None
+            try:
+                _, line = inspect.getsourcelines(implementation)
+            except (OSError, TypeError):
+                line = 0
+            location = f"{source_file}:{line}" if source_file else "<unknown>"
+            raise RuntimeError(
+                "smelt::dynamic-attribute-access: "
+                f"'{qualified_type_name(type(value))}' inherits {owner.__qualname__}.{hook} "
+                f"at {location}; runtime-dynamic attributes cannot be specialized"
+            )
 
 
 def common_type(value_ids: list[int], nodes: list[dict[str, object]]) -> dict[str, object]:
@@ -455,7 +489,22 @@ def callable_provenance(function: object, serializer: Serializer) -> dict[str, o
     closure = getattr(unwrapped, "__closure__", None)
     code = getattr(unwrapped, "__code__", None)
     if closure is not None and code is not None:
-        for name, cell in zip(code.co_freevars, closure, strict=True):
+        if len(code.co_freevars) != len(closure):
+            serializer.add_adapter(
+                f"python.invalid-closure:{module}.{qualified_name}",
+                f"callable '{module}.{qualified_name}' has inconsistent closure metadata",
+                span,
+            )
+            return {
+                "language": "python",
+                "module": module,
+                "qualified_name": qualified_name,
+                "span": span,
+                "code_hash": code_hash,
+                "captures": captures,
+                "binding_mode": binding_mode(qualified_name, function),
+            }
+        for name, cell in zip(code.co_freevars, closure):
             try:
                 captures[name] = serializer.value(cell.cell_contents)
             except ValueError:

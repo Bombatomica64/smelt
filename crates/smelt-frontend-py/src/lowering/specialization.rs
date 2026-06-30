@@ -379,22 +379,24 @@ impl ModuleBuilder<'_> {
             .rsplit('.')
             .next()
             .unwrap_or(&provenance.qualified_name);
-        self.ctx
-            .krate
-            .items
-            .iter()
-            .enumerate()
-            .filter_map(|(index, item)| {
+        self.source_module_items(&provenance.module, Some(&provenance.span.file))
+            .into_iter()
+            .filter_map(|item_id| {
+                let item = self.item_ref(item_id);
                 let Item::Function(function) = item else {
                     return None;
                 };
                 let name = self.ctx.krate.symbols.get(function.name)?;
-                (name == expected_name || name.ends_with(expected_name))
-                    .then_some((function.span.start.abs_diff(provenance.span.start), index))
+                let owner_name = match function.owner {
+                    FunctionOwner::ClassMethod { method, .. } => self.ctx.krate.symbols.get(method),
+                    FunctionOwner::Module | FunctionOwner::Constructor { .. } => None,
+                };
+                (descriptor_callable_name_matches(name, expected_name)
+                    || owner_name == Some(expected_name))
+                .then_some((function.span.start.abs_diff(provenance.span.start), item_id))
             })
             .min_by_key(|(distance, _)| *distance)
-            .and_then(|(_, index)| u32::try_from(index).ok())
-            .map(ItemId)
+            .map(|(_, item_id)| item_id)
             .ok_or_else(|| {
                 SmeltError::native_specialization_adapter_required(
                     span,
@@ -449,19 +451,7 @@ impl ModuleBuilder<'_> {
             return Ok(());
         };
         let qualified_class = class_name.clone();
-        let source_name = qualified_class
-            .rsplit('.')
-            .next()
-            .unwrap_or(&qualified_class)
-            .to_owned();
-        let resolved_class_index = self.ctx.krate.items.iter().position(|item| {
-            matches!(
-                item,
-                Item::Class(candidate)
-                    if self.ctx.krate.symbols.get(candidate.name) == Some(source_name.as_str())
-            )
-        });
-        let Some(class_index) = resolved_class_index else {
+        let Some((source_module, source_name)) = qualified_class.rsplit_once('.') else {
             return Err(SmeltError::native_specialization_adapter_required(
                 span,
                 "python.descriptor-class",
@@ -470,6 +460,21 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         };
+        let resolved_class = self
+            .source_module_binding(source_module, source_name)
+            .filter(|item_id| matches!(self.item_ref(*item_id), Item::Class(_)));
+        let Some(class_item) = resolved_class else {
+            return Err(SmeltError::native_specialization_adapter_required(
+                span,
+                "python.descriptor-class",
+                &format!(
+                    "descriptor state class '{qualified_class}' has no transpiled source definition"
+                ),
+            ));
+        };
+        let class_index = usize::try_from(class_item.0).map_err(|_invalid_index| {
+            SmeltError::unsupported(span, "resolved descriptor class item index is invalid")
+        })?;
         let fields = value_fields
             .iter()
             .map(|field| Field {
@@ -497,15 +502,17 @@ impl ModuleBuilder<'_> {
                 descriptor_class.fields.push(field.clone());
             }
         }
-        let known_fields = self.class_fields.entry(source_name).or_default();
-        for field in fields {
-            if let Some(existing) = known_fields
-                .iter_mut()
-                .find(|existing| existing.name == field.name)
-            {
-                *existing = field;
-            } else {
-                known_fields.push(field);
+        if self.source_module_is_current(source_module, None) {
+            let known_fields = self.class_fields.entry(source_name.to_owned()).or_default();
+            for field in fields {
+                if let Some(existing) = known_fields
+                    .iter_mut()
+                    .find(|existing| existing.name == field.name)
+                {
+                    *existing = field;
+                } else {
+                    known_fields.push(field);
+                }
             }
         }
         Ok(())
@@ -1088,25 +1095,52 @@ impl ModuleBuilder<'_> {
         let node = self.materialized_value(value_id, span)?.clone();
         match node.value {
             smelt_specialize::GraphValueKind::FunctionRef(provenance) => {
-                self.capture_source_item(&provenance.qualified_name, span)
+                self.capture_source_item(&provenance.module, &provenance.qualified_name, span)
             }
-            smelt_specialize::GraphValueKind::ClassRef { qualified_name, .. } => {
-                self.capture_source_item(&qualified_name, span)
-            }
+            smelt_specialize::GraphValueKind::ClassRef {
+                module,
+                qualified_name,
+            } => self.capture_source_item(&module, &qualified_name, span),
             _ => self.materialized_const_binding(name, value_id, span),
         }
     }
 
     /// Finds a source item referenced by qualified callable provenance.
-    fn capture_source_item(&self, qualified_name: &str, span: Span) -> Result<ItemId, SmeltError> {
+    fn capture_source_item(
+        &self,
+        module: &str,
+        qualified_name: &str,
+        span: Span,
+    ) -> Result<ItemId, SmeltError> {
         let source_name = qualified_name.rsplit('.').next().unwrap_or(qualified_name);
-        self.items
-            .get(source_name)
-            .copied()
-            .or_else(|| {
-                self.class_methods
-                    .values()
-                    .find_map(|methods| methods.get(source_name).copied())
+        let owner_name = qualified_name
+            .rsplit_once('.')
+            .and_then(|(owner, _)| owner.rsplit('.').next());
+        self.source_module_items(module, None)
+            .into_iter()
+            .find(|item_id| match self.item_ref(*item_id) {
+                Item::Function(function) => match function.owner {
+                    FunctionOwner::Module => {
+                        self.ctx.krate.symbols.get(function.name) == Some(source_name)
+                    }
+                    FunctionOwner::ClassMethod { class, method } => {
+                        self.ctx.krate.symbols.get(method) == Some(source_name)
+                            && owner_name.is_some_and(|owner| {
+                                self.ctx.krate.symbols.get(class) == Some(owner)
+                            })
+                    }
+                    FunctionOwner::Constructor { class } => {
+                        source_name == "__init__"
+                            && owner_name.is_some_and(|owner| {
+                                self.ctx.krate.symbols.get(class) == Some(owner)
+                            })
+                    }
+                },
+                Item::Class(class) => {
+                    self.ctx.krate.symbols.get(class.name) == Some(source_name)
+                        && owner_name.is_none()
+                }
+                Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => false,
             })
             .ok_or_else(|| {
                 SmeltError::native_specialization_adapter_required(
@@ -1115,6 +1149,68 @@ impl ModuleBuilder<'_> {
                     &format!("captured callable '{qualified_name}' has no lowered source item"),
                 )
             })
+    }
+
+    /// Resolves a top-level binding in one exact source module.
+    fn source_module_binding(&self, module: &str, name: &str) -> Option<ItemId> {
+        if self.source_module_is_current(module, None) {
+            return self.items.get(name).copied();
+        }
+        self.module_namespaces
+            .get(module)
+            .or_else(|| self.ctx.module_namespaces.get(module))
+            .and_then(|members| members.get(name))
+            .copied()
+    }
+
+    /// Returns items owned by one exact source module.
+    fn source_module_items(&self, module: &str, source_file: Option<&str>) -> Vec<ItemId> {
+        if self.source_module_is_current(module, source_file) {
+            let mut items = self.items.values().copied().collect::<Vec<_>>();
+            items.extend(
+                self.class_methods
+                    .values()
+                    .flat_map(|methods| methods.values().copied()),
+            );
+            items.extend(
+                self.ctx
+                    .krate
+                    .items
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, item)| {
+                        let Item::Function(function) = item else {
+                            return None;
+                        };
+                        (function.span.file == self.file_id)
+                            .then(|| u32::try_from(index).ok().map(ItemId))
+                            .flatten()
+                    }),
+            );
+            items.sort_by_key(|item| item.0);
+            items.dedup();
+            return items;
+        }
+        self.ctx
+            .krate
+            .modules
+            .iter()
+            .find(|candidate| {
+                source_file
+                    .is_some_and(|file| specialization_paths_match(file, &candidate.source.path))
+                    || module_names_from_path(&candidate.source.path)
+                        .iter()
+                        .any(|name| name == module)
+            })
+            .map_or_else(Vec::new, |candidate| candidate.items.clone())
+    }
+
+    /// Returns whether provenance belongs to the module currently being lowered.
+    fn source_module_is_current(&self, module: &str, source_file: Option<&str>) -> bool {
+        source_file.is_some_and(|file| specialization_paths_match(file, &self.path))
+            || module_names_from_path(&self.path)
+                .iter()
+                .any(|name| name == module)
     }
 
     /// Creates a HIR constant item from one concrete materialized value.
@@ -1215,6 +1311,25 @@ fn find_specialized_function<'module>(
     finder.found
 }
 
+/// Matches a callable name only at a full dotted qualified-name segment.
+fn qualified_name_segment_matches(candidate: &str, expected: &str) -> bool {
+    candidate == expected
+        || candidate
+            .strip_suffix(expected)
+            .is_some_and(|prefix| prefix.ends_with('.'))
+}
+
+/// Matches exact source names and the two collision-free descriptor helper names.
+fn descriptor_callable_name_matches(candidate: &str, expected: &str) -> bool {
+    qualified_name_segment_matches(candidate, expected)
+        || candidate
+            .strip_prefix("__smelt_get_")
+            .is_some_and(|name| name == expected)
+        || candidate
+            .strip_prefix("__smelt_set_")
+            .is_some_and(|name| name == expected)
+}
+
 /// Source-order callable finder using name plus nearest byte offset.
 struct SpecializedFunctionFinder<'name, 'module> {
     /// Expected final source function name.
@@ -1243,5 +1358,33 @@ impl<'module> ruff_python_ast::visitor::Visitor<'module>
             }
         }
         ruff_python_ast::visitor::walk_stmt(self, statement);
+    }
+}
+
+#[cfg(test)]
+mod provenance_name_tests {
+    use super::{descriptor_callable_name_matches, qualified_name_segment_matches};
+
+    #[test]
+    fn callable_suffixes_require_a_full_segment() {
+        assert!(qualified_name_segment_matches("Owner.helper", "helper"));
+        assert!(!qualified_name_segment_matches("my_helper", "helper"));
+        assert!(!qualified_name_segment_matches("Owner.my_helper", "helper"));
+    }
+
+    #[test]
+    fn renamed_descriptor_helpers_match_only_their_exact_member() {
+        assert!(descriptor_callable_name_matches(
+            "__smelt_get_value",
+            "value"
+        ));
+        assert!(descriptor_callable_name_matches(
+            "__smelt_set_value",
+            "value"
+        ));
+        assert!(!descriptor_callable_name_matches(
+            "__smelt_get_my_value",
+            "value"
+        ));
     }
 }

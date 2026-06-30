@@ -53,7 +53,7 @@ descriptors, methods, slots, static values, metadata, constructor shape,
 signatures, defaults, and annotations — because it is derived from the real
 interpreter, it is ground truth, not a heuristic.
 
-## Must fail loud (currently a silent gap — see below)
+## Must fail loud
 
 These produce a *runtime-dynamic* surface that the import-time snapshot cannot
 represent. The correct behavior is a hard, source-located diagnostic
@@ -67,12 +67,10 @@ a partial shape:
 | JS `Proxy` traps / computed `Object.defineProperty` getters | Same: property surface is dynamic |
 | Instance attributes never stored in `__dict__`/`__slots__` | Snapshot reads only `__dict__`/`__slots__`, so these are invisible |
 
-> **Status:** as of the specialization work in progress, the guest reads only
-> `__dict__` and `__slots__` and does **not** detect these overrides, so such
-> objects are captured as their static shell with no diagnostic. This is the
-> highest-priority correctness gap: silent under-capture lowers cleanly and then
-> fails (or misbehaves) far downstream. Detection of these overrides on a class
-> or its MRO should emit a hard diagnostic with the source span.
+The guests reject these surfaces with `smelt::dynamic-attribute-access`.
+Python checks the full MRO before serializing instance state. Node detects
+`Proxy` values and accessor properties without invoking arbitrary getters, so
+unsupported dynamic state cannot silently become a partial manifest.
 
 ## Unsupported / rejected (by design)
 

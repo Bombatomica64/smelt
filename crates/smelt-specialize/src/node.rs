@@ -452,6 +452,62 @@ mod tests {
         }
     }
 
+    #[test]
+    fn sandboxed_guest_rejects_accessors_and_proxies_as_dynamic_objects() -> Result<(), String> {
+        let Some(node) = discovered_executable(&["/usr/bin/node", "/usr/local/bin/node"]) else {
+            return Ok(());
+        };
+        if crate::LinuxBubblewrapBackend::discover().availability()
+            != crate::BackendAvailability::Available
+        {
+            return Ok(());
+        }
+        for (label, emitted_source) in [
+            (
+                "accessor",
+                "const dynamic = {}; Object.defineProperty(dynamic, 'computed', { get() { throw new Error('boom'); } }); module.exports = { dynamic };",
+            ),
+            (
+                "proxy",
+                "const dynamic = new Proxy({}, {}); module.exports = { dynamic };",
+            ),
+        ] {
+            let project = tempfile::tempdir().map_err(|error| error.to_string())?;
+            let source = project.path().join("dynamic.ts");
+            let emitted = project.path().join("dynamic.js");
+            fs::write(&source, "export const dynamic: object = {};")
+                .map_err(|error| error.to_string())?;
+            fs::write(&emitted, emitted_source).map_err(|error| error.to_string())?;
+            let request = NodeSpecializationRequest {
+                smelt_version: "test".to_owned(),
+                node_executable: node.to_path_buf(),
+                project_root: project.path().to_path_buf(),
+                modules: vec![NodeModule {
+                    name: "dynamic".to_owned(),
+                    source_path: source,
+                    emitted_path: emitted,
+                }],
+                typescript_version: "5.9.3".to_owned(),
+                decorators_revision: "2023-11".to_owned(),
+                hashes: fixture_hashes(),
+                sandbox_policy: fixture_policy(project.path()),
+            };
+            let error = match NodeSpecializer::new(crate::LinuxBubblewrapBackend::discover())
+                .specialize(&request)
+            {
+                Ok(_) => return Err(format!("{label} object unexpectedly specialized")),
+                Err(error) => error,
+            };
+            if !error
+                .to_string()
+                .contains("smelt::dynamic-attribute-access")
+            {
+                return Err(format!("unexpected {label} diagnostic: {error}"));
+            }
+        }
+        Ok(())
+    }
+
     /// Finds the first existing executable path.
     fn discovered_executable(candidates: &[&'static str]) -> Option<&'static Path> {
         candidates

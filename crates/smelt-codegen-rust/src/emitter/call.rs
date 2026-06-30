@@ -169,7 +169,9 @@ impl FunctionEmitter<'_> {
                     Some(Type::Function(function))
                         if function.rest == Some(0) && function.params.len() == 1 =>
                     {
-                        format!("({executor_text})(SmeltList::from(vec![smelt_resolve, smelt_reject]));")
+                        format!(
+                            "({executor_text})(SmeltList::from(vec![smelt_resolve, smelt_reject]));"
+                        )
                     }
                     // An executor that only declares `resolve` (e.g.
                     // `new Promise(resolve => …)`) is a 1-arg closure; calling it
@@ -330,17 +332,17 @@ impl FunctionEmitter<'_> {
                 }
             }
             Callee::Builtin(BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite) => {
-                let value = args
+                let (format_spec, value) = args
                     .first()
                     .map(|argument| self.console_arg_text(argument))
                     .transpose()?
-                    .map_or_else(|| "\"\"".to_owned(), |(_, value)| value);
+                    .unwrap_or_else(|| ("{}", "\"\"".to_owned()));
                 let macro_name = if matches!(callee, Callee::Builtin(BuiltinFn::ConsoleWrite)) {
                     "print"
                 } else {
                     "eprint"
                 };
-                Ok(format!("{{ {macro_name}!(\"{{}}\", {value}); }}"))
+                Ok(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}"))
             }
             Callee::Static(func) => {
                 let function = self

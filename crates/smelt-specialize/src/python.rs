@@ -352,6 +352,26 @@ mod tests {
     }
 
     #[test]
+    fn guest_rejects_runtime_dynamic_attribute_objects() -> Result<(), String> {
+        let Some(python) = discovered_python() else {
+            return Ok(());
+        };
+        let stderr = run_rejected_fixture_guest(
+            python,
+            "class Dynamic:\n    def __getattr__(self, name):\n        return name\n\ndynamic = Dynamic()\n",
+        )?;
+        if stderr.contains("smelt::dynamic-attribute-access")
+            && stderr.contains("Dynamic.__getattr__")
+        {
+            Ok(())
+        } else {
+            Err(format!(
+                "dynamic attribute diagnostic is missing or imprecise: {stderr}"
+            ))
+        }
+    }
+
+    #[test]
     fn guest_preserves_import_cycles_reexports_and_singleton_identity() -> Result<(), String> {
         let Some(python) = discovered_python() else {
             return Ok(());
@@ -511,6 +531,45 @@ mod tests {
             return Err(String::from_utf8_lossy(&output.stderr).into_owned());
         }
         decode_manifest(&output.stdout).map_err(|error| error.to_string())
+    }
+
+    /// Runs one fixture expected to fail with a guest diagnostic.
+    fn run_rejected_fixture_guest(python: &Path, source: &str) -> Result<String, String> {
+        let scratch = ScratchDirectory::create().map_err(|error| error.to_string())?;
+        let project = scratch.path().join("rejected-project");
+        fs::create_dir(&project).map_err(|error| error.to_string())?;
+        let module_path = project.join("fixture.py");
+        fs::write(&module_path, source).map_err(|error| error.to_string())?;
+        let policy = fixture_policy(&project, scratch.path());
+        let hashes = fixture_hashes();
+        let modules = vec![PythonModule {
+            name: "fixture".to_owned(),
+            path: module_path,
+        }];
+        let input = PythonGuestInput {
+            smelt_version: "test",
+            schema_version: MANIFEST_SCHEMA_VERSION,
+            project_root: &project,
+            modules: &modules,
+            hashes: &hashes,
+            sandbox_policy: &policy,
+        };
+        let request_path = scratch.path().join("request.json");
+        write_if_changed(
+            &request_path,
+            &serde_json::to_vec(&input).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let output = std::process::Command::new(python)
+            .args(["-I", "-S", "-c"])
+            .arg(PYTHON_GUEST)
+            .arg(&request_path)
+            .output()
+            .map_err(|error| error.to_string())?;
+        if output.status.success() {
+            return Err("dynamic attribute fixture unexpectedly specialized".to_owned());
+        }
+        Ok(String::from_utf8_lossy(&output.stderr).into_owned())
     }
 
     /// Runs a three-module graph containing a cycle and a class re-export.

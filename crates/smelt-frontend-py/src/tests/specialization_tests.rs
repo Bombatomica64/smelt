@@ -213,6 +213,54 @@ fn manifest_merges_metaclass_generated_fields() -> TestResult {
     )
 }
 
+#[test]
+fn descriptor_state_uses_the_fully_qualified_class_owner() -> TestResult {
+    let manifest = qualified_descriptor_state_manifest();
+    let mut ctx = HirCtx::new();
+    let class_source = "class Config:\n    existing: int\n";
+    let module_a = to_hir_with_options(
+        class_source,
+        FileId(0),
+        "a.py",
+        &mut ctx,
+        FrontendOptions {
+            specialization: Some(&manifest),
+        },
+    )
+    .map_err(|errors| format!("module a lowering failed: {errors:?}"))?;
+    let module_b = to_hir_with_options(
+        class_source,
+        FileId(1),
+        "b.py",
+        &mut ctx,
+        FrontendOptions {
+            specialization: Some(&manifest),
+        },
+    )
+    .map_err(|errors| format!("module b lowering failed: {errors:?}"))?;
+    to_hir_with_options(
+        "class Owner:\n    value: int\n",
+        FileId(2),
+        "c.py",
+        &mut ctx,
+        FrontendOptions {
+            specialization: Some(&manifest),
+        },
+    )
+    .map_err(|errors| format!("module c lowering failed: {errors:?}"))?;
+
+    let a_fields = class_field_names(&ctx, module_a, "Config")?;
+    let b_fields = class_field_names(&ctx, module_b, "Config")?;
+    ensure(
+        !a_fields.iter().any(|field| field == "descriptor_state"),
+        "descriptor state leaked into a.Config",
+    )?;
+    ensure(
+        b_fields.iter().any(|field| field == "descriptor_state"),
+        "descriptor state was not merged into b.Config",
+    )
+}
+
 /// Builds a materialized wrapper manifest for [`WRAPPED_SOURCE`].
 fn wrapper_manifest() -> SpecializationManifest {
     let original = provenance("render", source_start("def render"), BTreeMap::new());
@@ -433,6 +481,110 @@ fn metaclass_manifest() -> SpecializationManifest {
         binding_mode: BindingMode::Instance,
     }];
     manifest
+}
+
+/// Builds a manifest whose descriptor instance belongs to `b.Config`.
+fn qualified_descriptor_state_manifest() -> SpecializationManifest {
+    let signature = FunctionSignature {
+        parameters: Vec::new(),
+        return_type: StaticType::Named("c.Owner".to_owned()),
+        is_async: false,
+        throws: false,
+    };
+    SpecializationManifest {
+        smelt_version: "test".to_owned(),
+        schema_version: MANIFEST_SCHEMA_VERSION,
+        language: HostLanguage::Python,
+        host_runtime_version: "test".to_owned(),
+        hashes: fixture_hashes(),
+        sandbox_policy: fixture_policy(),
+        modules: vec![ModuleRecord {
+            path: "c.py".to_owned(),
+            definitions: vec![MaterializedDefinition {
+                original_name: "Owner".to_owned(),
+                binding_name: "Owner".to_owned(),
+                source: SourceProvenance {
+                    module: "c".to_owned(),
+                    qualified_name: "Owner".to_owned(),
+                    span: SourceSpan {
+                        file: "c.py".to_owned(),
+                        start: 0,
+                        end: 32,
+                    },
+                },
+                binding_type: StaticType::Named("c.Owner".to_owned()),
+                definition: Definition::Class(ClassDefinition {
+                    mro: vec!["c.Owner".to_owned()],
+                    bases: Vec::new(),
+                    fields: Vec::new(),
+                    descriptors: vec![DescriptorDefinition {
+                        name: "value".to_owned(),
+                        value: ValueId(0),
+                        read_type: StaticType::Int,
+                        write_type: None,
+                        getter: None,
+                        setter: None,
+                        data_descriptor: false,
+                    }],
+                    methods: Vec::new(),
+                    static_values: BTreeMap::new(),
+                    slots: Vec::new(),
+                    metadata: Vec::new(),
+                    constructor: ConstructorShape {
+                        signature,
+                        replacement: None,
+                    },
+                    initializers: Vec::new(),
+                }),
+            }],
+            globals: BTreeMap::from([("Owner".to_owned(), ValueId(2))]),
+        }],
+        values: ValueGraph {
+            nodes: vec![
+                GraphValue {
+                    id: ValueId(0),
+                    ty: StaticType::Named("b.Config".to_owned()),
+                    value: GraphValueKind::Instance {
+                        class: "b.Config".to_owned(),
+                        fields: BTreeMap::from([("descriptor_state".to_owned(), ValueId(1))]),
+                    },
+                },
+                GraphValue {
+                    id: ValueId(1),
+                    ty: StaticType::Int,
+                    value: GraphValueKind::Int("7".to_owned()),
+                },
+                GraphValue {
+                    id: ValueId(2),
+                    ty: StaticType::Named("c.Owner".to_owned()),
+                    value: GraphValueKind::ClassRef {
+                        module: "c".to_owned(),
+                        qualified_name: "Owner".to_owned(),
+                    },
+                },
+            ],
+        },
+        effects: Vec::new(),
+        required_adapters: Vec::new(),
+    }
+}
+
+/// Returns one named class's field names from a lowered module.
+fn class_field_names(ctx: &HirCtx, module_id: ModuleId, name: &str) -> Result<Vec<String>, String> {
+    let class = module(ctx, module_id)?
+        .items
+        .iter()
+        .filter_map(|item_id| item(ctx, *item_id).ok())
+        .find_map(|item| match item {
+            Item::Class(class) if symbol(ctx, class.name).ok() == Some(name) => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| format!("class '{name}' is absent"))?;
+    class
+        .fields
+        .iter()
+        .map(|field| symbol(ctx, field.name).map(str::to_owned))
+        .collect()
 }
 
 /// Builds property accessor provenance at one source definition.
