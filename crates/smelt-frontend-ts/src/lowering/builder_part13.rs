@@ -227,13 +227,27 @@ impl ModuleBuilder<'_> {
             "forEach" => ListCallbackOp::ForEach,
             _ => return Ok(None),
         };
-        let [callback_argument] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "array callback methods require exactly one callback argument",
-            ));
-        };
+        // A method-style callback on an imported utility object is the lodash
+        // free-function form `_.map(collection, iteratee)` (and `filter`, `some`,
+        // etc.), not a `Array.prototype.map` receiver. The collection is the
+        // first argument and the iteratee the second; the older single-argument
+        // shape (`_.map(iteratee)` as a partially-applied factory) is also
+        // accepted. The receiver is an opaque imported lodash value, so the call
+        // result stays a placeholder — but every argument is still lowered so
+        // captures and side effects are honored.
         if self.imported_utility_object(&member.object) {
+            let (collection_argument, callback_argument) = match call.arguments.as_slice() {
+                [callback_argument] => (None, callback_argument),
+                [collection_argument, callback_argument] => {
+                    (Some(collection_argument), callback_argument)
+                }
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "lodash collection callbacks accept a collection and one iteratee",
+                    ));
+                }
+            };
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
             let return_ty = match op {
@@ -244,6 +258,9 @@ impl ModuleBuilder<'_> {
                 ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
                 _ => unknown_ty,
             };
+            if let Some(collection_argument) = collection_argument {
+                let _ = self.argument(collection_argument, body)?;
+            }
             let index_ty = self.ctx.krate.types.intern(Type::Int);
             let _ = self.callback_argument_with_body_fallback(
                 callback_argument,
@@ -267,6 +284,12 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        let [callback_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array callback methods require exactly one callback argument",
+            ));
+        };
         let mut list = self.expression(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let list_ty = match self.ctx.krate.types.get(list_ty).cloned() {

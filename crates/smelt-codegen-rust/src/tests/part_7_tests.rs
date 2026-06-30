@@ -4894,6 +4894,67 @@ export function fillRange<T>(
 }
 
 #[test]
+#[ignore]
+fn estk6_scan_arity() {
+    use std::path::PathBuf;
+    fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().map(|x| x == "ts").unwrap_or(false) {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    let root = PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../third_party/es-toolkit/src"
+    ));
+    let mut files = Vec::new();
+    walk(&root, &mut files);
+    for f in &files {
+        let src = std::fs::read_to_string(f).unwrap();
+        let mut ctx = HirCtx::new();
+        if let Err(errs) =
+            smelt_frontend_ts::to_hir_with_path(&src, FileId(0), f.to_str().unwrap(), &mut ctx)
+        {
+            for e in &errs {
+                if e.message.contains("require exactly one callback argument")
+                    || e.message.contains("currently require arrow function callbacks")
+                    || e.message.contains("conditional expression branches must have compatible")
+                {
+                    let rel = f.strip_prefix(&root).unwrap();
+                    eprintln!("HIT {} :: {}", rel.display(), e.message);
+                }
+            }
+        }
+    }
+    panic!("scan done");
+}
+
+#[test]
+fn lowers_lodash_two_argument_collection_callback_form() {
+    // `import * as _ from "lodash"; _.map(values, cb)` is the lodash
+    // free-function form: collection first, iteratee second. The receiver is an
+    // opaque imported namespace, so the call stays a placeholder, but both the
+    // collection and the iteratee must lower (no "require exactly one callback
+    // argument" rejection of the trailing iteratee).
+    let source = source_for(
+        r#"
+import * as _ from "lodash";
+export function run(values: number[]): void {
+  _.map(values, value => value + 1);
+  _.some(values, value => value > 0);
+}
+"#,
+    );
+    assert!(source.contains("fn run("), "{source}");
+}
+
+#[test]
 fn lowers_compact_unsupported_method_inside_callback_through_closure_body() {
     // `String.prototype.repeat` is modeled by the general method-call lowering
     // but not by the restricted compact-callback method dispatcher. An
