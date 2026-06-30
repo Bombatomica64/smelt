@@ -50,6 +50,14 @@ Python ──────┘                                      └── Carg
 
 See `specs/architecture.md` for the full picture.
 
+## Documentation
+
+- [`docs/metaprogramming.md`](docs/metaprogramming.md) — what metaprogramming
+  Smelt can specialize (metaclasses, decorators, descriptors, dataclasses, …),
+  what fails loud, and what is rejected by design.
+- [`docs/host-runtime-specialization.md`](docs/host-runtime-specialization.md) —
+  how the sandboxed build-time partial evaluator works.
+
 ## Repository Layout
 
 ```
