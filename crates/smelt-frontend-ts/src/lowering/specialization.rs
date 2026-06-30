@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use super::{
-    Body, Expr, ExprKind, Expression, Field, FunctionType, Item, Literal, ModuleBuilder,
-    SmeltError, Span, SpecializationData, Type, Visibility,
+    Body, Expr, ExprKind, Expression, Field, FunctionType, Item, Literal, MethodDefinitionKind,
+    ModuleBuilder, SmeltError, Span, SpecializationData, Type, Visibility,
 };
 
 /// Returns specialization data for one exact TypeScript source path.
@@ -210,6 +210,52 @@ impl ModuleBuilder<'_> {
             });
         }
         static_fields
+    }
+
+    /// Maps materialized instance descriptors back to source getter/setter items.
+    ///
+    /// Standard auto-accessors without explicit source methods remain ordinary
+    /// field storage. A descriptor enters HIR only when at least one concrete
+    /// accessor body was lowered from the TypeScript class declaration.
+    pub(super) fn merge_materialized_class_descriptors(
+        &mut self,
+        class: &smelt_specialize::ClassDefinition,
+        accessors: &[(smelt_hir::Symbol, MethodDefinitionKind, smelt_hir::ItemId)],
+        _span: Span,
+    ) -> Vec<smelt_hir::Descriptor> {
+        class
+            .descriptors
+            .iter()
+            .filter(|descriptor| !descriptor.is_static)
+            .filter_map(|descriptor| {
+                let name = self.intern_source_name(materialized_member_name(&descriptor.name));
+                let getter = accessors
+                    .iter()
+                    .find(|(candidate, kind, _)| {
+                        *candidate == name && *kind == MethodDefinitionKind::Get
+                    })
+                    .map(|(_, _, item)| *item);
+                let setter = accessors
+                    .iter()
+                    .find(|(candidate, kind, _)| {
+                        *candidate == name && *kind == MethodDefinitionKind::Set
+                    })
+                    .map(|(_, _, item)| *item);
+                (getter.is_some() || setter.is_some()).then(|| smelt_hir::Descriptor {
+                    name,
+                    read_ty: self.materialized_static_type(&descriptor.read_type),
+                    write_ty: descriptor
+                        .write_type
+                        .as_ref()
+                        .map(|ty| self.materialized_static_type(ty)),
+                    getter,
+                    setter,
+                    data_descriptor: descriptor.data_descriptor,
+                    is_static: false,
+                    value_fields: Vec::new(),
+                })
+            })
+            .collect()
     }
 
     /// Converts one manifest type without routing concrete shapes through unknown.

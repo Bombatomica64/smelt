@@ -581,11 +581,40 @@ function classDefinition(classValue, moduleRecord, serializer) {
     const descriptor = Object.getOwnPropertyDescriptor(classValue, name);
     if (!descriptor) continue;
     if (descriptor.get || descriptor.set) {
-      rejectDynamicAttribute(
-        `${classValue.name}.${name}`,
-        "uses a static accessor property",
-        moduleRecord.source_path,
+      const descriptorValue = serializer.value(
+        {
+          configurable: descriptor.configurable,
+          enumerable: descriptor.enumerable,
+        },
+        moduleRecord,
       );
+      descriptors.push({
+        name,
+        value: descriptorValue,
+        read_type: { kind: "dynamic_metadata" },
+        write_type: descriptor.set ? { kind: "dynamic_metadata" } : null,
+        getter: descriptor.get
+          ? callableProvenance(
+              descriptor.get,
+              moduleRecord,
+              `${classValue.name}.${name}.get`,
+              "class",
+              serializer,
+            )
+          : null,
+        setter: descriptor.set
+          ? callableProvenance(
+              descriptor.set,
+              moduleRecord,
+              `${classValue.name}.${name}.set`,
+              "class",
+              serializer,
+            )
+          : null,
+        data_descriptor: Boolean(descriptor.set),
+        is_static: true,
+      });
+      continue;
     }
     const value = descriptor.value;
     if (typeof value === "function") {

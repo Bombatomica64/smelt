@@ -655,6 +655,7 @@ impl ModuleBuilder<'_> {
         let mut constructor = None;
         let mut methods = Vec::new();
         let mut abstract_methods = Vec::new();
+        let mut descriptor_accessors = Vec::new();
 
         for element in &class.body.body {
             match element {
@@ -821,13 +822,19 @@ impl ModuleBuilder<'_> {
             match element {
                 ClassElement::PropertyDefinition(_) => {}
                 ClassElement::MethodDefinition(method) => {
-                    if method.kind == MethodDefinitionKind::Get {
-                        continue;
-                    }
                     if !method.decorators.is_empty() && materialized.is_none() {
                         return Err(SmeltError::specialization_required(
                             self.span(method.span.start, method.span.end),
                             class_text,
+                        ));
+                    }
+                    if materialized.is_none() && method.kind == MethodDefinitionKind::Get {
+                        continue;
+                    }
+                    if materialized.is_none() && method.kind == MethodDefinitionKind::Set {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "getters and setters are not lowered yet",
                         ));
                     }
                     if method.computed && !is_static_property_key(&method.key) {
@@ -845,14 +852,6 @@ impl ModuleBuilder<'_> {
                             "static methods are not lowered yet",
                         ));
                     }
-                    if materialized.is_some()
-                        && matches!(
-                            method.kind,
-                            MethodDefinitionKind::Get | MethodDefinitionKind::Set
-                        )
-                    {
-                        continue;
-                    }
                     if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition {
                         if !matches!(method.kind, MethodDefinitionKind::Method) {
                             return Err(SmeltError::unsupported(
@@ -866,7 +865,10 @@ impl ModuleBuilder<'_> {
                     }
                     if !matches!(
                         method.kind,
-                        MethodDefinitionKind::Constructor | MethodDefinitionKind::Method
+                        MethodDefinitionKind::Constructor
+                            | MethodDefinitionKind::Method
+                            | MethodDefinitionKind::Get
+                            | MethodDefinitionKind::Set
                     ) {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
@@ -899,7 +901,18 @@ impl ModuleBuilder<'_> {
                             false,
                             &[],
                         )?;
-                        methods.push(item);
+                        if matches!(
+                            method.kind,
+                            MethodDefinitionKind::Get | MethodDefinitionKind::Set
+                        ) {
+                            descriptor_accessors.push((
+                                self.property_key_symbol(&method.key)?,
+                                method.kind,
+                                item,
+                            ));
+                        } else {
+                            methods.push(item);
+                        }
                         item
                     };
                     let _ = item;
@@ -944,6 +957,15 @@ impl ModuleBuilder<'_> {
                 self.span(class.span.start, class.span.end),
             )?);
         }
+        let descriptors = materialized
+            .as_ref()
+            .map_or_else(Vec::new, |materialized_class| {
+                self.merge_materialized_class_descriptors(
+                    materialized_class,
+                    &descriptor_accessors,
+                    class_span,
+                )
+            });
 
         let implements = class
             .implements
@@ -963,7 +985,7 @@ impl ModuleBuilder<'_> {
             base_args,
             fields,
             static_fields,
-            descriptors: Vec::new(),
+            descriptors,
             constructor,
             methods,
             abstract_methods,
@@ -1584,7 +1606,24 @@ impl ModuleBuilder<'_> {
         let method_name = if is_constructor {
             self.ctx.krate.symbols.intern("new")
         } else {
-            self.property_key_symbol(&method.key)?
+            let source_name = self.property_key_symbol(&method.key)?;
+            let prefix = match method.kind {
+                MethodDefinitionKind::Get => Some("__smelt_get_"),
+                MethodDefinitionKind::Set => Some("__smelt_set_"),
+                _ => None,
+            };
+            prefix.map_or(source_name, |prefix| {
+                let source_name = self
+                    .ctx
+                    .krate
+                    .symbols
+                    .get(source_name)
+                    .unwrap_or("accessor");
+                self.ctx
+                    .krate
+                    .symbols
+                    .intern(&format!("{prefix}{source_name}"))
+            })
         };
         let _method_type_params =
             self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
@@ -1596,6 +1635,8 @@ impl ModuleBuilder<'_> {
                 ));
             }
             class_ty
+        } else if method.kind == MethodDefinitionKind::Set {
+            self.ctx.krate.types.intern(Type::None)
         } else {
             method
                 .value

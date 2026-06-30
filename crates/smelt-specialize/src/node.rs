@@ -577,6 +577,14 @@ export class Example {
 
     @decorateMember
     set title(_value: string) {}
+
+    @decorateMember
+    static get version(): string {
+        return "1";
+    }
+
+    @decorateMember
+    static set version(_value: string) {}
 }
 
 export const cycle: any = {};
@@ -666,6 +674,13 @@ cycle.self = cycle;
             .all(|descriptor| descriptor.name != "count")
         {
             return Err("decorated auto-accessor is absent".to_owned());
+        }
+        if example
+            .descriptors
+            .iter()
+            .all(|descriptor| descriptor.name != "version" || !descriptor.is_static)
+        {
+            return Err("decorated static accessor is absent".to_owned());
         }
         if example.initializers.is_empty()
             || example

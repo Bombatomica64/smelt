@@ -4,10 +4,11 @@ use std::collections::BTreeMap;
 
 use super::*;
 use smelt_specialize::{
-    ClassDefinition, ConstructorShape, Definition, FieldDefinition, FunctionSignature, GraphValue,
-    GraphValueKind, HashInputs, HostLanguage, MANIFEST_SCHEMA_VERSION, MaterializedDefinition,
-    ModuleRecord, SandboxPolicyRecord, SourceProvenance, SourceSpan, SpecializationManifest,
-    StaticType, ValueGraph, ValueId,
+    BindingMode, CallableProvenance, ClassDefinition, ConstructorShape, Definition,
+    DescriptorDefinition, FieldDefinition, FunctionSignature, GraphValue, GraphValueKind,
+    HashInputs, HostLanguage, MANIFEST_SCHEMA_VERSION, MaterializedDefinition, ModuleRecord,
+    SandboxPolicyRecord, SourceProvenance, SourceSpan, SpecializationManifest, StaticType,
+    ValueGraph, ValueId,
 };
 
 const DECORATED_SOURCE: &str = r#"
@@ -18,6 +19,8 @@ class Example {
   @dec static label: string = "source";
   @dec #secret: number = 3;
   @dec greet(name: string): string { return name; }
+  @dec get title(): string { return "title"; }
+  @dec set title(value: string) {}
 }
 const snapshot: string = Example.label;
 "#;
@@ -92,6 +95,37 @@ fn manifest_materializes_instance_private_accessor_and_static_fields() -> Result
                 )
             })
     }));
+    let title = class
+        .descriptors
+        .iter()
+        .find(|descriptor| ctx.krate.symbols.get(descriptor.name) == Some("title"))
+        .ok_or_else(|| "materialized title descriptor is absent".to_owned())?;
+    ensure!(title.getter.is_some());
+    ensure!(title.setter.is_some());
+    for (item, expected_name) in [
+        (title.getter, "__smelt_get_title"),
+        (title.setter, "__smelt_set_title"),
+    ] {
+        let item = item
+            .and_then(|item| usize::try_from(item.0).ok())
+            .and_then(|item| ctx.krate.items.get(item))
+            .ok_or_else(|| format!("materialized accessor item '{expected_name}' is absent"))?;
+        let Item::Function(function) = item else {
+            return Err(format!(
+                "materialized accessor '{expected_name}' is not a function"
+            ));
+        };
+        ensure_eq!(
+            ctx.krate.symbols.get(function.name),
+            Some(expected_name)
+        );
+    }
+    ensure_eq!(ctx.krate.types.get(title.read_ty), Some(&Type::String));
+    ensure!(
+        title
+            .write_ty
+            .is_some_and(|ty| ctx.krate.types.get(ty) == Some(&Type::String))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -152,7 +186,16 @@ fn decorated_manifest() -> SpecializationManifest {
                     mro: vec!["Example".to_owned()],
                     bases: Vec::new(),
                     fields,
-                    descriptors: Vec::new(),
+                    descriptors: vec![DescriptorDefinition {
+                        name: "title".to_owned(),
+                        value: ValueId(0),
+                        read_type: StaticType::String,
+                        write_type: Some(StaticType::String),
+                        getter: Some(callable_provenance("Example.title.get")),
+                        setter: Some(callable_provenance("Example.title.set")),
+                        data_descriptor: true,
+                        is_static: false,
+                    }],
                     methods: Vec::new(),
                     static_values: BTreeMap::from([
                         ("label".to_owned(), ValueId(0)),
@@ -193,6 +236,19 @@ fn decorated_manifest() -> SpecializationManifest {
         },
         effects: Vec::new(),
         required_adapters: Vec::new(),
+    }
+}
+
+/// Builds source provenance for one decorated class accessor.
+fn callable_provenance(qualified_name: &str) -> CallableProvenance {
+    CallableProvenance {
+        language: HostLanguage::TypeScript,
+        module: "fixture".to_owned(),
+        qualified_name: qualified_name.to_owned(),
+        span: source_span(),
+        code_hash: "source".to_owned(),
+        captures: BTreeMap::new(),
+        binding_mode: BindingMode::Instance,
     }
 }
 
