@@ -4894,6 +4894,27 @@ export function fillRange<T>(
 }
 
 #[test]
+fn lowers_callback_that_reassigns_its_parameter() {
+    // A callback that reassigns its own parameter is not representable in the
+    // compact side-effect-free callback IR, but the full closure-body path
+    // makes parameters mutable locals. The fallback must retry there instead of
+    // failing with "callback parameter assignment is not supported yet".
+    let source = source_for(
+        r#"
+export function run(values: number[]): number[] {
+  return values.map(value => {
+    if (value < 0) {
+      value = 0;
+    }
+    return value + 1;
+  });
+}
+"#,
+    );
+    assert!(source.contains("fn run("), "{source}");
+}
+
+#[test]
 fn lowers_foreach_callback_without_fixed_item_parameter() {
     // `forEach((...args) => ...)` and `forEach(() => ...)` have no fixed item
     // parameter, so the statement-loop shortcut declines and the general

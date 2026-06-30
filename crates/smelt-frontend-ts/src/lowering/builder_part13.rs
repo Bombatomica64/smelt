@@ -5468,6 +5468,11 @@ impl ModuleBuilder<'_> {
     fn should_fallback_to_closure_body_for_callback(error: &SmeltError) -> bool {
         error.message == "callback expression kind is not supported yet"
             || error.message == "callback member assignment needs closure-body lowering"
+            // Reassigning a callback parameter (`(value) => { value = ...; }`)
+            // cannot be modeled by the side-effect-free expression IR, but the
+            // full closure-body path makes parameters mutable locals, so retry
+            // there.
+            || error.message == "callback parameter assignment is not supported yet"
             || error.message
                 == "callback expression statements must be followed by a return or throw"
             || error.message == "callback side-effect blocks only support expression statements"
