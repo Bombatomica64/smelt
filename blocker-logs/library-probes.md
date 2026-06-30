@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-06-29 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-06-30 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,11 +12,11 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **no** | n/a | `src/array/chunk.spec.ts` | 82 | non-working Rust (80r/2s) |
-| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/typed.ts` | 23 | non-working Rust (21r/2s) |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/promise/semaphore.ts` | 68 | non-working Rust (66r/2s) |
+| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/typed.ts` | 21 | non-working Rust (20r/1s) |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/types/Pattern.ts` | 15 | non-working Rust (15r/0s) |
-| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/utils/_getByteCount/_getByteCount.ts` | 32 | non-working Rust (31r/1s) |
-| [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 11 | non-working Rust (11r/0s) |
+| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/utils/_getByteCount/_getByteCount.ts` | 35 | non-working Rust (34r/1s) |
+| [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 10 | non-working Rust (10r/0s) |
 | [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `tests/test_context/test_requires_context/test_context.py` | 33 | non-working Rust (33r/0s) |
 | [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `home/runner/work/smelt/smelt/src/result/result.py` | 8 | non-working Rust (8r/0s) |
 | [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `home/runner/work/smelt/smelt/more_itertools/recipes.py` | 10 | non-working Rust (10r/0s) |
@@ -26,40 +26,38 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## es-toolkit
 
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
-- Transpile: **no** — `smelt build` aborts at `src/array/chunk.spec.ts`
+- Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/promise/semaphore.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1219 · with blockers: 330
+- Files scanned: 1219 · with blockers: 192
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 46 | 46 | missing-stdlib (builtin class) | unresolved class `X` |
-| 27 | 27 | non-working Rust | callback conditions must be boolean, optional, or supported truthy checks |
-| 15 | 15 | non-working Rust | exported const values currently support primitive literals and foldable primitive expressi |
-| 10 | 10 | non-working Rust | callback block statements must be const declarations, if guards, return, or throw |
-| 10 | 10 | non-working Rust | callback method `X` is not lowered into closure bodies yet |
-| 9 | 9 | missing-stdlib | TypeScript instanceof target `X` is not a lowered class |
-| 9 | 9 | non-working Rust | unary operator is not lowered yet: Typeof |
-| 8 | 8 | non-working Rust | expect(...).rejects.toThrow(...) actual value must be a Promise<T> |
-| 7 | 7 | non-working Rust | array callback local callback `X` is not defined |
+| 16 | 16 | non-working Rust | callback method `X` is not lowered into closure bodies yet |
+| 12 | 12 | missing-stdlib (builtin class) | unresolved class `X` |
+| 10 | 10 | non-working Rust | array callback methods require exactly one callback argument |
+| 10 | 10 | non-working Rust | unknown class or interface field `X` on `X` |
+| 8 | 8 | non-working Rust | exported const values currently support primitive literals and foldable primitive expressi |
+| 7 | 7 | non-working Rust | call expression is not lowered yet |
+| 7 | 7 | missing-stdlib | TypeScript instanceof target `X` is not a lowered class |
 | 6 | 6 | non-working Rust | method calls are only lowered for class values for now |
-| 6 | 6 | non-working Rust | array concat currently requires exactly one array argument |
-| 6 | 6 | non-working Rust | array callback methods require exactly one callback argument |
-| 5 | 5 | non-working Rust | object key ownership checks require a record receiver |
+| 5 | 5 | non-working Rust | exported const member expressions support well-known Number/Math numeric constants only |
 | 5 | 5 | non-working Rust | describe blocks only support direct it/test/describe calls for now |
+| 5 | 5 | non-working Rust | nested function rest parameters are not lowered yet |
+| 5 | 5 | non-working Rust | array concat requires an array receiver |
+| 4 | 4 | non-working Rust | array push argument must match the array element type |
+| 4 | 4 | non-working Rust | test case names must be string literals or identifiers |
 
 ## radash
 
 - Source: `sodiray/radash` @ `4cab1900d08e`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/typed.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 19 · with blockers: 13
+- Files scanned: 19 · with blockers: 11
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
 | 4 | 3 | non-working Rust | callback method `X` is not lowered into closure bodies yet |
-| 3 | 2 | missing-stdlib (builtin class) | unresolved class `X` |
 | 3 | 1 | non-working Rust | regex replacement requires string-compatible receiver, pattern, and replacement |
-| 2 | 1 | non-working Rust | array fill value must match the array element type |
 | 1 | 1 | non-working Rust | conditional expression branches must have the same lowered type (then: Some(Union([TypeId( |
 | 1 | 1 | non-working Rust | method calls are only lowered for class values for now |
 | 1 | 1 | non-working Rust | conditional expression branches must have the same lowered type (then: Some(Union([TypeId( |
@@ -68,8 +66,10 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 1 | 1 | non-working Rust | Promise constructor lowering supports one arrow executor |
 | 1 | 1 | non-working Rust | conditional expression branches must have the same lowered type (then: Some(List(TypeId(10 |
 | 1 | 1 | non-working Rust | local `X` is not callable (Some(None)) |
+| 1 | 1 | non-working Rust | statement kind is not lowered yet: EmptyStatement(EmptyStatement { span: Span { start: 151 |
 | 1 | 1 | non-working Rust | parseFloat requires a string argument |
 | 1 | 1 | non-working Rust | dynamic Date constructor calls require exactly one value argument |
+| 1 | 1 | non-working Rust | call expression is not lowered yet |
 
 ## ts-pattern
 
@@ -100,13 +100,13 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `fabian-hiller/valibot` @ `1f9b18338ad5`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/library/src/utils/_getByteCount/_getByteCount.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1083 · with blockers: 321
+- Files scanned: 1083 · with blockers: 319
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
 | 266 | 266 | non-working Rust | describe blocks only support direct it/test/describe calls for now |
-| 8 | 8 | missing-stdlib (builtin class) | unresolved class `X` |
 | 6 | 6 | non-working Rust | callback method `X` is not lowered into closure bodies yet |
+| 5 | 5 | missing-stdlib (builtin class) | unresolved class `X` |
 | 4 | 4 | non-working Rust | new Map entry key and value types must be homogeneous |
 | 3 | 3 | non-working Rust | extended interface `X` is not declared |
 | 2 | 2 | non-working Rust | rest parameter type must resolve to an array type |
@@ -115,9 +115,9 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 2 | 2 | non-working Rust | expect(...).resolves/rejects actual value must be a Promise<T> |
 | 2 | 2 | non-working Rust | array element kind is not lowered yet: FunctionExpression(Function { span: Span { start: 2 |
 | 1 | 1 | non-working Rust | expect(...).toContain(...) requires a string, array, set, or tuple actual value with a mat |
+| 1 | 1 | non-working Rust | field access is only lowered for Record<string, T>, class, and interface values for now (r |
 | 1 | 1 | non-working Rust | array element kind is not lowered yet: AwaitExpression(AwaitExpression { span: Span { star |
 | 1 | 1 | non-working Rust | local closure return type does not match its annotation: actual Some(Dict(TypeId(1), TypeI |
-| 1 | 1 | non-working Rust | array element kind is not lowered yet: AwaitExpression(AwaitExpression { span: Span { star |
 
 ## neverthrow
 
@@ -128,16 +128,15 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 4 | 2 | non-working Rust | exported const values currently support primitive literals and foldable primitive expressi |
+| 4 | 2 | non-working Rust | exported const member expressions support well-known Number/Math numeric constants only |
 | 3 | 2 | non-working Rust | property names must be static identifiers or string literals |
-| 2 | 1 | non-working Rust | array callback local callback `X` is not defined |
-| 1 | 1 | non-working Rust | callback method `X` is not lowered into closure bodies yet |
+| 2 | 2 | non-working Rust | callback method `X` is not lowered into closure bodies yet |
+| 2 | 2 | non-working Rust | String.match() requires exactly one RegExp argument |
 | 1 | 1 | non-working Rust | method calls are only lowered for class values for now |
 | 1 | 1 | non-working Rust | local closure return type does not match its annotation: actual Some(Never), expected Some |
 | 1 | 1 | non-working Rust | describe blocks only support direct it/test/describe calls for now |
 | 1 | 1 | non-working Rust | only expect(...).not matcher modifiers are supported |
 | 1 | 1 | non-working Rust | yield* generator delegation is not lowered yet |
-| 1 | 1 | non-working Rust | String.match() requires exactly one RegExp argument |
 | 1 | 1 | non-working Rust | call expression is not lowered yet |
 
 ## returns
@@ -258,7 +257,7 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | ---: | ---: | --- |
 | 5 (funcy, more-itertools, result, returns, toolz) | 895 | only calls to top-level functions, class constructors, and print() are supported |
 | 5 (funcy, more-itertools, result, returns, toolz) | 40 | class 'X': unsupported class body statement 'X' |
-| 5 (es-toolkit, neverthrow, radash, ts-pattern, valibot) | 23 | callback method `X` is not lowered into closure bodies yet |
+| 5 (es-toolkit, neverthrow, radash, ts-pattern, valibot) | 30 | callback method `X` is not lowered into closure bodies yet |
 | 4 (funcy, more-itertools, returns, toolz) | 515 | function 'X' must have an explicit return type annotation |
 | 4 (funcy, more-itertools, result, returns) | 12 | unsupported statement: try |
 | 4 (es-toolkit, neverthrow, radash, ts-pattern) | 9 | method calls are only lowered for class values for now |
@@ -268,11 +267,10 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 3 (funcy, returns, toolz) | 67 | nested closure return type must be explicit |
 | 3 (more-itertools, returns, toolz) | 56 | class 'X': decorator 'X' is not supported |
 | 3 (funcy, returns, toolz) | 25 | parameter 'X' must have an explicit type annotation |
-| 3 (es-toolkit, neverthrow, radash) | 20 | exported const values currently support primitive literals and foldable primitive expressions |
 | 3 (funcy, more-itertools, toolz) | 20 | parameter 'X' in 'X' must have a type annotation |
-| 3 (es-toolkit, neverthrow, radash) | 10 | array callback local callback `X` is not defined |
+| 3 (es-toolkit, neverthrow, radash) | 10 | exported const member expressions support well-known Number/Math numeric constants only |
+| 3 (es-toolkit, neverthrow, radash) | 9 | call expression is not lowered yet |
 | 3 (es-toolkit, ts-pattern, valibot) | 6 | extended interface `X` is not declared |
-| 3 (es-toolkit, neverthrow, radash) | 5 | call expression is not lowered yet |
 | 3 (es-toolkit, neverthrow, ts-pattern) | 5 | property names must be static identifiers or string literals |
 | 2 (result, returns) | 50 | callback expression is not supported yet |
 | 2 (more-itertools, returns) | 39 | class 'X': multiple inheritance is not supported |
@@ -281,11 +279,9 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 2 (funcy, toolz) | 21 | nested class definitions are not yet supported |
 | 2 (result, returns) | 20 | nested closure bodies need a single return expression |
 | 2 (funcy, returns) | 17 | pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals |
-| 2 (es-toolkit, ts-pattern) | 8 | array callback methods require exactly one callback argument |
+| 2 (es-toolkit, ts-pattern) | 12 | array callback methods require exactly one callback argument |
 | 2 (es-toolkit, valibot) | 8 | new Map entry key and value types must be homogeneous |
 | 2 (returns, toolz) | 7 | binary operator 'X' is not supported |
-| 2 (es-toolkit, valibot) | 5 | expect(...).resolves/rejects actual value must be a Promise<T> |
-| 2 (es-toolkit, radash) | 4 | array fill value must match the array element type |
 | 2 (es-toolkit, valibot) | 3 | this-parameter function types are not lowered yet |
 | 2 (es-toolkit, valibot) | 2 | expect(...).toContain(...) requires a string, array, set, or tuple actual value with a matching expe |
 
@@ -295,8 +291,6 @@ Builtins referenced in `new`/`extends`/callback position that Smelt does not res
 
 | Library | Builtins (occurrences) |
 | --- | --- |
-| es-toolkit | `Array`×11, `Number`×9, `globalThis`×5, `Math`×3, `parseInt`×3, `Map`×3, `Reflect`×3, `AbortController`×3, `Function`×2, `Buffer`×2, `Blob`×2, `Promise`×2, `WeakMap`×1, `ArrayBuffer`×1, `File`×1, `Proxy`×1 |
-| radash | `Proxy`×3, `Reflect`×1 |
-| ts-pattern | `Reflect`×2 |
-| valibot | `TextEncoder`×5, `Number`×1, `isFinite`×1, `Blob`×1, `File`×1 |
+| es-toolkit | `Map`×3, `Proxy`×3, `Buffer`×3, `ArrayBuffer`×2, `File`×2, `WeakMap`×1 |
+| valibot | `TextEncoder`×5 |
 
