@@ -95,16 +95,38 @@ Cumulative this session: **419 → 192** (~54%).
 - *missing-stdlib residual* — typed-array runtime identity, Buffer value model, `setInterval`/`clearInterval`.
 - *unsupported-lowering tail* — string methods / control-flow / exported-const long tail + call-site generic instantiation (thread a callee's param function-type as a hint so "callback method not lowered" resolves).
 
-## Batch 6+ roadmap (current blocker breakdown: 192 files = unsupported-lowering 161 · missing-stdlib 21 · unresolved-reference 17)
+## Batch 6 (2026-06-30) — 14-agent fan-out, landed on main
+
+Largest batch so far: **10 feature agents + 4 improvement agents** in isolated worktrees, integrated serially with conflict resolution and gated once. All agents ran only targeted tests (the coordinator gated the full suite + clippy + Remeda + probe).
+
+Feature work landed:
+- **callback/closure-body lowering** (44→17 occ): compact-method failures retry through the full closure-body path (reaching the general method table), lodash two-arg `_.map(coll, fn)` form, runtime-selected/opaque callbacks, item-less forEach, param reassignment.
+- **expr/operators**: IIFEs (`call expression` 7→0), `Number.toFixed`, bitwise `&`/`|`/`^` (JS ToInt32), `in`/`instanceof` in the no-hint binary path, conditional list-branch unification, Bool index access.
+- **structural tail**: function-expression-valued exported consts (8→2), constant-foldable + imported switch-case labels, `String.replaceAll` (2→0).
+- **class/module**: private fields `this.#x`, `this`-param types, bare `asserts`, interface-extends-non-interface, numeric property keys.
+- **whole-crate build**: structural function-arity assignability (optional-param callback into a shorter slot) — advances the strict build past the entire `promise/` directory.
+- **missing-stdlib**: `setInterval`/`clearInterval` on the virtual-time timer queue; `instanceof Boolean/String/Symbol` via boxed-wrapper markers (mirrors boxed `Number`).
+- **globals**: fold the UMD `globalThis` detection chain, short-circuiting absent-alias clauses (Phase-2 `SmeltGlobalObject` machinery deliberately *not* built — checkpoint showed no es-toolkit case needs it).
+- **vitest harness**: suite bodies may declare class/interface/type helpers; broadened title-folding; erased-callable `toThrow`/`toContain` adapters.
+- **Python frontend** (separate crate): `del dict[key]`, unary + conditional lambda callbacks.
+
+Improvement work: CLI probe-report readability + determinism (`smelt-cli`); `specs/codegen-quality-assessment.md` (idiomaticness roadmap — 23k clones / 54k temps); `specs/lowering-architecture-refactor-plan.md` (the `include!`→`mod` plan); additive regression tests. Consolidated into GitHub issue #38.
+
+Two superseded commits dropped at integration (boxed-primitive `instanceof` fold → replaced by the marker version; a duplicate bitwise impl). Constructable function *values* (`new par()`) deferred again — genuinely cross-cutting closure-ABI work, unsafe to run concurrently with 9 other agents on the same files.
+
+Result: **files-with-blockers 192 → 144** (−48). missing-stdlib 21→18, unresolved-reference 17→18, unsupported-lowering 161→114. Whole-crate build advanced `semaphore.ts` → `globalThis.ts` → **`_internal/DOMException.ts`**. Remeda gate 1789/0 (0 compile errors); smelt suite **1383/0**; clippy clean.
+Cumulative this session: **419 → 144** (~66%).
+
+## Batch 7+ roadmap (current breakdown: 144 files = unsupported-lowering 114 · missing-stdlib 18 · unresolved-reference 18)
 
 Priority order — biggest *general* semantic families first, never per-function special cases (per CLAUDE.md). Each item: fix generally in frontend/IR/emitter, add a focused compiler regression test, re-probe, keep the Remeda gate (1789/0) and smelt suite green, commit.
 
-1. **Re-run the two lost batch-5 agents** (above) — already scoped, highest ROI.
-2. **Constructable function *values* (`new par()`) + prototype-chain runtime ABI** — the single largest remaining unresolved-reference family; unblocks curry/partial/bind/flow. Builds on the now-landed closure capture. This is the deep one: a function value needs to carry a constructable identity + `.prototype` slot through the erased ABI.
-3. **Call-site generic instantiation** — thread a callee parameter's function-type as a lowering hint so array/iterator methods used *inside* a callback body ("callback method not lowered") resolve. Recurs across the unsupported-lowering tail.
-4. **Typed-array runtime identity** (`isView`/`isTypedArray`) + **Buffer value model** + **`setInterval`/`clearInterval`** async runtime — the concrete missing-stdlib models (RegExp/Date marker pattern, never `SmeltUnknown` erasure).
-5. **Globals Phase 2/3** — runtime `SmeltGlobalObject` for dynamic/computed global access + escaping global identity (`globalThis.Buffer`); then a **DOM profile** (`window`/`document`) for the browser-targeting specs.
-6. **unsupported-lowering long tail** — remaining string methods, control-flow (switch fallthrough/labels), exported-const non-primitive values, misc. Triage by recurrence before fixing.
+1. **Constructable function *values* (`new par()`) + prototype-chain runtime ABI** — the deferred deep one; unblocks curry/partial/bind/flow + `this instanceof <named-fn>` (lodash called-with-`new` detection). A function value needs a constructable identity + `.prototype` slot through the erased ABI. Best done as a *dedicated single-agent effort*, not in a wide fan-out (it touches the shared closure type/codegen/`new`/`instanceof`).
+2. **DOMException** (current whole-crate abort) + **typed-array runtime identity** (`isView`/`isTypedArray`, needs re-modeling typed arrays off bare `List<Float>`) + **Buffer value model** — the concrete missing-stdlib models (marker pattern, never `SmeltUnknown` erasure).
+3. **Remaining "callback method not lowered" (13)** — genuinely *unmodeled stdlib methods* surfacing inside callbacks (`localeCompare`, `toFixed`, `apply`); fix as real stdlib method-lowering (they also fail at statement level), not callback plumbing.
+4. **Conditional-branch type unification across List/Union** (needs `isArrayLike` guard narrowing) + **switch fallthrough/labels** + **negative-index** (intentionally rejected — leave) + the **unsupported-lowering long tail**. Triage by recurrence.
+5. **Globals Phase 2/3** — runtime `SmeltGlobalObject` only if a real dynamic-global case appears (none yet); a **DOM profile** (`window`/`document`) for browser-targeting specs.
+6. **Codegen-quality phase** — execute `specs/codegen-quality-assessment.md` (temp-inlining MIR pass → `.clone()`/`unused_mut` reduction → paren/cast printing) once feature churn settles.
 
 When es-toolkit reaches a fully-green generated suite, add it as a **second CI regression gate** beside `remeda-regression` (the original goal at the top of this file).
 
