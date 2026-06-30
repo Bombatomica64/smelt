@@ -84,6 +84,35 @@ pub(super) fn typeof_identifier_name<'a>(expression: &'a Expression<'a>) -> Opti
 /// `=== "object"` is `true`, and `!== "object"` is `false`. Returns `None` when
 /// the comparison is not a recognized global-existence probe so the caller leaves
 /// the expression to ordinary lowering.
+/// Names that denote the ambient global object but are *absent* in the non-DOM
+/// profile.
+///
+/// `window` is the browser-only spelling of the global object. The default
+/// deterministic profile is non-DOM, so a `typeof window === 'object'` probe is
+/// `false` and a bare `window` value reference does not resolve. Keeping it here
+/// lets the global-detection-chain folder skip the dead `&& window` clause
+/// without resolving the identifier, matching JavaScript short-circuiting.
+const ABSENT_GLOBAL_ALIAS_NAMES: &[&str] = &["window"];
+
+/// Classify whether a global-alias-style name is a *present* global object, an
+/// *absent* one (folds the `typeof === 'object'` guard to `false`), or neither.
+///
+/// Returns `Some(true)` for the present non-DOM aliases (`globalThis`, `global`,
+/// `self`), `Some(false)` for the absent DOM alias (`window`), and `None` for any
+/// name that is not a global-object alias spelling. This drives the
+/// global-detection chain `(typeof X === 'object' && X) || ...`, where JavaScript
+/// never evaluates the right operand of a `&&` whose guard is statically `false`.
+#[must_use]
+pub(super) fn global_alias_object_presence(name: &str) -> Option<bool> {
+    if GLOBAL_ALIAS_NAMES.contains(&name) {
+        return Some(true);
+    }
+    if ABSENT_GLOBAL_ALIAS_NAMES.contains(&name) {
+        return Some(false);
+    }
+    None
+}
+
 #[must_use]
 pub(super) fn global_typeof_probe_value(
     operand_is_global_alias: bool,
@@ -140,5 +169,17 @@ mod tests {
     fn leaves_unrelated_typeof_probes() {
         assert_eq!(global_typeof_probe_value(false, "object", true), None);
         assert_eq!(global_typeof_probe_value(true, "function", true), None);
+    }
+
+    /// Present aliases classify truthy, the DOM alias absent, others unknown.
+    #[test]
+    fn classifies_global_alias_object_presence() {
+        for name in ["globalThis", "global", "self"] {
+            assert_eq!(global_alias_object_presence(name), Some(true), "{name}");
+        }
+        assert_eq!(global_alias_object_presence("window"), Some(false));
+        for name in ["document", "Foo", "g"] {
+            assert_eq!(global_alias_object_presence(name), None, "{name}");
+        }
     }
 }

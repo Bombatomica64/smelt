@@ -1102,6 +1102,12 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::LogicalExpression(logical) => {
+                // Fold the `(typeof X === 'object' && X) || ...` global-detection
+                // chain before lowering its operands, so dead absent-alias clauses
+                // (e.g. `&& window`) never resolve their identifier.
+                if let Some(expr) = self.global_detection_chain_expression(logical, body) {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.same_value_zero_logical(logical, body)? {
                     return Ok(expr);
                 }

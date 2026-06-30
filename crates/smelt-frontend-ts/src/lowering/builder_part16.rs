@@ -473,6 +473,114 @@ impl ModuleBuilder<'_> {
     /// a per-read marker record is sufficient and faithful here; the shared-handle
     /// runtime object remains the correct model once identity or dynamic mutation
     /// becomes observable.
+    /// Fold the global-object detection chain
+    /// `(typeof X === 'object' && X) || (typeof Y === 'object' && Y) || ...`
+    /// to the global-object value, short-circuiting per JavaScript semantics.
+    ///
+    /// This is the canonical UMD/`globalThis` shim idiom (es-toolkit's
+    /// `_internal/globalThis.ts`): a left-nested `||` chain whose clauses each
+    /// guard a global alias with its own `typeof` existence probe. JavaScript
+    /// evaluates the clauses left to right and never evaluates the right operand
+    /// of a `&&` whose guard is falsy, so a clause for an *absent* alias (e.g.
+    /// `window` in the non-DOM profile) must be skipped *without lowering* its
+    /// dead `window` reference (which would otherwise be an unresolved
+    /// identifier). The first clause for a *present* alias (`globalThis`,
+    /// `global`, `self`) is truthy and yields the global object, collapsing the
+    /// whole chain to the single global-object value.
+    ///
+    /// Returns `None` for anything that is not this exact guarded-alias chain
+    /// shape, so ordinary `||` lowering keeps handling every other case (and any
+    /// honest blocker it would otherwise raise).
+    pub(super) fn global_detection_chain_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if logical.operator != LogicalOperator::Or {
+            return None;
+        }
+        // Only fold when the chain actually resolves to a *present* global object;
+        // a chain that resolves to none of the modeled aliases is not this idiom
+        // and must fall through to ordinary `||` lowering. The outer `||` splits
+        // into its left spine and right clause exactly like the recursive walker.
+        let resolves = self.or_chain_resolves_to_global(&logical.left)
+            || self.clause_is_present_global_guard(&logical.right);
+        if !resolves {
+            return None;
+        }
+        Some(self.global_object_value_expression(logical.span.start, logical.span.end, body))
+    }
+
+    /// Return whether an `||` chain of `(typeof X === 'object' && X)` clauses
+    /// resolves to a present global object under the active profile.
+    ///
+    /// Walks the left-nested `||` spine. Each clause must be a
+    /// `typeof X === 'object' && X` guard whose two `X` spellings agree and name
+    /// a global alias. A clause for a *present* alias resolves the whole chain
+    /// (`Some(true)`); a clause for an *absent* alias is skipped; a final
+    /// non-guard fallback (e.g. the `((function(){return this})())` or a literal)
+    /// is allowed only after at least one present alias was found. Any other shape
+    /// returns `false`, leaving the expression to ordinary lowering.
+    fn or_chain_resolves_to_global(&self, expression: &Expression<'_>) -> bool {
+        match Self::unparenthesized_expression(expression) {
+            Expression::LogicalExpression(logical)
+                if logical.operator == LogicalOperator::Or =>
+            {
+                // `(left) || (right)`: a present global anywhere in the spine wins.
+                self.or_chain_resolves_to_global(&logical.left)
+                    || self.clause_is_present_global_guard(&logical.right)
+            }
+            other => self.clause_is_present_global_guard(other),
+        }
+    }
+
+    /// Return whether a single `typeof X === 'object' && X` clause guards a
+    /// *present* global alias (so the clause is truthy and yields the global).
+    ///
+    /// An absent-alias clause (e.g. `typeof window === 'object' && window`) is
+    /// statically falsy, so it returns `false` here — the chain walker skips it
+    /// rather than treating it as the resolving clause, and crucially the dead
+    /// `window` operand is never lowered.
+    fn clause_is_present_global_guard(&self, expression: &Expression<'_>) -> bool {
+        let Expression::LogicalExpression(clause) = Self::unparenthesized_expression(expression)
+        else {
+            return false;
+        };
+        if clause.operator != LogicalOperator::And {
+            return false;
+        }
+        // Right operand must be a bare alias identifier.
+        let Expression::Identifier(value) = Self::unparenthesized_expression(&clause.right) else {
+            return false;
+        };
+        // Left operand must be `typeof <same-alias> === 'object'`.
+        let Expression::BinaryExpression(guard) = Self::unparenthesized_expression(&clause.left)
+        else {
+            return false;
+        };
+        if !matches!(
+            guard.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::Equality
+        ) {
+            return false;
+        }
+        let guard_name = ambient_globals::typeof_identifier_name(&guard.left)
+            .or_else(|| ambient_globals::typeof_identifier_name(&guard.right));
+        let Some(guard_name) = guard_name else {
+            return false;
+        };
+        let compared_object = matches!(&guard.left, Expression::StringLiteral(s) if s.value == "object")
+            || matches!(&guard.right, Expression::StringLiteral(s) if s.value == "object");
+        if !compared_object || guard_name != value.name.as_str() {
+            return false;
+        }
+        // The clause's two spellings agree and name a global alias; it is a
+        // present global only when the alias is present in this profile and is
+        // not shadowed by a module-local binding.
+        self.is_ambient_global_alias(guard_name)
+            && ambient_globals::global_alias_object_presence(guard_name) == Some(true)
+    }
+
     fn global_object_value_expression(
         &mut self,
         start: u32,

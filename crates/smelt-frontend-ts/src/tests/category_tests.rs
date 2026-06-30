@@ -243,6 +243,63 @@ fn bare_global_object_value_lowers_to_marker_record() -> Result<(), String> {
     Ok(())
 }
 
+/// The full es-toolkit `_internal/globalThis.ts` detection chain lowers to the
+/// global-object value, short-circuiting through the `typeof window === 'object'
+/// && window` clause without resolving the absent `window` identifier.
+///
+/// JavaScript never evaluates a `&&` right operand whose `typeof` guard is
+/// statically `false`, so the dead `window` reference must not be lowered (it is
+/// absent in the non-DOM profile and would otherwise be an unresolved
+/// identifier). The first clause (`globalThis`, present) is truthy, so the whole
+/// `||` chain resolves to the global-object marker record.
+#[test]
+fn global_detection_chain_short_circuits_absent_window() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const globalThis_: any =
+  (typeof globalThis === 'object' && globalThis) ||
+  (typeof window === 'object' && window) ||
+  (typeof self === 'object' && self) ||
+  (typeof global === 'object' && global) ||
+  1;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
+        )),
+        "expected the global-detection chain to fold to the `__smelt_global_object` value",
+    );
+    Ok(())
+}
+
+/// An ordinary `||` fallback that is not a global-detection chain is left to
+/// normal lowering and never folds to the global-object value. This guards the
+/// detection-chain folder against over-matching unrelated `||` shapes.
+#[test]
+fn ordinary_or_fallback_is_not_folded_to_global() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("function pick(a: string, b: string): string { return a || b; }"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        !body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
+        )),
+        "an ordinary `||` fallback must not fold to the global-object value",
+    );
+    Ok(())
+}
+
 /// `typeof globalThis.Buffer !== 'undefined'` folds to a constant `false`: the
 /// default deterministic non-Node profile models `Buffer` as absent, so the
 /// `isBuffer` support guard short-circuits instead of resolving `Buffer` to a

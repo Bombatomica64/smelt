@@ -1103,6 +1103,12 @@ impl ModuleBuilder<'_> {
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // The `(typeof X === 'object' && X) || ...` global-detection chain folds
+        // to the global-object value before ordinary `||` lowering, so the dead
+        // absent-alias clauses (e.g. `&& window`) are never lowered.
+        if let Some(expr) = self.global_detection_chain_expression(logical, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.logical_or_fallback_expression(logical, body)? {
             return Ok(expr);
         }
