@@ -4894,6 +4894,26 @@ export function fillRange<T>(
 }
 
 #[test]
+fn lowers_foreach_callback_without_fixed_item_parameter() {
+    // `forEach((...args) => ...)` and `forEach(() => ...)` have no fixed item
+    // parameter, so the statement-loop shortcut declines and the general
+    // callback lowering handles them instead of failing with "array forEach
+    // callbacks require an item parameter".
+    let source = source_for(
+        r#"
+export function run(sources: unknown[], apply: (...args: unknown[]) => void): void {
+  sources.forEach((...args: unknown[]) => apply(...args));
+}
+export function tick(values: number[], onTick: () => void): void {
+  values.forEach(() => onTick());
+}
+"#,
+    );
+    assert!(source.contains("fn run("), "{source}");
+    assert!(source.contains("fn tick("), "{source}");
+}
+
+#[test]
 fn lowers_named_opaque_predicate_for_array_some() {
     // A named/opaque predicate passed to `some` (`xs.some(matchFunc)`) lowers to
     // a wrapper closure returning an erased value. The truthy-predicate path must

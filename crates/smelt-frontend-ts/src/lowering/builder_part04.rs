@@ -872,10 +872,12 @@ return_ty,
             return Ok(false);
         };
         let Some(item_param) = arrow.params.items.first() else {
-            return Err(SmeltError::unsupported(
-                self.span(arrow.params.span.start, arrow.params.span.end),
-                "array forEach callbacks require an item parameter",
-            ));
+            // A `forEach` whose callback has no fixed item parameter — a bare
+            // `() => ...` side effect or a rest-only `(...args) => ...` collector
+            // — is not modeled by this statement-loop shortcut. Decline so the
+            // general callback lowering (which supports rest parameters through
+            // the closure-body path) handles it instead of failing here.
+            return Ok(false);
         };
         let mut iter = self.expression(&member.object, body)?;
         let iter_ty = Self::expr_ty(body, iter);
