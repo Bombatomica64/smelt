@@ -583,6 +583,9 @@ impl FunctionEmitter<'_> {
             Rvalue::NumericToStringRadix { operand, radix } => {
                 self.numeric_to_string_radix_text(operand, radix)
             }
+            Rvalue::NumericToFixed { operand, digits } => {
+                self.numeric_to_fixed_text(operand, digits)
+            }
             Rvalue::ParseIntRadix { operand, radix } => self.parse_int_radix_text(operand, radix),
             Rvalue::PrimitiveCast { op, operand } => {
                 self.primitive_cast_text(*op, operand, dest_ty)

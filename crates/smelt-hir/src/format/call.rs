@@ -117,6 +117,13 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*radix)
             )
         }
+        ExprKind::NumericToFixed { operand, digits } => {
+            format!(
+                "numeric_to_fixed {}, {}",
+                expr_ref(*operand),
+                expr_ref(*digits)
+            )
+        }
         ExprKind::ParseIntRadix { operand, radix } => {
             format!("parse_int_radix {}, {}", expr_ref(*operand), expr_ref(*radix))
         }

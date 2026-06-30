@@ -820,6 +820,10 @@ impl Rvalue {
                 visit(operand);
                 visit(radix);
             }
+            Self::NumericToFixed { operand, digits } => {
+                visit(operand);
+                visit(digits);
+            }
             Self::ParseIntRadix { operand, radix } => {
                 visit(operand);
                 visit(radix);
@@ -1474,6 +1478,10 @@ impl Rvalue {
             Self::NumericToStringRadix { operand, radix } => {
                 visit(operand);
                 visit(radix);
+            }
+            Self::NumericToFixed { operand, digits } => {
+                visit(operand);
+                visit(digits);
             }
             Self::ParseIntRadix { operand, radix } => {
                 visit(operand);

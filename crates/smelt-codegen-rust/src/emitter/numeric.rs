@@ -354,6 +354,36 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Formats a numeric value as a fixed-point decimal string.
+    ///
+    /// Mirrors `Number.prototype.toFixed(digits)`: the operand is rendered with
+    /// exactly `digits` fractional digits (clamped to the JavaScript-supported
+    /// `0..=100` range). The fractional count is truncated to an integer first,
+    /// matching JavaScript's `ToInteger` coercion of the argument.
+    pub(super) fn numeric_to_fixed_text(
+        &self,
+        operand: &Operand,
+        digits: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Int | Type::Float)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(digits)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new(
+                "number.toFixed(digits) requires numeric operands",
+            ));
+        }
+        let value_text = self.float_operand_text(operand)?;
+        let digits_text = self.operand_text(digits)?;
+        let digits_trunc_text = self.numeric_trunc_f64_text(&digits_text);
+        Ok(format!(
+            "{{ let smelt_value: f64 = {value_text}; let smelt_digits = ({digits_trunc_text} as i64).clamp(0, 100) as usize; format!(\"{{:.*}}\", smelt_digits, smelt_value) }}"
+        ))
+    }
+
     /// Parses an integer from a string with a JavaScript-style numeric radix.
     ///
     /// Mirrors `Number.parseInt`/`parseInt(str, radix)`: trims leading

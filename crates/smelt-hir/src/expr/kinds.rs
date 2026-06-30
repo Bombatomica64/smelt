@@ -115,6 +115,14 @@ pub enum ExprKind {
         operand: ExprId,
         radix: ExprId,
     },
+    /// Format a numeric value as a fixed-point decimal string with a given
+    /// number of fractional digits (`Number.prototype.toFixed`).
+    NumericToFixed {
+        /// Numeric operand being formatted.
+        operand: ExprId,
+        /// Number of fractional digits to render.
+        digits: ExprId,
+    },
     /// Parse an integer from a string with a JavaScript-style numeric radix.
     ParseIntRadix {
         operand: ExprId,

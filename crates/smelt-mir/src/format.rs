@@ -397,6 +397,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(radix)
             )
         }
+        Rvalue::NumericToFixed { operand, digits } => {
+            format!(
+                "numeric_to_fixed {}, {}",
+                operand_text(operand),
+                operand_text(digits)
+            )
+        }
         Rvalue::ParseIntRadix { operand, radix } => {
             format!(
                 "parse_int_radix {}, {}",

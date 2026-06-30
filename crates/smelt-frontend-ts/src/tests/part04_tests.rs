@@ -4932,6 +4932,40 @@ export function parseHex(value: number): [number, number, number] {
 }
 
 #[test]
+fn lowers_number_to_fixed_method_call() -> Result<(), String> {
+    // `n.toFixed(digits)` on a numeric receiver lowers to a fixed-point string
+    // format expression (`NumericToFixed`) returning a string, with the digit
+    // count defaulting to zero when omitted. Mirrors the flow.spec.ts
+    // `n.toFixed(1)` method call.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function fmt(n: number): string {
+  return n.toFixed(1);
+}
+export function fmtDefault(n: number): string {
+  return n.toFixed();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let count = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::NumericToFixed { .. }))
+        .count();
+    ensure!(
+        count >= 2,
+        "expected each toFixed call to lower to NumericToFixed, found {count}"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_immediately_invoked_function_expressions() -> Result<(), String> {
     // `(function (...) { ... })(...)` and `((...) => ...)(...)` invoke a function
     // or arrow literal directly. The callee lowers to a closure value and the

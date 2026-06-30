@@ -2307,6 +2307,16 @@ return_ty: function.return_ty,
             Some(Type::String) => Ok(self.ctx.krate.types.intern(Type::String)),
             Some(Type::Dict(_, value)) => Ok(*value),
             Some(Type::Unknown | Type::None) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            // Dynamically indexing a JavaScript boolean primitive with a key is a
+            // property lookup on the autoboxed `Boolean` wrapper. For an
+            // arbitrary key that has no own indexed element this yields
+            // `undefined`, so the element type is the dynamic `Unknown` boundary
+            // rather than a lowering failure. This is the shape produced by
+            // `(a && b)[key]` chains whose `&&` short-circuit value is a boolean.
+            // Numeric primitives are intentionally excluded: iterating or
+            // indexing a bare number is almost always a real source error (e.g.
+            // `for (x of 1)`) that should stay an honest blocker.
+            Some(Type::Bool) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
