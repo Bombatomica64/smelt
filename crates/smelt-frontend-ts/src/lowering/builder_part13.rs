@@ -5328,6 +5328,21 @@ impl ModuleBuilder<'_> {
                     self.callback_argument(argument, expected_param_tys, context, body)?;
                 if callback.return_ty == bool_ty {
                     Ok(callback)
+                } else if matches!(
+                    self.ctx.krate.types.get(callback.return_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. })
+                ) || self.erased_or_union_surface(callback.return_ty)
+                {
+                    // An opaque/named predicate (`xs.some(matchFunc)`) lowers to a
+                    // wrapper closure whose result is an erased `unknown` value.
+                    // JavaScript predicates use the truthiness of that result, and
+                    // the downstream array predicate op coerces an erased callback
+                    // result to bool, so accept the erased return type instead of
+                    // rejecting the named-callback form.
+                    Ok(ClosureCallback {
+                        expr: callback.expr,
+                        return_ty: bool_ty,
+                    })
                 } else {
                     Err(SmeltError::unsupported(
                         self.span(argument.span().start, argument.span().end),

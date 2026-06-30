@@ -4894,45 +4894,20 @@ export function fillRange<T>(
 }
 
 #[test]
-#[ignore]
-fn estk6_scan_arity() {
-    use std::path::PathBuf;
-    fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
-        if let Ok(rd) = std::fs::read_dir(dir) {
-            for e in rd.flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    walk(&p, out);
-                } else if p.extension().map(|x| x == "ts").unwrap_or(false) {
-                    out.push(p);
-                }
-            }
-        }
-    }
-    let root = PathBuf::from(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../third_party/es-toolkit/src"
-    ));
-    let mut files = Vec::new();
-    walk(&root, &mut files);
-    for f in &files {
-        let src = std::fs::read_to_string(f).unwrap();
-        let mut ctx = HirCtx::new();
-        if let Err(errs) =
-            smelt_frontend_ts::to_hir_with_path(&src, FileId(0), f.to_str().unwrap(), &mut ctx)
-        {
-            for e in &errs {
-                if e.message.contains("require exactly one callback argument")
-                    || e.message.contains("currently require arrow function callbacks")
-                    || e.message.contains("conditional expression branches must have compatible")
-                {
-                    let rel = f.strip_prefix(&root).unwrap();
-                    eprintln!("HIT {} :: {}", rel.display(), e.message);
-                }
-            }
-        }
-    }
-    panic!("scan done");
+fn lowers_named_opaque_predicate_for_array_some() {
+    // A named/opaque predicate passed to `some` (`xs.some(matchFunc)`) lowers to
+    // a wrapper closure returning an erased value. The truthy-predicate path must
+    // accept the erased return type instead of rejecting it with "array callback
+    // callback returns an unsupported type".
+    let source = source_for(
+        r#"
+export function run(values: unknown[], matchFunc: (value: unknown) => unknown): boolean {
+  return values.some(matchFunc);
+}
+"#,
+    );
+    assert!(source.contains("fn run("), "{source}");
+    assert!(source.contains(".any("), "expected a some/any lowering: {source}");
 }
 
 #[test]
