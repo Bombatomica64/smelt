@@ -2754,6 +2754,18 @@ impl ModuleBuilder<'_> {
             if let Argument::StaticMemberExpression(_member) = argument {
                 return Ok(self.opaque_member_callback(expected_param_tys));
             }
+            // A callback chosen at runtime between callable values
+            // (`xs.map(cond ? Object : identity)`) or coalesced from one
+            // (`xs.map(maybeFn ?? identity)`). The selected callee is an opaque
+            // callable surface here, so model the whole argument as an opaque
+            // callback that forwards the receiver's element arguments, the same
+            // way a member or imported-value callback is handled.
+            if matches!(
+                argument,
+                Argument::ConditionalExpression(_) | Argument::LogicalExpression(_)
+            ) {
+                return Ok(self.opaque_member_callback(expected_param_tys));
+            }
             if let Argument::Identifier(identifier) = argument
                 && self.is_opaque_callback_value(identifier.name.as_str())
             {
@@ -2978,6 +2990,9 @@ impl ModuleBuilder<'_> {
                 self.arrow_callback_expression(&non_null.expression, expected_param_tys, body)
             }
             Expression::StaticMemberExpression(_member) => {
+                Ok(self.opaque_member_callback(expected_param_tys))
+            }
+            Expression::ConditionalExpression(_) | Expression::LogicalExpression(_) => {
                 Ok(self.opaque_member_callback(expected_param_tys))
             }
             _ => Err(SmeltError::unsupported(

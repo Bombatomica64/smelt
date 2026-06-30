@@ -4936,6 +4936,22 @@ fn estk6_scan_arity() {
 }
 
 #[test]
+fn lowers_conditionally_selected_array_callback() {
+    // A callback chosen at runtime between callable values must lower as an
+    // opaque element-forwarding callback instead of being rejected with
+    // "array callback methods currently require arrow function callbacks".
+    let source = source_for(
+        r#"
+import { identity } from "./identity";
+export function run(values: unknown[], flag: boolean): unknown[] {
+  return values.map(flag ? Object : identity);
+}
+"#,
+    );
+    assert!(source.contains("fn run("), "{source}");
+}
+
+#[test]
 fn lowers_lodash_two_argument_collection_callback_form() {
     // `import * as _ from "lodash"; _.map(values, cb)` is the lodash
     // free-function form: collection first, iteratee second. The receiver is an
