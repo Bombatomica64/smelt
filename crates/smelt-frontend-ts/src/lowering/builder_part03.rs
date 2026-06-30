@@ -308,7 +308,7 @@ impl ModuleBuilder<'_> {
             self.function_rests.insert(name_text.to_owned(), rest);
             self.ctx.function_rests.insert(name_text.to_owned(), rest);
         }
-        if let Some((parameter_name, target)) = assertion_return
+        if let Some((parameter_name, Some(target))) = assertion_return
             && let Some(param_index) = function.params.items.iter().position(|param| {
                 matches!(
                     &param.pattern,

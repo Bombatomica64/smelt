@@ -1415,6 +1415,12 @@ impl ModuleBuilder<'_> {
                 self.new_expression_with_hint(new_expr, body, type_hint)
             }
             Expression::TemplateLiteral(tpl) => self.template_literal_expression(tpl, body),
+            Expression::PrivateFieldExpression(member) => self.private_field_member(
+                &member.object,
+                member.field.name.as_str(),
+                member.span,
+                body,
+            ),
             Expression::TaggedTemplateExpression(tagged) => Err(SmeltError::unsupported(
                 self.span(tagged.span.start, tagged.span.end),
                 "tagged template literals are not supported",

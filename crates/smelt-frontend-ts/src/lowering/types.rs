@@ -669,11 +669,20 @@ return_ty: function.return_ty,
             .flatten()
     }
 
-    /// Extract `asserts value is T` metadata from a TypeScript return annotation.
+    /// Extract assertion-signature metadata from a TypeScript return annotation.
+    ///
+    /// Two assertion forms are recognized:
+    /// - `asserts value is T` carries a narrowing target `T` and yields
+    ///   `Some(Ok((value, Some(T))))`.
+    /// - `asserts value` (a bare condition assertion, e.g. `invariant`) has no
+    ///   structural narrowing target and yields `Some(Ok((value, None)))`.
+    ///
+    /// In both cases the function's runtime return type is void; the `Option`
+    /// target only drives optional parameter narrowing at call sites.
     fn assertion_return_type(
         &mut self,
         ty: &TSType<'_>,
-    ) -> Option<Result<(String, smelt_hir::TypeId), SmeltError>> {
+    ) -> Option<Result<(String, Option<smelt_hir::TypeId>), SmeltError>> {
         let TSType::TSTypePredicate(predicate) = ty else {
             return None;
         };
@@ -688,14 +697,11 @@ return_ty: function.return_ty,
             )));
         };
         let Some(annotation) = &predicate.type_annotation else {
-            return Some(Err(SmeltError::unsupported(
-                self.span(predicate.span.start, predicate.span.end),
-                "assertion functions must use `asserts value is T`",
-            )));
+            return Some(Ok((parameter.name.to_string(), None)));
         };
         Some(
             self.ts_type_to_hir(&annotation.type_annotation)
-                .map(|target| (parameter.name.to_string(), target)),
+                .map(|target| (parameter.name.to_string(), Some(target))),
         )
     }
 
@@ -1145,12 +1151,11 @@ return_ty: function.return_ty,
         &mut self,
         function: &oxc::ast::ast::TSFunctionType<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        if function.this_param.is_some() {
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "this-parameter function types are not lowered yet",
-            ));
-        }
+        // An explicit `this` parameter in a function *type* is purely type-level:
+        // JavaScript drops the bound receiver at call sites, so the runtime signature
+        // is just the declared `params`. oxc keeps `this_param` separate from
+        // `params.items`, so erasing it here needs no further filtering.
+        let _ = &function.this_param;
         self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let mut params = Vec::new();
         let result = (|| {

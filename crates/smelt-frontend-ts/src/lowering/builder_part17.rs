@@ -12,10 +12,31 @@ impl ModuleBuilder<'_> {
                 Ok(self.intern_source_name(ident.name.as_str()))
             }
             PropertyKey::StringLiteral(lit) => Ok(self.intern_source_name(lit.value.as_str())),
+            PropertyKey::NumericLiteral(lit) => {
+                // JavaScript coerces numeric property keys to their string form
+                // (`{ 0: x }` names the member `"0"`). Prefer the raw spelling
+                // when available so canonical integer keys round-trip cleanly.
+                let name = lit
+                    .raw
+                    .as_ref()
+                    .map(|raw| raw.to_string())
+                    .unwrap_or_else(|| Self::numeric_property_key_name(lit.value));
+                Ok(self.intern_source_name(&name))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(key.span().start, key.span().end),
                 "property names must be static identifiers or string literals",
             )),
+        }
+    }
+
+    /// Render a numeric property-key value as the string member name JavaScript
+    /// would use when no raw source spelling is available (e.g. `0` -> "0").
+    fn numeric_property_key_name(value: f64) -> String {
+        if value.fract() == 0.0 && value.is_finite() {
+            format!("{}", value as i64)
+        } else {
+            format!("{value}")
         }
     }
 

@@ -67,24 +67,15 @@ impl ModuleBuilder<'_> {
                     args: parent_args.clone(),
                 });
                 let Some(parent) = self.find_interface(parent_name).cloned() else {
-                    let parent_name_text = self
-                        .ctx
-                        .krate
-                        .symbols
-                        .get(parent_name)
-                        .unwrap_or("<unknown>");
-                    if parent_name_text == "ContextOptions"
-                        || parent_name_text.starts_with("Intl.")
-                        || parent_name_text.contains('.')
-                        || self.type_only_imports.contains(parent_name_text)
-                        || self.find_type_alias(parent_name).is_some()
-                    {
-                        continue;
-                    }
-                    return Err(SmeltError::unsupported(
-                            self.span(heritage.span.start, heritage.span.end),
-                            format!("extended interface `{parent_name_text}` is not declared"),
-                        ));
+                    // An extended name that is not a lowerable user interface
+                    // resolves instead to a type alias, a `typeof`/namespace or
+                    // value import, a dotted/qualified library type, or a global
+                    // ambient lib type such as `Array`/`ArrayLike`. None of these
+                    // can contribute structural fields here, but TypeScript has
+                    // already validated the heritage, so the child interface
+                    // keeps its own members and the parent is treated as an
+                    // opaque base rather than blocking the whole file.
+                    continue;
                 };
                 let substitutions = self.type_argument_substitution(
                     &parent.type_params,
