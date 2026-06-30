@@ -3981,6 +3981,32 @@ test("timer isolation", () => {
 }
 
 #[test]
+fn set_interval_registers_repeating_timer_and_clear_interval_cancels() {
+    // `setInterval`/`clearInterval` must lower onto the same virtual-time timer
+    // queue as `setTimeout`, with the interval re-arming itself after each fire.
+    let source = source_for(
+        r#"
+const id = setInterval(() => {}, 10);
+clearInterval(id);
+"#,
+    );
+
+    // The dedicated repeating-timer helper is emitted and called.
+    assert!(source.contains("fn smelt_set_interval("), "{source}");
+    assert!(source.contains("smelt_set_interval("), "{source}");
+    // `clearInterval` reuses the cancel-by-id timer path.
+    assert!(source.contains("fn smelt_clear_interval"), "{source}");
+    assert!(source.contains("smelt_clear_interval("), "{source}");
+    // Interval timers carry a period and re-arm in the drain loop; one-shot
+    // timeouts carry `period_ms: None`.
+    assert!(source.contains("period_ms: Some(period_ms)"), "{source}");
+    assert!(
+        source.contains("if let Some(period_ms) = timer.period_ms {"),
+        "{source}"
+    );
+}
+
+#[test]
 fn drains_virtual_timers_before_async_sleep_can_change_threads() {
     let source = source_for(
         r#"

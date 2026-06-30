@@ -1156,6 +1156,8 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Sleep => "async_sleep",
                 smelt_hir::AsyncOp::SetTimeout => "async_set_timeout",
                 smelt_hir::AsyncOp::ClearTimeout => "async_clear_timeout",
+                smelt_hir::AsyncOp::SetInterval => "async_set_interval",
+                smelt_hir::AsyncOp::ClearInterval => "async_clear_interval",
                 smelt_hir::AsyncOp::Promise => "async_promise",
                 smelt_hir::AsyncOp::Then => "async_then",
                 smelt_hir::AsyncOp::Catch => "async_catch",

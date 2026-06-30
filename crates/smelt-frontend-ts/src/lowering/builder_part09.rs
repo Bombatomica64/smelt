@@ -1246,6 +1246,8 @@ impl ModuleBuilder<'_> {
             | AsyncOp::HttpGetText
             | AsyncOp::SetTimeout
             | AsyncOp::ClearTimeout
+            | AsyncOp::SetInterval
+            | AsyncOp::ClearInterval
             | AsyncOp::Promise
             | AsyncOp::Then
             | AsyncOp::Catch
@@ -1525,10 +1527,54 @@ impl ModuleBuilder<'_> {
                     span: self.span(call.span.start, call.span.end),
                 })))
             }
-            "setTimeout" | "clearTimeout" => Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "timer lowering supports setTimeout(milliseconds), setTimeout(callback, milliseconds), and clearTimeout(id)",
-            )),
+            // `setInterval(callback, period)` registers a repeating timer that
+            // re-arms itself after every fire, mirroring the two-argument
+            // `setTimeout` shape. The shared virtual-time timer queue drives it,
+            // so the only difference at codegen time is the re-arm; see
+            // `AsyncOp::SetInterval` in the call emitter.
+            "setInterval" if call.arguments.len() == 2 => {
+                let Some(callback) = call.arguments.first() else {
+                    return Ok(None);
+                };
+                let Some(duration) = call.arguments.get(1) else {
+                    return Ok(None);
+                };
+                let callback = self.argument(callback, body)?;
+                let duration = self.argument(duration, body)?;
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::SetInterval,
+                        args: vec![callback, duration],
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            // `clearInterval(id)` cancels a repeating timer by handle. Intervals
+            // share the timer queue with timeouts, so this is the same
+            // cancel-by-id as `clearTimeout`.
+            "clearInterval" if call.arguments.len() == 1 => {
+                let Some(timer) = call.arguments.first() else {
+                    return Ok(None);
+                };
+                let timer = self.argument(timer, body)?;
+                let ty = self.ctx.krate.types.intern(Type::None);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::ClearInterval,
+                        args: vec![timer],
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "setTimeout" | "clearTimeout" | "setInterval" | "clearInterval" => {
+                Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "timer lowering supports setTimeout(milliseconds), setTimeout(callback, milliseconds), clearTimeout(id), setInterval(callback, milliseconds), and clearInterval(id)",
+                ))
+            }
             _ => Ok(None),
         }
     }

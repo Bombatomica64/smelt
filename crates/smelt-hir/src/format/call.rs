@@ -836,6 +836,8 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::Sleep => "async_sleep",
         AsyncOp::SetTimeout => "async_set_timeout",
         AsyncOp::ClearTimeout => "async_clear_timeout",
+        AsyncOp::SetInterval => "async_set_interval",
+        AsyncOp::ClearInterval => "async_clear_interval",
         AsyncOp::Promise => "async_promise",
         AsyncOp::Then => "async_then",
         AsyncOp::Catch => "async_catch",

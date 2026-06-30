@@ -157,6 +157,48 @@ impl FunctionEmitter<'_> {
                     clear_timeout = smelt_stdlib::runtime_symbols::timers::CLEAR_TIMEOUT,
                 ))
             }
+            smelt_hir::AsyncOp::SetInterval => {
+                // `setInterval(callback, period)` shares the timer-callback shape
+                // with `setTimeout`: the only difference is that the runtime helper
+                // re-arms the timer after each fire (see `smelt_set_interval`). The
+                // callback-invocation snippet is identical to the timeout case.
+                let [callback, duration] = args else {
+                    return Err(EmitError::new(
+                        "setInterval requires callback and period operands",
+                    ));
+                };
+                let callback_text = self.operand_text(callback)?;
+                let callback_call = if let Some(Type::Function(function)) =
+                    self.mir.types.get(self.operand_ty(callback)?)
+                    && function.params.is_empty()
+                {
+                    if function.may_throw {
+                        "(smelt_timer_callback)().map(|_| ())".to_owned()
+                    } else {
+                        "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
+                            .to_owned()
+                    }
+                } else {
+                    "{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(Vec::new()).map(|_| ()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) } }".to_owned()
+                };
+                Ok(format!(
+                    "{{ let smelt_timer_callback = {callback_text}.clone(); {set_interval}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
+                    self.value_at_type(duration, self.type_id(Type::Float)?)?,
+                    set_interval = smelt_stdlib::runtime_symbols::timers::SET_INTERVAL,
+                ))
+            }
+            smelt_hir::AsyncOp::ClearInterval => {
+                let Some(timer) = args.first() else {
+                    return Err(EmitError::new(
+                        "clearInterval requires an interval handle operand",
+                    ));
+                };
+                Ok(format!(
+                    "{clear_interval}({})",
+                    self.operand_text(timer)?,
+                    clear_interval = smelt_stdlib::runtime_symbols::timers::CLEAR_INTERVAL,
+                ))
+            }
             smelt_hir::AsyncOp::Promise => {
                 let [executor] = args else {
                     return Err(EmitError::new("Promise requires an executor operand"));

@@ -17,6 +17,10 @@ pub enum AsyncOp {
     SetTimeout,
     /// Cancel a scheduled timeout callback.
     ClearTimeout,
+    /// Schedule a callback to run repeatedly every N milliseconds.
+    SetInterval,
+    /// Cancel a scheduled repeating-interval callback.
+    ClearInterval,
     /// Create a future by executing a JavaScript `Promise` executor.
     Promise,
     /// Run a Promise success continuation.

@@ -303,6 +303,8 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
                         op: AsyncOp::Sleep
                             | AsyncOp::SetTimeout
                             | AsyncOp::ClearTimeout
+                            | AsyncOp::SetInterval
+                            | AsyncOp::ClearInterval
                             | AsyncOp::Promise
                             | AsyncOp::Then
                             | AsyncOp::Catch
@@ -1017,6 +1019,9 @@ fn emit_source_with_free_function_router(
             writer.line("    id: u64,");
             writer.line("    due_ms: u64,");
             writer.line("    callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>,");
+            writer.line("    // `Some(period)` marks a repeating `setInterval` timer that re-arms");
+            writer.line("    // itself `period` ms after each fire; `None` is a one-shot `setTimeout`.");
+            writer.line("    period_ms: Option<u64>,");
             writer.line("}");
             writer.blank_line();
             writer.line("thread_local! {");
@@ -1091,7 +1096,20 @@ fn emit_source_with_free_function_router(
             writer.line("    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });");
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
             writer.line("    let due_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));");
-            writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback }));");
+            writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: None }));");
+            writer.line("    SmeltUnknown::Number(id as f64)");
+            writer.line("}");
+            writer.blank_line();
+            writer.line(format!(
+                "fn {set_interval}(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, period_ms: f64) -> SmeltUnknown {{",
+                set_interval = smelt_stdlib::runtime_symbols::timers::SET_INTERVAL,
+            ));
+            writer.line("    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });");
+            writer.line("    // Clamp non-positive periods to 1 ms so an interval still advances virtual");
+            writer.line("    // time and cannot busy-loop the drain at the current instant.");
+            writer.line("    let period_ms = if period_ms.is_finite() && period_ms > 0.0 { period_ms as u64 } else { 1 };");
+            writer.line("    let due_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(period_ms));");
+            writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: Some(period_ms) }));");
             writer.line("    SmeltUnknown::Number(id as f64)");
             writer.line("}");
             writer.blank_line();
@@ -1107,6 +1125,15 @@ fn emit_source_with_free_function_router(
             "    SMELT_TIMERS.with(|timers| timers.borrow_mut().retain(|timer| timer.id != id));",
         );
             writer.line("}");
+            writer.blank_line();
+            // `clearInterval` cancels by id exactly like `clearTimeout`; both share
+            // the single timer queue. Emit it as a thin alias so the generated
+            // `async_clear_interval` call site resolves to a real helper.
+            writer.line(format!(
+                "fn {clear_interval}<T: IntoSmeltUnknown>(handle: T) {{ {clear_timeout}(handle) }}",
+                clear_interval = smelt_stdlib::runtime_symbols::timers::CLEAR_INTERVAL,
+                clear_timeout = smelt_stdlib::runtime_symbols::timers::CLEAR_TIMEOUT,
+            ));
             writer.blank_line();
             writer.line(format!(
                 "fn {drain_due_timers}() {{",
@@ -1127,6 +1154,13 @@ fn emit_source_with_free_function_router(
             writer.line("        if due.is_empty() { break; }");
             writer.line("        for timer in due {");
             writer.line("            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| panic!(\"{}\", error));");
+            writer.line("            // Re-arm repeating `setInterval` timers for their next period. The");
+            writer.line("            // next fire is scheduled `period` ms from the current virtual time, so");
+            writer.line("            // it is strictly in the future and cannot re-fire within this drain pass.");
+            writer.line("            if let Some(period_ms) = timer.period_ms {");
+            writer.line("                let next_due = now.saturating_add(period_ms);");
+            writer.line("                SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id: timer.id, due_ms: next_due, callback: timer.callback.clone(), period_ms: Some(period_ms) }));");
+            writer.line("            }");
             writer.line("        }");
             writer.line("    }");
             writer.line("}");
