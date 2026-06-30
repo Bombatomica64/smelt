@@ -1348,10 +1348,16 @@ impl ModuleBuilder<'_> {
         } else {
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             let none_ty = self.ctx.krate.types.intern(Type::None);
+            // `resolve`/`reject` accept their value argument optionally: TypeScript
+            // types them `(value?: T) => void`, and `resolve()` with no argument is
+            // valid (it settles with `undefined`). Recording `required_params: 0`
+            // lets the callbacks satisfy shorter expected function slots such as the
+            // `Array<() => void>` deferred-task queue used by promise concurrency
+            // primitives (semaphore/mutex).
             let resolve_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: vec![unknown_ty],
                 rest: None,
-                required_params: Some(1),
+                required_params: Some(0),
                 mutable_params: Vec::new(),
                 return_ty: none_ty,
                 is_async: false,
@@ -1360,7 +1366,7 @@ impl ModuleBuilder<'_> {
             let reject_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: vec![unknown_ty],
                 rest: None,
-                required_params: Some(1),
+                required_params: Some(0),
                 mutable_params: Vec::new(),
                 return_ty: none_ty,
                 is_async: false,

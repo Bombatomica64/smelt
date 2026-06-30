@@ -2274,9 +2274,16 @@ impl<'mir> FunctionEmitter<'mir> {
         else {
             return false;
         };
+        // The adapter closure takes the *target* parameters and forwards them to
+        // the source callback. The source may legally declare more parameters than
+        // the target when the surplus are optional (their values are filled with
+        // defaults at the forwarding site); this is what lets a `Promise` `resolve`
+        // typed `(value?) => void` flow into a `() => void` slot. We still require
+        // every target parameter the source actually consumes to be renderable into
+        // the matching source parameter type.
+        let shared = source_function.params.len().min(target_function.params.len());
         !source_function.is_async
             && !target_function.is_async
-            && source_function.params.len() <= target_function.params.len()
             && self.can_render_non_function_dict_value_as(
                 source_function.return_ty,
                 target_function.return_ty,
@@ -2284,7 +2291,8 @@ impl<'mir> FunctionEmitter<'mir> {
             && source_function
                 .params
                 .iter()
-                .zip(target_function.params.iter())
+                .take(shared)
+                .zip(target_function.params.iter().take(shared))
                 .all(|(source_param, target_param)| {
                     self.can_render_non_function_dict_value_as(*target_param, *source_param)
                 })
@@ -3024,19 +3032,20 @@ impl<'mir> FunctionEmitter<'mir> {
                 ))
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
+        // Forward one argument per *source* parameter. Where the target supplies a
+        // matching argument (`arg{index}`), coerce it into the source parameter
+        // type; where the source declares more (optional) parameters than the
+        // target provides, fill the surplus with the source parameter's default
+        // value so the source callback is still called with full arity.
         let forwarded = source_function
             .params
             .iter()
             .enumerate()
-            .map(|(index, source_param)| {
-                self.value_at_type_text(
-                    &format!("arg{index}"),
-                    *target_function
-                        .params
-                        .get(index)
-                        .ok_or_else(|| EmitError::new("target callback parameter is missing"))?,
-                    *source_param,
-                )
+            .map(|(index, source_param)| match target_function.params.get(index) {
+                Some(target_param) => {
+                    self.value_at_type_text(&format!("arg{index}"), *target_param, *source_param)
+                }
+                None => self.default_value(*source_param),
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");

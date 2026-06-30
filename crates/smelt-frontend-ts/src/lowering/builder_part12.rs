@@ -76,7 +76,7 @@ impl ModuleBuilder<'_> {
                     && self.type_assignable_to_inner(actual_value, expected_value, depth + 1)
             }
             (Type::Function(actual_fn), Type::Function(expected_fn)) => {
-                actual_fn.params.len() == expected_fn.params.len()
+                self.function_arity_assignable(&actual_fn, &expected_fn)
                     && self.function_async_assignable(&actual_fn, &expected_fn, depth)
                     && actual_fn
                         .params
@@ -116,6 +116,34 @@ impl ModuleBuilder<'_> {
             }
             (actual_ty, expected_ty) => actual_ty == expected_ty,
         }
+    }
+
+    /// Return whether a source function's arity can satisfy an expected function type.
+    ///
+    /// TypeScript permits assigning a function to a target type that calls it with
+    /// fewer arguments, provided every parameter the target would *not* supply is
+    /// optional (declared after the source's required-parameter count) or absorbed
+    /// by a rest parameter. This is what makes a `Promise<void>` `resolve`, typed
+    /// `(value?: T) => void`, assignable to a `() => void` slot such as the FIFO
+    /// `Array<() => void>` deferred-task queue in a semaphore.
+    ///
+    /// A target with *more* parameters than the source is only acceptable when the
+    /// source has a rest parameter to absorb the extras; otherwise the source could
+    /// not be called with all the arguments the target promises to pass.
+    fn function_arity_assignable(&self, actual: &FunctionType, expected: &FunctionType) -> bool {
+        let actual_required = actual.required_params.unwrap_or(actual.params.len());
+        if expected.params.len() < actual_required {
+            // The target would call the source with fewer arguments than the
+            // source requires — only legal if those extra source params are
+            // optional, which they are not here.
+            return false;
+        }
+        if expected.params.len() > actual.params.len() {
+            // The target promises to pass more arguments than the source declares;
+            // only a source rest parameter can absorb the surplus.
+            return actual.rest.is_some();
+        }
+        true
     }
 
     /// Return whether function async metadata is compatible for assignment.

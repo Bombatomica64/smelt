@@ -2138,6 +2138,34 @@ function add(transforms: Array<(data: Data) => Data | Promise<Data>>): void {
 }
 
 #[test]
+fn pushes_optional_param_callback_into_shorter_function_array() -> Result<(), String> {
+    // A callback that declares an optional trailing parameter is assignable to a
+    // function slot with fewer parameters (TypeScript structural arity). The
+    // canonical case is a `Promise<void>` `resolve`, typed `(value?) => void`,
+    // pushed into the `Array<() => void>` FIFO deferred-task queue used by promise
+    // concurrency primitives such as `Semaphore`. This must lower instead of
+    // raising "array push argument must match the array element type".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Sema {
+  private deferredTasks: Array<() => void> = [];
+  acquire(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.deferredTasks.push(resolve);
+    });
+  }
+}
+export { Sema };
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_method_call_on_erased_function_receiver_as_unknown() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
