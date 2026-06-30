@@ -1,5 +1,6 @@
 //! TypeScript AST lowering into Smelt HIR.
 
+mod specialization;
 mod stdlib;
 mod stdlib_dispatch;
 use std::{
@@ -106,6 +107,24 @@ pub struct ConstCollection {
     ty: smelt_hir::TypeId,
     /// Whether the collection should lower as a `Set` instead of an array.
     is_set: bool,
+}
+
+/// Optional build-time inputs for TypeScript frontend lowering.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FrontendOptions<'manifest> {
+    /// Materialized definition-time structure for this source graph.
+    pub specialization: Option<&'manifest smelt_specialize::SpecializationManifest>,
+}
+
+/// Materialized specialization data owned by one source module builder.
+#[derive(Debug, Clone)]
+struct SpecializationData {
+    /// Module-local materialized definitions.
+    module: smelt_specialize::ModuleRecord,
+    /// Shared reference-preserving value graph.
+    values: Vec<smelt_specialize::GraphValue>,
+    /// Required opaque adapters.
+    required_adapters: Vec<smelt_specialize::AdapterRequirement>,
 }
 
 /// A function that narrows one argument after it returns successfully.
@@ -234,7 +253,7 @@ pub fn to_hir(
     file_id: FileId,
     ctx: &mut HirCtx,
 ) -> Result<ModuleId, Vec<SmeltError>> {
-    to_hir_with_path(source, file_id, "<memory>", ctx)
+    to_hir_with_options(source, file_id, "<memory>", ctx, FrontendOptions::default())
 }
 
 /// Parse TypeScript source code from `path` and lower it to HIR.
@@ -247,6 +266,21 @@ pub fn to_hir_with_path(
     file_id: FileId,
     path: &str,
     ctx: &mut HirCtx,
+) -> Result<ModuleId, Vec<SmeltError>> {
+    to_hir_with_options(source, file_id, path, ctx, FrontendOptions::default())
+}
+
+/// Parse TypeScript source with option-aware specialization inputs.
+///
+/// # Errors
+///
+/// Returns parse, specialization, or lowering diagnostics.
+pub fn to_hir_with_options(
+    source: &str,
+    file_id: FileId,
+    path: &str,
+    ctx: &mut HirCtx,
+    options: FrontendOptions<'_>,
 ) -> Result<ModuleId, Vec<SmeltError>> {
     if is_generated_declaration_file(path, source) {
         return Ok(ctx.krate.push_module(Module::new(
@@ -280,7 +314,14 @@ pub fn to_hir_with_path(
             .collect());
     }
 
-    let mut builder = ModuleBuilder::new(file_id, path.to_owned(), source.to_owned(), ctx);
+    let specialization = specialization::specialization_for_path(path, options.specialization);
+    let mut builder = ModuleBuilder::new(
+        file_id,
+        path.to_owned(),
+        source.to_owned(),
+        ctx,
+        specialization,
+    );
     builder.program(&parsed.program)
 }
 
@@ -405,6 +446,8 @@ struct ModuleBuilder<'ctx> {
     local_function_items: HashMap<String, smelt_hir::ItemId>,
     /// TypeScript overload signatures keyed by implementation name.
     function_overloads: HashMap<String, Vec<OverloadSignature>>,
+    /// Materialized final definitions for this source module.
+    specialization: Option<SpecializationData>,
 }
 
 /// Synthetic list used to materialize a synchronous generator body.

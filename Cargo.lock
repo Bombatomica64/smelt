@@ -6625,6 +6625,7 @@ dependencies = [
  "oxc",
  "pico-args",
  "smelt-hir",
+ "smelt-specialize",
  "smelt-stdlib",
 ]
 

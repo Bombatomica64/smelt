@@ -152,6 +152,16 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                             visibility: field.visibility,
                         })
                         .collect(),
+                    static_fields: class
+                        .static_fields
+                        .iter()
+                        .map(|field| crate::MirStaticField {
+                            name: field.name,
+                            ty: field.ty,
+                            visibility: field.visibility,
+                            value: field.value.clone(),
+                        })
+                        .collect(),
                     descriptors: class
                         .descriptors
                         .iter()
@@ -166,6 +176,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                                 .setter
                                 .and_then(|item| item_functions.get(&item).copied()),
                             data_descriptor: descriptor.data_descriptor,
+                            is_static: descriptor.is_static,
                             value_fields: descriptor.value_fields.clone(),
                         })
                         .collect(),

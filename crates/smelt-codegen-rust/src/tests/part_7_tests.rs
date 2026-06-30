@@ -4630,6 +4630,7 @@ def update(model: Model) -> int:
         getter: Some(getter),
         setter: Some(setter),
         data_descriptor: true,
+        is_static: false,
         value_fields: Vec::new(),
     });
 

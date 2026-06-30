@@ -1,6 +1,12 @@
 impl<'ctx> ModuleBuilder<'ctx> {
     /// Create a new module builder.
-    fn new(file_id: FileId, path: String, source: String, ctx: &'ctx mut HirCtx) -> Self {
+    fn new(
+        file_id: FileId,
+        path: String,
+        source: String,
+        ctx: &'ctx mut HirCtx,
+        specialization: Option<SpecializationData>,
+    ) -> Self {
         let (items, classes, interfaces) = Self::visible_items(ctx);
         let const_literals = Self::visible_const_literals(ctx);
         let const_objects = ctx.object_consts.clone();
@@ -67,6 +73,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             forward_function_types: HashMap::new(),
             local_function_items: HashMap::new(),
             function_overloads,
+            specialization,
         }
     }
 
@@ -1960,19 +1967,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return top-level arrow binding names declared by one variable statement.
-    fn arrow_const_declaration_names(
-        decl: &oxc::ast::ast::VariableDeclaration<'_>,
-    ) -> Vec<String> {
-        decl.declarations.iter().filter_map(|declarator| {
-            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
-                return None;
-            };
-            matches!(
-                declarator.init,
-                Some(Expression::ArrowFunctionExpression(_))
-            )
-            .then(|| binding.name.to_string())
-        }).collect()
+    fn arrow_const_declaration_names(decl: &oxc::ast::ast::VariableDeclaration<'_>) -> Vec<String> {
+        decl.declarations
+            .iter()
+            .filter_map(|declarator| {
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    return None;
+                };
+                matches!(
+                    declarator.init,
+                    Some(Expression::ArrowFunctionExpression(_))
+                )
+                .then(|| binding.name.to_string())
+            })
+            .collect()
     }
 
     /// Check whether a private arrow constant can resolve arrow values it reads.

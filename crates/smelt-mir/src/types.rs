@@ -182,6 +182,8 @@ pub struct MirClass {
     pub base_args: Vec<TypeId>,
     /// Fields defined in the class.
     pub fields: Vec<MirField>,
+    /// Class-level fields materialized at definition time.
+    pub static_fields: Vec<MirStaticField>,
     /// Materialized typed descriptors.
     pub descriptors: Vec<MirDescriptor>,
     /// Constructor function ID, if any.
@@ -209,6 +211,8 @@ pub struct MirDescriptor {
     pub setter: Option<FuncId>,
     /// Whether data-descriptor precedence applies.
     pub data_descriptor: bool,
+    /// Whether the descriptor is bound on the constructor.
+    pub is_static: bool,
     /// Concrete descriptor instance state.
     pub value_fields: Vec<smelt_hir::DescriptorValueField>,
 }
@@ -237,6 +241,19 @@ pub struct MirField {
     pub ty: TypeId,
     /// Visibility of the field.
     pub visibility: Visibility,
+}
+
+/// MIR representation of a materialized class-level field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirStaticField {
+    /// Member name.
+    pub name: Symbol,
+    /// Concrete field type.
+    pub ty: TypeId,
+    /// Source visibility.
+    pub visibility: Visibility,
+    /// Materialized primitive value.
+    pub value: Option<smelt_hir::Literal>,
 }
 
 /// MIR representation of a function with basic blocks and locals.

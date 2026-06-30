@@ -364,6 +364,7 @@ impl ModuleBuilder<'_> {
             getter,
             setter,
             data_descriptor: descriptor.data_descriptor,
+            is_static: descriptor.is_static,
             value_fields,
         })
     }

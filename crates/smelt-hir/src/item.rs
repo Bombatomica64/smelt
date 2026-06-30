@@ -130,6 +130,8 @@ pub struct Class {
     pub base_args: Vec<TypeId>,
     /// Fields of the class.
     pub fields: Vec<Field>,
+    /// Materialized class-level fields.
+    pub static_fields: Vec<StaticField>,
     /// Materialized descriptor-backed members.
     pub descriptors: Vec<Descriptor>,
     /// Optional constructor method ID.
@@ -157,6 +159,8 @@ pub struct Descriptor {
     pub setter: Option<ItemId>,
     /// Whether data-descriptor precedence applies.
     pub data_descriptor: bool,
+    /// Whether the descriptor is bound on the constructor rather than instances.
+    pub is_static: bool,
     /// Concrete descriptor instance fields used to construct static state.
     pub value_fields: Vec<DescriptorValueField>,
 }
@@ -223,6 +227,21 @@ pub struct Field {
     /// Whether this field is optional.
     pub optional: bool,
     /// Source location of the field.
+    pub span: Span,
+}
+
+/// A typed class-level field materialized during specialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaticField {
+    /// Source member name.
+    pub name: Symbol,
+    /// Concrete field type.
+    pub ty: TypeId,
+    /// Source visibility.
+    pub visibility: Visibility,
+    /// Materialized primitive value, when directly representable.
+    pub value: Option<Literal>,
+    /// Source location.
     pub span: Span,
 }
 

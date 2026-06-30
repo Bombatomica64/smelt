@@ -672,6 +672,7 @@ def class_definition(
                         else callable_provenance(setter, serializer)
                     ),
                     "data_descriptor": data_descriptor,
+                    "is_static": False,
                 }
             )
             continue

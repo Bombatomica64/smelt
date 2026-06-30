@@ -38,38 +38,38 @@ impl ModuleBuilder<'_> {
                 format!("namespace import has no exported member `{member_name}`"),
             ));
         };
-        let (params, rest, return_ty, is_async) = if let Item::Function(function) = self.item_ref(item)
-        {
-            (
-                function.params.iter().map(|param| param.ty).collect(),
-                function.rest,
-                function.return_ty,
-                function.is_async,
-            )
-        } else {
-            let item_ty = self.item_expr_type(item, span)?;
-            if let Some(Type::Function(function)) = self.ctx.krate.types.get(item_ty).cloned() {
-                let callee = body.push_expr(Expr {
-                    kind: ExprKind::Item(item),
-                    ty: item_ty,
+        let (params, rest, return_ty, is_async) =
+            if let Item::Function(function) = self.item_ref(item) {
+                (
+                    function.params.iter().map(|param| param.ty).collect(),
+                    function.rest,
+                    function.return_ty,
+                    function.is_async,
+                )
+            } else {
+                let item_ty = self.item_expr_type(item, span)?;
+                if let Some(Type::Function(function)) = self.ctx.krate.types.get(item_ty).cloned() {
+                    let callee = body.push_expr(Expr {
+                        kind: ExprKind::Item(item),
+                        ty: item_ty,
+                        span,
+                    });
+                    let args = call
+                        .arguments
+                        .iter()
+                        .map(|arg| self.argument(arg, body))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::ClosureCall { callee, args },
+                        ty: function.return_ty,
+                        span: self.span(call.span.start, call.span.end),
+                    })));
+                }
+                return Err(SmeltError::unsupported(
                     span,
-                });
-                let args = call
-                    .arguments
-                    .iter()
-                    .map(|arg| self.argument(arg, body))
-                    .collect::<Result<Vec<_>, _>>()?;
-                return Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::ClosureCall { callee, args },
-                    ty: function.return_ty,
-                    span: self.span(call.span.start, call.span.end),
-                })));
-            }
-            return Err(SmeltError::unsupported(
-                span,
-                format!("namespace member `{member_name}` is not callable"),
-            ));
-        };
+                    format!("namespace member `{member_name}` is not callable"),
+                ));
+            };
         let args = call
             .arguments
             .iter()
@@ -77,19 +77,15 @@ impl ModuleBuilder<'_> {
             .collect::<Result<Vec<_>, _>>()?;
         let callee = body.push_expr(Expr {
             kind: ExprKind::Item(item),
-            ty: self
-                .ctx
-                .krate
-                .types
-                .intern(Type::Function(FunctionType {
-                    params,
-                    rest,
-                    required_params: None,
-                    mutable_params: Vec::new(),
-                    return_ty,
-                    is_async,
-                    may_throw: false,
-                })),
+            ty: self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params,
+                rest,
+                required_params: None,
+                mutable_params: Vec::new(),
+                return_ty,
+                is_async,
+                may_throw: false,
+            })),
             span,
         });
         Ok(Some(body.push_expr(Expr {
@@ -121,19 +117,15 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         match self.item_ref(item) {
             Item::Function(function) => {
-                Ok(self
-                    .ctx
-                    .krate
-                    .types
-                    .intern(Type::Function(FunctionType {
-                        params: function.params.iter().map(|param| param.ty).collect(),
-                        rest: function.rest,
-                        required_params: function.required_params,
+                Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
+                    params: function.params.iter().map(|param| param.ty).collect(),
+                    rest: function.rest,
+                    required_params: function.required_params,
                     mutable_params: Vec::new(),
-                        return_ty: function.return_ty,
-                        is_async: function.is_async,
-                        may_throw: false,
-                    })))
+                    return_ty: function.return_ty,
+                    is_async: function.is_async,
+                    may_throw: false,
+                })))
             }
             Item::Class(class) => Ok(self.ctx.krate.types.intern(Type::Class {
                 name: class.name,
@@ -199,19 +191,23 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.namespace_member_expression(member, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.materialized_static_member(member, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.url_field_expression(member, body)? {
             return Ok(expr);
         }
         let receiver = self.expression(&member.object, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
-        let optional_access =
-            member.optional || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Optional(_)));
+        let optional_access = member.optional
+            || matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(Type::Optional(_))
+            );
         let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
         let field = self.intern_source_name(member.property.name.as_str());
-        if member.property.name == "length"
-            && self.supports_stdlib_length(access_receiver_ty)
-            || member.property.name == "size"
-                && self.supports_stdlib_size(access_receiver_ty)
+        if member.property.name == "length" && self.supports_stdlib_length(access_receiver_ty)
+            || member.property.name == "size" && self.supports_stdlib_size(access_receiver_ty)
         {
             let ty = self.ctx.krate.types.intern(Type::Float);
             let operand = if optional_access {
@@ -311,9 +307,7 @@ impl ModuleBuilder<'_> {
         }
         let ty = self.ctx.krate.types.intern(Type::String);
         Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(
-                Self::SYMBOL_ITERATOR_KEY.to_owned(),
-            )),
+            kind: ExprKind::Literal(Literal::String(Self::SYMBOL_ITERATOR_KEY.to_owned())),
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
@@ -417,9 +411,9 @@ impl ModuleBuilder<'_> {
             };
             let ty = match op {
                 DictProjectionOp::FromEntries => dict_ty,
-                DictProjectionOp::Keys | DictProjectionOp::ForInKeys | DictProjectionOp::Symbols => {
-                    self.ctx.krate.types.intern(Type::List(string_ty))
-                }
+                DictProjectionOp::Keys
+                | DictProjectionOp::ForInKeys
+                | DictProjectionOp::Symbols => self.ctx.krate.types.intern(Type::List(string_ty)),
                 DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(unknown)),
                 DictProjectionOp::Entries => {
                     let entry_ty = self
@@ -448,7 +442,7 @@ impl ModuleBuilder<'_> {
             params: param_tys,
             rest: None,
             required_params: None,
-                    mutable_params: Vec::new(),
+            mutable_params: Vec::new(),
             return_ty,
             is_async: false,
             may_throw: false,
@@ -727,10 +721,10 @@ impl ModuleBuilder<'_> {
             params: vec![number_ty],
             rest: None,
             required_params: None,
-                    mutable_params: Vec::new(),
-return_ty: number_ty,
+            mutable_params: Vec::new(),
+            return_ty: number_ty,
             is_async: false,
-                            may_throw: false,
+            may_throw: false,
         }));
         Some(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
@@ -742,7 +736,7 @@ return_ty: number_ty,
                 }],
                 rest: None,
                 required_params: None,
-return_ty: number_ty,
+                return_ty: number_ty,
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
@@ -823,8 +817,11 @@ return_ty: number_ty,
         let receiver = self.expression(&member.object, body)?;
         let index = self.expression(&member.expression, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
-        let optional_access =
-            member.optional || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Optional(_)));
+        let optional_access = member.optional
+            || matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(Type::Optional(_))
+            );
         let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
         if optional_access {
             let value_ty = self.index_type(access_receiver_ty)?;
@@ -911,8 +908,10 @@ return_ty: number_ty,
             }));
         }
         let ty = self.index_type(access_receiver_ty)?;
-        if matches!(self.ctx.krate.types.get(access_receiver_ty), Some(Type::Dict(_, _)))
-            && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
+        if matches!(
+            self.ctx.krate.types.get(access_receiver_ty),
+            Some(Type::Dict(_, _))
+        ) && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
         {
             let ty = self.optional_chain_result_type(ty);
             return Ok(body.push_expr(Expr {
@@ -1028,10 +1027,10 @@ return_ty: number_ty,
             params: vec![number_ty],
             rest: None,
             required_params: None,
-                    mutable_params: Vec::new(),
-return_ty: number_ty,
+            mutable_params: Vec::new(),
+            return_ty: number_ty,
             is_async: false,
-                            may_throw: false,
+            may_throw: false,
         }));
         Some(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
@@ -1043,7 +1042,7 @@ return_ty: number_ty,
                 }],
                 rest: None,
                 required_params: None,
-return_ty: number_ty,
+                return_ty: number_ty,
                 captures: vec![ClosureCapture {
                     source_local,
                     body_local: Some(method_local),
@@ -1106,7 +1105,11 @@ return_ty: number_ty,
     }
 
     /// Return whether source explicitly acknowledges a dynamic unknown index read.
-    fn can_lower_acknowledged_unknown_index(&self, receiver_ty: smelt_hir::TypeId, start: u32) -> bool {
+    fn can_lower_acknowledged_unknown_index(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        start: u32,
+    ) -> bool {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
@@ -1216,13 +1219,10 @@ return_ty: number_ty,
                         | PrimitiveCastOp::ToJsNumber
                 )
             }
-            Some(Type::Union(items)) => items
-                .iter()
-                .copied()
-                .all(|item| {
-                    matches!(self.ctx.krate.types.get(item), Some(Type::None))
-                        || self.primitive_cast_accepts_operand(op, item)
-                }),
+            Some(Type::Union(items)) => items.iter().copied().all(|item| {
+                matches!(self.ctx.krate.types.get(item), Some(Type::None))
+                    || self.primitive_cast_accepts_operand(op, item)
+            }),
             Some(Type::Optional(item)) => self.primitive_cast_accepts_operand(op, *item),
             Some(_) if self.is_numeric_like_type(operand_ty) => true,
             _ => false,
@@ -1246,16 +1246,14 @@ return_ty: number_ty,
         let right = self.expression_with_hint(&assign.right, body, right_ty_hint)?;
         let value = match assign.operator {
             AssignmentOperator::Assign => right,
-            AssignmentOperator::LogicalNullish => {
-                body.push_expr(Expr {
-                    kind: ExprKind::OptionalCoalesce {
-                        optional: target,
-                        fallback: right,
-                    },
-                    ty: self.non_nullish_type(target_ty).unwrap_or(target_ty),
-                    span: self.span(assign.span.start, assign.span.end),
-                })
-            }
+            AssignmentOperator::LogicalNullish => body.push_expr(Expr {
+                kind: ExprKind::OptionalCoalesce {
+                    optional: target,
+                    fallback: right,
+                },
+                ty: self.non_nullish_type(target_ty).unwrap_or(target_ty),
+                span: self.span(assign.span.start, assign.span.end),
+            }),
             AssignmentOperator::LogicalOr | AssignmentOperator::LogicalAnd => {
                 let span = self.span(assign.span.start, assign.span.end);
                 let cond = self.lowered_condition_expression(target, span, body)?;
@@ -1485,11 +1483,7 @@ return_ty: number_ty,
         } else {
             body.push_stmt(Stmt::Assign { target, value });
         }
-        if update.prefix {
-            Ok(value)
-        } else {
-            Ok(target)
-        }
+        if update.prefix { Ok(value) } else { Ok(target) }
     }
 
     /// Convert assignment target to expression.
@@ -1506,9 +1500,12 @@ return_ty: number_ty,
                 body,
             ),
             AssignmentTarget::StaticMemberExpression(member) => self.static_member(member, body),
-            AssignmentTarget::PrivateFieldExpression(member) => {
-                self.private_field_member(&member.object, member.field.name.as_str(), member.span, body)
-            }
+            AssignmentTarget::PrivateFieldExpression(member) => self.private_field_member(
+                &member.object,
+                member.field.name.as_str(),
+                member.span,
+                body,
+            ),
             AssignmentTarget::ComputedMemberExpression(member) => {
                 self.computed_member(member, body)
             }
@@ -1554,9 +1551,12 @@ return_ty: number_ty,
             SimpleAssignmentTarget::StaticMemberExpression(member) => {
                 self.static_member(member, body)
             }
-            SimpleAssignmentTarget::PrivateFieldExpression(member) => {
-                self.private_field_member(&member.object, member.field.name.as_str(), member.span, body)
-            }
+            SimpleAssignmentTarget::PrivateFieldExpression(member) => self.private_field_member(
+                &member.object,
+                member.field.name.as_str(),
+                member.span,
+                body,
+            ),
             SimpleAssignmentTarget::ComputedMemberExpression(member) => {
                 self.computed_member(member, body)
             }

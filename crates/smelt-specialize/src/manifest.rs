@@ -200,6 +200,9 @@ pub struct DescriptorDefinition {
     pub setter: Option<CallableProvenance>,
     /// Whether data-descriptor precedence applies.
     pub data_descriptor: bool,
+    /// Whether this descriptor is bound to the constructor.
+    #[serde(default)]
+    pub is_static: bool,
 }
 
 /// Materialized callable with source provenance.

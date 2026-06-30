@@ -90,7 +90,7 @@ mod emitter;
 use classes::{
     class_impl_generics_text, class_name_text, class_type_args_text, class_type_params_text,
     effective_class_fields, effective_interface_fields, inherited_trait_methods,
-    interface_impl_generics_text, interface_type_params_text,
+    interface_impl_generics_text, interface_type_params_text, materialized_static_value_text,
 };
 use emitter::{EmitContext, FunctionEmitter};
 use rust::{CodeWriter, RustIdent};
@@ -419,12 +419,20 @@ fn emit_source_with_free_function_router(
         writer.line("impl<T: Clone> Clone for SmeltList<T> { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }");
         writer.line("#[allow(dead_code)]");
         writer.line("impl<T> SmeltList<T> {");
-        writer.line("    /// Create an identity-bearing typed list with a fresh JS reference identity.");
-        writer.line("    fn new(values: Vec<T>) -> Self { Self { id: smelt_next_object_id(), values } }");
+        writer.line(
+            "    /// Create an identity-bearing typed list with a fresh JS reference identity.",
+        );
+        writer.line(
+            "    fn new(values: Vec<T>) -> Self { Self { id: smelt_next_object_id(), values } }",
+        );
         writer.line("    /// Reuse a caller-supplied identity so an erase/extract round-trip stays `===` equal.");
         writer.line("    fn with_id(id: usize, values: Vec<T>) -> Self { Self { id, values } }");
-        writer.line("    /// A JS array copy (`[...a]`, `slice`): same contents, a NEW reference identity.");
-        writer.line("    fn fresh_copy(&self) -> Self where T: Clone { Self::new(self.values.clone()) }");
+        writer.line(
+            "    /// A JS array copy (`[...a]`, `slice`): same contents, a NEW reference identity.",
+        );
+        writer.line(
+            "    fn fresh_copy(&self) -> Self where T: Clone { Self::new(self.values.clone()) }",
+        );
         writer.line("    /// JS reference identity of this list.");
         writer.line("    fn id(&self) -> usize { self.id }");
         writer.line("    /// Consume the list, yielding the backing storage.");
@@ -439,7 +447,9 @@ fn emit_source_with_free_function_router(
         writer.line("impl<T: PartialEq> PartialEq for SmeltList<T> { fn eq(&self, other: &Self) -> bool { self.values == other.values } }");
         writer.line("impl<T: PartialEq> Eq for SmeltList<T> {}");
         writer.line("impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { self.values.hash(state); } }");
-        writer.line("impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }");
+        writer.line(
+            "impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }",
+        );
         writer.line("impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.values } }");
         writer.blank_line();
     }
@@ -745,7 +755,9 @@ fn emit_source_with_free_function_router(
         writer.line("#[derive(Clone)]");
         writer.line("pub struct SmeltPromise {");
         writer.line("    id: usize,");
-        writer.line("    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, String>>>>,");
+        writer.line(
+            "    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, String>>>>,",
+        );
         writer.line("    future: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromiseFuture>>>,");
         writer.line("}");
         writer.blank_line();
@@ -758,11 +770,15 @@ fn emit_source_with_free_function_router(
         writer.line("    fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
         writer.line("    /// Store a live future behind a cloneable erased promise handle.");
         writer.line("    fn from_future(future: SmeltPromiseFuture) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(future))) } }");
-        writer.line("    /// Await the stored future once and share its settled result with clones.");
-        writer.line("    async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {");
+        writer
+            .line("    /// Await the stored future once and share its settled result with clones.");
+        writer.line(
+            "    async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {",
+        );
         writer.line("        if self.state.borrow().is_none() {");
         writer.line("            if let Some(future) = self.future.borrow_mut().take() {");
-        writer.line("                let settled = future.await.map_err(|error| error.to_string());");
+        writer
+            .line("                let settled = future.await.map_err(|error| error.to_string());");
         writer.line("                *self.state.borrow_mut() = Some(settled);");
         writer.line("            }");
         writer.line("        }");
@@ -842,15 +858,31 @@ fn emit_source_with_free_function_router(
                 "    /// Restore an erased callable value without dropping callable-object fields.",
             );
             writer.line("    fn into_smelt_unknown(self) -> SmeltUnknown {");
-            writer.line("        // Erasing the SAME callback twice must yield `SmeltUnknown::Function`");
+            writer.line(
+                "        // Erasing the SAME callback twice must yield `SmeltUnknown::Function`",
+            );
             writer.line("        // values that share one OUTER `Rc`, because reference identity");
-            writer.line("        // (`Rc::ptr_eq` in `same_js_key`/`smelt_unknown_structural_eq`) compares");
-            writer.line("        // that outer `Rc`. A nullary function-item constant (`doNothing()`)");
-            writer.line("        // routes through one cached `SmeltErasedFunction`, so two calls share");
-            writer.line("        // the inner callback `Rc`; key a `Weak` outer cache on its address so");
-            writer.line("        // both erasures resolve to one `SmeltUnknown::Function` while both are");
-            writer.line("        // alive (e.g. inside one `toStrictEqual`). A `Weak` avoids pinning the");
-            writer.line("        // callback alive; a successful upgrade proves the address is still the");
+            writer.line(
+                "        // (`Rc::ptr_eq` in `same_js_key`/`smelt_unknown_structural_eq`) compares",
+            );
+            writer.line(
+                "        // that outer `Rc`. A nullary function-item constant (`doNothing()`)",
+            );
+            writer.line(
+                "        // routes through one cached `SmeltErasedFunction`, so two calls share",
+            );
+            writer.line(
+                "        // the inner callback `Rc`; key a `Weak` outer cache on its address so",
+            );
+            writer.line(
+                "        // both erasures resolve to one `SmeltUnknown::Function` while both are",
+            );
+            writer.line(
+                "        // alive (e.g. inside one `toStrictEqual`). A `Weak` avoids pinning the",
+            );
+            writer.line(
+                "        // callback alive; a successful upgrade proves the address is still the",
+            );
             writer.line("        // same callback, so it is a true hit. Callable objects");
             writer.line("        // (`object: Some(_)`) are per-instance and skip the cache.");
             writer.line("        if self.object.is_none() {");
@@ -870,9 +902,14 @@ fn emit_source_with_free_function_router(
             writer.line("}");
             writer.blank_line();
             writer.line("thread_local! {");
-            writer.line("    /// Cache the OUTER `SmeltUnknown::Function` `Rc` derived from each erased");
-            writer.line("    /// callback, keyed on the inner callback `Rc` address, as a `Weak` so");
-            writer.line("    /// repeated erasures of one shared `SmeltErasedFunction` keep reference");
+            writer.line(
+                "    /// Cache the OUTER `SmeltUnknown::Function` `Rc` derived from each erased",
+            );
+            writer
+                .line("    /// callback, keyed on the inner callback `Rc` address, as a `Weak` so");
+            writer.line(
+                "    /// repeated erasures of one shared `SmeltErasedFunction` keep reference",
+            );
             writer.line("    /// identity while alive without pinning transient callbacks.");
             writer.line("    static SMELT_ERASED_FUNCTION_VALUES: ::std::cell::RefCell<::std::collections::HashMap<usize, ::std::rc::Weak<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
             writer.line("}");
@@ -1876,6 +1913,32 @@ fn emit_source_with_free_function_router(
                 &scoped_type_params,
             )?;
             emit_debug_impl_for_storage_type(&mut writer, &name, &impl_generics, &type_params);
+        }
+        if !class.static_fields.is_empty() {
+            writer.block(
+                format!("impl{impl_generics} {name}{type_params}"),
+                |impl_writer| {
+                    for field in &class.static_fields {
+                        let field_name = mir
+                            .symbols
+                            .get(field.name)
+                            .map(RustIdent::new)
+                            .map_or_else(|| "field".to_owned(), RustIdent::into_string);
+                        let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
+                            mir,
+                            &context,
+                            field.ty,
+                            &scoped_type_params,
+                        )
+                        .unwrap_or_else(|_| "SmeltUnknown".to_owned());
+                        let value = materialized_static_value_text(field.value.as_ref());
+                        impl_writer.block(
+                            format!("fn __smelt_static_{field_name}() -> {field_ty}"),
+                            |function_writer| function_writer.line(value),
+                        );
+                    }
+                },
+            );
         }
         if needs_unknown {
             emit_record_into_smelt_unknown_impl(

@@ -570,6 +570,7 @@ function classDefinition(classValue, moduleRecord, serializer) {
             )
           : null,
         data_descriptor: Boolean(descriptor.set),
+        is_static: false,
       });
     }
   }
@@ -682,6 +683,7 @@ function classDefinition(classValue, moduleRecord, serializer) {
             )
             : null,
         data_descriptor: true,
+        is_static: Boolean(context.static),
       });
     }
     for (const initializer of [
