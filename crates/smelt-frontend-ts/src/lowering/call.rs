@@ -37,6 +37,9 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.dispatch_builtin_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.immediately_invoked_function_call(call, body)? {
+            return Ok(expr);
+        }
         if let Expression::ComputedMemberExpression(member) = &call.callee {
             let args = call
                 .arguments
@@ -633,6 +636,95 @@ impl<'builder> ModuleBuilder<'builder> {
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// Lower an immediately-invoked function expression (IIFE).
+    ///
+    /// `(function (a, b) { ... })(1, 2)` and `((a) => ...)(5)` invoke a function
+    /// or arrow literal directly. The callee is lowered to a closure value, its
+    /// function type provides the parameter/return shape, and the call becomes a
+    /// `ClosureCall`. Spread arguments expand through the same rest-aware path
+    /// used by other closure calls. Returns `Ok(None)` when the callee is not a
+    /// function/arrow literal so the surrounding dispatch can continue.
+    fn immediately_invoked_function_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let callee = match &call.callee {
+            Expression::FunctionExpression(function) => {
+                self.function_expression_value(function, None, function.span, body)?
+            }
+            Expression::ArrowFunctionExpression(arrow) => {
+                self.arrow_function_expression(arrow, body)?
+            }
+            Expression::ParenthesizedExpression(paren) => match &paren.expression {
+                Expression::FunctionExpression(function) => {
+                    self.function_expression_value(function, None, function.span, body)?
+                }
+                Expression::ArrowFunctionExpression(arrow) => {
+                    self.arrow_function_expression(arrow, body)?
+                }
+                _ => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+        let callee_ty = Self::expr_ty(body, callee);
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "immediately-invoked function expression callee did not lower to a function",
+            ));
+        };
+        let rest = function.rest.and_then(|index| {
+            if let Some(Type::List(item_ty)) = function
+                .params
+                .get(index)
+                .and_then(|param| self.ctx.krate.types.get(*param))
+            {
+                Some(RestParam {
+                    index,
+                    item_ty: *item_ty,
+                })
+            } else {
+                None
+            }
+        });
+        let args = if rest.is_some() && call.arguments.iter().any(Argument::is_spread) {
+            self.spread_closure_call_arguments(&function, rest, call, body)?
+        } else {
+            let fixed_param_count = rest.map_or(function.params.len(), |rest| rest.index);
+            let mut args = call
+                .arguments
+                .iter()
+                .take(fixed_param_count)
+                .enumerate()
+                .map(|(index, arg)| {
+                    let hint = function.params.get(index).copied();
+                    self.argument_with_hint(arg, body, hint)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if let Some(rest) = rest {
+                let rest_args = call
+                    .arguments
+                    .iter()
+                    .skip(rest.index)
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let rest_ty = self.ctx.krate.types.intern(Type::List(rest.item_ty));
+                args.push(body.push_expr(Expr {
+                    kind: ExprKind::ListLit(rest_args),
+                    ty: rest_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+            args
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: function.return_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower a call through the ordered builtin/stdlib dispatch registry.

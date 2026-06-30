@@ -4932,6 +4932,59 @@ export function parseHex(value: number): [number, number, number] {
 }
 
 #[test]
+fn lowers_immediately_invoked_function_expressions() -> Result<(), String> {
+    // `(function (...) { ... })(...)` and `((...) => ...)(...)` invoke a function
+    // or arrow literal directly. The callee lowers to a closure value and the
+    // call becomes a `ClosureCall`, including the rest/spread case. Mirrors the
+    // IIFE shape used throughout es-toolkit's compat predicate specs.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const sum = (function (a: number, b: number): number { return a + b; })(1, 2);
+export const doubled = ((a: number): number => a * 2)(5);
+export const packed = (function (...rest: number[]): number { return rest.length; })(1, 2, 3);
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let closure_call_count = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+        .count();
+    ensure!(
+        closure_call_count >= 3,
+        "expected each IIFE to lower to a ClosureCall, found {closure_call_count}"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_dynamic_index_access_on_boolean_primitive() -> Result<(), String> {
+    // Dynamically indexing a boolean primitive (the value produced by an `&&`
+    // short-circuit chain) is a JavaScript property lookup that yields
+    // `undefined`. It must lower to the dynamic `Unknown` boundary instead of
+    // aborting as an unsupported index receiver. Mirrors es-toolkit's
+    // transform.spec.ts `root[type]` where `root` came from `a && b`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function pick(a: boolean, b: boolean, key: string): unknown {
+  const root = a && b;
+  return root[key];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_conditional_with_list_branches_of_differing_element_types() -> Result<(), String> {
     // A ternary whose two branches are arrays with different element types
     // (here `number[]` vs `(number | null)[]`) must unify to a single array
