@@ -4867,6 +4867,98 @@ const pivot = (4 + 10) >>> 1;
 }
 
 #[test]
+fn lowers_bitwise_and_or_xor_operators() -> Result<(), String> {
+    // JavaScript `&`, `|`, `^` must lower to dedicated bitwise `BinOp`s rather
+    // than being rejected as unsupported binary operators. Mirrors the shape used
+    // by es-toolkit's `parseHex` (`(colorValue >> 16) & 0xff`).
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function parseHex(value: number): [number, number, number] {
+  const red = (value >> 16) & 0xff;
+  const green = (value >> 8) & 0xff;
+  const blue = value & 0xff;
+  const mixed = (red | green) ^ blue;
+  return [red, green, mixed];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::BinOp {
+                        op: BinOp::BitAnd,
+                        ..
+                    }
+                )
+            })
+        }),
+        "bitwise AND did not lower"
+    );
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::BinOp {
+                        op: BinOp::BitOr,
+                        ..
+                    }
+                )
+            })
+        }),
+        "bitwise OR did not lower"
+    );
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::BinOp {
+                        op: BinOp::BitXor,
+                        ..
+                    }
+                )
+            })
+        }),
+        "bitwise XOR did not lower"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_in_operator_in_array_element_position() -> Result<(), String> {
+    // The no-hint binary lowering path (used for array elements and other
+    // non-hinted positions) must dispatch `in` to the dedicated key-membership
+    // lowering instead of rejecting it as an unsupported binary operator.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function membership(record: Record<string, number>): boolean[] {
+  return ["a" in record, "b" in record];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
+        }),
+        "`in` operator did not lower to a key-membership test"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_array_from_length_mapper() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -50,6 +50,16 @@ pub enum BinOp {
     Shr,
     /// Unsigned right shift operator.
     UShr,
+    /// Bitwise AND operator (`&`). JavaScript coerces both operands to 32-bit
+    /// signed integers (`ToInt32`) before the operation and returns a signed
+    /// 32-bit number.
+    BitAnd,
+    /// Bitwise OR operator (`|`), with the same `ToInt32` JavaScript semantics
+    /// as [`BinOp::BitAnd`].
+    BitOr,
+    /// Bitwise XOR operator (`^`), with the same `ToInt32` JavaScript semantics
+    /// as [`BinOp::BitAnd`].
+    BitXor,
 }
 
 /// Returns the text representation of a binary operator.
@@ -72,6 +82,9 @@ pub const fn bin_op_text(op: BinOp) -> &'static str {
         BinOp::Shl => "<<",
         BinOp::Shr => ">>",
         BinOp::UShr => ">>>",
+        BinOp::BitAnd => "&",
+        BinOp::BitOr => "|",
+        BinOp::BitXor => "^",
     }
 }
 

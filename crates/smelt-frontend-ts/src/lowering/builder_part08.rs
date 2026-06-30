@@ -1068,9 +1068,10 @@ impl ModuleBuilder<'_> {
                     BinaryOperator::ShiftLeft => BinOp::Shl,
                     BinaryOperator::ShiftRight => BinOp::Shr,
                     BinaryOperator::ShiftRightZeroFill => BinOp::UShr,
-                    BinaryOperator::Exponential | BinaryOperator::BitwiseOR
-                    | BinaryOperator::BitwiseXOR
-                    | BinaryOperator::BitwiseAnd
+                    BinaryOperator::BitwiseAnd => BinOp::BitAnd,
+                    BinaryOperator::BitwiseOR => BinOp::BitOr,
+                    BinaryOperator::BitwiseXOR => BinOp::BitXor,
+                    BinaryOperator::Exponential
                     | BinaryOperator::In
                     | BinaryOperator::Instanceof => {
                         return Err(SmeltError::unsupported(

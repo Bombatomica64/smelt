@@ -2423,6 +2423,9 @@ return_ty: function.return_ty,
                 | BinOp::Shl
                 | BinOp::Shr
                 | BinOp::UShr
+                | BinOp::BitAnd
+                | BinOp::BitOr
+                | BinOp::BitXor
         ) && (self.is_erased_numeric_operand(lhs_ty)
             || self.is_erased_numeric_operand(rhs_ty)
             || self.is_optional_numeric_operand(lhs_ty)

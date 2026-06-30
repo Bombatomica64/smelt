@@ -1049,6 +1049,15 @@ impl ModuleBuilder<'_> {
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // `instanceof` and `in` are not arithmetic/comparison operators that map
+        // onto a `BinOp`; they have dedicated lowering (predicate and key-membership
+        // respectively) shared with the hinted expression path in builder_part08.
+        if binary.operator == BinaryOperator::Instanceof {
+            return self.instanceof_expression(binary, body);
+        }
+        if binary.operator == BinaryOperator::In {
+            return self.in_expression(binary, body);
+        }
         if binary.operator == BinaryOperator::Exponential {
             let base = self.expression(&binary.left, body)?;
             let exponent = self.expression(&binary.right, body)?;
@@ -1078,6 +1087,9 @@ impl ModuleBuilder<'_> {
             BinaryOperator::ShiftLeft => BinOp::Shl,
             BinaryOperator::ShiftRight => BinOp::Shr,
             BinaryOperator::ShiftRightZeroFill => BinOp::UShr,
+            BinaryOperator::BitwiseAnd => BinOp::BitAnd,
+            BinaryOperator::BitwiseOR => BinOp::BitOr,
+            BinaryOperator::BitwiseXOR => BinOp::BitXor,
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(binary.span.start, binary.span.end),

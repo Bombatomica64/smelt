@@ -376,6 +376,27 @@ impl FunctionEmitter<'_> {
                         "(({lhs_trunc_text} as i128) {op_text} (({rhs_trunc_text} as u32).min(127))) as {result_cast}"
                     ));
                 }
+                if matches!(
+                    *op,
+                    smelt_hir::BinOp::BitAnd | smelt_hir::BinOp::BitOr | smelt_hir::BinOp::BitXor
+                ) {
+                    // JavaScript bitwise `&`, `|`, `^` coerce both operands with
+                    // `ToInt32` (truncate to integer, take modulo 2^32 as a signed
+                    // 32-bit value), operate, and yield a signed 32-bit number.
+                    let lhs_text = self.operand_text(lhs)?;
+                    let rhs_text = self.operand_text(rhs)?;
+                    let lhs_trunc_text = self.numeric_trunc_f64_text(&lhs_text);
+                    let rhs_trunc_text = self.numeric_trunc_f64_text(&rhs_text);
+                    let op_text = smelt_hir::bin_op_text(*op);
+                    let result_cast = if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
+                        "i64"
+                    } else {
+                        "f64"
+                    };
+                    return Ok(format!(
+                        "({{ let smelt_bit_lhs = {{ let smelt_bit_v = {lhs_trunc_text}; if smelt_bit_v.is_finite() {{ smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 }} else {{ 0_i32 }} }}; let smelt_bit_rhs = {{ let smelt_bit_v = {rhs_trunc_text}; if smelt_bit_v.is_finite() {{ smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 }} else {{ 0_i32 }} }}; (smelt_bit_lhs {op_text} smelt_bit_rhs) as {result_cast} }})"
+                    ));
+                }
                 if *op == smelt_hir::BinOp::Add
                     && matches!(
                         self.mir.types.get(self.operand_ty(lhs)?),
