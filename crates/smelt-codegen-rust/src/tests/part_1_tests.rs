@@ -746,6 +746,22 @@ const replaced = word.replace("hello", "hi");
 }
 
 #[test]
+fn emits_string_replace_all_method_as_literal_replace() {
+    // `replaceAll` with a plain string search is a literal substring replace,
+    // so it must map to `str::replace` (all occurrences) and NOT treat the
+    // search value as a regex.
+    let source = source_for(
+        r#"
+const word = "a.b.c";
+const replaced = word.replaceAll(".", "-");
+"#,
+    );
+
+    assert!(source.contains(".replace(&"));
+    assert!(!source.contains(".replacen(&"));
+}
+
+#[test]
 fn emits_string_repeat_method() {
     let source = source_for(
         r#"

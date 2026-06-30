@@ -1633,9 +1633,15 @@ return_ty,
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if member.property.name != "replace" {
-            return Ok(None);
-        }
+        // `replace` substitutes the first match; `replaceAll` substitutes every
+        // match. With a plain string search value both are literal substring
+        // replacements (Rust `str::replacen`/`str::replace`); regex-pattern
+        // forms are handled earlier by `regex_replace_call`.
+        let op = match member.property.name.as_str() {
+            "replace" => StringReplaceOp::First,
+            "replaceAll" => StringReplaceOp::All,
+            _ => return Ok(None),
+        };
         let [pattern_argument, replacement_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -1660,7 +1666,7 @@ return_ty,
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::StringReplace {
-                op: StringReplaceOp::First,
+                op,
                 haystack,
                 pattern,
                 replacement,

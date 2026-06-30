@@ -1528,23 +1528,19 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return targeted diagnostics for deferred object and collection APIs.
+    ///
+    /// `replaceAll` is handled by `regex_replace_call` (regex pattern) and
+    /// `string_replace_call` (literal string pattern), so it is no longer
+    /// rejected here. The hook is kept as the place to surface future
+    /// deferred object/collection method diagnostics.
     fn unsupported_object_collection_call(
         &self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Option<SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
+        let Expression::StaticMemberExpression(_) = &call.callee else {
             return None;
         };
-        let message = match &member.object {
-            _ if member.property.name == "replaceAll" => {
-                "TypeScript String.replaceAll is not supported yet; replacement semantics need a dedicated mapping"
-            }
-            _ => return None,
-        };
-        Some(SmeltError::unsupported(
-            self.span(call.span.start, call.span.end),
-            message,
-        ))
+        None
     }
 
     /// Lower TypeScript `fetch(url[, options])` into an async HTTP GET text operation.
