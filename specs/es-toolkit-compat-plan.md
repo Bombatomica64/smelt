@@ -117,13 +117,34 @@ Two superseded commits dropped at integration (boxed-primitive `instanceof` fold
 Result: **files-with-blockers 192 → 144** (−48). missing-stdlib 21→18, unresolved-reference 17→18, unsupported-lowering 161→114. Whole-crate build advanced `semaphore.ts` → `globalThis.ts` → **`_internal/DOMException.ts`**. Remeda gate 1789/0 (0 compile errors); smelt suite **1383/0**; clippy clean.
 Cumulative this session: **419 → 144** (~66%).
 
-## Batch 7+ roadmap (current breakdown: 144 files = unsupported-lowering 114 · missing-stdlib 18 · unresolved-reference 18)
+## Batch 7 (2026-06-30) — agent fan-out interrupted; salvaged 4 of 6
+
+A 6-agent fan-out was launched. The parent Claude Code process exited mid-run and **killed all six before any committed** — same failure mode as the batch-5 reboot. Each worktree held ~900 lines of uncommitted partial work. Recovery: WIP-committed all six to preserve them, then triaged (all compiled clean — the agents died right before their validate/commit step) and integrated on a staging branch with the full gate.
+
+Landed (4 areas, squashed to one commit `3770cc7e`):
+- **missing-stdlib** — `DOMException` modeled as a `__smelt_domexception` marker-record class + further missing builtin identifiers. The whole-crate build now advances **past DOMException** (`_internal/DOMException.ts` → `array/uniq.ts`).
+- **member-access** — broaden field/member-access resolution beyond Record/class/interface receivers.
+- **nested-function rest parameters** lowering.
+- **control-flow / exported-const / timer tail** (switch case labels, `defer`, etc.).
+
+Dropped, not landed:
+- **callback-cluster** — its conditional-branch unification regressed `preserves_erased_date_values_when_retyping_unknown_callback_fields` (the same test a batch-6 agent had to revert). The agent died before its own self-check would have caught it; dropped at integration. Re-run cleanly later. (Including it would have reached 129; without it, 135.)
+- **collections-arity** — user-killed mid-run while chasing a cross-module `empties`-type issue that is a probe-isolation artifact (see [[probe-lowers-files-in-isolation]]); discarded.
+
+Golden `27_optional_chains/expected.rs` regenerated for the new `__smelt_domexception` marker (only diff). Remeda gate 1789/0 (0 compile errors); smelt suite green; clippy clean.
+
+Result: **files-with-blockers 144 → 135** (−9). missing-stdlib 18→19, unresolved-reference 18→20, unsupported-lowering 114→102 (category upticks are downstream blockers surfacing as files advance).
+Cumulative this session: **419 → 135** (~68%).
+
+Note: agents this round ran targeted `cargo clippy -p <crate>` on their own crates, which eliminated the integration clippy debt that batch-6 incurred.
+
+## Batch 8+ roadmap (current breakdown: 135 files = unsupported-lowering 102 · missing-stdlib 19 · unresolved-reference 20)
 
 Priority order — biggest *general* semantic families first, never per-function special cases (per CLAUDE.md). Each item: fix generally in frontend/IR/emitter, add a focused compiler regression test, re-probe, keep the Remeda gate (1789/0) and smelt suite green, commit.
 
-1. **Constructable function *values* (`new par()`) + prototype-chain runtime ABI** — the deferred deep one; unblocks curry/partial/bind/flow + `this instanceof <named-fn>` (lodash called-with-`new` detection). A function value needs a constructable identity + `.prototype` slot through the erased ABI. Best done as a *dedicated single-agent effort*, not in a wide fan-out (it touches the shared closure type/codegen/`new`/`instanceof`).
-2. **DOMException** (current whole-crate abort) + **typed-array runtime identity** (`isView`/`isTypedArray`, needs re-modeling typed arrays off bare `List<Float>`) + **Buffer value model** — the concrete missing-stdlib models (marker pattern, never `SmeltUnknown` erasure).
-3. **Remaining "callback method not lowered" (13)** — genuinely *unmodeled stdlib methods* surfacing inside callbacks (`localeCompare`, `toFixed`, `apply`); fix as real stdlib method-lowering (they also fail at statement level), not callback plumbing.
+1. **Constructable function *values* (`new par()`) + prototype-chain runtime ABI** — the deferred deep one; unblocks curry/partial/bind/flow + `this instanceof <named-fn>` (lodash called-with-`new` detection). A function value needs a constructable identity + `.prototype` slot through the erased ABI. Best done as a *dedicated single-agent effort*, not in a wide fan-out (it touches the shared closure type/codegen/`new`/`instanceof`). NOTE: this collides with PR #37's HIR/MIR core — do it after #37 merges.
+2. **Re-run the dropped callback-cluster** (unmodeled stdlib methods in callbacks — `localeCompare`/`apply` etc.; fn-expr array elements; if/else blocks) but WITHOUT the conditional-branch unification that regressed `preserves_erased_date_values` — that needs branch-casting in the conditional materializer first.
+3. **typed-array runtime identity** (`isView`/`isTypedArray`, needs re-modeling typed arrays off bare `List<Float>`) + **Buffer value model** — concrete missing-stdlib models (marker pattern, never `SmeltUnknown` erasure). (DOMException — DONE in batch 7; whole-crate abort now at `array/uniq.ts`.)
 4. **Conditional-branch type unification across List/Union** (needs `isArrayLike` guard narrowing) + **switch fallthrough/labels** + **negative-index** (intentionally rejected — leave) + the **unsupported-lowering long tail**. Triage by recurrence.
 5. **Globals Phase 2/3** — runtime `SmeltGlobalObject` only if a real dynamic-global case appears (none yet); a **DOM profile** (`window`/`document`) for browser-targeting specs.
 6. **Codegen-quality phase** — execute `specs/codegen-quality-assessment.md` (temp-inlining MIR pass → `.clone()`/`unused_mut` reduction → paren/cast printing) once feature churn settles.
