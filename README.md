@@ -87,27 +87,28 @@ Fork the repo and submit a pr :)
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 77.82% |
-| Lines | 72.47% |
-| Regions | 70.91% |
-| Branches | 61.29% |
+| Functions | 77.98% |
+| Lines | 72.67% |
+| Regions | 71.07% |
+| Branches | 61.31% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
 | `smelt-asyncio` | 100.00% | 90.91% | 0.00% |
-| `smelt-cli` | 70.04% | 67.47% | 56.60% |
-| `smelt-codegen-rust` | 80.53% | 74.36% | 54.76% |
-| `smelt-frontend-py` | 79.01% | 74.80% | 66.35% |
-| `smelt-frontend-ts` | 81.09% | 73.86% | 64.08% |
+| `smelt-cli` | 70.32% | 68.35% | 55.95% |
+| `smelt-codegen-rust` | 80.61% | 74.37% | 54.87% |
+| `smelt-frontend-py` | 79.06% | 74.38% | 66.25% |
+| `smelt-frontend-ts` | 81.41% | 74.40% | 64.07% |
 | `smelt-gui` | 13.89% | 13.72% | 81.25% |
-| `smelt-hir` | 55.14% | 35.08% | 50.62% |
-| `smelt-mir` | 80.45% | 77.17% | 65.97% |
+| `smelt-hir` | 55.14% | 34.89% | 50.62% |
+| `smelt-mir` | 80.45% | 76.90% | 66.13% |
 | `smelt-py-ty-spike` | 0.00% | 0.00% | 0.00% |
 | `smelt-stdlib` | 84.85% | 74.24% | 100.00% |
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
 <!-- COVERAGE:END -->
+
 
 
 
