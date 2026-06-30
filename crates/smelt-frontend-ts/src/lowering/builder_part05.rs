@@ -65,6 +65,23 @@ impl ModuleBuilder<'_> {
                 setup.push(statement);
                 continue;
             }
+            // A suite body may declare helper types shared by its test cases
+            // (`describe(() => { class Pair {…}; it(…) })`). Classes, interfaces,
+            // and type aliases register globally rather than re-running per test,
+            // so lower them as suite-level items and let each test body reference
+            // the registered type.
+            if let Statement::ClassDeclaration(class) = statement {
+                items.push(self.class_declaration(class)?);
+                continue;
+            }
+            if let Statement::TSInterfaceDeclaration(interface) = statement {
+                self.interface_declaration(interface)?;
+                continue;
+            }
+            if let Statement::TSTypeAliasDeclaration(alias) = statement {
+                self.type_alias_declaration(alias)?;
+                continue;
+            }
             if let Statement::IfStatement(if_stmt) = statement {
                 items.extend(self.describe_if_statement_declarations(
                     if_stmt,
@@ -436,7 +453,7 @@ impl ModuleBuilder<'_> {
                 "test case calls require a callback",
             )
         })?;
-        let test_name = self.test_case_name(name_arg, group_name, table_bindings)?;
+        let test_name = self.test_case_name(name_arg, group_name, table_bindings, setup)?;
         match body_arg {
             Argument::ArrowFunctionExpression(arrow) => self.test_function_from_arrow(
                 &test_name,
@@ -721,7 +738,7 @@ return_ty: none,
             let case_group = group_name.map(|name| format!("{name} case {case_index}"));
             let mut bindings = inherited_bindings.to_vec();
             bindings.extend(self.table_bindings(arrow, row)?);
-            let test_name = self.test_case_name(name_arg, case_group.as_deref(), &bindings)?;
+            let test_name = self.test_case_name(name_arg, case_group.as_deref(), &bindings, setup)?;
             items.push(self.test_function_from_arrow(
                 &test_name,
                 self.span(call.span.start, call.span.end),
@@ -929,13 +946,23 @@ return_ty: none,
     }
 
     /// Convert a test-case name argument into a stable Rust function name.
-    fn test_case_name(
+    ///
+    /// Suite-level `const NAME = "literal"` declarations from the inherited
+    /// `setup` are folded into the title-resolution bindings so a computed name
+    /// like `` it(`\`_.${methodName}\` should …`) `` derives a stable Rust
+    /// test-function name. These const bindings only feed title folding; they
+    /// are never bound as runtime values (the original `const` already lowers
+    /// into the test body), so they cannot collide with row/loop bindings.
+    fn test_case_name<'a>(
         &self,
-        argument: &Argument<'_>,
+        argument: &Argument<'a>,
         group_name: Option<&str>,
-        table_bindings: &[(&str, TableBindingValue<'_>)],
+        table_bindings: &[(&'a str, TableBindingValue<'a>)],
+        setup: &[&'a Statement<'a>],
     ) -> Result<String, SmeltError> {
-        let case_name = self.test_title_with_bindings(argument, table_bindings)?;
+        let mut title_bindings = table_bindings.to_vec();
+        title_bindings.extend(Self::suite_const_string_bindings(setup));
+        let case_name = self.test_title_with_bindings(argument, &title_bindings)?;
         let full_name = group_name.map_or_else(
             || case_name.clone(),
             |group_name| format!("{group_name} {case_name}"),
@@ -944,6 +971,50 @@ return_ty: none,
             "test_{}",
             sanitize_test_name(&full_name).unwrap_or_else(|| "case".to_owned())
         ))
+    }
+
+    /// Collect `const NAME = "literal"` suite-setup declarations as title
+    /// bindings.
+    ///
+    /// Suites commonly alias the function-under-test's name once
+    /// (`const methodName = 'pull'`) and interpolate it into each test title.
+    /// Each such constant is exposed as an [`TableBindingValue::ObjectField`]
+    /// over its initializer expression so [`Self::template_expression_text`]
+    /// folds the interpolation to constant text. Only string-literal (and
+    /// expression-free template-literal) initializers qualify, matching what
+    /// title folding can resolve.
+    fn suite_const_string_bindings<'a>(
+        setup: &[&'a Statement<'a>],
+    ) -> Vec<(&'a str, TableBindingValue<'a>)> {
+        let mut bindings = Vec::new();
+        for statement in setup {
+            let Statement::VariableDeclaration(declaration) = statement else {
+                continue;
+            };
+            for declarator in &declaration.declarations {
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    continue;
+                };
+                let Some(init) = &declarator.init else {
+                    continue;
+                };
+                // Scalar literals fold directly; array literals are kept so that
+                // a `${expected[1]}` index into a const row resolves through the
+                // computed-member arm of `template_expression_text`.
+                let is_foldable = matches!(
+                    init,
+                    Expression::StringLiteral(_)
+                        | Expression::TemplateLiteral(_)
+                        | Expression::NumericLiteral(_)
+                        | Expression::BooleanLiteral(_)
+                        | Expression::ArrayExpression(_)
+                );
+                if is_foldable {
+                    bindings.push((binding.name.as_str(), TableBindingValue::ObjectField(init)));
+                }
+            }
+        }
+        bindings
     }
 
     /// Extract a string title from a test-framework name argument.
@@ -1008,6 +1079,9 @@ return_ty: none,
             Expression::StringLiteral(literal) => Some(literal.value.to_string()),
             Expression::NumericLiteral(literal) => Some(literal.value.to_string()),
             Expression::BooleanLiteral(literal) => Some(literal.value.to_string()),
+            // `undefined`/`null` stringify to their JavaScript spellings, which
+            // is what a title interpolation embeds (`return \`${expected[1]}\``).
+            Expression::NullLiteral(_) => Some("null".to_owned()),
             Expression::TemplateLiteral(template) if template.expressions.is_empty() => Some(
                 template
                     .quasis
@@ -1016,6 +1090,9 @@ return_ty: none,
                     .collect::<String>(),
             ),
             Expression::Identifier(identifier) => {
+                if identifier.name == "undefined" {
+                    return Some("undefined".to_owned());
+                }
                 let value = table_bindings.iter().rev().find_map(|(name, value)| {
                     (*name == identifier.name.as_str()).then_some(value)
                 })?;
@@ -1028,6 +1105,69 @@ return_ty: none,
                     }
                 }
             }
+            // `arr[N]` folds when `arr` is a const array binding and `N` is a
+            // literal index: resolve the binding to its array expression and
+            // fold the indexed element to constant text.
+            Expression::ComputedMemberExpression(member) => {
+                let Expression::Identifier(array_ident) = &member.object else {
+                    return None;
+                };
+                let Expression::NumericLiteral(index_literal) = &member.expression else {
+                    return None;
+                };
+                let value = table_bindings.iter().rev().find_map(|(name, value)| {
+                    (*name == array_ident.name.as_str()).then_some(value)
+                })?;
+                let TableBindingValue::ObjectField(Expression::ArrayExpression(array)) = value
+                else {
+                    return None;
+                };
+                let index = usize::try_from(index_literal.value as i64).ok()?;
+                let element = array.elements.get(index)?;
+                Self::array_element_constant_text(element)
+            }
+            Expression::ParenthesizedExpression(paren) => {
+                Self::template_expression_text(&paren.expression, table_bindings)
+            }
+            // `${cond ? "a" : "b"}` folds when the guard is a statically known
+            // truthiness, as in loop-unrolled suites that vary a title segment by
+            // the bound index (`${index ? " and …" : ""}`).
+            Expression::ConditionalExpression(conditional) => {
+                let branch = if Self::template_expression_truthy(&conditional.test, table_bindings)? {
+                    &conditional.consequent
+                } else {
+                    &conditional.alternate
+                };
+                Self::template_expression_text(branch, table_bindings)
+            }
+            _ => None,
+        }
+    }
+
+    /// Evaluate a template-interpolation guard to a static truthiness, if known.
+    ///
+    /// Only the cases title folding needs are modeled: numeric literals (`0` is
+    /// falsy), boolean literals, string literals (empty is falsy), and
+    /// identifiers resolved through the active bindings (a loop-bound element).
+    /// Returns `None` when truthiness is not statically decidable so the caller
+    /// reports an unsupported computed name rather than guessing.
+    fn template_expression_truthy(
+        expression: &Expression<'_>,
+        table_bindings: &[(&str, TableBindingValue<'_>)],
+    ) -> Option<bool> {
+        match expression {
+            Expression::NumericLiteral(literal) => Some(literal.value != 0.0),
+            Expression::BooleanLiteral(literal) => Some(literal.value),
+            Expression::StringLiteral(literal) => Some(!literal.value.is_empty()),
+            Expression::ParenthesizedExpression(paren) => {
+                Self::template_expression_truthy(&paren.expression, table_bindings)
+            }
+            Expression::Identifier(_) => {
+                let text = Self::template_expression_text(expression, table_bindings)?;
+                // Reuse the constant text the binding folds to, then apply
+                // JavaScript-style truthiness to the literal it represents.
+                Some(!matches!(text.as_str(), "" | "0" | "false"))
+            }
             _ => None,
         }
     }
@@ -1038,6 +1178,10 @@ return_ty: none,
             ArrayExpressionElement::StringLiteral(literal) => Some(literal.value.to_string()),
             ArrayExpressionElement::NumericLiteral(literal) => Some(literal.value.to_string()),
             ArrayExpressionElement::BooleanLiteral(literal) => Some(literal.value.to_string()),
+            ArrayExpressionElement::NullLiteral(_) => Some("null".to_owned()),
+            ArrayExpressionElement::Identifier(identifier) if identifier.name == "undefined" => {
+                Some("undefined".to_owned())
+            }
             ArrayExpressionElement::TemplateLiteral(template)
                 if template.expressions.is_empty() =>
             {

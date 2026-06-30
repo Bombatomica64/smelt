@@ -420,17 +420,30 @@ impl ModuleBuilder<'_> {
             try_block
         } else {
             let mut callee = self.argument(actual_arg, body)?;
-            let Some(Type::Function(mut function)) = self
-                .ctx
-                .krate
-                .types
-                .get(Self::expr_ty(body, callee))
-                .cloned()
-            else {
-                return Err(SmeltError::unsupported(
-                    self.span(actual_arg.span().start, actual_arg.span().end),
-                    "expect(...).toThrow(...) requires a zero-argument callback",
-                ));
+            let callee_ty = self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned();
+            let mut function = match callee_ty {
+                Some(Type::Function(function)) => function,
+                // `expect(value).toThrow()` may name a callable whose static
+                // shape is erased here (a cross-module helper such as
+                // `once(...)` resolves to `Unknown` under single-file lowering).
+                // It is still a zero-argument callable observed only for whether
+                // it throws, so adapt it through a synthesized throwing signature
+                // rather than rejecting the matcher.
+                Some(Type::Unknown) => FunctionType {
+                    params: Vec::new(),
+                    rest: None,
+                    required_params: Some(0),
+                    mutable_params: Vec::new(),
+                    return_ty: self.ctx.krate.types.intern(Type::None),
+                    is_async: false,
+                    may_throw: true,
+                },
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(actual_arg.span().start, actual_arg.span().end),
+                        "expect(...).toThrow(...) requires a zero-argument callback",
+                    ));
+                }
             };
             if Self::is_bind_call_argument(actual_arg) {
                 function.params.clear();
@@ -722,29 +735,36 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let expected_ty = Self::expr_ty(body, expected);
+        // The expected value may be erased (`Unknown`) when it comes from a
+        // cross-module helper, as in `expect(array).toContain(sample(array))`.
+        // A concrete collection actual still supports the runtime containment
+        // check against such a value, so an erased expected matches any item
+        // type rather than forcing a static element-type equality.
+        let expected_is_erased = matches!(self.ctx.krate.types.get(expected_ty), Some(Type::Unknown));
         let kind = match self.ctx.krate.types.get(Self::expr_ty(body, actual)) {
             Some(Type::String)
-                if self.ctx.krate.types.get(Self::expr_ty(body, expected))
-                    == Some(&Type::String) =>
+                if self.ctx.krate.types.get(expected_ty) == Some(&Type::String)
+                    || expected_is_erased =>
             {
                 ExprKind::StringContains {
                     haystack: actual,
                     needle: expected,
                 }
             }
-            Some(Type::List(item_ty)) if Self::expr_ty(body, expected) == *item_ty => {
+            Some(Type::List(item_ty)) if expected_ty == *item_ty || expected_is_erased => {
                 ExprKind::ListContains {
                     list: actual,
                     item: expected,
                 }
             }
-            Some(Type::Set(item_ty)) if Self::expr_ty(body, expected) == *item_ty => {
+            Some(Type::Set(item_ty)) if expected_ty == *item_ty || expected_is_erased => {
                 ExprKind::SetContains {
                     set: actual,
                     item: expected,
                 }
             }
-            Some(Type::Tuple(items)) if items.contains(&Self::expr_ty(body, expected)) => {
+            Some(Type::Tuple(items)) if items.contains(&expected_ty) || expected_is_erased => {
                 ExprKind::TupleContains {
                     tuple: actual,
                     item: expected,
