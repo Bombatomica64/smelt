@@ -683,6 +683,26 @@ return_ty: target_function.return_ty,
         }
     }
 
+    /// Resolve a bare identifier to a foldable const literal by name.
+    ///
+    /// Same-module exported consts are precomputed into `const_literals`, but a
+    /// const imported from another module (`import { stringTag } from
+    /// './tags'`) is only registered as a HIR `Item::Const` in `self.items`
+    /// until it is first read. Switch case labels and exported-const
+    /// initializers that reference such an import must still fold to the same
+    /// literal, so fall back to the lowered const item when the precomputed map
+    /// misses the name.
+    fn resolve_const_literal_by_name(&self, name: &str) -> Option<ConstLiteral> {
+        if let Some(value) = self.const_literals.get(name) {
+            return Some(value.clone());
+        }
+        let item = self.items.get(name).copied()?;
+        let Item::Const(const_item) = self.item_ref(item) else {
+            return None;
+        };
+        const_literal_from_item(&self.ctx.krate, const_item)
+    }
+
     /// Convert a supported TypeScript literal expression into an importable const value.
     fn literal_const_expression(
         &mut self,
@@ -710,9 +730,7 @@ return_ty: target_function.return_ty,
                 ty: self.ctx.krate.types.intern(Type::String),
             }),
             Expression::Identifier(ident) => self
-                .const_literals
-                .get(ident.name.as_str())
-                .cloned()
+                .resolve_const_literal_by_name(ident.name.as_str())
                 .ok_or_else(|| {
                     SmeltError::unsupported(
                         self.span(ident.span.start, ident.span.end),
@@ -782,17 +800,56 @@ return_ty: target_function.return_ty,
     }
 
     /// Return whether an exported const has known metadata value that is safe to skip.
+    ///
+    /// Two recognized shapes are skippable because the bound name resolves to a
+    /// builtin Smelt already models elsewhere, so re-emitting the const would only
+    /// fail to fold:
+    /// - `Symbol.for(...)` registry lookups (a runtime symbol value).
+    /// - A host-constructor presence alias such as es-toolkit's
+    ///   `export const DOMException = typeof globalThis.DOMException !== 'undefined'
+    ///   ? globalThis.DOMException : (Error as ...)`. The conditional selects the
+    ///   host constructor when present and an `Error` fallback otherwise; Smelt
+    ///   always models the constructor (`new DOMException`, `instanceof
+    ///   DOMException`), so the alias const is dropped and the identifier resolves
+    ///   through the builtin path instead.
     fn is_known_non_importable_exported_const(expression: &Expression<'_>) -> bool {
-        let Expression::CallExpression(call) = expression else {
+        if let Expression::CallExpression(call) = expression
+            && let Expression::StaticMemberExpression(member) = &call.callee
+            && let Expression::Identifier(object) = &member.object
+        {
+            return object.name == "Symbol" && member.property.name == "for";
+        }
+        Self::is_host_constructor_presence_alias(expression)
+    }
+
+    /// Return whether an initializer is a `globalThis.X`-presence host-constructor
+    /// alias, where `X` is a modeled builtin constructor.
+    ///
+    /// Matches the `<test> ? globalThis.X : <fallback>` ternary es-toolkit uses to
+    /// re-export host globals with a fallback. Recognition keys on the consequent
+    /// being a `globalThis.X` member access whose property names a builtin Smelt
+    /// models (currently `DOMException`); the test and fallback shapes are not
+    /// inspected because the modeled builtin makes them irrelevant.
+    fn is_host_constructor_presence_alias(expression: &Expression<'_>) -> bool {
+        let Expression::ConditionalExpression(conditional) = expression else {
             return false;
         };
-        let Expression::StaticMemberExpression(member) = &call.callee else {
+        let Expression::StaticMemberExpression(member) = &conditional.consequent else {
             return false;
         };
+        Self::is_global_alias_member_host_constructor(member)
+    }
+
+    /// Return whether a member access is `globalThis.X` (or `global.X` / `self.X`)
+    /// for a modeled builtin host constructor `X`.
+    fn is_global_alias_member_host_constructor(
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> bool {
         let Expression::Identifier(object) = &member.object else {
             return false;
         };
-        object.name == "Symbol" && member.property.name == "for"
+        matches!(object.name.as_str(), "globalThis" | "global" | "self")
+            && matches!(member.property.name.as_str(), "DOMException")
     }
 
     /// Fold a supported unary expression inside an exported const initializer.

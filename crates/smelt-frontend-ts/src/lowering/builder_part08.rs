@@ -88,6 +88,9 @@ impl ModuleBuilder<'_> {
                 return self.marker_only_builtin_constructor_expression(new_expr, body, marker);
             }
         }
+        if callee.name == "DOMException" && !self.classes.contains_key("DOMException") {
+            return self.domexception_object_constructor_expression(new_expr, body);
+        }
         if Self::is_builtin_error_constructor(callee.name.as_str()) {
             return self.error_object_constructor_expression(new_expr, body);
         }
@@ -478,6 +481,117 @@ impl ModuleBuilder<'_> {
         });
         let object = body.push_expr(Expr {
             kind: ExprKind::DictLit(vec![(marker_key, marker_value), (message_key, message)]),
+            ty: dict_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// Lower `new DOMException(message?, name?)` to a concrete marker record.
+    ///
+    /// `DOMException` is a host error class. es-toolkit re-exports it (with an
+    /// `Error` fallback for runtimes without it) and uses it only as the base of
+    /// `AbortError`/`TimeoutError` and via `value instanceof DOMException`. Rather
+    /// than erase it to a shapeless `SmeltUnknown`, model it like `Error`: a record
+    /// carrying a dedicated `__smelt_domexception` marker plus its `message` and
+    /// `name`, so the identity survives later dynamic `instanceof` checks (see
+    /// `instance_of_text`). The two-argument form is `(message, name)`; the name
+    /// defaults to `"Error"` to match the spec fallback path es-toolkit relies on.
+    fn domexception_object_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let message = match new_expr.arguments.first() {
+            Some(message_arg) => {
+                let message = self.argument(message_arg, body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, message)) == Some(&Type::String) {
+                    message
+                } else if self.is_string_compatible_type(Self::expr_ty(body, message))
+                    || self.type_contains_unknown(Self::expr_ty(body, message))
+                {
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: message },
+                        ty: string_ty,
+                        span: self.span(message_arg.span().start, message_arg.span().end),
+                    })
+                } else {
+                    return Err(SmeltError::unsupported(
+                        self.span(message_arg.span().start, message_arg.span().end),
+                        "DOMException constructor message must be a string",
+                    ));
+                }
+            }
+            None => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(String::new())),
+                ty: string_ty,
+                span,
+            }),
+        };
+        let name = match new_expr.arguments.get(1) {
+            Some(name_arg) => {
+                let name = self.argument(name_arg, body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, name)) == Some(&Type::String) {
+                    name
+                } else if self.is_string_compatible_type(Self::expr_ty(body, name))
+                    || self.type_contains_unknown(Self::expr_ty(body, name))
+                {
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: name },
+                        ty: string_ty,
+                        span: self.span(name_arg.span().start, name_arg.span().end),
+                    })
+                } else {
+                    return Err(SmeltError::unsupported(
+                        self.span(name_arg.span().start, name_arg.span().end),
+                        "DOMException constructor name must be a string",
+                    ));
+                }
+            }
+            None => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("Error".to_owned())),
+                ty: string_ty,
+                span,
+            }),
+        };
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_domexception".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let message_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("message".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let name_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("name".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![
+                (marker_key, marker_value),
+                (message_key, message),
+                (name_key, name),
+            ]),
             ty: dict_ty,
             span,
         });

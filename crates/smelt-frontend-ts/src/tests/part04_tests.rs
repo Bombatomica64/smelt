@@ -1739,6 +1739,37 @@ function outer(value: number): { inner: (next: number) => void } {
 }
 
 #[test]
+fn lowers_nested_function_declaration_with_rest_parameter() -> Result<(), String> {
+    // A nested `function name(...args)` declaration is a real local closure
+    // (the curry/curryRight `makeCurry` family). Its trailing `...rest`
+    // parameter must lower into a packed list local on the closure body the
+    // same way top-level functions, arrows, and function-expression values do,
+    // rather than aborting with "nested function rest parameters are not
+    // lowered yet".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function outer(): (value: number) => number {
+  function collect(first: number, ...rest: number[]): number {
+    let total = first;
+    for (const value of rest) {
+      total = total + value;
+    }
+    return total;
+  }
+  return function (value: number) {
+    return collect(value, value, value);
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_sinon_fake_timers_helper_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

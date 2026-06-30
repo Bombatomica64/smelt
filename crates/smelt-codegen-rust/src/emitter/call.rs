@@ -1106,6 +1106,7 @@ impl FunctionEmitter<'_> {
             "DataView" => Some("__smelt_dataview"),
             "SharedArrayBuffer" => Some("__smelt_sharedarraybuffer"),
             "File" => Some("__smelt_file"),
+            "DOMException" => Some("__smelt_domexception"),
             "Boolean" => Some("__smelt_boolean"),
             "String" => Some("__smelt_string"),
             "Symbol" => Some("__smelt_symbol"),

@@ -120,6 +120,13 @@ impl ModuleBuilder<'_> {
                     | "TypeError"
                     | "URIError"
                     | "AggregateError"
+                    // Host `DOMException`: es-toolkit's `AbortError`/`TimeoutError`
+                    // tests probe `value instanceof DOMException`. A `new
+                    // DOMException(...)` erases to a record carrying
+                    // `__smelt_domexception` (see
+                    // `domexception_object_constructor_expression`), recognized
+                    // through that marker in `instance_of_text`.
+                    | "DOMException"
             )
     }
 

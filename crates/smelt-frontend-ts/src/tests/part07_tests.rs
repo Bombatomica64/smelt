@@ -243,6 +243,56 @@ export function check(self: string): boolean {
 }
 
 #[test]
+fn lowers_for_loop_with_comma_sequence_update() -> Result<(), String> {
+    // A C-style `for` update clause may be a comma sequence of increments
+    // (`step++, resultIndex++`); each sub-update must lower into its own
+    // loop-body assignment, mirroring es-toolkit `sampleSize`.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(size: number, length: number): number[] {
+  const result: number[] = [];
+  for (let step = length - size, resultIndex = 0; step < length; step++, resultIndex++) {
+    result[resultIndex] = step;
+  }
+  return result;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_switch_case_label_from_folded_string_const() -> Result<(), String> {
+    // Switch case labels may reference module string constants
+    // (`case stringTag:` where `const stringTag = '[object String]'`); these
+    // fold to the same literal through the exported-const folder.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const stringTag = '[object String]';
+const numberTag = '[object Number]';
+
+function classify(tag: string): number {
+  switch (tag) {
+    case stringTag:
+      return 1;
+    case numberTag:
+      return 2;
+    default:
+      return 0;
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn keeps_computed_global_access_unfolded() -> Result<(), String> {
     // A dynamic computed key is on the erasure denylist: it must not fold and
     // must not normalize, since the key is not statically known.

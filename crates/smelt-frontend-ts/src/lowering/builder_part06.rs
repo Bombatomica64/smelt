@@ -2136,12 +2136,56 @@ impl ModuleBuilder<'_> {
                 }
             }
 
-            if function.params.rest.is_some() {
-                return Err(SmeltError::unsupported(
-                    self.span(function.params.span.start, function.params.span.end),
-                    "nested function rest parameters are not lowered yet",
-                ));
-            }
+            // Lower an optional `...rest` parameter exactly as top-level functions,
+            // arrow expressions, and function-expression values do: resolve its
+            // array element type, push a packed list local/param into the closure
+            // body, bind its source name, and record the rest index so the closure
+            // collects the trailing source arguments into one list. A nested
+            // `function name(...args) { ... }` is a real local closure (e.g. the
+            // curry/curryRight `makeCurry` family), so it must carry rest the same
+            // way every other closure form does instead of aborting.
+            let rest_index = if let Some(rest_param) = &function.params.rest {
+                let BindingPattern::BindingIdentifier(binding) = &rest_param.rest.argument else {
+                    return Err(SmeltError::unsupported(
+                        self.span(rest_param.span.start, rest_param.span.end),
+                        "nested function destructured rest parameters need rest binding lowering",
+                    ));
+                };
+                let source_ty = rest_param
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                let Ok((ty, _item_ty)) = self.rest_param_array_type(source_ty) else {
+                    return Err(SmeltError::unsupported(
+                        self.span(rest_param.span.start, rest_param.span.end),
+                        "nested function rest parameter type must be an array type",
+                    ));
+                };
+                let rest_index = closure_params.len();
+                let symbol = self.intern_source_name(binding.name.as_str());
+                let local = closure_body.push_local(LocalDecl {
+                    name: Some(symbol),
+                    ty,
+                    mutable: false,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                closure_body.params.push(local);
+                closure_params.push(Param {
+                    name: symbol,
+                    local,
+                    ty,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                param_tys.push(ty);
+                let source_name = binding.name.as_str().to_owned();
+                param_names.insert(source_name.clone());
+                saved_locals.push((source_name.clone(), self.locals.insert(source_name, local)));
+                Some(rest_index)
+            } else {
+                None
+            };
 
             let declared_return_ty = function
                 .return_type
@@ -2152,7 +2196,7 @@ impl ModuleBuilder<'_> {
                 declared_return_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
             let provisional_fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys.clone(),
-                rest: None,
+                rest: rest_index,
                 required_params: None,
                     mutable_params: Vec::new(),
                 return_ty: provisional_return_ty,
@@ -2249,7 +2293,7 @@ impl ModuleBuilder<'_> {
             let body_id = self.ctx.krate.push_body(closure_body);
             let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys,
-                rest: None,
+                rest: rest_index,
                 required_params: None,
                     mutable_params: Vec::new(),
                 return_ty,
@@ -2282,7 +2326,7 @@ impl ModuleBuilder<'_> {
             let value = outer_body.push_expr(Expr {
                 kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                     params: closure_params,
-                    rest: None,
+                    rest: rest_index,
                     required_params: None,
                     return_ty,
                     captures,

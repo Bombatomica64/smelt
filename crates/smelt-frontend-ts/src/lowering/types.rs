@@ -1734,7 +1734,16 @@ return_ty: function.return_ty,
                 }
             }
             Type::Class { name, args } => {
-                if self.ctx.krate.symbols.get(field) == Some("constructor") {
+                // `constructor` and `prototype` are universal members of any
+                // class/constructor value. `constructor` yields the class
+                // object and `prototype` yields the prototype object; both are
+                // dynamic property bags (es-toolkit mutates them through
+                // `Foo.prototype.a = 1`), so they lower to the `Unknown`
+                // dynamic boundary rather than a concrete shape.
+                if matches!(
+                    self.ctx.krate.symbols.get(field),
+                    Some("constructor" | "prototype")
+                ) {
                     return Ok(self.ctx.krate.types.intern(Type::Unknown));
                 }
                 let class_item = self.class_by_symbol(name).cloned();

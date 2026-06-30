@@ -36,19 +36,7 @@ impl ModuleBuilder<'_> {
         };
         let loop_body = self.block_from_statement(&for_stmt.body, body)?;
         if let Some(update) = &for_stmt.update {
-            let (target, value) = match update {
-                Expression::AssignmentExpression(assign) => self.assignment_parts(assign, body)?,
-                Expression::UpdateExpression(update_expr) => {
-                    self.update_parts(update_expr, body)?
-                }
-                _ => {
-                    return Err(SmeltError::unsupported(
-                        self.expression_span(update),
-                        "for-loop update must be assignment or increment/decrement",
-                    ));
-                }
-            };
-            body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
+            self.push_for_update(update, body, loop_body)?;
         }
         body.push_stmt_to_block(
             block,
@@ -58,6 +46,44 @@ impl ModuleBuilder<'_> {
             },
         );
         Ok(())
+    }
+
+    /// Lower a C-style `for` loop update clause into assignment statements
+    /// appended to the loop body block.
+    ///
+    /// The update is either a single assignment (`i += 2`), an increment or
+    /// decrement (`i++`, `--j`), or a comma sequence of those forms
+    /// (`step++, resultIndex++`). A sequence evaluates each sub-expression
+    /// left-to-right, so each one is lowered into its own `Assign` statement in
+    /// source order.
+    fn push_for_update(
+        &mut self,
+        update: &Expression<'_>,
+        body: &mut Body,
+        loop_body: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        match update {
+            Expression::SequenceExpression(sequence) => {
+                for sub_update in &sequence.expressions {
+                    self.push_for_update(sub_update, body, loop_body)?;
+                }
+                Ok(())
+            }
+            Expression::AssignmentExpression(assign) => {
+                let (target, value) = self.assignment_parts(assign, body)?;
+                body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
+                Ok(())
+            }
+            Expression::UpdateExpression(update_expr) => {
+                let (target, value) = self.update_parts(update_expr, body)?;
+                body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
+                Ok(())
+            }
+            _ => Err(SmeltError::unsupported(
+                self.expression_span(update),
+                "for-loop update must be assignment or increment/decrement",
+            )),
+        }
     }
 
     /// Extract pattern from for-of left side.
