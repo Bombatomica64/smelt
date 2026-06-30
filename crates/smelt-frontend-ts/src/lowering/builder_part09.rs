@@ -96,6 +96,20 @@ impl ModuleBuilder<'_> {
                     | "ArrayBuffer"
                     | "Blob"
                     | "Number"
+                    // Boxed primitive wrappers. A real primitive (`true`, `"a"`)
+                    // is never `instanceof` its wrapper; only the boxed object
+                    // form is, recognized through its `__smelt_boolean` /
+                    // `__smelt_string` marker (see `instance_of_text`). Listing
+                    // them makes `value instanceof Boolean` / `instanceof String`
+                    // lower to a marker check instead of aborting as an unmodeled
+                    // class — the correct `false` for the primitives that
+                    // es-toolkit's `isBoolean`/`isString` test against.
+                    | "Boolean"
+                    | "String"
+                    // `Symbol` likewise: a primitive symbol erases to
+                    // `SmeltUnknown::Symbol` and is not `instanceof Symbol`; only a
+                    // boxed `Object(symbol)` wrapper carrying `__smelt_symbol` is.
+                    | "Symbol"
                     | "AbortController"
                     | "AbortSignal"
                     | "Error"

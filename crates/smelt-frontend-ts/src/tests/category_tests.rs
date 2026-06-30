@@ -106,6 +106,36 @@ export function isWeakMap(value: unknown): boolean {
     Ok(())
 }
 
+/// `value instanceof Boolean` / `String` / `Symbol` over an erased `any` lowers
+/// to a boxed-wrapper marker `InstanceOf` predicate rather than failing to
+/// resolve the target class, so the `isBoolean`/`isString`/`isSymbol` compat
+/// predicates lower. A primitive value carries no marker, so the check is the
+/// correct `false`; the leading `typeof` branch handles real primitives.
+#[test]
+fn instanceof_boxed_primitive_wrapper_lowers() -> Result<(), String> {
+    for (target, source) in [
+        ("Boolean", "export function f(value: any): boolean { return value instanceof Boolean; }"),
+        ("String", "export function f(value: any): boolean { return value instanceof String; }"),
+        ("Symbol", "export function f(value: any): boolean { return value instanceof Symbol; }"),
+    ] {
+        let mut ctx = HirCtx::new();
+        lower_ok(source, &mut ctx)?;
+        ensure!(
+            ctx.krate
+                .bodies
+                .iter()
+                .flat_map(|body| body.exprs.iter())
+                .any(|expr| matches!(
+                    &expr.kind,
+                    ExprKind::InstanceOf { class, .. }
+                        if ctx.krate.symbols.get(*class) == Some(target)
+                )),
+            "expected `value instanceof {target}` to lower to a {target} InstanceOf predicate",
+        );
+    }
+    Ok(())
+}
+
 /// A bare reference to a global namespace object (`Math`, `JSON`, `Reflect`,
 /// `Promise`, ...) used as a *value* lowers to a marker-bearing host-object
 /// record (`__smelt_builtin_namespace`), not an unresolved identifier and not a

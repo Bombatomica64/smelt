@@ -3981,6 +3981,26 @@ test("timer isolation", () => {
 }
 
 #[test]
+fn instanceof_boxed_primitive_wrapper_emits_marker_check() {
+    // `value instanceof Boolean` / `String` / `Symbol` over an erased value emits
+    // a marker-key check on `SmeltUnknown::Object`. A primitive bool/string/symbol
+    // is not an `Object`, so the check is the correct `false`.
+    for (target, marker) in [
+        ("Boolean", "__smelt_boolean"),
+        ("String", "__smelt_string"),
+        ("Symbol", "__smelt_symbol"),
+    ] {
+        let source = source_for(&format!(
+            "export function f(value: any): boolean {{ return value instanceof {target}; }}"
+        ));
+        assert!(
+            source.contains(&format!("value.contains_key(\"{marker}\")")),
+            "expected `instanceof {target}` to emit a `{marker}` marker check:\n{source}"
+        );
+    }
+}
+
+#[test]
 fn set_interval_registers_repeating_timer_and_clear_interval_cancels() {
     // `setInterval`/`clearInterval` must lower onto the same virtual-time timer
     // queue as `setTimeout`, with the interval re-arming itself after each fire.

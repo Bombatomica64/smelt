@@ -1093,6 +1093,11 @@ impl FunctionEmitter<'_> {
         // `marker_only_builtin_constructor_expression` in the frontend). They
         // share the abort-marker recognition path: a dynamic or erased-class
         // value resolves `instanceof X` through its marker key.
+        // Boxed primitive wrappers (`Boolean`/`String`) share the same marker
+        // recognition path: a primitive `true`/`"a"` erases to `SmeltUnknown::Bool`
+        // / `SmeltUnknown::String` (never an `Object`), so the marker check is the
+        // correct `false`, while a boxed wrapper object carrying the dedicated
+        // marker resolves to `true`.
         let abort_marker = match class_name {
             "AbortController" => Some("__smelt_abortcontroller"),
             "AbortSignal" => Some("__smelt_abortsignal"),
@@ -1101,6 +1106,9 @@ impl FunctionEmitter<'_> {
             "DataView" => Some("__smelt_dataview"),
             "SharedArrayBuffer" => Some("__smelt_sharedarraybuffer"),
             "File" => Some("__smelt_file"),
+            "Boolean" => Some("__smelt_boolean"),
+            "String" => Some("__smelt_string"),
+            "Symbol" => Some("__smelt_symbol"),
             _ => None,
         };
         if let Some(marker) = abort_marker {
