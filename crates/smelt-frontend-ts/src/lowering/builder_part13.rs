@@ -5427,6 +5427,15 @@ impl ModuleBuilder<'_> {
             || error.message
                 == "callback block statements must be const declarations, if guards, return, or throw"
             || error.message == "async callbacks need closure-body lowering"
+            // A method/receiver call the compact callback dispatcher does not
+            // model but the full method-call lowering does (e.g. `String.repeat`,
+            // `Array.at` on a richer receiver). Retrying through the closure body
+            // routes the receiver through the general `expression` path, which
+            // knows the full method table and the closure parameter element
+            // types, so it can lower calls the restricted dispatcher rejects.
+            || error
+                .message
+                .ends_with("is not lowered into closure bodies yet")
             || error
                 .message
                 .starts_with("unresolved callback identifier `")

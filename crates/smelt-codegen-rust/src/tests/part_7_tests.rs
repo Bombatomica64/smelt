@@ -4892,3 +4892,25 @@ export function fillRange<T>(
     );
     assert!(source.contains("fill_range"), "{source}");
 }
+
+#[test]
+fn lowers_compact_unsupported_method_inside_callback_through_closure_body() {
+    // `String.prototype.repeat` is modeled by the general method-call lowering
+    // but not by the restricted compact-callback method dispatcher. An
+    // expression-bodied `map` callback first lowers through the compact path,
+    // which rejects `repeat` with "is not lowered into closure bodies yet"; the
+    // fallback must retry through the full closure-body path, which routes the
+    // receiver through the general `expression` lowering and emits the real
+    // `.repeat(...)` call against the closure's element-typed parameter.
+    let source = source_for(
+        r#"
+export function cbRepeat(xs: string[]): string[] {
+  return xs.map(value => value.repeat(2));
+}
+"#,
+    );
+    assert!(
+        source.contains("closure_arg_0.clone().repeat("),
+        "callback body should emit the real string repeat call: {source}"
+    );
+}
