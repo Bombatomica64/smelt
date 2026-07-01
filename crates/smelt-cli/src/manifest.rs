@@ -29,11 +29,11 @@ pub(crate) struct ManifestSource {
     /// Source text read while scanning imports.
     pub(crate) source: String,
     /// Source language inferred from the file extension.
-    lang: SourceLang,
+    pub(crate) lang: SourceLang,
     /// Import specifiers found before lowering.
     imports: Vec<ManifestImport>,
     /// Resolved local dependency paths used for dependency-first ordering.
-    dependencies: Vec<PathBuf>,
+    pub(crate) dependencies: Vec<PathBuf>,
 }
 
 /// Import metadata found while scanning source text.

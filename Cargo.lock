@@ -6581,12 +6581,15 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "smelt-codegen-rust",
  "smelt-frontend-py",
  "smelt-frontend-ts",
  "smelt-hir",
  "smelt-mir",
+ "smelt-specialize",
  "smelt-stdlib",
+ "tempfile",
  "toml 1.1.2+spec-1.1.0",
 ]
 

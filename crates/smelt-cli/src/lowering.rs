@@ -389,8 +389,11 @@ pub(crate) fn lower_manifest_entries(
         .into());
     }
 
+    let specialization = timing::measure("manifest.specialize", || {
+        crate::specialization::prepare(config, manifest_path, &ordered_sources)
+    })?;
     timing::measure("manifest.frontend_lower", || {
-        lower_ordered_manifest_sources(&ordered_sources)
+        lower_ordered_manifest_sources(&ordered_sources, &specialization)
     })
 }
 
@@ -519,6 +522,7 @@ fn glob_segment_match(path: &str, pattern: &str) -> bool {
 /// Lowers already ordered manifest files into one shared HIR crate.
 fn lower_ordered_manifest_sources(
     sources: &[&ManifestSource],
+    specialization: &crate::specialization::PreparedSpecialization,
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
@@ -526,7 +530,8 @@ fn lower_ordered_manifest_sources(
     let module_names = manifest_module_names(sources);
 
     for (idx, source) in sources.iter().enumerate() {
-        let (next_krate, next_state, outcome) = lower_manifest_source(krate, state, source, idx)?;
+        let (next_krate, next_state, outcome) =
+            lower_manifest_source(krate, state, source, idx, specialization)?;
         krate = next_krate;
         state = next_state;
         let module = outcome.map_err(|diagnostics| {
@@ -573,6 +578,7 @@ pub(crate) fn collect_manifest_diagnostics(
         .into_iter()
         .filter_map(|idx| sources.get(idx))
         .collect::<Vec<_>>();
+    let specialization = crate::specialization::prepare(config, manifest_path, &ordered_sources)?;
 
     let _quiet = QuietPanics::install();
     let mut krate = smelt_hir::Crate::new();
@@ -580,7 +586,7 @@ pub(crate) fn collect_manifest_diagnostics(
     let mut diagnostics = Vec::new();
     for (idx, source) in ordered_sources.iter().enumerate() {
         let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            lower_manifest_source(krate, state, source, idx)
+            lower_manifest_source(krate, state, source, idx, &specialization)
         }));
         match lowered {
             Ok(Ok((next_krate, next_state, outcome))) => {
@@ -619,6 +625,7 @@ fn lower_manifest_source(
     state: FrontendLoweringState,
     source: &ManifestSource,
     idx: usize,
+    specialization: &crate::specialization::PreparedSpecialization,
 ) -> Result<
     (
         smelt_hir::Crate,
@@ -650,14 +657,23 @@ fn lower_manifest_source(
                 callable_fields: state.ts_callable_fields,
                 callable_object_aliases: state.ts_callable_object_aliases,
             };
-            let outcome =
-                smelt_frontend_ts::to_hir_with_path(&source.source, file_id, &file_string, &mut ctx)
-                    .map_err(|errors| {
-                        manifest_diagnostics(
-                            &file_string,
-                            errors.iter().map(|e| (e.category, e.code, e.message.clone())),
-                        )
-                    });
+            let outcome = smelt_frontend_ts::to_hir_with_options(
+                &source.source,
+                file_id,
+                &file_string,
+                &mut ctx,
+                smelt_frontend_ts::FrontendOptions {
+                    specialization: specialization.typescript.as_ref(),
+                },
+            )
+            .map_err(|errors| {
+                manifest_diagnostics(
+                    &file_string,
+                    errors
+                        .iter()
+                        .map(|e| (e.category, e.code, e.message.clone())),
+                )
+            });
             let next_state = FrontendLoweringState {
                 ts_export_aliases: ctx.export_aliases,
                 ts_module_exports: ctx.module_exports,
@@ -685,14 +701,23 @@ fn lower_manifest_source(
                 module_namespaces: state.py_module_namespaces,
                 enum_members: state.py_enum_members,
             };
-            let outcome =
-                smelt_frontend_py::to_hir_with_path(&source.source, file_id, &file_string, &mut ctx)
-                    .map_err(|errors| {
-                        manifest_diagnostics(
-                            &file_string,
-                            errors.iter().map(|e| (e.category, e.code, e.message.clone())),
-                        )
-                    });
+            let outcome = smelt_frontend_py::to_hir_with_options(
+                &source.source,
+                file_id,
+                &file_string,
+                &mut ctx,
+                smelt_frontend_py::FrontendOptions {
+                    specialization: specialization.python.as_ref(),
+                },
+            )
+            .map_err(|errors| {
+                manifest_diagnostics(
+                    &file_string,
+                    errors
+                        .iter()
+                        .map(|e| (e.category, e.code, e.message.clone())),
+                )
+            });
             let next_state = FrontendLoweringState {
                 ts_export_aliases: state.ts_export_aliases,
                 ts_module_exports: state.ts_module_exports,

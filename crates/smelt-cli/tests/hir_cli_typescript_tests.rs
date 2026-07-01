@@ -10,6 +10,85 @@ use common::{
 };
 
 #[test]
+fn build_specializes_decorators_and_reuses_packaged_manifest() -> TestResult {
+    if !std::path::Path::new("/usr/bin/bwrap").is_file()
+        || std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .is_err()
+        || std::process::Command::new("tsc")
+            .arg("--version")
+            .output()
+            .is_err()
+    {
+        return Ok(());
+    }
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-specialization-cache"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_specialization_cache"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r#"function identity(value: any, _context: any): any {
+  return value;
+}
+
+@identity
+export class Example {
+  @identity
+  static label: string = "ready";
+}
+
+console.log(Example.label);
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let artifact_root = project_path.join("dist/.smelt/specialization/typescript");
+    let artifact = fs::read_dir(&artifact_root)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .ok_or("TypeScript specialization package artifact was not emitted")?;
+    let first_bytes = fs::read(&artifact)?;
+    let first_modified = fs::metadata(&artifact)?.modified()?;
+
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    ensure_eq(
+        &fs::read(&artifact)?,
+        &first_bytes,
+        "cache hit changed package artifact bytes",
+    )?;
+    ensure_eq(
+        &fs::metadata(&artifact)?.modified()?,
+        &first_modified,
+        "cache hit rewrote an identical package artifact",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn build_resolves_typescript_index_module_imports() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

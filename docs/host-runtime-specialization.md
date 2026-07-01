@@ -39,6 +39,32 @@ adapter and otherwise produce a precise diagnostic.
 Ordinary values retain concrete static types. `DynamicMetadata` is restricted
 to intentional dynamic metadata or source-level `unknown` boundaries.
 
+## Cache and package artifacts
+
+Manifest builds resolve the complete source graph and run the centralized
+detector before frontend lowering. Candidate Python modules share one CPython
+batch; candidate TypeScript modules share one canonical `tsc` emission and one
+Node batch. Unaffected builds do not inspect or launch either guest.
+
+Each language batch is addressed by a cache key covering compiler/schema and
+host-toolchain versions, source and dependency identities, lockfiles,
+allowlisted environment values, sandbox policy, callable provenance, and
+native adapter versions. Smelt checks the project cache first and then the
+generated package artifact. Only a miss starts the sandboxed guest.
+
+Artifacts use the same validated JSON envelope in both locations:
+
+```text
+.smelt/specialization-cache/{python,typescript}/<cache-key>.json
+<output>/.smelt/specialization/{python,typescript}/<cache-key>.json
+```
+
+The output form can be transported with a package and loaded through the same
+artifact-store interface. Identical bytes are never rewritten, preserving
+mtime-based incremental builds. The writable scratch root is recorded as the
+stable `<scratch>` policy identity rather than a process-specific temporary
+path.
+
 ## Sandbox contract
 
 Specialization fails closed when no supported hard sandbox is available.

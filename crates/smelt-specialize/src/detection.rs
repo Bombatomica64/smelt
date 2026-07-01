@@ -145,6 +145,15 @@ fn is_python_factory_binding(line: &str) -> bool {
     };
     let name = raw_name.trim();
     let value = raw_value.trim();
+    let callee = value
+        .split_once('(')
+        .map(|(callee, _)| callee.trim())
+        .unwrap_or_default();
+    let constructor_like = callee
+        .rsplit('.')
+        .next()
+        .and_then(|segment| segment.chars().next())
+        .is_some_and(char::is_uppercase);
     !name.is_empty()
         && name.chars().all(|character| {
             character == '_' || character.is_ascii_alphanumeric() || character == ':'
@@ -152,6 +161,7 @@ fn is_python_factory_binding(line: &str) -> bool {
         && value.contains('(')
         && value.ends_with(')')
         && !value.starts_with(['[', '{', '('])
+        && !constructor_like
 }
 
 /// Conservatively identifies TypeScript standard decorator syntax.
@@ -250,6 +260,20 @@ mod tests {
         assert!(
             detected.is_empty(),
             "ordinary modules must avoid host startup"
+        );
+    }
+
+    #[test]
+    fn ignores_ordinary_python_class_instances() {
+        let detected = detect_specialization_modules(&[module(
+            "plain.py",
+            HostLanguage::Python,
+            "class Value:\n    pass\n\nVALUE = Value()\n",
+            &[],
+        )]);
+        assert!(
+            detected.is_empty(),
+            "ordinary class construction is not a factory binding"
         );
     }
 }

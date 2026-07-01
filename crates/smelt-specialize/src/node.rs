@@ -168,6 +168,8 @@ impl<B: SandboxBackend> NodeSpecializer<B> {
         let mut policy = request.sandbox_policy.clone();
         self.runner.backend_name().clone_into(&mut policy.backend);
         policy.writable_roots = vec![scratch.path().display().to_string()];
+        let mut manifest_policy = policy.clone();
+        manifest_policy.writable_roots = vec!["<scratch>".to_owned()];
         let input = NodeGuestInput {
             smelt_version: &request.smelt_version,
             schema_version: MANIFEST_SCHEMA_VERSION,
@@ -176,7 +178,7 @@ impl<B: SandboxBackend> NodeSpecializer<B> {
             typescript_version: &request.typescript_version,
             decorators_revision: &request.decorators_revision,
             hashes: &request.hashes,
-            sandbox_policy: &policy,
+            sandbox_policy: &manifest_policy,
         };
         let request_path = scratch.path().join("request.json");
         let guest_path = scratch.path().join("node-guest.js");

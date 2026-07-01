@@ -12,6 +12,7 @@
 )]
 
 mod adapter;
+mod artifact;
 mod cache_key;
 mod detection;
 mod manifest;
@@ -20,6 +21,9 @@ mod python;
 mod sandbox;
 
 pub use adapter::{NativeAdapter, NativeAdapterRegistry};
+pub use artifact::{
+    ArtifactError, LoadOrComputeError, SpecializationArtifact, SpecializationArtifactStore,
+};
 pub use cache_key::{CacheKeyInput, SpecializationCacheKey};
 pub use detection::{DetectionReason, ModuleDetection, ModuleInput, detect_specialization_modules};
 pub use manifest::{

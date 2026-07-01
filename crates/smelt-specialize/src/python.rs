@@ -163,13 +163,15 @@ impl<B: SandboxBackend> PythonSpecializer<B> {
         let mut policy = request.sandbox_policy.clone();
         self.runner.backend_name().clone_into(&mut policy.backend);
         policy.writable_roots = vec![scratch.path().display().to_string()];
+        let mut manifest_policy = policy.clone();
+        manifest_policy.writable_roots = vec!["<scratch>".to_owned()];
         let input = PythonGuestInput {
             smelt_version: &request.smelt_version,
             schema_version: MANIFEST_SCHEMA_VERSION,
             project_root: &request.project_root,
             modules: &request.modules,
             hashes: &request.hashes,
-            sandbox_policy: &policy,
+            sandbox_policy: &manifest_policy,
         };
         let request_path = scratch.path().join("request.json");
         write_if_changed(&request_path, &serde_json::to_vec(&input)?)?;
