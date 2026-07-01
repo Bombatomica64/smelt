@@ -1,10 +1,24 @@
-/// TypeScript type lowering, structural type inspection, and HIR type resolution.
+//! TypeScript type lowering, structural type inspection, and HIR type resolution.
+
+use std::collections::{HashMap, HashSet};
+
+use super::{ModuleBuilder, is_static_property_key};
+use crate::SmeltError;
+use oxc::ast::ast::{
+    Expression, TSSignature, TSTupleElement, TSType, TSTypeName, TSTypeQueryExprName,
+};
+use oxc::span::GetSpan;
+use oxc::syntax::operator::UnaryOperator;
+use smelt_hir::{
+    BinOp, Body, Class, ExprKind, Field, FunctionType, Item, Literal, Type, UnaryOp, Visibility,
+};
+
 impl ModuleBuilder<'_> {
     /// Lower a TypeScript type annotation into HIR type metadata.
     ///
     /// `never` is preserved as a bottom marker instead of being converted to
     /// `None` or `Unknown`; callers that need executable values must reject it.
-    fn ts_type_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
+    pub(super) fn ts_type_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
         match ty {
             TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) | TSType::TSObjectKeyword(_) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
@@ -246,7 +260,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `typeof name` type queries for already-known function values.
-    fn type_query_to_hir(
+    pub(super) fn type_query_to_hir(
         &mut self,
         query: &oxc::ast::ast::TSTypeQuery<'_>,
     ) -> smelt_hir::TypeId {
@@ -269,7 +283,7 @@ return_ty: function.return_ty,
     }
 
     /// Convert a function-type rest parameter annotation into its list type.
-    fn function_type_rest_param_to_hir(
+    pub(super) fn function_type_rest_param_to_hir(
         &mut self,
         ty: &TSType<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -287,7 +301,7 @@ return_ty: function.return_ty,
     }
 
     /// Resolve a rest-parameter annotation to the runtime array binding type and item type.
-    fn rest_param_array_type(
+    pub(super) fn rest_param_array_type(
         &mut self,
         ty: smelt_hir::TypeId,
     ) -> Result<(smelt_hir::TypeId, smelt_hir::TypeId), SmeltError> {
@@ -324,7 +338,7 @@ return_ty: function.return_ty,
     }
 
     /// Build a union type from unique item types, falling back to `unknown` for an empty set.
-    fn union_of_types_or_unknown(
+    pub(super) fn union_of_types_or_unknown(
         &mut self,
         items: Vec<smelt_hir::TypeId>,
     ) -> smelt_hir::TypeId {
@@ -340,7 +354,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a source type is a callable value with object fields.
-    fn ts_type_is_known_callable_object_surface(&mut self, ty: &TSType<'_>) -> bool {
+    pub(super) fn ts_type_is_known_callable_object_surface(&mut self, ty: &TSType<'_>) -> bool {
         if Self::ts_type_is_callable_object_surface(ty) {
             return true;
         }
@@ -355,7 +369,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a type's syntax is an intersection of callable and object surfaces.
-    fn ts_type_is_callable_object_surface(ty: &TSType<'_>) -> bool {
+    pub(super) fn ts_type_is_callable_object_surface(ty: &TSType<'_>) -> bool {
         let TSType::TSIntersectionType(intersection) = ty else {
             return false;
         };
@@ -390,7 +404,7 @@ return_ty: function.return_ty,
     /// unless the alias resolves locally to a concrete class or dict. Erasing the
     /// surface to `unknown` keeps runtime field access and callable-object values
     /// intact instead of collapsing the value to only the object-literal fields.
-    fn ts_type_is_opaque_object_intersection_surface(ty: &TSType<'_>) -> bool {
+    pub(super) fn ts_type_is_opaque_object_intersection_surface(ty: &TSType<'_>) -> bool {
         let TSType::TSIntersectionType(intersection) = ty else {
             return false;
         };
@@ -414,7 +428,7 @@ return_ty: function.return_ty,
     }
 
     /// Convert an inline TypeScript object type into Smelt's record-like dict type.
-    fn type_literal_to_hir(
+    pub(super) fn type_literal_to_hir(
         &mut self,
         literal: &oxc::ast::ast::TSTypeLiteral<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -447,7 +461,7 @@ return_ty: function.return_ty,
     }
 
     /// Extract named fields from a TypeScript structural type.
-    fn type_fields_from_ts(&mut self, ty: &TSType<'_>) -> Result<Vec<Field>, SmeltError> {
+    pub(super) fn type_fields_from_ts(&mut self, ty: &TSType<'_>) -> Result<Vec<Field>, SmeltError> {
         match ty {
             TSType::TSTypeLiteral(literal) => self.type_literal_fields(literal),
             TSType::TSIntersectionType(intersection) => {
@@ -474,7 +488,7 @@ return_ty: function.return_ty,
     /// interfaces carry structural fields independently from their erased HIR
     /// representation, so references need generic substitutions applied before
     /// callers use the fields for member access.
-    fn type_reference_fields(
+    pub(super) fn type_reference_fields(
         &mut self,
         reference: &oxc::ast::ast::TSTypeReference<'_>,
         name_text: &str,
@@ -536,7 +550,7 @@ return_ty: function.return_ty,
     }
 
     /// Return static string keys from the key side of `Pick<T, K>`.
-    fn static_pick_keys(ty: &TSType<'_>) -> Option<Vec<String>> {
+    pub(super) fn static_pick_keys(ty: &TSType<'_>) -> Option<Vec<String>> {
         match ty {
             TSType::TSLiteralType(literal) => match &literal.literal {
                 oxc::ast::ast::TSLiteral::StringLiteral(value) => {
@@ -556,7 +570,7 @@ return_ty: function.return_ty,
     }
 
     /// Extract fields common to a union of object-like type surfaces.
-    fn union_type_fields(
+    pub(super) fn union_type_fields(
         &mut self,
         union: &oxc::ast::ast::TSUnionType<'_>,
     ) -> Result<Vec<Field>, SmeltError> {
@@ -601,7 +615,7 @@ return_ty: function.return_ty,
     }
 
     /// Extract named fields from a TypeScript type literal.
-    fn type_literal_fields(
+    pub(super) fn type_literal_fields(
         &mut self,
         literal: &oxc::ast::ast::TSTypeLiteral<'_>,
     ) -> Result<Vec<Field>, SmeltError> {
@@ -634,7 +648,7 @@ return_ty: function.return_ty,
     }
 
     /// Convert an indexed access type such as `Parameters<Fn>[0]` to an item type.
-    fn indexed_access_type_to_hir(
+    pub(super) fn indexed_access_type_to_hir(
         &mut self,
         indexed: &oxc::ast::ast::TSIndexedAccessType<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -656,7 +670,7 @@ return_ty: function.return_ty,
     }
 
     /// Extract a non-negative integer from a numeric literal type.
-    fn numeric_literal_type_index(ty: &TSType<'_>) -> Option<usize> {
+    pub(super) fn numeric_literal_type_index(ty: &TSType<'_>) -> Option<usize> {
         let TSType::TSLiteralType(literal) = ty else {
             return None;
         };
@@ -679,7 +693,7 @@ return_ty: function.return_ty,
     ///
     /// In both cases the function's runtime return type is void; the `Option`
     /// target only drives optional parameter narrowing at call sites.
-    fn assertion_return_type(
+    pub(super) fn assertion_return_type(
         &mut self,
         ty: &TSType<'_>,
     ) -> Option<Result<(String, Option<smelt_hir::TypeId>), SmeltError>> {
@@ -706,7 +720,7 @@ return_ty: function.return_ty,
     }
 
     /// Extract `value is T` metadata from a TypeScript return annotation.
-    fn predicate_return_type(
+    pub(super) fn predicate_return_type(
         &mut self,
         ty: &TSType<'_>,
     ) -> Option<Result<(String, smelt_hir::TypeId), SmeltError>> {
@@ -740,7 +754,7 @@ return_ty: function.return_ty,
     /// TypeScript uses this spelling to model non-empty arrays. HIR does not
     /// currently track non-empty length refinements, so the useful runtime
     /// shape is the list element type.
-    fn homogeneous_tuple_rest_type(
+    pub(super) fn homogeneous_tuple_rest_type(
         &mut self,
         tuple: &oxc::ast::ast::TSTupleType<'_>,
     ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
@@ -786,7 +800,7 @@ return_ty: function.return_ty,
     ///
     /// `Readonly`/`Required`/parenthesized wrappers are transparent, matching how
     /// `ts_type_to_hir` already unwraps them.
-    fn rest_parameter_min_arity(ty: &TSType<'_>) -> usize {
+    pub(super) fn rest_parameter_min_arity(ty: &TSType<'_>) -> usize {
         match ty {
             TSType::TSParenthesizedType(parenthesized) => {
                 Self::rest_parameter_min_arity(&parenthesized.type_annotation)
@@ -833,7 +847,7 @@ return_ty: function.return_ty,
     }
 
     /// Lower tuple aliases with a non-`never` rest tail to list metadata.
-    fn tuple_rest_list_type(
+    pub(super) fn tuple_rest_list_type(
         &mut self,
         tuple: &oxc::ast::ast::TSTupleType<'_>,
     ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
@@ -891,7 +905,7 @@ return_ty: function.return_ty,
     /// indexing any position stays well-typed. Trailing-rest and all-rest tuples
     /// are handled earlier by `homogeneous_tuple_rest_type` / `tuple_rest_list_type`,
     /// so this only fires for the otherwise-truncated leading/middle-rest shape.
-    fn leading_rest_tuple_list_type(
+    pub(super) fn leading_rest_tuple_list_type(
         &mut self,
         tuple: &oxc::ast::ast::TSTupleType<'_>,
     ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
@@ -938,7 +952,7 @@ return_ty: function.return_ty,
     }
 
     /// Convert tuple element type to HIR type.
-    fn tuple_element_type_to_hir(
+    pub(super) fn tuple_element_type_to_hir(
         &mut self,
         item: &TSTupleElement<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -1075,7 +1089,7 @@ return_ty: function.return_ty,
     }
 
     /// Collapse unions that only differ by an empty tuple branch into a list type.
-    fn list_union_type(&mut self, items: &[smelt_hir::TypeId]) -> Option<smelt_hir::TypeId> {
+    pub(super) fn list_union_type(&mut self, items: &[smelt_hir::TypeId]) -> Option<smelt_hir::TypeId> {
         let mut element_tys = Vec::new();
         for item in items {
             match self.ctx.krate.types.get(*item).cloned() {
@@ -1103,7 +1117,7 @@ return_ty: function.return_ty,
     /// tuple containing the updated state object. When a function field has
     /// that shape, generated Rust can pass the state parameter by `&mut`
     /// instead of cloning it through an adapter and losing identity.
-    fn mutable_params_from_returned_tuple_state(
+    pub(super) fn mutable_params_from_returned_tuple_state(
         &self,
         params: &[smelt_hir::TypeId],
         return_ty: smelt_hir::TypeId,
@@ -1120,7 +1134,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a parameter type can use Rust mutable-reference ABI.
-    fn mutable_abi_param_type(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn mutable_abi_param_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Class { .. } | Type::List(_) | Type::Set(_) | Type::Dict(_, _)) => true,
             Some(Type::Optional(inner)) => self.mutable_abi_param_type(*inner),
@@ -1129,7 +1143,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a return type has a tuple branch containing `target`.
-    fn return_type_tuple_contains(
+    pub(super) fn return_type_tuple_contains(
         &self,
         ty: smelt_hir::TypeId,
         target: smelt_hir::TypeId,
@@ -1147,7 +1161,7 @@ return_ty: function.return_ty,
     }
 
     /// Convert a TypeScript function type node into HIR callable metadata.
-    fn function_type_to_hir(
+    pub(super) fn function_type_to_hir(
         &mut self,
         function: &oxc::ast::ast::TSFunctionType<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -1218,7 +1232,7 @@ return_ty: function.return_ty,
     /// accumulators constrained to arrays are also erased because HIR has no
     /// open tuple-tail type and frontend type checking has already validated
     /// the source-level spread shape.
-    fn tuple_rest_type_erases_to_empty(
+    pub(super) fn tuple_rest_type_erases_to_empty(
         &mut self,
         item: &TSTupleElement<'_>,
     ) -> Result<bool, SmeltError> {
@@ -1230,7 +1244,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a concrete value of this type would contain a `never` value.
-    fn concrete_type_requires_never_value(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn concrete_type_requires_never_value(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Never) => true,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
@@ -1262,7 +1276,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether an array or tuple literal would need to materialize `never`.
-    fn array_literal_needs_never_value(&self, ty: smelt_hir::TypeId, item_count: usize) -> bool {
+    pub(super) fn array_literal_needs_never_value(&self, ty: smelt_hir::TypeId, item_count: usize) -> bool {
         if item_count == 0 {
             return false;
         }
@@ -1279,7 +1293,7 @@ return_ty: function.return_ty,
     }
 
     /// Convert type reference to HIR type.
-    fn type_reference_to_hir(
+    pub(super) fn type_reference_to_hir(
         &mut self,
         reference: &oxc::ast::ast::TSTypeReference<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -1483,7 +1497,7 @@ return_ty: function.return_ty,
     }
 
     /// Return the full source path for a qualified type name.
-    fn qualified_type_name_text(qualified: &oxc::ast::ast::TSQualifiedName<'_>) -> String {
+    pub(super) fn qualified_type_name_text(qualified: &oxc::ast::ast::TSQualifiedName<'_>) -> String {
         let left = match &qualified.left {
             TSTypeName::IdentifierReference(left) => left.name.to_string(),
             TSTypeName::QualifiedName(left) => Self::qualified_type_name_text(left),
@@ -1493,7 +1507,7 @@ return_ty: function.return_ty,
     }
 
     /// Resolve a source type reference through local import aliases to its declared symbol.
-    fn resolve_type_reference_symbol(&mut self, name_text: &str) -> smelt_hir::Symbol {
+    pub(super) fn resolve_type_reference_symbol(&mut self, name_text: &str) -> smelt_hir::Symbol {
         if let Some(item) = self.items.get(name_text).copied() {
             match self.item_ref(item) {
                 Item::TypeAlias(alias) => return alias.name,
@@ -1512,7 +1526,7 @@ return_ty: function.return_ty,
     /// `PropertyKey`-like key surfaces normalize to `string`. A direct generic
     /// key such as `Record<K, V>` is preserved because later alias substitution
     /// still needs to thread that type parameter through generic helper returns.
-    fn record_key_type_to_hir(
+    pub(super) fn record_key_type_to_hir(
         &mut self,
         key: &TSType<'_>,
         span: oxc::span::Span,
@@ -1534,7 +1548,7 @@ return_ty: function.return_ty,
     /// Preserving the exact type parameter keeps generic object helpers
     /// instantiable after type aliases are substituted. Composite keys such as
     /// `K | string` use Smelt's string-key object representation instead.
-    fn direct_record_key_type_param(
+    pub(super) fn direct_record_key_type_param(
         &mut self,
         key: &TSType<'_>,
     ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
@@ -1570,7 +1584,7 @@ return_ty: function.return_ty,
     /// assignable to `PropertyKey`. This helper keeps Smelt from rejecting
     /// common type-level spellings whose concrete runtime representation is a
     /// JavaScript object with stringified ordinary keys.
-    fn record_key_surface_is_lowerable(&mut self, key: &TSType<'_>) -> Result<bool, SmeltError> {
+    pub(super) fn record_key_surface_is_lowerable(&mut self, key: &TSType<'_>) -> Result<bool, SmeltError> {
         match key {
             TSType::TSStringKeyword(_)
             | TSType::TSNumberKeyword(_)
@@ -1635,7 +1649,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether an already-lowered key can be represented as object keys.
-    fn lowered_record_key_is_string_representable(&self, key: smelt_hir::TypeId) -> bool {
+    pub(super) fn lowered_record_key_is_string_representable(&self, key: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(key)) {
             Some(
                 Type::String
@@ -1655,7 +1669,7 @@ return_ty: function.return_ty,
     }
 
     /// Resolve the type of a class field.
-    fn class_field_type(
+    pub(super) fn class_field_type(
         &mut self,
         receiver_ty: smelt_hir::TypeId,
         field: smelt_hir::Symbol,
@@ -1956,7 +1970,7 @@ return_ty: function.return_ty,
     }
 
     /// Resolve an in-progress class method reference as a function-valued member type.
-    fn in_progress_class_method_member_type(
+    pub(super) fn in_progress_class_method_member_type(
         &mut self,
         class_name: smelt_hir::Symbol,
         method_name: smelt_hir::Symbol,
@@ -1989,7 +2003,7 @@ return_ty: function.return_ty,
     /// Cyclic type-only imports can lower an interface before its parents are
     /// available. Keeping heritage edges lets member access retry inheritance
     /// against the latest declarations after the cycle has been loaded.
-    fn inherited_interface_field_type(
+    pub(super) fn inherited_interface_field_type(
         &mut self,
         name: smelt_hir::Symbol,
         args: &[smelt_hir::TypeId],
@@ -2037,7 +2051,7 @@ return_ty: function.return_ty,
     }
 
     /// Resolve a directly declared interface field with generic arguments applied.
-    fn interface_declared_field_type(
+    pub(super) fn interface_declared_field_type(
         &mut self,
         name: smelt_hir::Symbol,
         args: &[smelt_hir::TypeId],
@@ -2059,7 +2073,7 @@ return_ty: function.return_ty,
     }
 
     /// Apply generic substitutions and optional wrapping for a structural field.
-    fn instantiate_field_type(
+    pub(super) fn instantiate_field_type(
         &mut self,
         ty: smelt_hir::TypeId,
         optional: bool,
@@ -2070,7 +2084,7 @@ return_ty: function.return_ty,
     }
 
     /// Wrap optional fields without producing nested `Optional` types.
-    fn field_type_with_optional(
+    pub(super) fn field_type_with_optional(
         &mut self,
         ty: smelt_hir::TypeId,
         optional: bool,
@@ -2083,7 +2097,7 @@ return_ty: function.return_ty,
     }
 
     /// Resolve the value type for dynamic object field extraction.
-    fn dynamic_field_type(&mut self, receiver_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    pub(super) fn dynamic_field_type(&mut self, receiver_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
         let receiver_ty = self.type_param_constraint_or_self(receiver_ty);
         match self.ctx.krate.types.get(receiver_ty).cloned() {
             Some(Type::Dict(_, value)) => value,
@@ -2132,7 +2146,7 @@ return_ty: function.return_ty,
     }
 
     /// Return the inner type for an optional receiver, or the original type otherwise.
-    fn optional_receiver_inner_type(&self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    pub(super) fn optional_receiver_inner_type(&self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(ty) {
             *inner
         } else {
@@ -2141,12 +2155,12 @@ return_ty: function.return_ty,
     }
 
     /// Wrap a result type in `Optional`, avoiding nested optionals from optional fields.
-    fn optional_chain_result_type(&mut self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    pub(super) fn optional_chain_result_type(&mut self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
         smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty)
     }
 
     /// Look up a class by its symbol.
-    fn class_by_symbol(&self, name: smelt_hir::Symbol) -> Option<&Class> {
+    pub(super) fn class_by_symbol(&self, name: smelt_hir::Symbol) -> Option<&Class> {
         self.ctx.krate.items.iter().find_map(|item| {
             if let Item::Class(class) = item {
                 if class.name == name {
@@ -2158,7 +2172,7 @@ return_ty: function.return_ty,
     }
 
     /// Return declared fields for built-in classes that Smelt does not import from lib.d.ts.
-    fn builtin_class_field_type(
+    pub(super) fn builtin_class_field_type(
         &mut self,
         class: smelt_hir::Symbol,
         field: smelt_hir::Symbol,
@@ -2194,7 +2208,7 @@ return_ty: function.return_ty,
     }
 
     /// Resolve a method call on a type.
-    fn resolve_method(
+    pub(super) fn resolve_method(
         &mut self,
         receiver_ty: smelt_hir::TypeId,
         method: smelt_hir::Symbol,
@@ -2278,7 +2292,7 @@ return_ty: function.return_ty,
     }
 
     /// Resolve a method return type from metadata collected before a class item exists.
-    fn in_progress_class_method_return(
+    pub(super) fn in_progress_class_method_return(
         &self,
         class: smelt_hir::Symbol,
         args: &[smelt_hir::TypeId],
@@ -2306,7 +2320,7 @@ return_ty: function.return_ty,
     }
 
     /// Get the element type of an indexable type.
-    fn index_type(
+    pub(super) fn index_type(
         &mut self,
         receiver_ty: smelt_hir::TypeId,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -2369,7 +2383,7 @@ return_ty: function.return_ty,
     }
 
     /// Return a type parameter's active constraint when expression lowering needs its shape.
-    fn type_param_constraint_or_self(
+    pub(super) fn type_param_constraint_or_self(
         &self,
         ty: smelt_hir::TypeId,
     ) -> smelt_hir::TypeId {
@@ -2380,7 +2394,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a `keyof` mapped-type source is entirely array-like.
-    fn mapped_key_source_is_iterable(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn mapped_key_source_is_iterable(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(Type::List(_) | Type::Tuple(_) | Type::Set(_)) => true,
             Some(Type::Union(items)) => {
@@ -2395,7 +2409,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a type can be represented as a string at runtime.
-    fn is_string_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn is_string_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(Type::String | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => true,
             Some(Type::Optional(item)) => self.is_string_compatible_type(*item),
@@ -2408,7 +2422,7 @@ return_ty: function.return_ty,
     }
 
     /// Infer the HIR result type for a lowered JavaScript binary operation.
-    fn binary_result_type(
+    pub(super) fn binary_result_type(
         &mut self,
         op: BinOp,
         lhs_ty: smelt_hir::TypeId,
@@ -2456,7 +2470,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether arithmetic should coerce an optional numeric operand to a number.
-    fn is_optional_numeric_operand(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn is_optional_numeric_operand(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(Type::Optional(inner)) => self.is_numeric_like_type(*inner),
             _ => false,
@@ -2464,7 +2478,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether an operand should use erased numeric arithmetic.
-    fn is_erased_numeric_operand(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn is_erased_numeric_operand(&self, ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -2472,7 +2486,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a type is known to contain a string operand for `+`.
-    fn has_static_string_type(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn has_static_string_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(Type::String) => true,
             Some(Type::Optional(item)) => self.has_static_string_type(*item),
@@ -2485,7 +2499,7 @@ return_ty: function.return_ty,
     }
 
     /// Return the HIR type used for JavaScript `RegExp` values.
-    fn regexp_type(&mut self) -> smelt_hir::TypeId {
+    pub(super) fn regexp_type(&mut self) -> smelt_hir::TypeId {
         let name = self.intern_type_name("RegExp");
         self.ctx.krate.types.intern(Type::Class {
             name,
@@ -2494,7 +2508,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a type contains `unknown` after unwrapping simple containers.
-    fn type_contains_unknown(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn type_contains_unknown(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown) => true,
             Some(Type::Optional(item)) => self.type_contains_unknown(*item),
@@ -2507,7 +2521,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a type can hold a TypeScript nullish value at runtime.
-    fn is_nullishable_type(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn is_nullishable_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Optional(_) | Type::None) => true,
             Some(Type::Union(items)) => items.iter().copied().any(|item| {
@@ -2519,7 +2533,7 @@ return_ty: function.return_ty,
     }
 
     /// Return whether a union contains at least one string-compatible branch.
-    fn union_has_string_compatible_member(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn union_has_string_compatible_member(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::String) => true,
             Some(Type::Optional(item)) => self.union_has_string_compatible_member(*item),
@@ -2532,7 +2546,7 @@ return_ty: function.return_ty,
     }
 
     /// Resolve the static numeric index required for TypeScript tuple indexing.
-    fn static_tuple_index(
+    pub(super) fn static_tuple_index(
         &self,
         index_expr_id: smelt_hir::ExprId,
         body: &Body,
@@ -2583,7 +2597,7 @@ return_ty: function.return_ty,
     }
 
     /// Reject negative TypeScript bracket indexes before they reach Python-style HIR indexing.
-    fn reject_negative_bracket_index(
+    pub(super) fn reject_negative_bracket_index(
         &self,
         receiver_ty: smelt_hir::TypeId,
         index: smelt_hir::ExprId,
@@ -2604,7 +2618,7 @@ return_ty: function.return_ty,
     }
 
     /// Returns whether a lowered expression is a negative numeric literal.
-    fn is_negative_numeric_expr(body: &Body, expr_id: smelt_hir::ExprId) -> bool {
+    pub(super) fn is_negative_numeric_expr(body: &Body, expr_id: smelt_hir::ExprId) -> bool {
         let Ok(expr_index) = usize::try_from(expr_id.0) else {
             return false;
         };
@@ -2627,7 +2641,7 @@ return_ty: function.return_ty,
     }
 
     /// Returns true when TypeScript `.length` can lower directly to Rust `.len()`.
-    fn supports_stdlib_length(&self, receiver_ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn supports_stdlib_length(&self, receiver_ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
             Some(Type::List(_) | Type::String | Type::Tuple(_) | Type::TypeParam { .. })
@@ -2645,7 +2659,7 @@ return_ty: function.return_ty,
     }
 
     /// Returns true when TypeScript `.size` can lower directly to Rust `.len()`.
-    fn supports_stdlib_size(&self, receiver_ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn supports_stdlib_size(&self, receiver_ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
             Some(Type::Dict(_, _) | Type::Set(_) | Type::TypeParam { .. })

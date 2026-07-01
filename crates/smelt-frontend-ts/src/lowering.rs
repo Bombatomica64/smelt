@@ -11,41 +11,33 @@ use std::{
     path::Path,
 };
 use support::{
-    const_literal_from_item, implemented_function_names, insert_visible_item,
-    is_implemented_overload_signature, is_static_property_key, item_name, module_export_name,
-    sanitize_test_name, single_arg, statement_terminates, two_args, unknown_kind_from_typeof,
-    visibility,
+    is_static_property_key, unknown_kind_from_typeof,
 };
 
 use crate::{
-    HirCtx, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,
-    OverloadSignature, SmeltError, camel_to_snake, test_support,
+    HirCtx, ObjectConst,
+    OverloadSignature, SmeltError,
 };
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, ClassElement,
-    Declaration, Expression, ForStatementInit, ForStatementLeft, ImportDeclarationSpecifier,
-    ImportOrExportKind, MethodDefinitionKind, MethodDefinitionType, ModuleExportName,
+    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement,
+    Declaration, Expression, ForStatementInit, ForStatementLeft, MethodDefinitionKind, ModuleExportName,
     ObjectPropertyKind, Program, PropertyKey, PropertyKind, SimpleAssignmentTarget, Statement,
-    TSAccessibility, TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature, TSTupleElement,
-    TSType, TSTypeName, TSTypeQueryExprName,
+    TSAccessibility,
 };
 use oxc::parser::{ParseOptions, Parser};
-use oxc::span::{GetSpan, SourceType};
+use oxc::span::SourceType;
 use oxc::syntax::operator::{
-    AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
+    AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator,
 };
 use smelt_hir::{
     AsyncOp, BinOp, Body, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode, Class,
-    ClosureCapture, ConstItem, DatePart, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
-    FunctionOwner, FunctionType, Import, Interface, Item, Language, ListCallbackOp, ListSearchOp,
-    Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp,
-    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern,
-    PrimitiveCastOp, SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp,
-    StringCaseOp, StringNormalizeForm, StringPadOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, Type, TypeParamDef, UnaryOp, UnknownKind, UrlField, Visibility,
+    ClosureCapture, ConstItem, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
+    FunctionOwner, FunctionType, Item, Language, ListCallbackOp, ListSearchOp,
+    Literal, LocalDecl, MethodSig, Module, ModuleId, Param, ParamSig, Pattern,
+    PrimitiveCastOp, SetProjectionOp, SourceFile, Span, Stmt, StringAffixOp,
+    StringCaseOp, StringPadOp, Type, UnaryOp, UnknownKind, Visibility,
 };
-use smelt_stdlib::RuleId;
 
 /// Vitest expectation matchers that can lower to direct HIR checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -481,24 +473,24 @@ struct GeneratorYieldAccumulator {
 }
 
 // Lowering builder implementation split into small include files.
-include!("lowering/builder_part01.rs");
-include!("lowering/builder_part02.rs");
-include!("lowering/builder_part03.rs");
-include!("lowering/builder_part04.rs");
-include!("lowering/builder_part05.rs");
-include!("lowering/builder_part06.rs");
+mod builder_part01;
+mod builder_part02;
+mod builder_part03;
+mod builder_part04;
+mod builder_part05;
+mod builder_part06;
 mod builder_part07;
-include!("lowering/builder_part08.rs");
-include!("lowering/call.rs");
-include!("lowering/collections.rs");
-include!("lowering/builder_part09.rs");
-include!("lowering/builder_part10.rs");
-include!("lowering/builder_part11.rs");
-include!("lowering/builder_part12.rs");
-include!("lowering/builder_part13.rs");
-include!("lowering/builder_part14.rs");
-include!("lowering/builder_part15.rs");
-include!("lowering/types.rs");
-include!("lowering/builder_part16.rs");
-include!("lowering/builder_part17.rs");
-include!("lowering/builder_part18.rs");
+mod builder_part08;
+mod call;
+mod collections;
+mod builder_part09;
+mod builder_part10;
+mod builder_part11;
+mod builder_part12;
+mod builder_part13;
+mod builder_part14;
+mod builder_part15;
+mod types;
+mod builder_part16;
+mod builder_part17;
+mod builder_part18;

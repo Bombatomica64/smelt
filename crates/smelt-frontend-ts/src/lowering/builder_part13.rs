@@ -1,7 +1,29 @@
+//! Callback-heavy method lowering: array/set/string iteration and closures.
+//!
+//! This is the largest split of the lowering builder. It lowers the JavaScript
+//! methods whose semantics are carried by callbacks or closures — array
+//! iteration (`map`/`filter`/`reduce`/`find`/`sort`/`concat`), set and dict
+//! projections, string transforms, and the closure-capture machinery that
+//! turns a source arrow/function argument into an HIR [`CallbackExpr`]. The
+//! helpers here classify receiver and argument surfaces, synthesize the
+//! capture list, and emit the concrete list/set/string runtime call kinds.
+
+use super::{
+    Argument, ArrayExpressionElement, AssignmentOperator, AssignmentTarget, BinOp, BinaryOperator,
+    BindingPattern, Body, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode, ChainElement,
+    ClosureCallback, ClosureCapture, ConstCollectionValue, DictProjectionOp, Expr, ExprKind,
+    Expression, ForStatementInit, ForStatementLeft, FunctionType, HashMap, HashSet, Item,
+    ListCallbackOp, ListSearchOp, Literal, LocalCallbackDefault, LocalDecl, LogicalOperator,
+    ModuleBuilder, ObjectPropertyKind, Param, PrimitiveCastOp, PropertyKey, SimpleAssignmentTarget,
+    SmeltError, Span, Statement, Stmt, StringAffixOp, StringCaseOp, Type, UnaryOp, UnaryOperator,
+    UnknownKind, unknown_kind_from_typeof,
+};
+use oxc::span::GetSpan;
+
 impl ModuleBuilder<'_> {
 
     /// Lower direct TypeScript `Array.prototype.concat` for one same-typed array argument.
-    fn list_concat_call(
+    pub(super) fn list_concat_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -37,7 +59,7 @@ impl ModuleBuilder<'_> {
     /// element (appended). This folds every argument onto the receiver list left
     /// to right so `a.concat(b, c, d)` and `a.concat(x)` both lower through the
     /// same per-argument path.
-    fn finish_list_concat_call(
+    pub(super) fn finish_list_concat_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         mut left: smelt_hir::ExprId,
@@ -138,7 +160,7 @@ impl ModuleBuilder<'_> {
     /// `concat` accepts both arrays (spread) and scalar elements (wrapped into a
     /// singleton list); this picks between the two based on the argument's lowered
     /// type, matching the receiver's element type (`item_ty`) and list type (`ty`).
-    fn list_concat_argument(
+    pub(super) fn list_concat_argument(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         right_argument: &Argument<'_>,
@@ -209,7 +231,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower callback-heavy TypeScript array methods.
-    fn list_callback_call(
+    pub(super) fn list_callback_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -432,7 +454,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower lodash `_.forEach(collection, callback)` over array-like or object-like inputs.
-    fn lodash_for_each_call(
+    pub(super) fn lodash_for_each_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -519,7 +541,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower Strapi's imported `async.map(collection, callback, options?)` helper.
-    fn strapi_async_map_call(
+    pub(super) fn strapi_async_map_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -594,7 +616,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `Array.prototype.reduce`, including element-typed calls without an initial value.
-    fn list_reduce_call(
+    pub(super) fn list_reduce_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -628,7 +650,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Check whether a `reduce` call is the utility form `ns.reduce(value, callback, initial?)`.
-    fn is_static_reduce_utility_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+    pub(super) fn is_static_reduce_utility_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
         match call.arguments.as_slice() {
             [first, _, _] => !Self::argument_is_callback_like(first),
             [first, second] => {
@@ -639,7 +661,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for argument nodes that represent callback values directly.
-    fn argument_is_callback_like(argument: &Argument<'_>) -> bool {
+    pub(super) fn argument_is_callback_like(argument: &Argument<'_>) -> bool {
         match argument {
             Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_) => true,
             Argument::TSAsExpression(as_expr) => {
@@ -659,7 +681,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for expression nodes that represent callback values directly.
-    fn expression_is_callback_like(expression: &Expression<'_>) -> bool {
+    pub(super) fn expression_is_callback_like(expression: &Expression<'_>) -> bool {
         match expression {
             Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => true,
             Expression::ParenthesizedExpression(parenthesized) => {
@@ -682,7 +704,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower utility-style `reduce(collection, callback, initial?)` calls.
-    fn static_reduce_utility_call(
+    pub(super) fn static_reduce_utility_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -729,7 +751,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a normalized array-reduce receiver and callback pair.
-    fn lower_list_reduce(
+    pub(super) fn lower_list_reduce(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -796,7 +818,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Validate the inferred callback return type for an array method.
-    fn require_callback_ty(
+    pub(super) fn require_callback_ty(
         &self,
         actual: smelt_hir::TypeId,
         expected: smelt_hir::TypeId,
@@ -814,7 +836,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Store a lowered callback expression as a first-class closure expression.
-    fn callback_expr_to_closure(
+    pub(super) fn callback_expr_to_closure(
         &mut self,
         callback: &CallbackExpr,
         params: &[smelt_hir::TypeId],
@@ -833,7 +855,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Store a lowered callback expression as a closure with an explicit return type.
-    fn callback_expr_to_closure_with_return_ty(
+    pub(super) fn callback_expr_to_closure_with_return_ty(
         &mut self,
         return_ty: smelt_hir::TypeId,
         callback: &CallbackExpr,
@@ -925,7 +947,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Remap callback capture references to locals declared in the closure body.
-    fn remap_callback_captures(
+    pub(super) fn remap_callback_captures(
         callback: &mut CallbackExpr,
         capture_locals: &HashMap<smelt_hir::LocalId, smelt_hir::LocalId>,
     ) {
@@ -1018,7 +1040,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect explicit captures from a callback expression tree.
-    fn callback_captures(&mut self, callback: &CallbackExpr, body: &Body) -> Vec<ClosureCapture> {
+    pub(super) fn callback_captures(&mut self, callback: &CallbackExpr, body: &Body) -> Vec<ClosureCapture> {
         let mut captures = HashMap::new();
         self.collect_callback_captures(callback, body, &mut captures);
         // `HashMap` iteration order is randomized per process, so sort by the
@@ -1031,7 +1053,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Instantiate a stored local-callback default expression at one call site.
-    fn local_callback_default_expr(
+    pub(super) fn local_callback_default_expr(
         &mut self,
         default: &LocalCallbackDefault,
         args: &[smelt_hir::ExprId],
@@ -1046,7 +1068,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert a callback expression tree into a normal HIR expression using call-site arguments.
-    fn callback_expr_to_body_expr(
+    pub(super) fn callback_expr_to_body_expr(
         &mut self,
         callback: &CallbackExpr,
         args: &[smelt_hir::ExprId],
@@ -1389,7 +1411,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert a callback method call into the corresponding normal HIR expression.
-    fn callback_method_call_to_body_expr(
+    pub(super) fn callback_method_call_to_body_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
         receiver_ty: smelt_hir::TypeId,
@@ -1788,7 +1810,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a callback method call whose receiver has a callable field.
-    fn callback_callable_field_method_to_body_expr(
+    pub(super) fn callback_callable_field_method_to_body_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
         receiver_ty: smelt_hir::TypeId,
@@ -1834,7 +1856,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert callback-body `.call(...)` forwarding into a normal closure call.
-    fn callback_call_method_to_body_expr(
+    pub(super) fn callback_call_method_to_body_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
         _receiver_ty: smelt_hir::TypeId,
@@ -1989,7 +2011,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert a callback `concat` argument into the list operand expected by HIR.
-    fn callback_concat_right_to_body_expr(
+    pub(super) fn callback_concat_right_to_body_expr(
         &mut self,
         right: smelt_hir::ExprId,
         receiver_ty: smelt_hir::TypeId,
@@ -2022,7 +2044,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a callback method receiver has a list-like static surface.
-    fn callback_method_receiver_is_list_like(&self, receiver_ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn callback_method_receiver_is_list_like(&self, receiver_ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx
                 .krate
@@ -2033,7 +2055,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Infer the result type for a callback-body `Array.prototype.flat` call.
-    fn callback_flat_result_type(
+    pub(super) fn callback_flat_result_type(
         &mut self,
         receiver_ty: smelt_hir::TypeId,
         fallback_ty: smelt_hir::TypeId,
@@ -2077,7 +2099,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert callback string case methods into normal HIR.
-    fn callback_string_case_to_body_expr(
+    pub(super) fn callback_string_case_to_body_expr(
         op: StringCaseOp,
         operand: smelt_hir::ExprId,
         ty: smelt_hir::TypeId,
@@ -2096,7 +2118,7 @@ impl ModuleBuilder<'_> {
     /// Erased (`unknown`) and type-param receivers reaching string-only methods
     /// (such as `startsWith`/`endsWith`) are routed through a `TypeAssert` to the
     /// string type, mirroring the direct `string_affix_call` coercion.
-    fn callback_coerce_to_string(
+    pub(super) fn callback_coerce_to_string(
         value: smelt_hir::ExprId,
         string_ty: smelt_hir::TypeId,
         body: &mut Body,
@@ -2121,7 +2143,7 @@ impl ModuleBuilder<'_> {
     /// receiver/argument are already lowered HIR expressions in callback bodies,
     /// so we only re-derive the optional element type and route through the same
     /// `ExprKind` the statement-position path emits.
-    fn callback_at_call_to_body_expr(
+    pub(super) fn callback_at_call_to_body_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
         receiver_ty: smelt_hir::TypeId,
@@ -2178,7 +2200,7 @@ impl ModuleBuilder<'_> {
     /// defaults to `","`. The receiver/argument are already lowered HIR
     /// expressions, so unknown/type-param receivers are coerced to a list
     /// surface through a `TypeAssert` before joining.
-    fn callback_join_call_to_body_expr(
+    pub(super) fn callback_join_call_to_body_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
         receiver_ty: smelt_hir::TypeId,
@@ -2225,7 +2247,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Resolve a callback function symbol back to its normal HIR item.
-    fn callback_function_item(
+    pub(super) fn callback_function_item(
         &self,
         function: smelt_hir::Symbol,
         span: Span,
@@ -2251,7 +2273,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Wrap a function item in a first-class closure value.
-    fn callback_function_item_closure(
+    pub(super) fn callback_function_item_closure(
         &mut self,
         item: smelt_hir::ItemId,
         function_ty: smelt_hir::TypeId,
@@ -2327,7 +2349,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert stored callback call arguments into normal HIR argument expressions.
-    fn callback_call_args_to_body_exprs(
+    pub(super) fn callback_call_args_to_body_exprs(
         &mut self,
         call_args: &[CallbackCallArg],
         args: &[smelt_hir::ExprId],
@@ -2343,7 +2365,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Expand spread callback arguments into fixed function parameters and an optional rest list.
-    fn callback_spread_call_args_to_body_exprs(
+    pub(super) fn callback_spread_call_args_to_body_exprs(
         &mut self,
         function: &FunctionType,
         call_args: &[CallbackCallArg],
@@ -2463,7 +2485,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Pack callback call arguments that contain spreads into a single list expression.
-    fn callback_packed_spread_call_args(
+    pub(super) fn callback_packed_spread_call_args(
         &mut self,
         item_ty: smelt_hir::TypeId,
         call_args: &[CallbackCallArg],
@@ -2535,7 +2557,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recursively collect captures and upgrade assigned captures to mutable mode.
-    fn collect_callback_captures(
+    pub(super) fn collect_callback_captures(
         &mut self,
         callback: &CallbackExpr,
         body: &Body,
@@ -2681,7 +2703,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a supported arrow callback to a typed expression tree.
-    fn arrow_callback(
+    pub(super) fn arrow_callback(
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
@@ -2818,7 +2840,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower common lodash/fp predicate factories when they are passed as array callbacks.
-    fn known_callback_factory_predicate(
+    pub(super) fn known_callback_factory_predicate(
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
@@ -2941,12 +2963,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a call callee is a bare identifier with the given name.
-    fn is_identifier_callee(callee: &Expression<'_>, expected: &str) -> bool {
+    pub(super) fn is_identifier_callee(callee: &Expression<'_>, expected: &str) -> bool {
         matches!(callee, Expression::Identifier(identifier) if identifier.name == expected)
     }
 
     /// Return whether a call callee is `object.property`.
-    fn is_static_member_callee(
+    pub(super) fn is_static_member_callee(
         callee: &Expression<'_>,
         object_name: &str,
         property_name: &str,
@@ -2960,7 +2982,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower callbacks wrapped in erased TypeScript assertion syntax.
-    fn asserted_arrow_callback(
+    pub(super) fn asserted_arrow_callback(
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
@@ -2990,7 +3012,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower the expression inside a TypeScript assertion when it is a callback.
-    fn arrow_callback_expression(
+    pub(super) fn arrow_callback_expression(
         &mut self,
         expression: &Expression<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
@@ -3041,7 +3063,7 @@ impl ModuleBuilder<'_> {
     /// erased/generic surfaces — `unknown`/`any`, type parameters, and unions
     /// that include a function or erased branch — where the value is genuinely
     /// callable at runtime but lacks a clean static function type.
-    fn callback_local_value_is_callable_surface(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn callback_local_value_is_callable_surface(&self, ty: smelt_hir::TypeId) -> bool {
         match self
             .ctx
             .krate
@@ -3069,7 +3091,7 @@ impl ModuleBuilder<'_> {
     /// callable but does not have a clean `Type::Function`, so the direct
     /// local-value branch above does not fire. The wrapper closure forwards the
     /// receiver's element arguments, matching how a direct `fn(...)` call lowers.
-    fn opaque_local_callback(
+    pub(super) fn opaque_local_callback(
         &mut self,
         local: smelt_hir::LocalId,
         local_ty: smelt_hir::TypeId,
@@ -3101,7 +3123,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Build an opaque callback expression for imported predicate/function members.
-    fn opaque_member_callback(&mut self, expected_param_tys: &[smelt_hir::TypeId]) -> CallbackExpr {
+    pub(super) fn opaque_member_callback(&mut self, expected_param_tys: &[smelt_hir::TypeId]) -> CallbackExpr {
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: expected_param_tys.to_vec(),
@@ -3145,14 +3167,14 @@ impl ModuleBuilder<'_> {
     /// an opaque closure that calls the value, rather than rejecting it for not
     /// being an inline arrow. The name must not shadow a local binding, because a
     /// local with the same name is lexically nearer and handled separately.
-    fn is_opaque_callback_value(&self, name: &str) -> bool {
+    pub(super) fn is_opaque_callback_value(&self, name: &str) -> bool {
         !self.locals.contains_key(name)
             && !self.items.contains_key(name)
             && (self.value_imports.contains(name) || self.source_contains_forward_callable(name))
     }
 
     /// Return whether an expression is an imported utility namespace/object.
-    fn imported_utility_object(&self, expression: &Expression<'_>) -> bool {
+    pub(super) fn imported_utility_object(&self, expression: &Expression<'_>) -> bool {
         matches!(
             expression,
             Expression::Identifier(object)
@@ -3162,7 +3184,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a function-expression callback after expected parameter types are known.
-    fn function_callback_from_params(
+    pub(super) fn function_callback_from_params(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
@@ -3201,7 +3223,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an arrow callback after the expected parameter types are known.
-    fn arrow_callback_from_params(
+    pub(super) fn arrow_callback_from_params(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
@@ -3293,7 +3315,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a terminating block-bodied callback into a nested callback expression.
-    fn callback_block_expression<'a>(
+    pub(super) fn callback_block_expression<'a>(
         &mut self,
         statements: &'a [Statement<'a>],
         params: &mut HashMap<&'a str, CallbackExpr>,
@@ -3450,7 +3472,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a callback statement that is evaluated only for side effects.
-    fn callback_side_effect_statement<'a>(
+    pub(super) fn callback_side_effect_statement<'a>(
         &mut self,
         side_effect_statement: &'a Statement<'a>,
         params: &HashMap<&'a str, CallbackExpr>,
@@ -3504,7 +3526,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a callback statement that must terminate the current branch.
-    fn callback_terminating_statement<'a>(
+    pub(super) fn callback_terminating_statement<'a>(
         &mut self,
         statement: &'a Statement<'a>,
         params: &mut HashMap<&'a str, CallbackExpr>,
@@ -3534,7 +3556,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return callback parameters narrowed by facts proven in a true branch guard.
-    fn callback_params_with_guard_narrowing<'a>(
+    pub(super) fn callback_params_with_guard_narrowing<'a>(
         &mut self,
         params: &HashMap<&'a str, CallbackExpr>,
         expression: &Expression<'_>,
@@ -3545,7 +3567,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Apply simple `value !== undefined` callback type facts to a parameter map.
-    fn apply_callback_guard_narrowing(
+    pub(super) fn apply_callback_guard_narrowing(
         &mut self,
         params: &mut HashMap<&str, CallbackExpr>,
         expression: &Expression<'_>,
@@ -3587,7 +3609,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a callback condition using JavaScript truthiness where needed.
-    fn callback_truthy_expression(
+    pub(super) fn callback_truthy_expression(
         &mut self,
         expression: &Expression<'_>,
         params: &HashMap<&str, CallbackExpr>,
@@ -3753,7 +3775,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a truthy check on a function table lookup into explicit key tests.
-    fn callback_function_table_has_key(
+    pub(super) fn callback_function_table_has_key(
         &mut self,
         key: &CallbackExpr,
         cases: &[String],
@@ -3792,7 +3814,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a callback throw branch to a panic expression.
-    fn callback_throw_expression(
+    pub(super) fn callback_throw_expression(
         &mut self,
         argument: Option<&Expression<'_>>,
         params: &HashMap<&str, CallbackExpr>,
@@ -3810,7 +3832,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract the message from common thrown error constructors.
-    fn callback_throw_message(
+    pub(super) fn callback_throw_message(
         &mut self,
         argument: &Expression<'_>,
         params: &HashMap<&str, CallbackExpr>,
@@ -3834,7 +3856,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Bind names from a callback parameter pattern to callback expressions.
-    fn bind_callback_param_pattern<'a>(
+    pub(super) fn bind_callback_param_pattern<'a>(
         &mut self,
         pattern: &'a BindingPattern<'a>,
         param_index: usize,
@@ -3939,7 +3961,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Read arrow parameter types, using contextual function types for omitted annotations.
-    fn arrow_callback_param_types_with_hint(
+    pub(super) fn arrow_callback_param_types_with_hint(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         contextual_function: Option<&FunctionType>,
@@ -4029,7 +4051,7 @@ impl ModuleBuilder<'_> {
     /// that context through imported generic helpers, arithmetic use inside the
     /// callback is still enough to recover a numeric parameter; other cases use
     /// `unknown` so typed library code can keep lowering.
-    fn infer_unannotated_arrow_param_type(
+    pub(super) fn infer_unannotated_arrow_param_type(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         index: usize,
@@ -4050,7 +4072,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return a simple identifier name from a binding or defaulted binding pattern.
-    fn simple_binding_pattern_name<'a>(pattern: &'a BindingPattern<'a>) -> Option<&'a str> {
+    pub(super) fn simple_binding_pattern_name<'a>(pattern: &'a BindingPattern<'a>) -> Option<&'a str> {
         match pattern {
             BindingPattern::BindingIdentifier(binding) => Some(binding.name.as_str()),
             BindingPattern::AssignmentPattern(assign) => {
@@ -4061,7 +4083,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when an arrow parameter participates in arithmetic.
-    fn arrow_param_used_as_number(
+    pub(super) fn arrow_param_used_as_number(
         &self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         param_name: &str,
@@ -4072,7 +4094,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Scan an expression for arithmetic involving a named identifier.
-    fn expression_uses_identifier_in_arithmetic(expression: &Expression<'_>, name: &str) -> bool {
+    pub(super) fn expression_uses_identifier_in_arithmetic(expression: &Expression<'_>, name: &str) -> bool {
         match expression {
             Expression::BinaryExpression(binary)
                 if matches!(
@@ -4117,7 +4139,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when an expression contains a named identifier.
-    fn expression_contains_identifier(expression: &Expression<'_>, name: &str) -> bool {
+    pub(super) fn expression_contains_identifier(expression: &Expression<'_>, name: &str) -> bool {
         match expression {
             Expression::Identifier(identifier) => identifier.name == name,
             Expression::BinaryExpression(binary) => {
@@ -4140,7 +4162,7 @@ impl ModuleBuilder<'_> {
     /// closure body is lowered with `current_async` enabled, receives the
     /// contextual return type for return-expression hints, and records async
     /// state metadata after await expressions have been collected.
-    fn arrow_closure_body_expr(
+    pub(super) fn arrow_closure_body_expr(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         param_tys: &[smelt_hir::TypeId],
@@ -4384,7 +4406,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Returns whether a legacy callback expression contains a source throw.
-    fn callback_expr_contains_throw(callback: &CallbackExpr) -> bool {
+    pub(super) fn callback_expr_contains_throw(callback: &CallbackExpr) -> bool {
         match &callback.kind {
             CallbackExprKind::Throw { .. } => true,
             CallbackExprKind::Unary { operand, .. } => Self::callback_expr_contains_throw(operand),
@@ -4457,12 +4479,12 @@ impl ModuleBuilder<'_> {
     /// MIR lowering attaches exception edges for nested calls and explicit
     /// throws, so only statements that can escape the closure need to widen the
     /// closure ABI to `Result`.
-    fn body_contains_uncaught_throw(body: &Body) -> bool {
+    pub(super) fn body_contains_uncaught_throw(body: &Body) -> bool {
         Self::block_contains_uncaught_throw(body, body.root)
     }
 
     /// Returns whether a HIR block contains a throw not protected by catch.
-    fn block_contains_uncaught_throw(body: &Body, block: smelt_hir::BlockId) -> bool {
+    pub(super) fn block_contains_uncaught_throw(body: &Body, block: smelt_hir::BlockId) -> bool {
         let Some(block_data) = usize::try_from(block.0)
             .ok()
             .and_then(|index| body.blocks.get(index))
@@ -4481,7 +4503,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Returns whether a HIR statement can throw out of the surrounding body.
-    fn stmt_contains_uncaught_throw(body: &Body, stmt: &Stmt) -> bool {
+    pub(super) fn stmt_contains_uncaught_throw(body: &Body, stmt: &Stmt) -> bool {
         match stmt {
             Stmt::Throw(_) => true,
             Stmt::If {
@@ -4534,7 +4556,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an arrow function expression as a first-class closure value.
-    fn arrow_function_expression(
+    pub(super) fn arrow_function_expression(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         body: &mut Body,
@@ -4543,7 +4565,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an arrow function expression using an optional contextual function type.
-    fn arrow_function_expression_with_hint(
+    pub(super) fn arrow_function_expression_with_hint(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         body: &mut Body,
@@ -4618,7 +4640,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the expression produced by an arrow function body.
-    fn arrow_return_expression<'a>(
+    pub(super) fn arrow_return_expression<'a>(
         &self,
         arrow: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
     ) -> Result<&'a Expression<'a>, SmeltError> {
@@ -4648,7 +4670,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect outer identifier names referenced by an arrow body expression.
-    fn collect_expression_capture_names(
+    pub(super) fn collect_expression_capture_names(
         &self,
         expression: &Expression<'_>,
         param_names: &HashSet<String>,
@@ -4886,7 +4908,7 @@ impl ModuleBuilder<'_> {
     /// captured enclosing local; without traversing the update target the
     /// mutated local is never recorded as a capture and the closure body fails
     /// with `unresolved identifier`.
-    fn collect_simple_assignment_target_capture_names(
+    pub(super) fn collect_simple_assignment_target_capture_names(
         &self,
         target: &SimpleAssignmentTarget<'_>,
         param_names: &HashSet<String>,
@@ -4911,7 +4933,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect captured locals referenced by an assignment target.
-    fn collect_assignment_target_capture_names(
+    pub(super) fn collect_assignment_target_capture_names(
         &self,
         target: &AssignmentTarget<'_>,
         param_names: &HashSet<String>,
@@ -4936,7 +4958,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect outer identifier names referenced by a block-bodied arrow statement.
-    fn collect_statement_capture_names(
+    pub(super) fn collect_statement_capture_names(
         &self,
         statement: &Statement<'_>,
         param_names: &HashSet<String>,
@@ -5087,7 +5109,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Add names declared by a `for...of` or `for...in` left binding to a local name set.
-    fn collect_for_left_binding_names(left: &ForStatementLeft<'_>, names: &mut HashSet<String>) {
+    pub(super) fn collect_for_left_binding_names(left: &ForStatementLeft<'_>, names: &mut HashSet<String>) {
         let ForStatementLeft::VariableDeclaration(decl) = left else {
             return;
         };
@@ -5099,7 +5121,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower either an inline arrow callback or a local closure callback value.
-    fn callback_argument(
+    pub(super) fn callback_argument(
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
@@ -5314,7 +5336,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an array predicate callback, coercing JavaScript truthy returns into booleans.
-    fn truthy_callback_argument_with_body_fallback(
+    pub(super) fn truthy_callback_argument_with_body_fallback(
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
@@ -5386,7 +5408,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert a callback expression result into the boolean value used by JS predicates.
-    fn coerce_callback_expr_to_truthy(
+    pub(super) fn coerce_callback_expr_to_truthy(
         &mut self,
         callback: CallbackExpr,
         span: Span,
@@ -5463,7 +5485,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an array callback, falling back to a normal closure body when needed.
-    fn callback_argument_with_body_fallback(
+    pub(super) fn callback_argument_with_body_fallback(
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
@@ -5497,7 +5519,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether compact callback lowering should retry as a normal closure.
-    fn should_fallback_to_closure_body_for_callback(error: &SmeltError) -> bool {
+    pub(super) fn should_fallback_to_closure_body_for_callback(error: &SmeltError) -> bool {
         error.message == "callback expression kind is not supported yet"
             || error.message == "callback member assignment needs closure-body lowering"
             // Reassigning a callback parameter (`(value) => { value = ...; }`)
@@ -5535,7 +5557,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collapse tuple item types into the element type used by array callbacks.
-    fn tuple_items_element_type(&mut self, items: &[smelt_hir::TypeId]) -> smelt_hir::TypeId {
+    pub(super) fn tuple_items_element_type(&mut self, items: &[smelt_hir::TypeId]) -> smelt_hir::TypeId {
         match items {
             [] => self.ctx.krate.types.intern(Type::Unknown),
             [single] => *single,
@@ -5545,7 +5567,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a supported callback expression.
-    fn callback_expression(
+    pub(super) fn callback_expression(
         &mut self,
         expression: &Expression<'_>,
         params: &HashMap<&str, CallbackExpr>,
@@ -6893,7 +6915,7 @@ impl ModuleBuilder<'_> {
     /// within a `reduce` callback. The callback-expression path is still a
     /// compact IR while it is migrated to regular closure bodies, so this
     /// recognizes that public `String.prototype.replace` API shape directly.
-    fn callback_regex_replace_uppercase_call(
+    pub(super) fn callback_regex_replace_uppercase_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         params: &HashMap<&str, CallbackExpr>,
@@ -6938,7 +6960,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a replacement callback is `(m) => m.toUpperCase()`.
-    fn arrow_callback_returns_param_uppercase(
+    pub(super) fn arrow_callback_returns_param_uppercase(
         &self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
     ) -> Result<bool, SmeltError> {
@@ -6967,7 +6989,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a callback template literal as string concatenation.
-    fn callback_template_literal(
+    pub(super) fn callback_template_literal(
         &mut self,
         template: &oxc::ast::ast::TemplateLiteral<'_>,
         params: &HashMap<&str, CallbackExpr>,
@@ -7026,7 +7048,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower callback `typeof value` expressions to string literals.
-    fn callback_typeof_unary(
+    pub(super) fn callback_typeof_unary(
         &mut self,
         unary: &oxc::ast::ast::UnaryExpression<'_>,
         params: &HashMap<&str, CallbackExpr>,
@@ -7050,7 +7072,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Compute the result type of a callback conditional expression.
-    fn callback_unify_conditional_exprs(
+    pub(super) fn callback_unify_conditional_exprs(
         &mut self,
         then_expr: CallbackExpr,
         else_expr: CallbackExpr,
@@ -7077,7 +7099,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Coerce a callback object literal to a structural object type when its fields fit.
-    fn coerce_callback_object_literal_to_type(
+    pub(super) fn coerce_callback_object_literal_to_type(
         &mut self,
         mut expr: CallbackExpr,
         target_ty: smelt_hir::TypeId,
@@ -7093,7 +7115,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether callback object-literal entries are compatible with a structural type.
-    fn callback_object_literal_assignable_to(
+    pub(super) fn callback_object_literal_assignable_to(
         &mut self,
         entries: &[(smelt_hir::Symbol, CallbackExpr)],
         target_ty: smelt_hir::TypeId,
@@ -7111,7 +7133,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lightweight callback assignment compatibility for contextual branch typing.
-    fn callback_type_assignable(
+    pub(super) fn callback_type_assignable(
         &self,
         source_ty: smelt_hir::TypeId,
         target_ty: smelt_hir::TypeId,
@@ -7122,7 +7144,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Compute the result type of a callback conditional expression.
-    fn callback_conditional_type(
+    pub(super) fn callback_conditional_type(
         &mut self,
         then_ty: smelt_hir::TypeId,
         else_ty: smelt_hir::TypeId,
@@ -7170,7 +7192,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `value === undefined/null` checks inside callback expressions.
-    fn callback_nullish_binary(
+    pub(super) fn callback_nullish_binary(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         params: &HashMap<&str, CallbackExpr>,
@@ -7275,7 +7297,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `typeof value === "kind"` checks inside callback expressions.
-    fn callback_typeof_binary(
+    pub(super) fn callback_typeof_binary(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         params: &HashMap<&str, CallbackExpr>,
@@ -7336,7 +7358,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Maps supported TypeScript callback binary operators to HIR operators.
-    fn callback_binary_op(
+    pub(super) fn callback_binary_op(
         &self,
         operator: BinaryOperator,
         start: u32,
@@ -7369,7 +7391,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Array.prototype.indexOf` and `lastIndexOf`.
-    fn list_search_call(
+    pub(super) fn list_search_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -7416,7 +7438,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Array.prototype.entries` calls.
-    fn list_entries_call(
+    pub(super) fn list_entries_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -7465,7 +7487,7 @@ impl ModuleBuilder<'_> {
     /// JavaScript `.at` accepts negative indexes, but out-of-range positions
     /// return `undefined` rather than raising. Model that with `OptionalIndex`
     /// so generated Rust uses checked normalized indexes for misses.
-    fn collection_at_call(
+    pub(super) fn collection_at_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,

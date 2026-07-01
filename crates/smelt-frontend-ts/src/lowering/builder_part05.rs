@@ -1,6 +1,21 @@
+//! `ModuleBuilder` lowering methods (part 05): test-suite (`describe`/hooks)
+//! lowering and related HIR construction helpers split out of `lowering.rs`.
+
+use super::support::sanitize_test_name;
+use super::{ModuleBuilder, TableBindingValue};
+use crate::SmeltError;
+use oxc::ast::ast::{
+    Argument, ArrayExpressionElement, BindingPattern, Expression, ForStatementLeft,
+    ObjectPropertyKind, PropertyKey, Statement,
+};
+use oxc::span::GetSpan;
+use smelt_hir::{
+    Body, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type,
+};
+
 impl ModuleBuilder<'_> {
     /// Lower a `describe` test-suite declaration and its inherited hooks.
-    fn describe_declaration(
+    pub(super) fn describe_declaration(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         inherited_setup: &[&Statement<'_>],
@@ -26,7 +41,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the static title for a supported `describe(...)` call.
-    fn describe_group_name(
+    pub(super) fn describe_group_name(
         &self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Result<String, SmeltError> {
@@ -44,7 +59,7 @@ impl ModuleBuilder<'_> {
     /// This recursively flattens nested suite organization into Rust test
     /// functions while preserving inherited setup statements, lifecycle hooks,
     /// and literal table bindings from enclosing `describe.each` rows.
-    fn describe_body_declarations<'a>(
+    pub(super) fn describe_body_declarations<'a>(
         &mut self,
         statements: &'a oxc::allocator::Vec<'a, Statement<'a>>,
         group_name: &str,
@@ -184,7 +199,7 @@ impl ModuleBuilder<'_> {
     /// the callback statements. Returns `None` when the expression is not a
     /// loop-over-literal-array of supported test calls, so the caller can fall
     /// through to its other suite-statement handling.
-    fn describe_foreach_declarations<'a>(
+    pub(super) fn describe_foreach_declarations<'a>(
         &mut self,
         expression: &'a Expression<'a>,
         group_name: &str,
@@ -237,7 +252,7 @@ impl ModuleBuilder<'_> {
     /// re-runs suite-body lowering. Returns `None` when the loop does not iterate
     /// a literal array with a single identifier binding so the caller reports the
     /// usual unsupported-suite-statement diagnostic.
-    fn describe_for_of_declarations<'a>(
+    pub(super) fn describe_for_of_declarations<'a>(
         &mut self,
         for_of: &'a oxc::ast::ast::ForOfStatement<'a>,
         group_name: &str,
@@ -286,7 +301,7 @@ impl ModuleBuilder<'_> {
         clippy::too_many_arguments,
         reason = "suite-body lowering threads inherited setup, both lifecycle-hook lists, table bindings, and the unrolled loop parameter"
     )]
-    fn unroll_test_loop<'a>(
+    pub(super) fn unroll_test_loop<'a>(
         &mut self,
         param_name: &'a str,
         elements: impl Iterator<Item = &'a ArrayExpressionElement<'a>>,
@@ -332,7 +347,7 @@ impl ModuleBuilder<'_> {
     /// Date-fns uses browser guards in `describe` blocks. When Smelt can prove
     /// the guard is false for the native Rust target, only the alternate branch
     /// is considered; otherwise both branches are scanned for tests.
-    fn describe_if_statement_declarations<'a>(
+    pub(super) fn describe_if_statement_declarations<'a>(
         &mut self,
         if_stmt: &'a oxc::ast::ast::IfStatement<'a>,
         group_name: &str,
@@ -369,7 +384,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a statement that appears as one branch of a suite-level `if`.
-    fn describe_branch_declarations<'a>(
+    pub(super) fn describe_branch_declarations<'a>(
         &mut self,
         statement: &'a Statement<'a>,
         group_name: &str,
@@ -395,7 +410,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a nested `describe` while carrying inherited table bindings.
-    fn describe_declaration_with_name_and_bindings<'a>(
+    pub(super) fn describe_declaration_with_name_and_bindings<'a>(
         &mut self,
         call: &'a oxc::ast::ast::CallExpression<'a>,
         group_name: &str,
@@ -416,7 +431,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an expression is a dynamic test alias call.
-    fn dynamic_test_alias_call(&self, expression: &Expression<'_>) -> bool {
+    pub(super) fn dynamic_test_alias_call(&self, expression: &Expression<'_>) -> bool {
         let Expression::CallExpression(call) = expression else {
             return false;
         };
@@ -432,7 +447,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a top-level Vitest `test` / `it` call into an HIR test function.
-    fn test_case_declaration(
+    pub(super) fn test_case_declaration(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         group_name: Option<&str>,
@@ -481,7 +496,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a prepared test callback into an HIR test function.
-    fn test_function_from_arrow(
+    pub(super) fn test_function_from_arrow(
         &mut self,
         test_name: &str,
         span: Span,
@@ -568,7 +583,7 @@ return_ty: none,
     }
 
     /// Lower a prepared `function () { ... }` test callback into an HIR test function.
-    fn test_function_from_function(
+    pub(super) fn test_function_from_function(
         &mut self,
         test_name: &str,
         span: Span,
@@ -681,7 +696,7 @@ return_ty: none,
     }
 
     /// Lower `test.each` / `it.each` table rows into one Rust test per row.
-    fn table_test_declarations(
+    pub(super) fn table_test_declarations(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         group_name: Option<&str>,
@@ -753,7 +768,7 @@ return_ty: none,
     }
 
     /// Lower `describe.each` by flattening each row's nested suite body.
-    fn describe_each_declarations<'a>(
+    pub(super) fn describe_each_declarations<'a>(
         &mut self,
         call: &'a oxc::ast::ast::CallExpression<'a>,
         group_name: Option<&str>,
@@ -802,7 +817,7 @@ return_ty: none,
     ///
     /// Nested array elements represent multi-argument rows. Scalar elements
     /// use Vitest's shorthand for a one-argument row.
-    fn table_rows<'a>(
+    pub(super) fn table_rows<'a>(
         &self,
         each_call: &'a oxc::ast::ast::CallExpression<'a>,
     ) -> Result<Vec<Vec<&'a ArrayExpressionElement<'a>>>, SmeltError> {
@@ -828,7 +843,7 @@ return_ty: none,
     }
 
     /// Pair callback parameter names with one table row.
-    fn table_bindings<'a>(
+    pub(super) fn table_bindings<'a>(
         &self,
         arrow: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
         row: &[&'a ArrayExpressionElement<'a>],
@@ -913,7 +928,7 @@ return_ty: none,
     }
 
     /// Bind one `test.each` row value to a local used by the callback body.
-    fn bind_table_value(
+    pub(super) fn bind_table_value(
         &mut self,
         name: &str,
         value: TableBindingValue<'_>,
@@ -953,7 +968,7 @@ return_ty: none,
     /// test-function name. These const bindings only feed title folding; they
     /// are never bound as runtime values (the original `const` already lowers
     /// into the test body), so they cannot collide with row/loop bindings.
-    fn test_case_name<'a>(
+    pub(super) fn test_case_name<'a>(
         &self,
         argument: &Argument<'a>,
         group_name: Option<&str>,
@@ -983,7 +998,7 @@ return_ty: none,
     /// folds the interpolation to constant text. Only string-literal (and
     /// expression-free template-literal) initializers qualify, matching what
     /// title folding can resolve.
-    fn suite_const_string_bindings<'a>(
+    pub(super) fn suite_const_string_bindings<'a>(
         setup: &[&'a Statement<'a>],
     ) -> Vec<(&'a str, TableBindingValue<'a>)> {
         let mut bindings = Vec::new();
@@ -1018,7 +1033,7 @@ return_ty: none,
     }
 
     /// Extract a string title from a test-framework name argument.
-    fn test_title(&self, argument: &Argument<'_>) -> Result<String, SmeltError> {
+    pub(super) fn test_title(&self, argument: &Argument<'_>) -> Result<String, SmeltError> {
         self.test_title_with_bindings(argument, &[])
     }
 
@@ -1031,7 +1046,7 @@ return_ty: none,
     /// (`[...].forEach(x => it(`name ${x}`, ...))`) derive a distinct, stable
     /// Rust test-function name per iteration from the bound literal element,
     /// rather than rejecting computed names outright.
-    fn test_title_with_bindings(
+    pub(super) fn test_title_with_bindings(
         &self,
         argument: &Argument<'_>,
         table_bindings: &[(&str, TableBindingValue<'_>)],
@@ -1071,7 +1086,7 @@ return_ty: none,
     /// literal array element folds to that element's constant text. Anything
     /// whose value is not statically known returns `None` so the caller reports
     /// an unsupported computed test name.
-    fn template_expression_text(
+    pub(super) fn template_expression_text(
         expression: &Expression<'_>,
         table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Option<String> {
@@ -1163,7 +1178,7 @@ return_ty: none,
     /// identifiers resolved through the active bindings (a loop-bound element).
     /// Returns `None` when truthiness is not statically decidable so the caller
     /// reports an unsupported computed name rather than guessing.
-    fn template_expression_truthy(
+    pub(super) fn template_expression_truthy(
         expression: &Expression<'_>,
         table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Option<bool> {
@@ -1185,7 +1200,7 @@ return_ty: none,
     }
 
     /// Fold a literal array-literal element to its constant text, if possible.
-    fn array_element_constant_text(element: &ArrayExpressionElement<'_>) -> Option<String> {
+    pub(super) fn array_element_constant_text(element: &ArrayExpressionElement<'_>) -> Option<String> {
         match element {
             ArrayExpressionElement::StringLiteral(literal) => Some(literal.value.to_string()),
             ArrayExpressionElement::NumericLiteral(literal) => Some(literal.value.to_string()),
@@ -1210,7 +1225,7 @@ return_ty: none,
     }
 
     /// Extract and validate an arrow callback for supported test-framework calls.
-    fn test_arrow_callback<'a>(
+    pub(super) fn test_arrow_callback<'a>(
         &self,
         argument: &'a Argument<'a>,
         context: &str,
@@ -1224,7 +1239,7 @@ return_ty: none,
     /// `describe("name", { concurrent: false }, () => {})`. Suite lowering
     /// only needs the callback statements, so this scans arguments after the
     /// title and returns the final function-like callback.
-    fn test_suite_callback_statements<'a>(
+    pub(super) fn test_suite_callback_statements<'a>(
         &self,
         call: &'a oxc::ast::ast::CallExpression<'a>,
         context: &str,
@@ -1265,7 +1280,7 @@ return_ty: none,
     }
 
     /// Extract and validate an arrow callback, optionally allowing table-test parameters.
-    fn test_arrow_callback_with_params<'a>(
+    pub(super) fn test_arrow_callback_with_params<'a>(
         &self,
         argument: &'a Argument<'a>,
         context: &str,
@@ -1287,7 +1302,7 @@ return_ty: none,
     }
 
     /// Lower one supported statement inside a test case callback.
-    fn test_case_statement(
+    pub(super) fn test_case_statement(
         &mut self,
         statement: &Statement<'_>,
         body: &mut Body,

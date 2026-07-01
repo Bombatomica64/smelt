@@ -1,11 +1,25 @@
+//! Lowering helpers for `instanceof`, `typeof`, nullish comparisons, type
+//! assertions, call-argument lowering, and `Promise` construction.
+
+use super::{ModuleBuilder, ambient_globals, stdlib_dispatch, unknown_kind_from_typeof};
+use crate::SmeltError;
+use oxc::ast::ast::{Argument, BindingPattern, Expression, Statement, TSType, TSTypeName};
+use oxc::span::GetSpan;
+use oxc::syntax::operator::{BinaryOperator, UnaryOperator};
+use smelt_hir::{
+    AsyncOp, BinOp, Body, DatePart, Expr, ExprKind, FunctionType, Literal, PrimitiveCastOp, Stmt,
+    Type, UnaryOp, UnknownKind,
+};
+use smelt_stdlib::RuleId;
+
 impl ModuleBuilder<'_> {
     /// Return whether a source constructor name resolves to a modeled TypeScript stdlib class.
-    fn is_ts_stdlib_class_name(name: &str, class: smelt_stdlib::StdlibClass) -> bool {
+    pub(super) fn is_ts_stdlib_class_name(name: &str, class: smelt_stdlib::StdlibClass) -> bool {
         smelt_stdlib::typescript_stdlib_class(name) == Some(class)
     }
 
     /// Lower a TypeScript `instanceof` binary expression into a HIR predicate.
-    fn instanceof_expression(
+    pub(super) fn instanceof_expression(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
@@ -87,7 +101,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when an expression is a built-in constructor target.
-    fn instanceof_builtin_target(target: &str) -> bool {
+    pub(super) fn instanceof_builtin_target(target: &str) -> bool {
         smelt_stdlib::typescript_stdlib_class(target).is_some()
             || Self::marker_only_builtin_marker(target).is_some()
             || matches!(
@@ -140,13 +154,13 @@ impl ModuleBuilder<'_> {
     /// presence guard `true` for a name whose positive branch the runtime cannot
     /// satisfy would reintroduce the erased-vs-runtime disagreement the globals
     /// plan warns against, so unmodeled host globals are deliberately excluded.
-    fn is_known_defined_global_constructor(name: &str) -> bool {
+    pub(super) fn is_known_defined_global_constructor(name: &str) -> bool {
         matches!(name, "Blob" | "ArrayBuffer")
             || Self::marker_only_builtin_marker(name).is_some()
     }
 
     /// Return true for builtin targets represented by non-class HIR values today.
-    fn instanceof_fold_false_builtin_target(target: &str) -> bool {
+    pub(super) fn instanceof_fold_false_builtin_target(target: &str) -> bool {
         matches!(
             smelt_stdlib::typescript_stdlib_class(target),
             Some(
@@ -159,7 +173,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when `instanceof` can be emitted as a concrete HIR class check.
-    fn instanceof_concrete_class(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn instanceof_concrete_class(&self, ty: smelt_hir::TypeId) -> bool {
         matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
     }
 
@@ -170,7 +184,7 @@ impl ModuleBuilder<'_> {
     /// TypeScript still guarantees `Date` and `T extends Date` values satisfy
     /// `instanceof Date`, and direct Date constructors retain that provenance
     /// until this predicate is lowered.
-    fn type_is_known_date_value(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn type_is_known_date_value(&self, ty: smelt_hir::TypeId) -> bool {
         match self
             .ctx
             .krate
@@ -197,7 +211,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when an expression carries JavaScript `Date` identity despite timestamp storage.
-    fn expression_is_known_date_value(&self, value: smelt_hir::ExprId, body: &Body) -> bool {
+    pub(super) fn expression_is_known_date_value(&self, value: smelt_hir::ExprId, body: &Body) -> bool {
         let Some(expr) = body
             .exprs
             .get(usize::try_from(value.0).unwrap_or(usize::MAX))
@@ -226,7 +240,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when an `instanceof` left operand can participate in a lowered guard.
-    fn instanceof_supported_left_operand(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn instanceof_supported_left_operand(&self, ty: smelt_hir::TypeId) -> bool {
         match self
             .ctx
             .krate
@@ -254,7 +268,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `typeof value === "kind"` checks using known HIR types when possible.
-    fn unknown_typeof_comparison(
+    pub(super) fn unknown_typeof_comparison(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
@@ -460,7 +474,7 @@ impl ModuleBuilder<'_> {
     /// not a recognized existence probe returns `None` so it falls through to the
     /// ordinary `typeof` comparison handling (which keeps honest blockers for
     /// real dynamic global usage).
-    fn global_typeof_probe(
+    pub(super) fn global_typeof_probe(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
@@ -504,7 +518,7 @@ impl ModuleBuilder<'_> {
     /// that imported binding is an ordinary value, not the ambient global, so it
     /// must not be normalized or erased. A name explicitly recorded as a
     /// `const g = globalThis;` alias always counts.
-    fn is_ambient_global_alias(&self, name: &str) -> bool {
+    pub(super) fn is_ambient_global_alias(&self, name: &str) -> bool {
         if self.global_object_aliases.contains(name) {
             return true;
         }
@@ -529,7 +543,7 @@ impl ModuleBuilder<'_> {
     /// Any other expression — including a member access or computed access on the
     /// global object — is rejected, so callers never mistake a deeper path for the
     /// global object itself.
-    fn expr_is_global_alias(&self, expression: &Expression<'_>) -> bool {
+    pub(super) fn expr_is_global_alias(&self, expression: &Expression<'_>) -> bool {
         match expression {
             Expression::Identifier(identifier) => {
                 self.is_ambient_global_alias(identifier.name.as_str())
@@ -546,7 +560,7 @@ impl ModuleBuilder<'_> {
     /// since es-toolkit reaches `Buffer` through `globalThis`. Only a static,
     /// non-optional member off a recognized global alias counts; any other shape
     /// falls through to ordinary lowering.
-    fn typeof_operand_is_absent_global(&self, operand: &Expression<'_>) -> bool {
+    pub(super) fn typeof_operand_is_absent_global(&self, operand: &Expression<'_>) -> bool {
         match operand {
             Expression::Identifier(identifier) => {
                 Self::is_absent_ambient_global(identifier.name.as_str())
@@ -566,12 +580,12 @@ impl ModuleBuilder<'_> {
     /// non-Node, so it is reported absent. Keeping presence here (rather than
     /// resolving the identifier to a fabricated value) makes the `typeof` guard
     /// the single source of truth and keeps `isBuffer` deterministic.
-    fn is_absent_ambient_global(name: &str) -> bool {
+    pub(super) fn is_absent_ambient_global(name: &str) -> bool {
         matches!(name, "Buffer")
     }
 
     /// Return a static `typeof` comparison result when all runtime variants agree.
-    fn static_typeof_match(&self, ty: smelt_hir::TypeId, expected: &str) -> Option<bool> {
+    pub(super) fn static_typeof_match(&self, ty: smelt_hir::TypeId, expected: &str) -> Option<bool> {
         let resolved_ty = self.type_param_constraint_or_self(ty);
         match self.ctx.krate.types.get(resolved_ty).cloned() {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Future(_)) => None,
@@ -600,7 +614,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the JavaScript `typeof` string represented by a lowered type.
-    fn typeof_type_name(&self, ty: smelt_hir::TypeId) -> Option<&'static str> {
+    pub(super) fn typeof_type_name(&self, ty: smelt_hir::TypeId) -> Option<&'static str> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Bool) => Some("boolean"),
             Some(Type::Int | Type::Float) => Some("number"),
@@ -627,7 +641,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `value === null` checks for TypeScript `unknown` values.
-    fn unknown_null_comparison(
+    pub(super) fn unknown_null_comparison(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
@@ -752,7 +766,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the compared value and singleton for `value == null/undefined`.
-    fn nullish_comparison_parts<'a>(
+    pub(super) fn nullish_comparison_parts<'a>(
         left: &'a Expression<'a>,
         right: &'a Expression<'a>,
     ) -> Option<(&'a Expression<'a>, &'a Expression<'a>)> {
@@ -766,18 +780,18 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an expression is JavaScript `null` or `undefined`.
-    fn is_nullish_expression(expression: &Expression<'_>) -> bool {
+    pub(super) fn is_nullish_expression(expression: &Expression<'_>) -> bool {
         matches!(expression, Expression::NullLiteral(_))
             || Self::is_undefined_expression(expression)
     }
 
     /// Return whether an expression is the JavaScript `undefined` identifier.
-    fn is_undefined_expression(expression: &Expression<'_>) -> bool {
+    pub(super) fn is_undefined_expression(expression: &Expression<'_>) -> bool {
         matches!(expression, Expression::Identifier(identifier) if identifier.name == "undefined")
     }
 
     /// Lower TypeScript type assertions against `unknown` as checked extractions.
-    fn type_assertion_expression(
+    pub(super) fn type_assertion_expression(
         &mut self,
         expression: &Expression<'_>,
         annotation: &TSType<'_>,
@@ -825,7 +839,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a TypeScript assertion is the runtime-erased `as const` form.
-    fn is_const_type_assertion(annotation: &TSType<'_>) -> bool {
+    pub(super) fn is_const_type_assertion(annotation: &TSType<'_>) -> bool {
         matches!(
             annotation,
             TSType::TSTypeReference(reference)
@@ -837,7 +851,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an expression is an empty object literal after TS-only wrappers.
-    fn is_empty_object_expression(expression: &Expression<'_>) -> bool {
+    pub(super) fn is_empty_object_expression(expression: &Expression<'_>) -> bool {
         match expression {
             Expression::ObjectExpression(object) => object.properties.is_empty(),
             Expression::ParenthesizedExpression(parenthesized) => {
@@ -857,7 +871,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a function call argument.
-    fn argument(
+    pub(super) fn argument(
         &mut self,
         argument: &Argument<'_>,
         body: &mut Body,
@@ -1032,7 +1046,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a call argument with an expected type for literals that need contextual typing.
-    fn argument_with_hint(
+    pub(super) fn argument_with_hint(
         &mut self,
         argument: &Argument<'_>,
         body: &mut Body,
@@ -1100,7 +1114,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a contextual argument type should preserve a `RegExp` literal object.
-    fn type_accepts_regexp_literal(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn type_accepts_regexp_literal(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(Type::Class { name, .. }) => self
                 .ctx
@@ -1118,7 +1132,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a `RegExp` literal to a runtime `RegExp` value for erased object contexts.
-    fn regexp_literal_expression(
+    pub(super) fn regexp_literal_expression(
         &mut self,
         literal: &oxc::ast::ast::RegExpLiteral<'_>,
         body: &mut Body,
@@ -1147,7 +1161,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower supported `Promise.*` calls into shared async runtime operations.
-    fn promise_static_call(
+    pub(super) fn promise_static_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1228,7 +1242,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return output type for Promise combinators over a source array literal.
-    fn promise_literal_combinator_output(
+    pub(super) fn promise_literal_combinator_output(
         &mut self,
         op: AsyncOp,
         args: &[smelt_hir::ExprId],
@@ -1285,7 +1299,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower Promise combinators over a non-literal list of homogeneous futures.
-    fn promise_list_combinator_args(
+    pub(super) fn promise_list_combinator_args(
         &mut self,
         op: AsyncOp,
         argument: &Argument<'_>,
@@ -1329,7 +1343,7 @@ impl ModuleBuilder<'_> {
     /// Timer executors keep their timeout duration. Other executor forms are
     /// represented as zero-delay futures with the explicit `Promise<T>` output
     /// type so async batching helpers can keep their type surface.
-    fn promise_constructor_expression(
+    pub(super) fn promise_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -1430,7 +1444,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the explicit `Promise<T>` constructor output type when present.
-    fn promise_constructor_output_type(
+    pub(super) fn promise_constructor_output_type(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
     ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
@@ -1447,7 +1461,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the `setTimeout` call inside a supported Promise executor.
-    fn promise_executor_timer_call<'a>(
+    pub(super) fn promise_executor_timer_call<'a>(
         executor: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
         let [statement] = executor.body.statements.as_slice() else {
@@ -1474,7 +1488,7 @@ impl ModuleBuilder<'_> {
     /// anything else (`() => resolve(value)`, a block that rejects, etc.) the
     /// resolved value would be lost by the `Sleep` collapse, so the caller must
     /// route it through `AsyncOp::Promise` instead.
-    fn promise_executor_is_bare_delay(
+    pub(super) fn promise_executor_is_bare_delay(
         executor: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         timer_call: &oxc::ast::ast::CallExpression<'_>,
     ) -> bool {
@@ -1491,7 +1505,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower small TypeScript timer shims used by async fixtures.
-    fn timer_call(
+    pub(super) fn timer_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1611,7 +1625,7 @@ impl ModuleBuilder<'_> {
     /// `string_replace_call` (literal string pattern), so it is no longer
     /// rejected here. The hook is kept as the place to surface future
     /// deferred object/collection method diagnostics.
-    fn unsupported_object_collection_call(
+    pub(super) fn unsupported_object_collection_call(
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Option<SmeltError> {
         let Expression::StaticMemberExpression(_) = &call.callee else {
@@ -1621,7 +1635,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower TypeScript `fetch(url[, options])` into an async HTTP GET text operation.
-    fn fetch_call(
+    pub(super) fn fetch_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1683,7 +1697,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower supported TypeScript `Date` calls.
-    fn date_call(
+    pub(super) fn date_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1742,7 +1756,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `Date.UTC(year, month, ...)` into Smelt's timestamp-from-parts form.
-    fn date_utc_call(
+    pub(super) fn date_utc_call(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1783,7 +1797,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower supported `new Date(...)` expressions to a timestamp value.
-    fn new_date_expression(
+    pub(super) fn new_date_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -1804,7 +1818,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `new (date.constructor as DateCtor)(value)` while retaining Date identity.
-    fn dynamic_date_constructor_expression(
+    pub(super) fn dynamic_date_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -1832,7 +1846,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower guarded dynamic Date constructor identifiers such as `new constructor(0)`.
-    fn dynamic_identifier_constructor_expression(
+    pub(super) fn dynamic_identifier_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -1853,7 +1867,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for expressions that reference a `.constructor` member.
-    fn is_constructor_member_reference(expression: &Expression<'_>) -> bool {
+    pub(super) fn is_constructor_member_reference(expression: &Expression<'_>) -> bool {
         match expression {
             Expression::StaticMemberExpression(member) => member.property.name == "constructor",
             Expression::ParenthesizedExpression(parenthesized) => {
@@ -1873,7 +1887,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the timestamp expression represented by a supported `new Date(...)`.
-    fn date_constructor_timestamp(
+    pub(super) fn date_constructor_timestamp(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -1939,7 +1953,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for types accepted by JavaScript's one-argument Date constructor.
-    fn is_date_constructor_arg_type(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn is_date_constructor_arg_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(
                 Type::Int
@@ -1959,7 +1973,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower supported Date receiver methods using Smelt's timestamp Date model.
-    fn date_member_call(
+    pub(super) fn date_member_call(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -2172,7 +2186,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert a Date-like receiver into the timestamp expression used by Date operations.
-    fn date_receiver_timestamp(
+    pub(super) fn date_receiver_timestamp(
         &mut self,
         receiver: smelt_hir::ExprId,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,

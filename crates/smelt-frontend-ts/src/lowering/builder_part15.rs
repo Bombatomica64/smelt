@@ -1,9 +1,28 @@
+//! Member-access and assignment-target lowering helpers.
+//!
+//! Covers namespace member calls, static/computed member reads (including the
+//! well-known `Symbol`, `Math`, `Number`, and `Object` static surfaces),
+//! optional chains, and the lowering of assignment/update targets.
+
+use super::ModuleBuilder;
+use crate::SmeltError;
+use oxc::span::GetSpan;
+use oxc::syntax::operator::{AssignmentOperator, UpdateOperator};
+use oxc::ast::ast::{
+    AssignmentTarget, ChainElement, Expression, SimpleAssignmentTarget,
+};
+use smelt_hir::{
+    BinOp, Body, CaptureMode, ClosureCapture, DictProjectionOp, Expr, ExprKind, FunctionType, Item,
+    Literal, LocalDecl, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, Pattern,
+    PrimitiveCastOp, Span, Stmt, Type,
+};
+
 impl ModuleBuilder<'_> {
     /// Runtime key used for JavaScript's well-known `Symbol.iterator` value.
     const SYMBOL_ITERATOR_KEY: &'static str = "__smelt_symbol_iterator";
 
     /// Lower supported namespace member calls into the matching HIR operation.
-    fn namespace_member_call(
+    pub(super) fn namespace_member_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -96,7 +115,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the namespace binding and exported member name for namespace member access.
-    fn namespace_member_name<'a>(
+    pub(super) fn namespace_member_name<'a>(
         &self,
         member: &'a oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> Option<(&'a str, &'a str)> {
@@ -110,7 +129,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Compute the HIR expression type used when an item appears as an expression.
-    fn item_expr_type(
+    pub(super) fn item_expr_type(
         &mut self,
         item: smelt_hir::ItemId,
         span: Span,
@@ -140,7 +159,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a TypeScript optional chain wrapper by delegating to its chain element.
-    fn chain_expression(
+    pub(super) fn chain_expression(
         &mut self,
         chain: &oxc::ast::ast::ChainExpression<'_>,
         body: &mut Body,
@@ -172,7 +191,7 @@ impl ModuleBuilder<'_> {
     /// member such as `globalThis.Buffer` (whose bare form is itself unsupported)
     /// returns `None` and falls through to ordinary member lowering, which keeps
     /// the honest blocker rather than silently degrading to a dynamic read.
-    fn global_alias_member_read(
+    pub(super) fn global_alias_member_read(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
@@ -189,7 +208,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a static member access expression.
-    fn static_member(
+    pub(super) fn static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
@@ -324,7 +343,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower supported well-known `Symbol.<name>` member reads.
-    fn symbol_static_member(
+    pub(super) fn symbol_static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
@@ -349,7 +368,7 @@ impl ModuleBuilder<'_> {
     /// `purry(Object.fromEntries, args)`. Direct-call lowering handles
     /// `Object.fromEntries(value)`, while this path gives bare member
     /// references a callable shape and the correct `.length` arity.
-    fn object_static_function_member(
+    pub(super) fn object_static_function_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         outer_body: &mut Body,
@@ -372,7 +391,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Build an opaque closure for a supported static `Object` member reference.
-    fn object_static_closure(
+    pub(super) fn object_static_closure(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         arity: usize,
@@ -494,7 +513,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower opaque static Object metadata reads such as `Object.prototype`.
-    fn object_static_member(
+    pub(super) fn object_static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
@@ -521,7 +540,7 @@ impl ModuleBuilder<'_> {
     /// Test tables commonly use these global numeric constants as literal
     /// values, so they can be represented directly in HIR without resolving
     /// `Number` as a user-defined namespace.
-    fn number_static_constant(
+    pub(super) fn number_static_constant(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
@@ -559,7 +578,7 @@ impl ModuleBuilder<'_> {
     /// handled by `number_predicate_call`; a bare member reference must become a
     /// callable `(value) => <NumericPredicate>(value)` value instead of resolving
     /// `Number` as an ordinary (unresolved) identifier and reading a field on it.
-    fn number_predicate_member_expression(
+    pub(super) fn number_predicate_member_expression(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         outer_body: &mut Body,
@@ -639,7 +658,7 @@ impl ModuleBuilder<'_> {
     /// callbacks. The direct-call lowering handles `Math.ceil(value)`, but a
     /// bare member reference must become a callable value instead of resolving
     /// `Math` as a normal identifier.
-    fn math_member_expression(
+    pub(super) fn math_member_expression(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         outer_body: &mut Body,
@@ -800,7 +819,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower the small Node `process` surface used by checked package probes.
-    fn node_process_static_member(
+    pub(super) fn node_process_static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
@@ -832,7 +851,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for the specific `process.version` member expression.
-    fn is_process_version_member(object: &Expression<'_>) -> bool {
+    pub(super) fn is_process_version_member(object: &Expression<'_>) -> bool {
         let Expression::StaticMemberExpression(member) = object else {
             return false;
         };
@@ -841,7 +860,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for any static `process.env.<field>` member expression.
-    fn is_process_env_member(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> bool {
+    pub(super) fn is_process_env_member(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> bool {
         let Expression::StaticMemberExpression(env_member) = &member.object else {
             return false;
         };
@@ -850,7 +869,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for a specific static `process.env.<field>` member expression.
-    fn is_process_env_field(
+    pub(super) fn is_process_env_field(
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         field: &str,
     ) -> bool {
@@ -858,7 +877,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a computed member access expression.
-    fn computed_member(
+    pub(super) fn computed_member(
         &mut self,
         member: &oxc::ast::ast::ComputedMemberExpression<'_>,
         body: &mut Body,
@@ -996,7 +1015,7 @@ impl ModuleBuilder<'_> {
     /// Date-fns stores a selected rounding method as a string literal union and
     /// then calls the selected function. Smelt keeps that value dynamic by
     /// emitting a captured closure that dispatches over supported rounding names.
-    fn dynamic_math_member_expression(
+    pub(super) fn dynamic_math_member_expression(
         &mut self,
         member: &oxc::ast::ast::ComputedMemberExpression<'_>,
         outer_body: &mut Body,
@@ -1124,7 +1143,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Push one numeric rounding operation inside a generated dynamic Math closure.
-    fn dynamic_math_round_expr(
+    pub(super) fn dynamic_math_round_expr(
         body: &mut Body,
         op: NumericRoundOp,
         operand: smelt_hir::ExprId,
@@ -1144,7 +1163,7 @@ impl ModuleBuilder<'_> {
     /// index path. This fallback only covers source that already carries a
     /// nearby `@ts-expect-error [ts7053]`, which Remeda uses for dynamic
     /// accumulator reads that TypeScript itself cannot prove.
-    fn unknown_computed_member_with_hint(
+    pub(super) fn unknown_computed_member_with_hint(
         &mut self,
         member: &oxc::ast::ast::ComputedMemberExpression<'_>,
         body: &mut Body,
@@ -1169,7 +1188,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether source explicitly acknowledges a dynamic unknown index read.
-    fn can_lower_acknowledged_unknown_index(
+    pub(super) fn can_lower_acknowledged_unknown_index(
         &self,
         receiver_ty: smelt_hir::TypeId,
         start: u32,
@@ -1181,7 +1200,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a nearby preceding comment expects the given TS error code.
-    fn has_ts_expect_error_before(&self, start: u32, code: &str) -> bool {
+    pub(super) fn has_ts_expect_error_before(&self, start: u32, code: &str) -> bool {
         let Ok(start) = usize::try_from(start) else {
             return false;
         };
@@ -1193,7 +1212,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower TypeScript global primitive conversion and numeric parse calls.
-    fn primitive_cast_call(
+    pub(super) fn primitive_cast_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1262,7 +1281,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a global primitive conversion accepts a lowered operand type.
-    fn primitive_cast_accepts_operand(
+    pub(super) fn primitive_cast_accepts_operand(
         &self,
         op: PrimitiveCastOp,
         operand_ty: smelt_hir::TypeId,
@@ -1294,7 +1313,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract target and value from assignment expression.
-    fn assignment_parts(
+    pub(super) fn assignment_parts(
         &mut self,
         assign: &oxc::ast::ast::AssignmentExpression<'_>,
         body: &mut Body,
@@ -1380,7 +1399,7 @@ impl ModuleBuilder<'_> {
     /// Smelt stores that value in a compiler local and then emits one ordinary
     /// assignment per destructured element. This keeps swaps like
     /// `[data[i], data[j]] = [data[j], data[i]]` from observing their own writes.
-    fn array_destructuring_assignment_statement(
+    pub(super) fn array_destructuring_assignment_statement(
         &mut self,
         assign: &oxc::ast::ast::AssignmentExpression<'_>,
         body: &mut Body,
@@ -1474,7 +1493,7 @@ impl ModuleBuilder<'_> {
     /// no-`any` model. Keeping this as a narrowing fact preserves the local's
     /// declared storage type while allowing later reads in the same flow to be
     /// lowered with the assigned value type.
-    fn apply_assignment_observed_type(
+    pub(super) fn apply_assignment_observed_type(
         &mut self,
         target: &AssignmentTarget<'_>,
         observed_ty: smelt_hir::TypeId,
@@ -1498,7 +1517,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract target and value from increment/decrement expression.
-    fn update_parts(
+    pub(super) fn update_parts(
         &mut self,
         update: &oxc::ast::ast::UpdateExpression<'_>,
         body: &mut Body,
@@ -1532,7 +1551,7 @@ impl ModuleBuilder<'_> {
     /// value for prefix updates. Variable initializers defer postfix assignments
     /// until after their binding statement so the initializer observes the old
     /// value; other expression contexts emit in their owning statement block.
-    fn update_expression(
+    pub(super) fn update_expression(
         &mut self,
         update: &oxc::ast::ast::UpdateExpression<'_>,
         body: &mut Body,
@@ -1551,7 +1570,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert assignment target to expression.
-    fn assignment_target_expr(
+    pub(super) fn assignment_target_expr(
         &mut self,
         target: &AssignmentTarget<'_>,
         body: &mut Body,
@@ -1590,7 +1609,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert an array destructuring assignment element to its target expression.
-    fn assignment_maybe_default_target_expr(
+    pub(super) fn assignment_maybe_default_target_expr(
         &mut self,
         target: &oxc::ast::ast::AssignmentTargetMaybeDefault<'_>,
         body: &mut Body,
@@ -1604,7 +1623,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert simple assignment target to expression.
-    fn simple_assignment_target_expr(
+    pub(super) fn simple_assignment_target_expr(
         &mut self,
         target: &SimpleAssignmentTarget<'_>,
         body: &mut Body,
@@ -1632,7 +1651,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower access to a private class field through the same field HIR as public fields.
-    fn private_field_member(
+    pub(super) fn private_field_member(
         &mut self,
         object: &Expression<'_>,
         field_name: &str,

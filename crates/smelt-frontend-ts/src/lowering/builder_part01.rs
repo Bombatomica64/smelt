@@ -1,6 +1,34 @@
+//! TypeScript AST lowering methods for `ModuleBuilder` (part 01).
+
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+
+use super::support::{
+    const_literal_from_item, implemented_function_names, insert_visible_item,
+    is_implemented_overload_signature, item_name, module_export_name,
+};
+use super::{
+    AssertionNarrowing, ConstCollection, ConstCollectionItem, ConstCollectionValue, ConstLiteral,
+    ModuleBuilder, RestParam, SpecializationData,
+};
+use crate::{
+    HirCtx, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,
+    OverloadSignature, SmeltError, test_support,
+};
+use oxc::ast::ast::{
+    Argument, ArrayExpressionElement, BindingPattern, Declaration, Expression,
+    ImportDeclarationSpecifier, ImportOrExportKind, ObjectPropertyKind, Program, PropertyKey,
+    Statement,
+};
+use oxc::span::GetSpan;
+use smelt_hir::{
+    Body, ConstItem, Expr, ExprKind, FileId, Function, FunctionOwner, FunctionType, Import, Item,
+    Language, Literal, Module, ModuleId, Param, SourceFile, Span, Type,
+};
+
 impl<'ctx> ModuleBuilder<'ctx> {
     /// Create a new module builder.
-    fn new(
+    pub(super) fn new(
         file_id: FileId,
         path: String,
         source: String,
@@ -80,12 +108,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return whether a source path is a declaration-only type-test module.
-    fn is_declaration_type_test_path(path: &str) -> bool {
+    pub(super) fn is_declaration_type_test_path(path: &str) -> bool {
         path.ends_with(".test-d.ts") || path.ends_with(".test.ts")
     }
 
     /// Collect items already present in the shared crate for cross-module references.
-    fn visible_items(
+    pub(super) fn visible_items(
         ctx: &HirCtx,
     ) -> (
         HashMap<String, smelt_hir::ItemId>,
@@ -130,7 +158,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Collect literal constant items already present in the shared crate.
-    fn visible_const_literals(ctx: &HirCtx) -> HashMap<String, ConstLiteral> {
+    pub(super) fn visible_const_literals(ctx: &HirCtx) -> HashMap<String, ConstLiteral> {
         let mut values = HashMap::new();
         for item in &ctx.krate.items {
             let Item::Const(const_item) = item else {
@@ -159,7 +187,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower a TypeScript program to HIR module.
-    fn program(&mut self, program: &Program<'_>) -> Result<ModuleId, Vec<SmeltError>> {
+    pub(super) fn program(&mut self, program: &Program<'_>) -> Result<ModuleId, Vec<SmeltError>> {
         let span = self.span(program.span.start, program.span.end);
         let mut body = Body::new(None, span);
         let mut errors = Vec::new();
@@ -407,7 +435,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Record item exports lowered from the current source path.
-    fn record_module_exports(
+    pub(super) fn record_module_exports(
         &mut self,
         module: &Module,
         previous_export_aliases: &HashMap<String, smelt_hir::ItemId>,
@@ -445,14 +473,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return a canonical path string when the path exists on disk.
-    fn canonical_module_path(path: &str) -> Option<String> {
+    pub(super) fn canonical_module_path(path: &str) -> Option<String> {
         std::fs::canonicalize(path)
             .ok()
             .map(|path| path.display().to_string())
     }
 
     /// Collect class names declared in the current module before lowering eager arrow bodies.
-    fn program_class_names(program: &Program<'_>) -> HashSet<String> {
+    pub(super) fn program_class_names(program: &Program<'_>) -> HashSet<String> {
         program
             .body
             .iter()
@@ -471,14 +499,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Because the builder carries visible items across files, a local helper
     /// with the same name as an imported overloaded function must not inherit
     /// that imported function's return surface.
-    fn shadow_cross_module_overloads(&mut self, implemented_functions: &HashSet<String>) {
+    pub(super) fn shadow_cross_module_overloads(&mut self, implemented_functions: &HashSet<String>) {
         for name in implemented_functions {
             self.function_overloads.insert(name.clone(), Vec::new());
         }
     }
 
     /// Collect typed top-level variables that functions may read or write.
-    fn collect_module_globals(&mut self, program: &Program<'_>) {
+    pub(super) fn collect_module_globals(&mut self, program: &Program<'_>) {
         for statement in &program.body {
             match statement {
                 Statement::VariableDeclaration(variable) => {
@@ -495,7 +523,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Register annotated module-level variables for later function-body lookup.
-    fn collect_module_global_decl(&mut self, decl: &oxc::ast::ast::VariableDeclaration<'_>) {
+    pub(super) fn collect_module_global_decl(&mut self, decl: &oxc::ast::ast::VariableDeclaration<'_>) {
         for declarator in &decl.declarations {
             let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
                 if matches!(
@@ -614,7 +642,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Register simple names from a non-identifier module-level binding pattern.
-    fn collect_module_global_pattern_bindings(
+    pub(super) fn collect_module_global_pattern_bindings(
         pattern: &BindingPattern<'_>,
         ty: smelt_hir::TypeId,
         module_globals: &mut HashMap<String, smelt_hir::TypeId>,
@@ -658,7 +686,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return true for top-level const-arrow declarations already emitted as items.
-    fn is_predeclared_arrow_const_statement(&self, statement: &Statement<'_>) -> bool {
+    pub(super) fn is_predeclared_arrow_const_statement(&self, statement: &Statement<'_>) -> bool {
         let Statement::VariableDeclaration(decl) = statement else {
             return false;
         };
@@ -679,7 +707,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return true for const array initializers whose values must be visible in functions.
-    fn is_module_global_array_initializer(init: &Expression<'_>) -> bool {
+    pub(super) fn is_module_global_array_initializer(init: &Expression<'_>) -> bool {
         match init {
             Expression::ArrayExpression(_) => true,
             Expression::NewExpression(new_expr) => matches!(
@@ -708,7 +736,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Infer the type of a top-level constant initializer for later test-body reads.
-    fn infer_module_global_initializer_type(
+    pub(super) fn infer_module_global_initializer_type(
         &mut self,
         init: &Expression<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -718,7 +746,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Extract literal array and set constants that nested function bodies can inline.
-    fn const_collection_from_initializer(
+    pub(super) fn const_collection_from_initializer(
         &mut self,
         init: &Expression<'_>,
         ty: smelt_hir::TypeId,
@@ -765,7 +793,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Extract literal elements from a module-level constant array.
-    fn const_collection_items<'a>(
+    pub(super) fn const_collection_items<'a>(
         &mut self,
         elements: impl Iterator<Item = &'a ArrayExpressionElement<'a>>,
     ) -> Option<Vec<ConstCollectionItem>> {
@@ -821,7 +849,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return the identifier passed to a direct `Object.values(identifier)` call.
-    fn object_values_identifier_argument(
+    pub(super) fn object_values_identifier_argument(
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Option<String> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -840,7 +868,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Build an `Object.values` collection from a reusable static object const.
-    fn const_collection_from_object_const(
+    pub(super) fn const_collection_from_object_const(
         &mut self,
         value: &ObjectConst,
     ) -> Option<ConstCollection> {
@@ -880,7 +908,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// constants and projected in tests. The object itself still lowers as a
     /// runtime const; this side table only gives nested function/test bodies a
     /// stable list shape while preserving null versus undefined.
-    fn const_unknown_value_collection_from_object(
+    pub(super) fn const_unknown_value_collection_from_object(
         &mut self,
         object: &oxc::ast::ast::ObjectExpression<'_>,
     ) -> Option<ConstCollection> {
@@ -905,7 +933,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Approximate one dynamic object value as an optional erased JS value.
-    fn const_unknown_value_item(
+    pub(super) fn const_unknown_value_item(
         &mut self,
         expression: &Expression<'_>,
         unknown_ty: smelt_hir::TypeId,
@@ -965,7 +993,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Collect TypeScript overload signatures for concrete implementations.
-    fn collect_overload_signatures(
+    pub(super) fn collect_overload_signatures(
         &mut self,
         program: &Program<'_>,
         implemented_functions: &HashSet<String>,
@@ -990,7 +1018,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Collect one overload signature, skipping signatures outside the current type surface.
-    fn collect_overload_signature(&mut self, function: &oxc::ast::ast::Function<'_>) {
+    pub(super) fn collect_overload_signature(&mut self, function: &oxc::ast::ast::Function<'_>) {
         let Some(id) = &function.id else {
             return;
         };
@@ -1008,7 +1036,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower a TypeScript overload declaration into callable metadata.
-    fn overload_signature(
+    pub(super) fn overload_signature(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
     ) -> Result<OverloadSignature, SmeltError> {
@@ -1080,7 +1108,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Collect top-level function signatures before lowering function bodies.
-    fn collect_forward_function_types(
+    pub(super) fn collect_forward_function_types(
         &mut self,
         program: &Program<'_>,
         implemented_functions: &HashSet<String>,
@@ -1113,7 +1141,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Collect one function declaration signature for hoisted callback references.
-    fn collect_forward_function_type(&mut self, function: &oxc::ast::ast::Function<'_>) {
+    pub(super) fn collect_forward_function_type(&mut self, function: &oxc::ast::ast::Function<'_>) {
         let Some(id) = &function.id else {
             return;
         };
@@ -1134,7 +1162,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Build the callable type for a forward function declaration.
-    fn forward_function_type(
+    pub(super) fn forward_function_type(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         name_text: &str,
@@ -1181,7 +1209,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Resolve a function return type from its annotation or implementation overloads.
-    fn function_return_type_or_overload(
+    pub(super) fn function_return_type_or_overload(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         name_text: &str,
@@ -1198,7 +1226,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Resolve an optional function return annotation or implementation overload.
-    fn function_return_type_annotation_or_overload(
+    pub(super) fn function_return_type_annotation_or_overload(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         name_text: &str,
@@ -1217,7 +1245,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Reserve HIR item slots for hoisted top-level function declarations.
-    fn predeclare_function_items(
+    pub(super) fn predeclare_function_items(
         &mut self,
         program: &Program<'_>,
         implemented_functions: &HashSet<String>,
@@ -1255,7 +1283,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower type aliases early so hoisted function signatures can use them.
-    fn predeclare_type_alias_items(&mut self, program: &Program<'_>) {
+    pub(super) fn predeclare_type_alias_items(&mut self, program: &Program<'_>) {
         for _ in 0_usize..2_usize {
             for statement in &program.body {
                 match statement {
@@ -1283,7 +1311,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Reserve one function item with its callable signature and no body yet.
-    fn predeclare_function_item(
+    pub(super) fn predeclare_function_item(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
     ) -> Result<(), SmeltError> {
@@ -1342,7 +1370,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// scope is saved and restored around the loop because this prepass runs
     /// before the function body is lowered and must not leak parameter bindings
     /// into the surrounding module scope.
-    fn predeclared_function(
+    pub(super) fn predeclared_function(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         name_text: &str,
@@ -1439,7 +1467,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower `export { name } from "module"` metadata and local aliases.
-    fn reexport_named_declaration(
+    pub(super) fn reexport_named_declaration(
         &mut self,
         export: &oxc::ast::ast::ExportNamedDeclaration<'_>,
         module: &mut Module,
@@ -1487,7 +1515,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower `export * from "module"` metadata for dependency discovery.
-    fn reexport_all_declaration(
+    pub(super) fn reexport_all_declaration(
         &mut self,
         export: &oxc::ast::ast::ExportAllDeclaration<'_>,
         module: &mut Module,
@@ -1520,7 +1548,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// `Types.Id` only for exports that came from `./types`. Keeping this
     /// source-scoped prevents namespace imports in large barrel graphs from
     /// repeatedly re-aliasing every previously seen item.
-    fn alias_source_exports_under_namespace(&mut self, source: &str, namespace: &str) {
+    pub(super) fn alias_source_exports_under_namespace(&mut self, source: &str, namespace: &str) {
         let Some(exports) = self.source_module_exports(source) else {
             return;
         };
@@ -1542,14 +1570,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return the exports for an import source resolved relative to this file.
-    fn source_module_exports(&self, source: &str) -> Option<HashMap<String, smelt_hir::ItemId>> {
+    pub(super) fn source_module_exports(&self, source: &str) -> Option<HashMap<String, smelt_hir::ItemId>> {
         self.resolved_module_export_keys(source)
             .into_iter()
             .find_map(|key| self.ctx.module_exports.get(&key).cloned())
     }
 
     /// Return candidate module-export keys for a TypeScript source specifier.
-    fn resolved_module_export_keys(&self, source: &str) -> Vec<String> {
+    pub(super) fn resolved_module_export_keys(&self, source: &str) -> Vec<String> {
         let mut keys = Vec::new();
         Self::push_module_export_key(&mut keys, source);
         let source_path = Path::new(source);
@@ -1579,7 +1607,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Push a module-export key and a leading-`./`-less variant.
-    fn push_module_export_key(keys: &mut Vec<String>, key: &str) {
+    pub(super) fn push_module_export_key(keys: &mut Vec<String>, key: &str) {
         keys.push(key.to_owned());
         if let Some(stripped) = key.strip_prefix("./") {
             keys.push(stripped.to_owned());
@@ -1587,7 +1615,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower an import declaration into module metadata and local item aliases.
-    fn import_declaration(
+    pub(super) fn import_declaration(
         &mut self,
         import: &oxc::ast::ast::ImportDeclaration<'_>,
         module: &mut Module,
@@ -1654,7 +1682,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return whether an imported local already resolves to concrete frontend metadata.
-    fn import_alias_resolved(&self, local: &str) -> bool {
+    pub(super) fn import_alias_resolved(&self, local: &str) -> bool {
         self.items.contains_key(local)
             || self.classes.contains_key(local)
             || self.interfaces.contains_key(local)
@@ -1666,7 +1694,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Add a local alias for an imported item when it is already known.
-    fn alias_imported_item(&mut self, source: &str, imported: &str, local: &str) {
+    pub(super) fn alias_imported_item(&mut self, source: &str, imported: &str, local: &str) {
         if let Some(exports) = self.source_module_exports(source)
             && let Some(item) = exports.get(imported).copied()
         {
@@ -1762,7 +1790,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower exported literal `const` declarations into importable HIR constant items.
-    fn const_item_declarations(
+    pub(super) fn const_item_declarations(
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
@@ -1954,7 +1982,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return the identifier behind a top-level const initializer that aliases an imported value.
-    fn imported_value_identifier<'a>(
+    pub(super) fn imported_value_identifier<'a>(
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::IdentifierReference<'a>> {
         match expression {
@@ -1976,7 +2004,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower top-level local arrow `const` declarations into private callable items.
-    fn arrow_function_const_item_declarations(
+    pub(super) fn arrow_function_const_item_declarations(
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
         forward_arrow_consts: &HashSet<String>,
@@ -2011,7 +2039,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return top-level arrow binding names declared by one variable statement.
-    fn arrow_const_declaration_names(decl: &oxc::ast::ast::VariableDeclaration<'_>) -> Vec<String> {
+    pub(super) fn arrow_const_declaration_names(decl: &oxc::ast::ast::VariableDeclaration<'_>) -> Vec<String> {
         decl.declarations
             .iter()
             .filter_map(|declarator| {
@@ -2033,7 +2061,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// declarations. When one arrow returns or passes a later arrow value, the
     /// referenced callable item must be lowered first so the value is not
     /// replaced by a conservative unresolved-global placeholder.
-    fn arrow_const_dependencies_are_lowered(
+    pub(super) fn arrow_const_dependencies_are_lowered(
         &self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
         candidates: &HashSet<String>,
@@ -2062,7 +2090,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Find top-level arrow consts that function bodies may reference before declaration order.
-    fn forward_arrow_const_names(&self, program: &Program<'_>) -> HashSet<String> {
+    pub(super) fn forward_arrow_const_names(&self, program: &Program<'_>) -> HashSet<String> {
         let mut arrow_consts = Vec::new();
         let mut referrer_spans = Vec::new();
         for statement in &program.body {
@@ -2144,7 +2172,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// arrow functions and later call them through dynamic keys. Those arrows
     /// need real callable items before the export lowering records namespace
     /// metadata for the table.
-    fn object_namespace_arrow_const_names(program: &Program<'_>) -> HashSet<String> {
+    pub(super) fn object_namespace_arrow_const_names(program: &Program<'_>) -> HashSet<String> {
         let mut arrow_consts = HashSet::new();
         for statement in &program.body {
             let Statement::VariableDeclaration(variable) = statement else {
@@ -2200,7 +2228,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return a directly written object initializer without stripping assertions.
-    fn direct_object_initializer<'a>(
+    pub(super) fn direct_object_initializer<'a>(
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::ObjectExpression<'a>> {
         match expression {
@@ -2213,7 +2241,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return an object initializer after removing TypeScript-only wrappers.
-    fn object_const_initializer<'a>(
+    pub(super) fn object_const_initializer<'a>(
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::ObjectExpression<'a>> {
         match expression {
@@ -2235,7 +2263,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower an exported object constant that only groups existing exports into namespace metadata.
-    fn object_namespace_const_declaration(
+    pub(super) fn object_namespace_const_declaration(
         &mut self,
         name_text: &str,
         object: &oxc::ast::ast::ObjectExpression<'_>,
@@ -2313,7 +2341,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Extract the callable value type from a string-keyed function table hint.
-    fn function_table_value_type(
+    pub(super) fn function_table_value_type(
         &self,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Option<smelt_hir::TypeId> {
@@ -2330,7 +2358,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// each member is written with object method syntax and later called through
     /// `lightFormatters.y(...)`. Smelt models those members as private module
     /// functions and records the function item in namespace metadata.
-    fn object_namespace_method_item(
+    pub(super) fn object_namespace_method_item(
         &mut self,
         namespace: &str,
         key: &str,
@@ -2353,7 +2381,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower an exported static object constant into importable const metadata.
-    fn object_const_declaration(
+    pub(super) fn object_const_declaration(
         &mut self,
         name_text: &str,
         object: &oxc::ast::ast::ObjectExpression<'_>,
@@ -2395,7 +2423,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// tables also export object constants whose fields call local helpers such
     /// as `buildFormatLongFn(...)`; those need a real HIR const body instead of
     /// primitive literal folding.
-    fn dynamic_object_const_declaration(
+    pub(super) fn dynamic_object_const_declaration(
         &mut self,
         name_text: &str,
         object: &oxc::ast::ast::ObjectExpression<'_>,
@@ -2428,7 +2456,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Convert a static object expression into reusable literal-object metadata.
-    fn object_const_from_expression(
+    pub(super) fn object_const_from_expression(
         &mut self,
         object: &oxc::ast::ast::ObjectExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
@@ -2476,7 +2504,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Primitive values are stored as literals. Function-valued lookup tables
     /// such as Remeda's `COMPARATORS` store their closure expression so later
     /// module-global reads can recreate the object with callable entries.
-    fn object_const_entry_value(
+    pub(super) fn object_const_entry_value(
         &mut self,
         expression: &Expression<'_>,
     ) -> Result<(ObjectConstValue, smelt_hir::TypeId), SmeltError> {
@@ -2551,7 +2579,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower a literal array nested inside reusable object-constant metadata.
-    fn array_object_const_entry_value(
+    pub(super) fn array_object_const_entry_value(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
     ) -> Result<(ObjectConstValue, smelt_hir::TypeId), SmeltError> {
@@ -2655,7 +2683,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Infer the HIR dictionary type for a static object const.
-    fn object_const_type(
+    pub(super) fn object_const_type(
         &mut self,
         entries: &[ObjectConstEntry],
         type_hint: Option<smelt_hir::TypeId>,
@@ -2674,7 +2702,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Recreate a static object const inside the currently lowered body.
-    fn object_const_expression(
+    pub(super) fn object_const_expression(
         &mut self,
         value: &ObjectConst,
         start: u32,
@@ -2705,7 +2733,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Recreate one nested static object-constant value inside the active body.
-    fn object_const_value_expression(
+    pub(super) fn object_const_value_expression(
         &mut self,
         value: &ObjectConstValue,
         ty: smelt_hir::TypeId,

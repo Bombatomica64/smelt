@@ -1,6 +1,18 @@
+//! Generic type-parameter scope management and type-argument substitution.
+//!
+//! Handles pushing/popping type-parameter scopes, resolving parameters and
+//! their constraints, building substitution maps, and applying substitutions
+//! through HIR types, interface fields, and method signatures.
+
+use std::collections::HashMap;
+
+use super::ModuleBuilder;
+use crate::SmeltError;
+use smelt_hir::{Field, FunctionType, MethodSig, Span, Type, TypeParamDef};
+
 impl ModuleBuilder<'_> {
     /// Lower a TypeScript type parameter declaration and push its symbols as an active scope.
-    fn push_type_parameter_scope(
+    pub(super) fn push_type_parameter_scope(
         &mut self,
         params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
     ) -> Result<Vec<TypeParamDef>, SmeltError> {
@@ -47,13 +59,13 @@ impl ModuleBuilder<'_> {
     }
 
     /// Pop the current TypeScript type parameter scope.
-    fn pop_type_parameter_scope(&mut self) {
+    pub(super) fn pop_type_parameter_scope(&mut self) {
         self.type_param_scopes.pop();
         self.type_param_constraint_scopes.pop();
     }
 
     /// Resolve a type parameter by source name from innermost to outermost scope.
-    fn type_parameter_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
+    pub(super) fn type_parameter_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
         self.type_param_scopes
             .iter()
             .rev()
@@ -61,7 +73,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Resolve a lowered type parameter's active constraint, if any.
-    fn type_parameter_constraint(
+    pub(super) fn type_parameter_constraint(
         &self,
         name: smelt_hir::Symbol,
     ) -> Option<smelt_hir::TypeId> {
@@ -72,7 +84,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Builds a substitution map from generic parameter symbols to actual argument types.
-    fn type_argument_substitution(
+    pub(super) fn type_argument_substitution(
         &mut self,
         type_params: &[TypeParamDef],
         args: &[smelt_hir::TypeId],
@@ -102,7 +114,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Substitute generic type parameters within a previously lowered HIR type.
-    fn substitute_type_params(
+    pub(super) fn substitute_type_params(
         &mut self,
         ty: smelt_hir::TypeId,
         substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
@@ -182,7 +194,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Substitute type parameters through interface fields.
-    fn substituted_fields(
+    pub(super) fn substituted_fields(
         &mut self,
         fields: &[Field],
         substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
@@ -198,7 +210,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Substitute type parameters through interface method signatures.
-    fn substituted_methods(
+    pub(super) fn substituted_methods(
         &mut self,
         methods: &[MethodSig],
         substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,

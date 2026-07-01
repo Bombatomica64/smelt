@@ -1,8 +1,14 @@
-// TypeScript `Map` and `Set` collection-method lowering.
-//
-// This file is `include!`-d into the `ModuleBuilder` impl in `lowering.rs`, so
-// it carries no module-level (`//!`) docs; the concern is documented on the
-// impl block below.
+//! TypeScript `Map` and `Set` collection-method lowering.
+//!
+//! Lowers standard-library `Map` and `Set` receiver methods into typed HIR
+//! dict/set operations. The impl block below documents the concern in detail.
+
+use super::ModuleBuilder;
+use crate::SmeltError;
+use oxc::ast::ast::{Argument, Expression};
+use oxc::span::GetSpan;
+use smelt_hir::{Body, DictProjectionOp, Expr, ExprKind, SetProjectionOp, SetRemoveOp, Type};
+use smelt_stdlib::RuleId;
 
 /// `Map` and `Set` collection-method lowering for the TypeScript frontend.
 ///
@@ -33,7 +39,7 @@ impl ModuleBuilder<'_> {
     /// receiver/member pairs are standard-library collection methods lives in
     /// `smelt-stdlib`. This is the primary collection-method entry registered in
     /// `call.rs`'s builtin handler chain.
-    fn dispatch_collection_method(
+    pub(super) fn dispatch_collection_method(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -68,7 +74,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a member name belongs to a registry-backed collection method family.
-    fn is_collection_method_name(member: &str) -> bool {
+    pub(super) fn is_collection_method_name(member: &str) -> bool {
         matches!(
             member,
             "add" | "clear" | "delete" | "entries" | "get" | "has" | "keys" | "set" | "values"
@@ -76,7 +82,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Set.prototype.has`.
-    fn set_contains_call(
+    pub(super) fn set_contains_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -115,7 +121,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Set` mutation methods.
-    fn set_mutation_call(
+    pub(super) fn set_mutation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -198,7 +204,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Map.prototype.has`.
-    fn map_has_call(
+    pub(super) fn map_has_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -237,7 +243,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Map.prototype.get`.
-    fn map_get_call(
+    pub(super) fn map_get_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -281,7 +287,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Map` mutation methods.
-    fn map_mutation_call(
+    pub(super) fn map_mutation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -387,7 +393,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a value argument can be stored in a lowered map value slot.
     ///
     /// Internal to `collections.rs`: only `map_mutation_call` consumes this.
-    fn map_value_type_compatible(
+    pub(super) fn map_value_type_compatible(
         &self,
         expected: smelt_hir::TypeId,
         actual: smelt_hir::TypeId,
@@ -404,7 +410,7 @@ impl ModuleBuilder<'_> {
     /// Registered directly in `call.rs` in addition to being dispatched by
     /// [`Self::dispatch_collection_method`], because the single-argument utility
     /// form (`keys(value)` etc.) reaches this function with a non-`Map` receiver.
-    fn map_projection_call(
+    pub(super) fn map_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -468,7 +474,7 @@ impl ModuleBuilder<'_> {
     /// operation used by `Object.keys`.
     ///
     /// Internal to `collections.rs`: only `map_projection_call` calls this.
-    fn static_dict_projection_utility_call(
+    pub(super) fn static_dict_projection_utility_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -545,7 +551,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Set` projection methods.
-    fn set_projection_call(
+    pub(super) fn set_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,

@@ -1,6 +1,31 @@
+//! Named function-declaration lowering: signatures, overloads, assertion and
+//! type-predicate returns, and function bodies.
+
+use std::collections::HashSet;
+
+use super::support::{
+    is_static_property_key,
+    visibility,
+};
+use super::{
+    AssertionNarrowing, GeneratorYieldAccumulator,
+    ModuleBuilder, RestParam, specialization,
+};
+use crate::SmeltError;
+use oxc::ast::ast::{
+    ArrayExpressionElement, BindingPattern, ClassElement, Expression, MethodDefinitionKind, MethodDefinitionType, ObjectPropertyKind,
+    PropertyKey, Statement,
+};
+use oxc::span::GetSpan;
+use smelt_hir::{
+    Body, Class, Expr, ExprKind,
+    Field, Function, FunctionOwner, FunctionType, Item, LocalDecl, MethodSig, Param,
+    ParamSig, Pattern, Span, Stmt, Type, Visibility,
+};
+
 impl ModuleBuilder<'_> {
     /// Lower a TypeScript function declaration into a HIR function item.
-    fn function_declaration(
+    pub(super) fn function_declaration(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
@@ -21,7 +46,7 @@ impl ModuleBuilder<'_> {
     /// `FunctionExpression` to the const's name. Both forms are semantically a
     /// named module function, so they share this body; the only difference is
     /// where the name comes from.
-    fn function_declaration_named(
+    pub(super) fn function_declaration_named(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         name_text: &str,
@@ -357,7 +382,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create the synthetic list that stores values yielded by a generator body.
-    fn initialize_generator_yield_accumulator(
+    pub(super) fn initialize_generator_yield_accumulator(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         body: &mut Body,
@@ -389,7 +414,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the materialized generator list through the function's erased boundary.
-    fn push_generator_return(
+    pub(super) fn push_generator_return(
         &mut self,
         accumulator: GeneratorYieldAccumulator,
         function: &oxc::ast::ast::Function<'_>,
@@ -413,7 +438,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a TypeScript formal parameter has a default value.
-    fn formal_parameter_has_default(param: &oxc::ast::ast::FormalParameter<'_>) -> bool {
+    pub(super) fn formal_parameter_has_default(param: &oxc::ast::ast::FormalParameter<'_>) -> bool {
         param.initializer.is_some() || matches!(param.pattern, BindingPattern::AssignmentPattern(_))
     }
 
@@ -423,7 +448,7 @@ impl ModuleBuilder<'_> {
     /// types. For unannotated parameters with default initializers, TypeScript
     /// infers the in-body parameter type from the default expression, so Smelt
     /// mirrors that narrow case without weakening arbitrary untyped functions.
-    fn function_parameter_type(
+    pub(super) fn function_parameter_type(
         &mut self,
         param: &oxc::ast::ast::FormalParameter<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -450,7 +475,7 @@ impl ModuleBuilder<'_> {
     /// date-fns formatter tables. Each method is represented as a private
     /// module function and referenced from the namespace metadata.
     /// Lower a synthetic object-table function while preserving exact key spelling.
-    fn function_expression_item_with_source_name(
+    pub(super) fn function_expression_item_with_source_name(
         &mut self,
         name_text: &str,
         function: &oxc::ast::ast::Function<'_>,
@@ -460,7 +485,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lift a function expression, optionally binding it as a class method.
-    fn function_expression_item_with_receiver(
+    pub(super) fn function_expression_item_with_receiver(
         &mut self,
         name_text: &str,
         function: &oxc::ast::ast::Function<'_>,
@@ -661,7 +686,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a class declaration to HIR.
-    fn class_declaration(
+    pub(super) fn class_declaration(
         &mut self,
         class: &oxc::ast::ast::Class<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
@@ -1140,7 +1165,7 @@ impl ModuleBuilder<'_> {
     /// same-class calls need this metadata to resolve return types during the
     /// class lowering pass. The collected signatures are metadata only; method
     /// bodies still lower into regular HIR function items.
-    fn class_method_signatures(
+    pub(super) fn class_method_signatures(
         &mut self,
         elements: &[ClassElement<'_>],
     ) -> Result<Vec<MethodSig>, SmeltError> {
@@ -1164,7 +1189,7 @@ impl ModuleBuilder<'_> {
     /// slots so structural adapters can bind the concrete implementation
     /// instead of erasing external `baseRef.method()` calls or `this.method`
     /// reads to the abstract/base default.
-    fn add_virtual_class_method_fields(
+    pub(super) fn add_virtual_class_method_fields(
         &mut self,
         fields: &mut Vec<Field>,
         methods: &[MethodSig],
@@ -1175,7 +1200,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Build callable storage slots for selected virtual class methods.
-    fn virtual_class_method_fields(
+    pub(super) fn virtual_class_method_fields(
         &mut self,
         existing_fields: &[Field],
         methods: &[MethodSig],
@@ -1225,7 +1250,7 @@ impl ModuleBuilder<'_> {
     /// A value stored as the base type must keep the concrete override for
     /// later `baseRef.method()` calls. This pass runs when the subclass is
     /// seen, because that is the point where override usage is known.
-    fn add_overridden_base_method_fields(
+    pub(super) fn add_overridden_base_method_fields(
         &mut self,
         base: Option<smelt_hir::Symbol>,
         subclass_methods: &[MethodSig],
@@ -1285,7 +1310,7 @@ impl ModuleBuilder<'_> {
     /// Abstract method declarations are always virtual from the point of view
     /// of erased base-class references. Concrete methods only need storage when
     /// source reads them as values through `this.<method>`.
-    fn virtual_method_field_names(
+    pub(super) fn virtual_method_field_names(
         &mut self,
         elements: &[ClassElement<'_>],
         include_abstract_methods: bool,
@@ -1322,7 +1347,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect `this.<name>` member reads from a statement subtree.
-    fn collect_this_member_names_from_statement(
+    pub(super) fn collect_this_member_names_from_statement(
         &mut self,
         statement: &Statement<'_>,
         names: &mut HashSet<smelt_hir::Symbol>,
@@ -1360,7 +1385,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect `this.<name>` member reads from an expression subtree.
-    fn collect_this_member_names_from_expression(
+    pub(super) fn collect_this_member_names_from_expression(
         &mut self,
         expression: &Expression<'_>,
         names: &mut HashSet<smelt_hir::Symbol>,
@@ -1447,7 +1472,7 @@ impl ModuleBuilder<'_> {
     /// Smelt accepts one optional erased argument to keep Date-like subclass
     /// construction call-compatible while the base constructor side effect remains
     /// represented by the generated class storage.
-    fn synthesize_default_class_constructor(
+    pub(super) fn synthesize_default_class_constructor(
         &mut self,
         class_text: &str,
         class_name: smelt_hir::Symbol,
@@ -1512,7 +1537,7 @@ impl ModuleBuilder<'_> {
     /// object before the constructor body runs. Lowering them as assignments to
     /// `this` preserves observable fields for both native field reads and later
     /// erasure through `unknown` object helpers.
-    fn emit_class_field_initializers(
+    pub(super) fn emit_class_field_initializers(
         &mut self,
         this_local: smelt_hir::LocalId,
         class_ty: smelt_hir::TypeId,
@@ -1546,7 +1571,7 @@ impl ModuleBuilder<'_> {
     /// that field. Class lowering already records the field itself; this helper
     /// emits the constructor-side assignment so later `this.value` reads have a
     /// concrete field in HIR/MIR and generated Rust.
-    fn emit_parameter_property_initializers(
+    pub(super) fn emit_parameter_property_initializers(
         this_local: smelt_hir::LocalId,
         class_ty: smelt_hir::TypeId,
         parameter_properties: &[(
@@ -1581,7 +1606,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower the single supported TypeScript `extends` shape for class declarations.
-    fn class_extends_clause(
+    pub(super) fn class_extends_clause(
         &mut self,
         class: &oxc::ast::ast::Class<'_>,
     ) -> Result<(Option<smelt_hir::Symbol>, Vec<smelt_hir::TypeId>), SmeltError> {
@@ -1658,7 +1683,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an abstract TypeScript method declaration to a HIR method signature.
-    fn abstract_class_method_sig(
+    pub(super) fn abstract_class_method_sig(
         &mut self,
         method: &oxc::ast::ast::MethodDefinition<'_>,
     ) -> Result<MethodSig, SmeltError> {
@@ -1725,7 +1750,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a class method or constructor to HIR.
-    fn class_function(
+    pub(super) fn class_function(
         &mut self,
         class_text: &str,
         class_name: smelt_hir::Symbol,
@@ -1961,7 +1986,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a constructor statement is a bare `super(...)` call.
-    fn is_super_call_statement(&self, statement: &Statement<'_>) -> bool {
+    pub(super) fn is_super_call_statement(&self, statement: &Statement<'_>) -> bool {
         let Statement::ExpressionStatement(statement) = statement else {
             return false;
         };
@@ -1982,7 +2007,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a statement in the current scope.
-    fn statement(&mut self, statement: &Statement<'_>, body: &mut Body) -> Result<(), SmeltError> {
+    pub(super) fn statement(&mut self, statement: &Statement<'_>, body: &mut Body) -> Result<(), SmeltError> {
         self.statement_in_block(statement, body, body.root)
     }
 

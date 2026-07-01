@@ -1,6 +1,19 @@
+//! Lowering helpers for regular-expression replacement, string, and related
+//! JavaScript call forms.
+
+use super::{ModuleBuilder, stdlib_dispatch};
+use crate::SmeltError;
+use oxc::ast::ast::{Argument, Expression};
+use oxc::span::GetSpan;
+use smelt_hir::{
+    Body, Expr, ExprKind, FunctionType, Literal, NumericExtremaOp, NumericPredicateOp,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, Span, StringReplaceOp, Type, UrlField,
+};
+use smelt_stdlib::RuleId;
+
 impl ModuleBuilder<'_> {
     /// Lower supported JavaScript regular-expression replacement calls.
-    fn regex_replace_call(
+    pub(super) fn regex_replace_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -102,7 +115,7 @@ return_ty: string_ty,
     }
 
     /// Extract a string pattern from regex replacement pattern forms.
-    fn regex_replacement_pattern(
+    pub(super) fn regex_replacement_pattern(
         &mut self,
         argument: &Argument<'_>,
         body: &mut Body,
@@ -201,7 +214,7 @@ return_ty: string_ty,
     }
 
     /// Lower `new URL(text).field` for the supported URL string fields.
-    fn url_field_expression(
+    pub(super) fn url_field_expression(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
@@ -241,7 +254,7 @@ return_ty: string_ty,
     }
 
     /// Lower `new URL(text).toString()` to the same full-URL extraction as `.href`.
-    fn url_to_string_call(
+    pub(super) fn url_to_string_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -280,7 +293,7 @@ return_ty: string_ty,
     }
 
     /// Lower a `new URL(...)` argument into the string value used by URL helpers.
-    fn url_string_argument(
+    pub(super) fn url_string_argument(
         &mut self,
         argument: &Argument<'_>,
         body: &mut Body,
@@ -309,7 +322,7 @@ return_ty: string_ty,
     }
 
     /// Lower direct TypeScript `Math.abs(...)` calls.
-    fn math_abs_call(
+    pub(super) fn math_abs_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -351,7 +364,7 @@ return_ty: string_ty,
     }
 
     /// Lower direct TypeScript numeric rounding calls.
-    fn math_round_call(
+    pub(super) fn math_round_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -423,7 +436,7 @@ return_ty: string_ty,
     }
 
     /// Lower direct TypeScript `Math.max` and `Math.min` calls.
-    fn math_extrema_call(
+    pub(super) fn math_extrema_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -465,7 +478,7 @@ return_ty: string_ty,
     }
 
     /// Lower direct TypeScript `Math.hypot` calls.
-    fn math_hypot_call(
+    pub(super) fn math_hypot_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -502,7 +515,7 @@ return_ty: string_ty,
     }
 
     /// Lower direct TypeScript numeric predicate calls.
-    fn number_predicate_call(
+    pub(super) fn number_predicate_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -581,7 +594,7 @@ return_ty: string_ty,
     }
 
     /// Lower direct TypeScript `Number.parseFloat(...)` calls.
-    fn number_parse_float_call(
+    pub(super) fn number_parse_float_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -620,7 +633,7 @@ return_ty: string_ty,
     }
 
     /// Lower direct TypeScript `Number.parseInt(...)` calls.
-    fn number_parse_int_call(
+    pub(super) fn number_parse_int_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -655,7 +668,7 @@ return_ty: string_ty,
     /// Returns the string operand plus an optional numeric radix. A present
     /// radix is coerced to `Float` (asserting erased `unknown`/type-parameter
     /// radices) so the `ParseIntRadix` op the callers emit can honor it.
-    fn parse_int_operand(
+    pub(super) fn parse_int_operand(
         &mut self,
         source_name: &str,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -718,7 +731,7 @@ return_ty: string_ty,
     }
 
     /// Lower direct TypeScript `.toString()` calls with an optional radix argument.
-    fn number_to_string_call(
+    pub(super) fn number_to_string_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -812,7 +825,7 @@ return_ty: string_ty,
     /// string with the given number of fractional digits (defaulting to `0`).
     /// Only numeric receivers and an optional numeric digit count are accepted;
     /// other shapes are left for later dispatch.
-    fn number_to_fixed_call(
+    pub(super) fn number_to_fixed_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -865,7 +878,7 @@ return_ty: string_ty,
     }
 
     /// Lower `crypto.getRandomValues(output)` as an accepted typed-array surface.
-    fn crypto_get_random_values_call(
+    pub(super) fn crypto_get_random_values_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -902,7 +915,7 @@ return_ty: string_ty,
     }
 
     /// Lower the specific Node probe `process.version.match(/^v(\d+)\./)` used by date-fns tests.
-    fn node_process_version_match_call(
+    pub(super) fn node_process_version_match_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -933,7 +946,7 @@ return_ty: string_ty,
     }
 
     /// Lower `process.cwd()` as an opaque current-working-directory string.
-    fn node_process_cwd_call(
+    pub(super) fn node_process_cwd_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -961,7 +974,7 @@ return_ty: string_ty,
     }
 
     /// Lower the small `Intl` surface used by date-fns timezone test labels.
-    fn intl_call(
+    pub(super) fn intl_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -985,7 +998,7 @@ return_ty: string_ty,
     }
 
     /// Lower `new Intl.DateTimeFormat(...)` and related Intl constructors as opaque formatter objects.
-    fn intl_date_time_format_constructor_expression(
+    pub(super) fn intl_date_time_format_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -1003,7 +1016,7 @@ return_ty: string_ty,
     }
 
     /// Lower calls to the supported opaque `Intl.*Format#format` formatter surface.
-    fn intl_format_method_call(
+    pub(super) fn intl_format_method_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1053,7 +1066,7 @@ return_ty: string_ty,
     }
 
     /// Lower `Intl.DateTimeFormat().resolvedOptions()` to a small options record.
-    fn intl_resolved_options_call(
+    pub(super) fn intl_resolved_options_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1087,7 +1100,7 @@ return_ty: string_ty,
     }
 
     /// Build the opaque object used for the supported `Intl.DateTimeFormat` surface.
-    fn intl_date_time_format_object_expr(&mut self, body: &mut Body, span: Span) -> smelt_hir::ExprId {
+    pub(super) fn intl_date_time_format_object_expr(&mut self, body: &mut Body, span: Span) -> smelt_hir::ExprId {
         let key = self.ctx.krate.types.intern(Type::String);
         let value = self.ctx.krate.types.intern(Type::Unknown);
         let ty = self.ctx.krate.types.intern(Type::Dict(key, value));
@@ -1099,17 +1112,17 @@ return_ty: string_ty,
     }
 
     /// Return whether this call is `Intl.DateTimeFormat()`.
-    fn is_intl_date_time_format_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+    pub(super) fn is_intl_date_time_format_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
         Self::is_intl_date_time_format_callee(&call.callee)
     }
 
     /// Return whether this call is a supported `Intl.*Format()` constructor-style call.
-    fn is_intl_formatter_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+    pub(super) fn is_intl_formatter_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
         Self::is_intl_formatter_callee(&call.callee)
     }
 
     /// Return whether this expression names `Intl.DateTimeFormat`.
-    fn is_intl_date_time_format_callee(callee: &Expression<'_>) -> bool {
+    pub(super) fn is_intl_date_time_format_callee(callee: &Expression<'_>) -> bool {
         let Expression::StaticMemberExpression(member) = callee else {
             return false;
         };
@@ -1118,7 +1131,7 @@ return_ty: string_ty,
     }
 
     /// Return whether this expression names a supported `Intl.*Format` constructor.
-    fn is_intl_formatter_callee(callee: &Expression<'_>) -> bool {
+    pub(super) fn is_intl_formatter_callee(callee: &Expression<'_>) -> bool {
         let Expression::StaticMemberExpression(member) = callee else {
             return false;
         };
@@ -1130,7 +1143,7 @@ return_ty: string_ty,
     }
 
     /// Return whether this expression constructs/calls `Intl.DateTimeFormat`.
-    fn is_intl_formatter_receiver(receiver: &Expression<'_>) -> bool {
+    pub(super) fn is_intl_formatter_receiver(receiver: &Expression<'_>) -> bool {
         match receiver {
             Expression::CallExpression(call) => Self::is_intl_formatter_call(call),
             Expression::NewExpression(new_expr) => Self::is_intl_formatter_callee(&new_expr.callee),
@@ -1139,7 +1152,7 @@ return_ty: string_ty,
     }
 
     /// Return whether this call is `Intl.DateTimeFormat().resolvedOptions()`.
-    fn is_intl_resolved_options_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+    pub(super) fn is_intl_resolved_options_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return false;
         };
@@ -1153,7 +1166,7 @@ return_ty: string_ty,
     }
 
     /// Lower direct TypeScript unary `Math.*` numeric calls.
-    fn math_unary_func_call(
+    pub(super) fn math_unary_func_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1217,7 +1230,7 @@ return_ty: string_ty,
     }
 
     /// Lower direct TypeScript `Math.random` calls.
-    fn math_random_call(
+    pub(super) fn math_random_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,

@@ -1,6 +1,20 @@
+//! `new` expression and construction lowering for the TypeScript frontend.
+//!
+//! Lowers `new ...` expressions, including standard-library container
+//! constructors and user class construction, into typed HIR.
+
+use super::ModuleBuilder;
+use crate::SmeltError;
+use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
+use oxc::span::GetSpan;
+use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
+use smelt_hir::{
+    BinOp, Body, Expr, ExprKind, Item, Literal, PrimitiveCastOp, Span, Type, UnaryOp, UrlField,
+};
+
 impl ModuleBuilder<'_> {
     /// Lower a `new ...` expression, including stdlib containers and class construction.
-    fn new_expression_with_hint(
+    pub(super) fn new_expression_with_hint(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -226,7 +240,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `new URL(text)` to its full URL string for string-oriented URL APIs.
-    fn url_constructor_expression(
+    pub(super) fn url_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -250,7 +264,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower boxed `new String(value)` as its primitive string payload.
-    fn string_constructor_expression(
+    pub(super) fn string_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -281,7 +295,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a global constructor creates a numeric typed array.
-    fn is_numeric_typed_array_constructor(name: &str) -> bool {
+    pub(super) fn is_numeric_typed_array_constructor(name: &str) -> bool {
         matches!(
             name,
             "Int8Array"
@@ -297,7 +311,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `new URLSearchParams(init)` to an object carrying observable `size`.
-    fn url_search_params_constructor_expression(
+    pub(super) fn url_search_params_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -378,7 +392,7 @@ impl ModuleBuilder<'_> {
     /// the marker (see `instance_of_text`), mirroring the `ArrayBuffer`/`Blob`
     /// models. Constructor arguments are lowered for their effects/types and
     /// then discarded, since none of the retained shape is observed.
-    fn marker_only_builtin_constructor_expression(
+    pub(super) fn marker_only_builtin_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -438,7 +452,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for built-in JavaScript Error constructors with Error identity.
-    fn is_builtin_error_constructor(class_text: &str) -> bool {
+    pub(super) fn is_builtin_error_constructor(class_text: &str) -> bool {
         matches!(
             class_text,
             "Error"
@@ -453,7 +467,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a built-in Error constructor used as a value to an erased Error object.
-    fn error_object_constructor_expression(
+    pub(super) fn error_object_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -504,7 +518,7 @@ impl ModuleBuilder<'_> {
     /// `name`, so the identity survives later dynamic `instanceof` checks (see
     /// `instance_of_text`). The two-argument form is `(message, name)`; the name
     /// defaults to `"Error"` to match the spec fallback path es-toolkit relies on.
-    fn domexception_object_constructor_expression(
+    pub(super) fn domexception_object_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -614,7 +628,7 @@ impl ModuleBuilder<'_> {
     /// a record carrying a dedicated `__smelt_arraybuffer` marker plus its
     /// `byteLength`, mirroring how `Date`/`Error` keep a distinct identity for
     /// later dynamic `instanceof` checks (see `instance_of_text`).
-    fn arraybuffer_constructor_expression(
+    pub(super) fn arraybuffer_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -677,7 +691,7 @@ impl ModuleBuilder<'_> {
     /// model so a later dynamic `instanceof Blob` resolves through the marker
     /// (see `instance_of_text`). The constructor arguments are still lowered so
     /// their effects/types are validated, but only `type` is retained.
-    fn blob_constructor_expression(
+    pub(super) fn blob_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -728,7 +742,7 @@ impl ModuleBuilder<'_> {
     /// Only a directly-spelled `{ type: "..." }` literal is carried onto the
     /// modeled record; any other options shape falls back to the empty MIME
     /// string that a real `Blob` reports when no type is supplied.
-    fn blob_options_type_string(
+    pub(super) fn blob_options_type_string(
         &mut self,
         options_argument: Option<&Argument<'_>>,
         body: &mut Body,
@@ -773,7 +787,7 @@ impl ModuleBuilder<'_> {
     /// is retained alongside a dedicated `__smelt_number` marker so a later
     /// dynamic `instanceof Number` resolves through the marker, mirroring the
     /// `ArrayBuffer` model.
-    fn boxed_number_constructor_expression(
+    pub(super) fn boxed_number_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -838,7 +852,7 @@ impl ModuleBuilder<'_> {
     /// closest correct model is to lower the construct to its `target` operand
     /// (the handler is lowered for its effects/types, then discarded). This
     /// keeps the transparent semantics rather than erasing to a wrong marker.
-    fn proxy_constructor_expression(
+    pub(super) fn proxy_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -880,7 +894,7 @@ impl ModuleBuilder<'_> {
     /// closures when those fields are read (see the erased-object field path in
     /// `place.rs` and `smelt_abort_method`); `instanceof AbortController` /
     /// `instanceof AbortSignal` use the markers (see `instance_of_text`).
-    fn abort_controller_constructor_expression(
+    pub(super) fn abort_controller_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -976,7 +990,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `new Error(message)` to the message expression used by HIR throws.
-    fn error_constructor_expression(
+    pub(super) fn error_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -1016,7 +1030,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `Error(message)`-style calls to the message value used by HIR throws.
-    fn error_function_call(
+    pub(super) fn error_function_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1056,7 +1070,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an expression while preserving a caller-supplied type hint when possible.
-    fn expression_with_hint(
+    pub(super) fn expression_with_hint(
         &mut self,
         expression: &Expression<'_>,
         body: &mut Body,
@@ -1564,7 +1578,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a TypeScript bigint literal into Smelt's current numeric runtime value.
-    fn bigint_literal_expression(
+    pub(super) fn bigint_literal_expression(
         &mut self,
         value: &str,
         span: oxc::span::Span,
@@ -1585,7 +1599,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower JavaScript `typeof value` to a string result when used as a value.
-    fn typeof_expression(
+    pub(super) fn typeof_expression(
         &mut self,
         unary: &oxc::ast::ast::UnaryExpression<'_>,
         body: &mut Body,
@@ -1625,7 +1639,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a TypeScript conditional expression when it appears outside normal expression nodes.
-    fn conditional_expression(
+    pub(super) fn conditional_expression(
         &mut self,
         conditional: &oxc::ast::ast::ConditionalExpression<'_>,
         body: &mut Body,
@@ -1656,7 +1670,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Compute the result type for a conditional expression's branches.
-    fn conditional_branch_type(
+    pub(super) fn conditional_branch_type(
         &mut self,
         then_ty: smelt_hir::TypeId,
         else_ty: smelt_hir::TypeId,
@@ -1734,7 +1748,7 @@ impl ModuleBuilder<'_> {
     /// have no closer common shape it widens to their union (or `unknown` when an
     /// element is itself erased), so an array-producing ternary always keeps an
     /// array shape rather than aborting lowering.
-    fn unify_conditional_list_item_type(
+    pub(super) fn unify_conditional_list_item_type(
         &mut self,
         then_item: smelt_hir::TypeId,
         else_item: smelt_hir::TypeId,
@@ -1764,7 +1778,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a timestamp-backed Date branch can flow into a generic date type.
-    fn date_runtime_float_matches_type_param(
+    pub(super) fn date_runtime_float_matches_type_param(
         &self,
         actual: smelt_hir::TypeId,
         expected: smelt_hir::TypeId,
@@ -1777,7 +1791,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when an expression is an uninhabited empty array literal.
-    fn is_empty_list_expr(body: &Body, expr: smelt_hir::ExprId) -> bool {
+    pub(super) fn is_empty_list_expr(body: &Body, expr: smelt_hir::ExprId) -> bool {
         matches!(
             body.exprs.get(usize::try_from(expr.0).unwrap_or(usize::MAX)),
             Some(Expr {
@@ -1793,7 +1807,7 @@ impl ModuleBuilder<'_> {
     /// the common `value ? a : b` and `if (value)` optional-object/string cases
     /// as a `value != None` check once the expression has lowered to
     /// `Optional<T>`.
-    fn condition_expression(
+    pub(super) fn condition_expression(
         &mut self,
         expression: &Expression<'_>,
         body: &mut Body,
@@ -1807,7 +1821,7 @@ impl ModuleBuilder<'_> {
     /// Assignment operators such as `||=` already lower their target as a
     /// writable place. Reusing the resulting expression here avoids lowering a
     /// computed receiver solely to form the condition that selects its value.
-    fn lowered_condition_expression(
+    pub(super) fn lowered_condition_expression(
         &mut self,
         cond: smelt_hir::ExprId,
         span: Span,
@@ -1914,7 +1928,7 @@ impl ModuleBuilder<'_> {
     ///
     /// Date instances are represented by timestamps in Rust, but source
     /// truthiness depends on the Date object existing, not on its timestamp.
-    fn optional_known_date_presence_condition(
+    pub(super) fn optional_known_date_presence_condition(
         &mut self,
         value: smelt_hir::ExprId,
         span: Span,
@@ -1945,7 +1959,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a present optional value is always truthy in JavaScript.
-    fn type_is_always_truthy_object_surface(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn type_is_always_truthy_object_surface(&self, ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx
                 .krate
@@ -1964,7 +1978,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a non-boolean type can appear in a JavaScript truthiness guard.
-    fn type_is_truthy_condition_surface(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn type_is_truthy_condition_surface(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(
                 Type::Function(_)
@@ -1987,7 +2001,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a template literal as string concatenation.
-    fn template_literal_expression(
+    pub(super) fn template_literal_expression(
         &mut self,
         tpl: &oxc::ast::ast::TemplateLiteral<'_>,
         body: &mut Body,
