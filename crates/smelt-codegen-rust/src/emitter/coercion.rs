@@ -1211,8 +1211,8 @@ impl FunctionEmitter<'_> {
                         )
                     }
                 } else if matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_))) {
-                    let value = self.erase_value_text(&call_text, function.return_ty)?;
-                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+                    let erased_return = self.erase_value_text(&call_text, function.return_ty)?;
+                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
                 } else if self.class_has_no_known_fields(function.return_ty) {
                     if function.may_throw {
                         call_text
@@ -1220,12 +1220,12 @@ impl FunctionEmitter<'_> {
                         format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call_text})")
                     }
                 } else if function.may_throw {
-                    let value =
+                    let erased_return =
                         self.erase_value_text(&format!("{call_text}?"), function.return_ty)?;
-                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
                 } else {
-                    let value = self.erase_value_text(&call_text, function.return_ty)?;
-                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+                    let erased_return = self.erase_value_text(&call_text, function.return_ty)?;
+                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
                 };
                 Ok(format!(
                     "{{ let smelt_function_origin = {clone_receiver}.clone(); let smelt_function_value = {value_text}; let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}",

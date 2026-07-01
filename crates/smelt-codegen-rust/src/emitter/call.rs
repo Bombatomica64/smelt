@@ -68,13 +68,21 @@ impl FunctionEmitter<'_> {
                 let body = match rendered_args.as_slice() {
                     [] => "()".to_owned(),
                     [single] => {
-                        let value = flatten(format!("{single}.await"), erased[0]);
+                        let value = flatten(
+                            format!("{single}.await"),
+                            erased.first().copied().unwrap_or(false),
+                        );
                         format!("({value},)")
                     }
                     _ => {
                         let joined = format!("tokio::join!({})", rendered_args.join(", "));
                         let values = (0..rendered_args.len())
-                            .map(|index| flatten(format!("__smelt_joined.{index}"), erased[index]))
+                            .map(|index| {
+                                flatten(
+                                    format!("__smelt_joined.{index}"),
+                                    erased.get(index).copied().unwrap_or(false),
+                                )
+                            })
                             .collect::<Vec<_>>()
                             .join(", ");
                         format!("{{ let __smelt_joined = {joined}; ({values}) }}")
@@ -203,7 +211,7 @@ impl FunctionEmitter<'_> {
                 let [executor] = args else {
                     return Err(EmitError::new("Promise requires an executor operand"));
                 };
-                let Some(Type::Future(output_ty)) = self.mir.types.get(dest_ty) else {
+                let Some(&Type::Future(output_ty)) = self.mir.types.get(dest_ty) else {
                     return Err(EmitError::new("Promise destination must be a future"));
                 };
                 let executor_text = self.operand_text(executor)?;
@@ -226,7 +234,6 @@ impl FunctionEmitter<'_> {
                     }
                     _ => format!("({executor_text})(smelt_resolve, smelt_reject);"),
                 };
-                let output_ty = *output_ty;
                 let output_text = self.type_text(output_ty)?;
                 let resolve_value =
                     self.value_at_type_text("value", self.type_id(Type::Unknown)?, output_ty)?;
@@ -336,6 +343,11 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Return the future item type when the operand is a list of futures.
+    ///
+    /// `Promise.all`-style async ops accept a `List<Future<_>>` operand; this
+    /// resolves that operand's element type so callers can inspect the awaited
+    /// output shape. Returns `None` when the operand is not a list of futures.
     fn async_list_operand_item_type(&self, operand: &Operand) -> Result<Option<TypeId>, EmitError> {
         let operand_ty = self.operand_ty(operand)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(operand_ty) else {

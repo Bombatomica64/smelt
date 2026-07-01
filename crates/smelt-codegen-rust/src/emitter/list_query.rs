@@ -896,10 +896,10 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, EmitError>>()?;
             params.extend((0..extra_params).map(|index| format!("_arg{index}")));
             let params_text = params.join(", ");
-            let mut body_text = String::new();
-            emitter.emit_mutable_local_preludes(&mut body_text)?;
-            emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
-            let body_text = promote_trailing_future_binding_return(body_text);
+            let mut raw_body_text = String::new();
+            emitter.emit_mutable_local_preludes(&mut raw_body_text)?;
+            emitter.emit_closure_block(emitter.entry_block()?, &mut raw_body_text)?;
+            let body_text = promote_trailing_future_binding_return(raw_body_text);
             let returns_future = matches!(
                 emitter.mir.types.get(function.return_ty),
                 Some(Type::Future(_))

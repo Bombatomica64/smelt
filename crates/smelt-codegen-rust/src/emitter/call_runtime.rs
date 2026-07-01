@@ -126,6 +126,13 @@ impl FunctionEmitter<'_> {
         Ok(text)
     }
 
+    /// Render an rvalue at a destination type, before list-identity coercion.
+    ///
+    /// This is the dispatch body behind [`Self::rvalue_text_for_dest`]: it
+    /// matches every `Rvalue` variant and produces the raw Rust expression for
+    /// it. The public wrapper then applies the single `SmeltList` `Into`
+    /// choke-point coercion for list-typed destinations, so variants here may
+    /// freely emit bare `Vec` expressions.
     fn rvalue_text_for_dest_inner(
         &self,
         value: &Rvalue,
@@ -171,8 +178,7 @@ impl FunctionEmitter<'_> {
                         .join(", ");
                     return Ok(self.erase_array_text(&items_text));
                 }
-                if let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) {
-                    let item_ty = *item_ty;
+                if let Some(&Type::List(item_ty)) = self.mir.types.get(dest_ty) {
                     let items_text = items
                         .iter()
                         .map(|item| self.value_at_type(&self.list_literal_operand(item), item_ty))
@@ -959,7 +965,10 @@ impl FunctionEmitter<'_> {
                 self.list_callback_text(*op, list, callback, dest_ty)
             }
             Rvalue::ListFromLength { length } => self.list_from_length_text(length, dest_ty),
-            Rvalue::ListRepeat { value, count } => self.list_repeat_text(value, count, dest_ty),
+            Rvalue::ListRepeat {
+                value: repeat_value,
+                count,
+            } => self.list_repeat_text(repeat_value, count, dest_ty),
             Rvalue::ListFromLengthMap { length, callback } => {
                 self.list_from_length_map_text(length, callback, dest_ty)
             }
