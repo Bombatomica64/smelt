@@ -1277,6 +1277,26 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Renders a read of a local through shared closure storage.
+    ///
+    /// Shared captures live in `Rc<RefCell<T>>`, so a read expands to
+    /// `(*smelt_capture_x.borrow())`. The returned `Ref` guard is a temporary
+    /// that Rust keeps alive to the end of the FULL enclosing statement, so if
+    /// this text were interpolated into a statement that also invokes a closure
+    /// re-borrowing the same cell, the nested `borrow_mut` would panic with
+    /// "already borrowed" — a RefCell double-borrow crash single-threaded JS
+    /// never produces.
+    ///
+    /// That never happens because MIR is three-address form: every
+    /// `Call`/`ClosureCall` is lowered to its own SSA temp binding before any
+    /// statement that consumes the result, and the copy-propagation /
+    /// move-on-last-use passes only rewrite local aliases (they never fuse a
+    /// call rvalue into a consuming statement). So the operands of the
+    /// statement this borrow text lands in are always already-materialized
+    /// locals or literals — never a live call — and the borrow guard drops at
+    /// the statement boundary before any sibling closure can re-enter. Callers
+    /// must preserve this: do not build a single emitted statement that both
+    /// borrows a shared capture and evaluates a call. See the regression test
+    /// `shared_capture_borrow_never_spans_a_sibling_closure_call`.
     pub(super) fn local_value_text(&self, local: LocalId) -> Result<String, EmitError> {
         let name = self.local_name(local)?;
         if name.starts_with("(*smelt_capture_") {
@@ -1290,6 +1310,18 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Renders a mutable receiver or assignment through shared closure storage.
+    ///
+    /// Shared captures live in `Rc<RefCell<T>>`, so a write/receiver expands to
+    /// `(*smelt_capture_x.borrow_mut())`. The returned `RefMut` guard lives to
+    /// the end of the FULL enclosing statement; if that statement also invoked
+    /// a closure re-borrowing the same cell, the nested borrow would panic with
+    /// "already borrowed". The same three-address invariant documented on
+    /// [`Self::local_value_text`] prevents this: every call is a separate SSA
+    /// temp statement, so an assignment target's `borrow_mut` guard only ever
+    /// coexists with already-evaluated value operands (e.g.
+    /// `(*smelt_capture_count.borrow_mut()) = _smelt_tmp_N;`), never with a live
+    /// call. Callers must not construct a single statement that both takes this
+    /// mutable borrow and evaluates a call.
     pub(super) fn local_mut_value_text(&self, local: LocalId) -> Result<String, EmitError> {
         let name = self.local_name(local)?;
         if name.starts_with("(*smelt_capture_") {

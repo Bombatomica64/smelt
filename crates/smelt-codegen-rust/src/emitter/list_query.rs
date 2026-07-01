@@ -896,15 +896,19 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, EmitError>>()?;
             params.extend((0..extra_params).map(|index| format!("_arg{index}")));
             let params_text = params.join(", ");
-            let mut raw_body_text = String::new();
-            emitter.emit_mutable_local_preludes(&mut raw_body_text)?;
-            emitter.emit_closure_block(emitter.entry_block()?, &mut raw_body_text)?;
-            let body_text = promote_trailing_future_binding_return(raw_body_text);
+            let mut body_text = String::new();
+            emitter.emit_mutable_local_preludes(&mut body_text)?;
+            emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
             let returns_future = matches!(
                 emitter.mir.types.get(function.return_ty),
                 Some(Type::Future(_))
             );
-            let awaits_inside_body = contains_await_outside_nested_async_block(&body_text);
+            // Whether this closure needs the async wrapper is decided from MIR,
+            // not from scanning the emitted text: a closure is async when its
+            // declared return type is a future, or when its own body performs an
+            // `await` (nested Promise-continuation closures are separate MIR
+            // functions and are excluded by `closure_body_awaits`).
+            let awaits_inside_body = emitter.closure_body_awaits();
             if returns_future || awaits_inside_body {
                 let output_ty = match emitter.mir.types.get(function.return_ty) {
                     Some(Type::Future(item)) => *item,
@@ -912,7 +916,9 @@ impl FunctionEmitter<'_> {
                 };
                 let output_text = emitter.type_text_with_impl_trait(output_ty, false)?;
                 let return_ty = format!("Result<{output_text}, Box<dyn std::error::Error>>");
-                let async_value_needs_await = async_body_returns_future_value(&body_text);
+                // Whether `smelt_async_value` is itself a future to await is read
+                // from the MIR return operand types, not from the emitted text.
+                let async_value_needs_await = emitter.closure_yields_future_value()?;
                 let return_value = if closure.can_throw && async_value_needs_await {
                     if matches!(
                         emitter.mir.types.get(output_ty),
@@ -1071,6 +1077,59 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Return whether this closure's own MIR body performs an `await`.
+    ///
+    /// The decision is read from MIR types rather than emitted text: a closure
+    /// awaits when any of its own basic blocks contains an `Await` terminator or
+    /// an `Rvalue::Await` statement. Nested closures (Promise continuations,
+    /// `async move` blocks) are separate `MirFunction`s referenced through
+    /// `Rvalue::Closure` and are never inlined into `self.function.blocks`, so
+    /// their awaits are naturally excluded — this is the structural, formatting-
+    /// independent replacement for the old brace-counting text scan.
+    pub(super) fn closure_body_awaits(&self) -> bool {
+        self.function.blocks.iter().any(|block| {
+            let terminator_awaits = matches!(&block.terminator, Some(Terminator::Await { .. }));
+            let statement_awaits = block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    Statement::Assign {
+                        value: Rvalue::Await(_),
+                        ..
+                    }
+                )
+            });
+            terminator_awaits || statement_awaits
+        })
+    }
+
+    /// Return whether the value this closure yields is itself a future.
+    ///
+    /// An async wrapper stores the closure body's result in `smelt_async_value`.
+    /// When that value is already a future (the closure returns a `new Promise`
+    /// or another future without awaiting it first) the wrapper must `.await`
+    /// it before producing the resolved output. This is decided from the MIR
+    /// return operand types: the closure yields a future iff every `Return`
+    /// terminator carries an operand whose type is `Type::Future(_)`.
+    ///
+    /// Returns `false` when the closure has no `Return` terminator so the
+    /// wrapper falls back to treating the body value as already-resolved, which
+    /// matches the previous text-based behaviour for those degenerate shapes.
+    pub(super) fn closure_yields_future_value(&self) -> Result<bool, EmitError> {
+        let mut saw_return = false;
+        for block in &self.function.blocks {
+            if let Some(Terminator::Return(operand)) = &block.terminator {
+                saw_return = true;
+                if !matches!(
+                    self.mir.types.get(self.operand_ty(operand)?),
+                    Some(Type::Future(_))
+                ) {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(saw_return)
+    }
+
     /// Emits a closure block with return terminators scoped to the closure body.
     pub(super) fn emit_closure_block(
         &self,
@@ -1142,8 +1201,23 @@ impl FunctionEmitter<'_> {
                         out.push_str("    ()\n");
                     }
                 } else {
+                    // For an async closure whose declared return is `Future<inner>`
+                    // the surrounding async wrapper stores this body value in
+                    // `smelt_async_value` and awaits it when it is itself a future
+                    // (see `closure_yields_future_value`). Deciding the tail type
+                    // from MIR keeps the future flowing through: when the returned
+                    // operand is already a future we yield it at the `Future` type,
+                    // so a `new Promise(...)` body returns the future rather than
+                    // collapsing to the inner type's default (the old null / `0.0`
+                    // fallthrough that the textual promotion pass patched up after
+                    // the fact). Only when the operand is a resolved value do we
+                    // strip to the inner type as before.
+                    let operand_is_future = matches!(
+                        self.mir.types.get(self.operand_ty(operand)?),
+                        Some(Type::Future(_))
+                    );
                     let return_ty = match self.mir.types.get(self.function.return_ty) {
-                        Some(Type::Future(item)) => *item,
+                        Some(Type::Future(item)) if !operand_is_future => *item,
                         _ => self.function.return_ty,
                     };
                     let value = self.value_at_type(operand, return_ty)?;
@@ -1489,145 +1563,6 @@ impl FunctionEmitter<'_> {
     }
 
     // Sorted-list helpers continue in `list_ordering.rs`.
-}
-
-/// Return whether the emitted async block body leaves a future as its final value.
-fn async_body_returns_future_value(body_text: &str) -> bool {
-    let mut non_empty_lines = body_text.lines().rev().filter_map(|line| {
-        let trimmed = line.trim().trim_end_matches(';');
-        (!trimmed.is_empty()).then_some(trimmed)
-    });
-    let Some(final_expr) = non_empty_lines.next() else {
-        return false;
-    };
-    if final_expr == "}" {
-        return non_empty_lines.any(|line| {
-            line.contains("as ::std::pin::Pin<Box<dyn ::std::future::Future<Output =")
-        });
-    }
-    body_text.lines().any(|line| {
-        line.trim_start().starts_with(&format!(
-            "let {final_expr}: ::std::pin::Pin<Box<dyn ::std::future::Future"
-        ))
-    })
-}
-
-/// Promote a trailing generated future binding to the closure body value.
-///
-/// Async expression-bodied arrows that return `new Promise(...)` can lower to a
-/// future local followed by the generic null fallthrough. In that shape the
-/// future is the JavaScript return value and should be awaited by the enclosing
-/// async wrapper.
-fn promote_trailing_future_binding_return(body_text: String) -> String {
-    let lines = body_text.lines().collect::<Vec<_>>();
-    // Locate the last non-blank line. Binding `final_line` here (instead of
-    // re-indexing `lines[final_index]`) keeps the check panic-free: the iterator
-    // already handed us the line, so no bounds-checked index is needed.
-    let Some((final_index, final_line)) = lines
-        .iter()
-        .enumerate()
-        .rev()
-        .find(|(_, line)| !line.trim().is_empty())
-    else {
-        return body_text;
-    };
-    if final_line.trim() != "SmeltUnknown::Null" {
-        return body_text;
-    }
-    // Scan the lines preceding the trailing null for the future binding to
-    // promote. `get(..final_index)` yields the same prefix as `lines[..final_index]`
-    // but returns `None` rather than panicking if the range is ever invalid.
-    let Some(future_name) = lines
-        .get(..final_index)
-        .unwrap_or(&[])
-        .iter()
-        .rev()
-        .find_map(|line| {
-            let trimmed = line.trim_start();
-            if !trimmed.starts_with("let ")
-                || !trimmed.contains("::std::future::Future<Output =")
-            {
-                return None;
-            }
-            let rest = trimmed.strip_prefix("let ")?;
-            rest.split(':').next().map(str::trim).filter(|name| {
-                !name.is_empty()
-                    && name
-                        .chars()
-                        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-            })
-        })
-    else {
-        return body_text;
-    };
-    let mut rewritten = String::new();
-    for (index, line) in lines.iter().enumerate() {
-        if index == final_index {
-            let indent_len = line.len().saturating_sub(line.trim_start().len());
-            rewritten.push_str(&line[..indent_len]);
-            rewritten.push_str(future_name);
-            rewritten.push('\n');
-        } else {
-            rewritten.push_str(line);
-        }
-        rewritten.push('\n');
-    }
-    rewritten
-}
-
-/// Return whether closure body text awaits outside generated nested async blocks.
-///
-/// Promise continuations emit `Box::pin(async move { ... .await ... })` inside
-/// otherwise synchronous callbacks. Those nested awaits must not make the
-/// containing callback return a future.
-fn contains_await_outside_nested_async_block(body_text: &str) -> bool {
-    let bytes = body_text.as_bytes();
-    // Byte offsets of the opening `{` that begins each still-open `async move`
-    // block, keyed indirectly by the brace depth recorded when it opened. A
-    // `.await` seen while this stack is empty belongs to the enclosing callback
-    // rather than a nested async block.
-    let mut async_depths = Vec::<usize>::new();
-    let mut brace_depth = 0usize;
-    let mut index = 0usize;
-    // Walk the text one byte at a time. Every offset step is a `saturating`/
-    // `checked`-style advance so no arithmetic can overflow and every lookup uses
-    // `get`, keeping this scanner panic-free on arbitrary emitted text.
-    while let Some(&byte) = bytes.get(index) {
-        if starts_with_at(body_text, index, "async move") {
-            // Skip whitespace after `async move` to find the opening brace.
-            let mut cursor = index.saturating_add("async move".len());
-            while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
-                cursor = cursor.saturating_add(1);
-            }
-            if bytes.get(cursor) == Some(&b'{') {
-                brace_depth = brace_depth.saturating_add(1);
-                async_depths.push(brace_depth);
-                index = cursor.saturating_add(1);
-                continue;
-            }
-        }
-        if starts_with_at(body_text, index, ".await") && async_depths.is_empty() {
-            return true;
-        }
-        match byte {
-            b'{' => brace_depth = brace_depth.saturating_add(1),
-            b'}' => {
-                if async_depths.last().copied() == Some(brace_depth) {
-                    async_depths.pop();
-                }
-                brace_depth = brace_depth.saturating_sub(1);
-            }
-            _ => {}
-        }
-        index = index.saturating_add(1);
-    }
-    false
-}
-
-/// Return whether `needle` starts at byte offset `index`.
-fn starts_with_at(text: &str, index: usize, needle: &str) -> bool {
-    text.get(index..)
-        .is_some_and(|remaining| remaining.starts_with(needle))
 }
 
 /// Rewrites emitted closure text so shared captures use their `RefCell` storage.

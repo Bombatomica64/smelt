@@ -131,6 +131,74 @@ function collect(): string[] {
     );
 }
 
+/// Guards the shared-capture borrow invariant against RefCell double-borrow panics.
+///
+/// A single-threaded JS closure may synchronously call a sibling closure that
+/// reads or writes the same captured binding while the first closure is midway
+/// through evaluating an expression over that binding. In the generated Rust,
+/// shared captures live in `Rc<RefCell<T>>` and each use expands to
+/// `(*smelt_capture_x.borrow())` / `(*smelt_capture_x.borrow_mut())`. A
+/// `borrow`/`borrow_mut` guard is a temporary that lives to the end of the
+/// FULL enclosing statement, so if a borrow text were interpolated into the
+/// same statement as a closure call that re-borrows the same cell, the nested
+/// borrow would panic with "already borrowed" — a crash JS never produces.
+///
+/// The invariant that prevents this: MIR is three-address form, so every
+/// `Call`/`ClosureCall` is lowered to its own SSA temp binding
+/// (`let _smelt_tmp_N = (closure)();`) BEFORE any statement that consumes the
+/// result, and the copy-propagation / move-on-last-use passes only rewrite
+/// local aliases (they never fuse a call rvalue into a consuming statement).
+/// Consequently every emitted borrow guard is confined to a single
+/// three-address statement whose operands are already-materialized locals or
+/// literals — never a live call. This test pins that shape: the sibling call
+/// `bump()` must be bound to its own temp, and the borrow of the shared cell
+/// must appear in a later statement, so no guard is ever held across the call.
+#[test]
+fn shared_capture_borrow_never_spans_a_sibling_closure_call() {
+    let source = source_for(
+        r#"
+function run(): number {
+  let count = 0;
+  function bump(): number {
+    count += 1;
+    return count;
+  }
+  function acc(): void {
+    count = count + bump();
+  }
+  acc();
+  return count;
+}
+"#,
+    );
+
+    // `count` is shared through an `Rc<RefCell<f64>>` capture cell.
+    assert!(
+        source
+            .contains("let smelt_capture_count = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+        "{source}"
+    );
+    // The sibling call is materialized into its own temp before any borrow.
+    assert!(source.contains("= (bump)();"), "{source}");
+    // The `acc` body must never place a `borrow()`/`borrow_mut()` guard in the
+    // same statement as the `(bump)()` call: the line that calls `bump` is a
+    // bare `let _smelt_tmp = (bump)();` with no borrow text on it.
+    let call_line = source
+        .lines()
+        .find(|line| line.contains("= (bump)();"))
+        .unwrap_or_else(|| panic!("no bump call line\n{source}"));
+    assert!(
+        !call_line.contains(".borrow()") && !call_line.contains(".borrow_mut()"),
+        "borrow guard shares a statement with the sibling call: {call_line}\n{source}"
+    );
+    // The assignment back into the shared cell reads a pre-evaluated temp, not
+    // an inline call, so the `borrow_mut()` target guard cannot span a call.
+    assert!(
+        source.contains("(*smelt_capture_count.borrow_mut()) = _smelt_tmp"),
+        "{source}"
+    );
+}
+
 #[test]
 fn emits_function_array_some_without_cloning_callbacks() {
     let source = source_for(
