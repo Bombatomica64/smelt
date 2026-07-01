@@ -4,7 +4,7 @@
 //! builtin-call registry routing, immediately-invoked function expressions, and
 //! direct function/method invocation into typed HIR.
 
-use super::{ModuleBuilder, RestParam, stdlib_dispatch};
+use crate::lowering::{ModuleBuilder, RestParam, stdlib_dispatch};
 use crate::{OverloadSignature, SmeltError, test_support};
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
@@ -43,7 +43,7 @@ enum StrippedGlobalCallee<'a> {
 
 impl<'builder> ModuleBuilder<'builder> {
     /// Lower call expressions, including stdlib shims and direct function/method invokes.
-    pub(super) fn call_expression(
+    pub(in crate::lowering) fn call_expression(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -663,7 +663,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// `ClosureCall`. Spread arguments expand through the same rest-aware path
     /// used by other closure calls. Returns `Ok(None)` when the callee is not a
     /// function/arrow literal so the surrounding dispatch can continue.
-    pub(super) fn immediately_invoked_function_call(
+    pub(in crate::lowering) fn immediately_invoked_function_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -758,7 +758,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// continue with the generic call-lowering paths. The unsupported-collection
     /// probe keeps its original semantics: a positive match surfaces as an error,
     /// not as a handled call.
-    pub(super) fn dispatch_builtin_call(
+    pub(in crate::lowering) fn dispatch_builtin_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -792,7 +792,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// arguments are cloned into it, so no AST mutation of the original program
     /// occurs and the rewrite cannot recurse (the stripped callee no longer has a
     /// global-alias root).
-    pub(super) fn global_alias_namespace_call(
+    pub(in crate::lowering) fn global_alias_namespace_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -855,7 +855,7 @@ impl<'builder> ModuleBuilder<'builder> {
     ///
     /// Preserves the original guard `if let Some(expr) = self.typed_test_value_call(...)`
     /// which never produced an error.
-    pub(super) fn typed_test_value_call_entry(
+    pub(in crate::lowering) fn typed_test_value_call_entry(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -864,7 +864,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Adapter so the type-test handler fits the builtin registry shape.
-    pub(super) fn type_test_call_entry(
+    pub(in crate::lowering) fn type_test_call_entry(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -873,7 +873,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Adapter so the infallible node-process-version handler fits the registry shape.
-    pub(super) fn node_process_version_match_call_entry(
+    pub(in crate::lowering) fn node_process_version_match_call_entry(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -890,7 +890,7 @@ impl<'builder> ModuleBuilder<'builder> {
         clippy::unused_self,
         reason = "uniform BuiltinCallHandler dispatch-table signature; this stub probe needs no receiver state"
     )]
-    pub(super) fn unsupported_object_collection_call_entry(
+    pub(in crate::lowering) fn unsupported_object_collection_call_entry(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         _body: &mut Body,
@@ -905,7 +905,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// same callee, exactly as in the former sequential guard chain. Do not
     /// reorder entries without verifying overlapping callees still resolve to the
     /// same handler.
-    pub(super) fn builtin_call_handlers() -> impl IntoIterator<Item = BuiltinCallHandler<'builder>> {
+    pub(in crate::lowering) fn builtin_call_handlers() -> impl IntoIterator<Item = BuiltinCallHandler<'builder>> {
         [
             Self::type_test_call_entry,
             Self::typed_test_value_call_entry,
@@ -984,7 +984,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return whether the module source declares a callable with this local name.
-    pub(super) fn source_contains_forward_callable(&self, name: &str) -> bool {
+    pub(in crate::lowering) fn source_contains_forward_callable(&self, name: &str) -> bool {
         let const_prefix = format!("const {name}");
         let function_prefix = format!("function {name}(");
         self.source.contains(&function_prefix)
@@ -996,7 +996,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return whether the module source declares a class with this local name.
-    pub(super) fn source_contains_class(&self, name: &str) -> bool {
+    pub(in crate::lowering) fn source_contains_class(&self, name: &str) -> bool {
         let class_prefix = format!("class {name}");
         let exported_class_prefix = format!("export class {name}");
         self.source.contains(&class_prefix) || self.source.contains(&exported_class_prefix)
@@ -1008,7 +1008,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// and the following optional method call short-circuits. Keeping the
     /// receiver as a strict `Index` would make generated Rust panic before
     /// optional chaining can observe the missing value.
-    pub(super) fn optionalize_index_receiver(
+    pub(in crate::lowering) fn optionalize_index_receiver(
         &mut self,
         receiver: smelt_hir::ExprId,
         body: &mut Body,
@@ -1038,7 +1038,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower `CommonJS` `require(path)` as an opaque JSON-like module object.
-    pub(super) fn commonjs_require_call(
+    pub(in crate::lowering) fn commonjs_require_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1069,7 +1069,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// HIR values are immutable unless explicitly modeled otherwise, so the
     /// lowering keeps the source value and preserves its type instead of
     /// modeling JavaScript's object graph cloning behavior.
-    pub(super) fn structured_clone_call(
+    pub(in crate::lowering) fn structured_clone_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1094,7 +1094,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// This covers TypeScript patterns like `args.callback(value)`, where the
     /// property is typed as a function or as a nullishable union containing a
     /// function. Class methods still use the normal method-call path.
-    pub(super) fn callable_static_member_call(
+    pub(in crate::lowering) fn callable_static_member_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1293,7 +1293,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return true when a member access names an actual lowered class method.
-    pub(super) fn static_member_is_concrete_class_method(
+    pub(in crate::lowering) fn static_member_is_concrete_class_method(
         &mut self,
         callee: smelt_hir::ExprId,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
@@ -1326,7 +1326,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// Return true when a class or inherited base explicitly stores a callable
     /// field for the member. These fields model virtual dispatch slots and
     /// must be invoked as closures instead of direct class methods.
-    pub(super) fn receiver_has_callable_storage_field(
+    pub(in crate::lowering) fn receiver_has_callable_storage_field(
         &mut self,
         receiver_ty: smelt_hir::TypeId,
         field: smelt_hir::Symbol,
@@ -1387,7 +1387,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower Promise/Future `.then(...)` and `.catch(...)` continuation calls.
-    pub(super) fn promise_continuation_call(
+    pub(in crate::lowering) fn promise_continuation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1445,7 +1445,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// models the callable value directly: the generated closure captures the
     /// original callee plus each bound argument, then forwards the remaining
     /// parameters when the closure is called.
-    pub(super) fn function_bind_call(
+    pub(in crate::lowering) fn function_bind_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         outer_body: &mut Body,
@@ -1583,7 +1583,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Store a bind component in an outer local so a generated closure can capture it.
-    pub(super) fn capture_bind_value(
+    pub(in crate::lowering) fn capture_bind_value(
         &self,
         value: smelt_hir::ExprId,
         ty: smelt_hir::TypeId,
@@ -1612,7 +1612,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Add one captured bind component to a generated closure body.
-    pub(super) fn push_bind_capture_local(
+    pub(in crate::lowering) fn push_bind_capture_local(
         source_local: smelt_hir::LocalId,
         symbol: smelt_hir::Symbol,
         ty: smelt_hir::TypeId,
@@ -1640,7 +1640,7 @@ impl<'builder> ModuleBuilder<'builder> {
     ///
     /// Smelt does not model symbol identity yet. Type-level branding libraries
     /// only need a stable opaque value here so the containing module can lower.
-    pub(super) fn symbol_call(
+    pub(in crate::lowering) fn symbol_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1662,7 +1662,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower a supported symbol-producing call as a stable opaque string.
-    pub(super) fn symbol_like_call(
+    pub(in crate::lowering) fn symbol_like_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1709,7 +1709,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Select the TypeScript overload signature that matches a call site.
-    pub(super) fn selected_overload_signature(
+    pub(in crate::lowering) fn selected_overload_signature(
         &mut self,
         name: &str,
         arguments: &[Argument<'_>],
@@ -1842,7 +1842,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Build the active constraint scope needed while matching a stored overload signature.
-    pub(super) fn overload_type_param_constraint_scope(
+    pub(in crate::lowering) fn overload_type_param_constraint_scope(
         signature: &OverloadSignature,
     ) -> HashMap<smelt_hir::Symbol, smelt_hir::TypeId> {
         signature
@@ -1853,7 +1853,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Count obvious source literal conflicts with an overload parameter surface.
-    pub(super) fn overload_source_arg_mismatch_count(
+    pub(in crate::lowering) fn overload_source_arg_mismatch_count(
         &mut self,
         signature: &OverloadSignature,
         arguments: &[Argument<'_>],
@@ -1874,7 +1874,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return whether one source literal can inhabit an overload parameter surface.
-    pub(super) fn overload_source_arg_matches_param(
+    pub(in crate::lowering) fn overload_source_arg_matches_param(
         &mut self,
         expected: smelt_hir::TypeId,
         argument: &Argument<'_>,
@@ -1946,7 +1946,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// failed. It still rejects source-shape mismatches such as a primitive value
     /// being passed where an overload expects a tuple/case value, which keeps
     /// broad Remeda data-last signatures from shadowing data-first calls.
-    pub(super) fn loose_overload_signature_matches_args(
+    pub(in crate::lowering) fn loose_overload_signature_matches_args(
         &mut self,
         signature: &OverloadSignature,
         arguments: &[Argument<'_>],
@@ -2041,7 +2041,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return whether an argument has a plausible top-level shape for an overload parameter.
-    pub(super) fn loose_overload_type_matches(
+    pub(in crate::lowering) fn loose_overload_type_matches(
         &mut self,
         expected: smelt_hir::TypeId,
         actual: smelt_hir::TypeId,
@@ -2103,7 +2103,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// Receiver-, shape-, plugin-, and test-framework-dependent handlers remain
     /// in `call_expression` because they require semantic inspection and ordered
     /// overlap resolution rather than exact source-name recognition.
-    pub(super) fn exact_stdlib_call(
+    pub(in crate::lowering) fn exact_stdlib_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -2131,7 +2131,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Preserve the established ordering among exact deterministic `Math.*` handlers.
-    pub(super) fn exact_math_numeric_call(
+    pub(in crate::lowering) fn exact_math_numeric_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -2158,7 +2158,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Preserve the established ordering among exact static `Object.*` handlers.
-    pub(super) fn exact_object_static_call(
+    pub(in crate::lowering) fn exact_object_static_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -2176,7 +2176,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Preserve the established ordering among exact static `Array.*` handlers.
-    pub(super) fn exact_array_static_call(
+    pub(in crate::lowering) fn exact_array_static_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -2188,7 +2188,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return whether an overload has the same source-level argument count as a call.
-    pub(super) fn overload_signature_arity_matches(
+    pub(in crate::lowering) fn overload_signature_arity_matches(
         signature: &OverloadSignature,
         argument_count: usize,
     ) -> bool {
@@ -2206,7 +2206,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// the intended data-last overload from being shadowed for single-rule calls
     /// while still preferring data-first when it has an actual leading data
     /// argument plus rule arguments.
-    pub(super) fn overload_signature_specificity_score(
+    pub(in crate::lowering) fn overload_signature_specificity_score(
         &self,
         signature: &OverloadSignature,
         argument_count: usize,
@@ -2243,7 +2243,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// rest parameter is a fixed tuple unless the spread expression itself has
     /// a fixed tuple shape. Otherwise runtime values beyond the tuple width
     /// would be discarded by later destructuring.
-    pub(super) fn overload_accepts_spread_shape(
+    pub(in crate::lowering) fn overload_accepts_spread_shape(
         &self,
         signature: &OverloadSignature,
         arguments: &[Argument<'_>],
@@ -2285,7 +2285,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// Return whether an overload parameter contributes useful shape
     /// information beyond accepting any value.
     /// Return whether a call argument is a syntactically empty array literal `[]`.
-    pub(super) fn argument_is_empty_array_literal(argument: &Argument<'_>) -> bool {
+    pub(in crate::lowering) fn argument_is_empty_array_literal(argument: &Argument<'_>) -> bool {
         matches!(argument, Argument::ArrayExpression(array) if array.elements.is_empty())
     }
 
@@ -2296,7 +2296,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// fixed tuple, or a union that lacks a collection member. This mirrors
     /// TypeScript assignability and prevents an empty literal from vacuously
     /// matching an element type whose only structural member is a tuple.
-    pub(super) fn type_accepts_empty_array_literal(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn type_accepts_empty_array_literal(&self, ty: smelt_hir::TypeId) -> bool {
         match self
             .ctx
             .krate
@@ -2320,7 +2320,7 @@ impl<'builder> ModuleBuilder<'builder> {
         }
     }
 
-    pub(super) fn overload_param_is_specific(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn overload_param_is_specific(&self, ty: smelt_hir::TypeId) -> bool {
         !matches!(
             self.ctx
                 .krate
@@ -2336,7 +2336,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// single tuple-typed parameter in HIR. Call sites still pass those tuple
     /// elements as individual source arguments, so overload matching expands a
     /// trailing tuple/list parameter when exact arity matching fails.
-    pub(super) fn overload_signature_matches_args(
+    pub(in crate::lowering) fn overload_signature_matches_args(
         &mut self,
         signature: &OverloadSignature,
         arguments: &[Argument<'_>],
@@ -2447,7 +2447,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Instantiate a selected overload signature with inferred generic types.
-    pub(super) fn instantiate_overload_signature(
+    pub(in crate::lowering) fn instantiate_overload_signature(
         &mut self,
         signature: OverloadSignature,
         substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
@@ -2476,7 +2476,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// from nested parameter shapes while preventing broad purry overloads such
     /// as `<Options extends OptionsShape>(options?: Options)` from accepting a
     /// primitive data argument.
-    pub(super) fn overload_substitutions_satisfy_constraints(
+    pub(in crate::lowering) fn overload_substitutions_satisfy_constraints(
         &mut self,
         signature: &OverloadSignature,
         substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
@@ -2502,7 +2502,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// `<T, K extends Keys<T>>(key: K) => (data: T) => ...` before `T` is
     /// known; the later callable context provides it. Enforcing `K`'s bound
     /// while `T` is still present rejects valid curried calls.
-    pub(super) fn overload_constraint_contains_unresolved_type_param(
+    pub(in crate::lowering) fn overload_constraint_contains_unresolved_type_param(
         &self,
         constraint: smelt_hir::TypeId,
     ) -> bool {
@@ -2547,7 +2547,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// annotation is a named structural object. Constraint applicability must
     /// bridge that erased representation while primitive values still fail
     /// object constraints.
-    pub(super) fn overload_constraint_accepts(
+    pub(in crate::lowering) fn overload_constraint_accepts(
         &mut self,
         actual: smelt_hir::TypeId,
         constraint: smelt_hir::TypeId,
@@ -2596,7 +2596,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return declared fields for a named structural constraint with generic arguments applied.
-    pub(super) fn overload_structural_constraint_fields(
+    pub(in crate::lowering) fn overload_structural_constraint_fields(
         &mut self,
         name: smelt_hir::Symbol,
         args: &[smelt_hir::TypeId],
@@ -2624,7 +2624,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Infer generic overload substitutions while checking argument compatibility.
-    pub(super) fn infer_overload_type(
+    pub(in crate::lowering) fn infer_overload_type(
         &mut self,
         expected: smelt_hir::TypeId,
         actual: smelt_hir::TypeId,
@@ -2722,7 +2722,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Infer against the first compatible expected union member and keep its substitutions.
-    pub(super) fn infer_overload_union_branch(
+    pub(in crate::lowering) fn infer_overload_union_branch(
         &mut self,
         expected_items: Vec<smelt_hir::TypeId>,
         actual: smelt_hir::TypeId,
@@ -2739,7 +2739,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Infer against the first compatible actual union member and keep its substitutions.
-    pub(super) fn infer_overload_actual_union_branch(
+    pub(in crate::lowering) fn infer_overload_actual_union_branch(
         &mut self,
         expected: smelt_hir::TypeId,
         actual_items: Vec<smelt_hir::TypeId>,
@@ -2756,7 +2756,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Infer compatibility for function-typed overload parameters.
-    pub(super) fn infer_overload_function_type(
+    pub(in crate::lowering) fn infer_overload_function_type(
         &mut self,
         expected: &FunctionType,
         actual: &FunctionType,
@@ -2787,7 +2787,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Check that an actual callback can accept the input required by an overload parameter.
-    pub(super) fn infer_callable_parameter_type(
+    pub(in crate::lowering) fn infer_callable_parameter_type(
         &mut self,
         required_input: smelt_hir::TypeId,
         actual_param: smelt_hir::TypeId,
@@ -2808,7 +2808,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower a call whose callee is a local closure or function-typed local.
-    pub(super) fn local_callable_call(
+    pub(in crate::lowering) fn local_callable_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -3076,7 +3076,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return whether a local's structural class type is an erased callable object.
-    pub(super) fn is_callable_object_erased_class(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn is_callable_object_erased_class(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Class { name, .. }) => self.callable_object_aliases.contains(name),
             _ => false,
@@ -3090,7 +3090,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// objects) flatten their entire argument list at the call site, so spread
     /// arguments must be packed into a single runtime vector rather than passed
     /// as a trailing rest list.
-    pub(super) fn type_is_dynamic_call_surface(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn type_is_dynamic_call_surface(&self, ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -3106,7 +3106,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// erase, while `RegExp` keeps its dedicated runtime type. Keeping the
     /// predicate aligned with codegen lets the lowering decide, in the frontend,
     /// whether a receiver value will be a runtime `SmeltUnknown` at the call site.
-    pub(super) fn class_type_erases_to_unknown(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn class_type_erases_to_unknown(&self, ty: smelt_hir::TypeId) -> bool {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty) else {
             return false;
         };
@@ -3126,7 +3126,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// parameter, a union, or a class-shaped type that erases to `SmeltUnknown`
     /// (see [`Self::class_type_erases_to_unknown`]). Optional receivers unwrap to
     /// their inner type first so `Funnel<Args> | undefined` is recognized too.
-    pub(super) fn receiver_type_dispatches_dynamically(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn receiver_type_dispatches_dynamically(&self, ty: smelt_hir::TypeId) -> bool {
         let inner = match self.ctx.krate.types.get(ty) {
             Some(Type::Optional(inner)) => *inner,
             _ => ty,
@@ -3145,7 +3145,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// receiver. When the receiver erases, the member read yields a runtime
     /// `SmeltUnknown`, so a spread call through it must be packed as a
     /// `ClosureCallSpread` regardless of the field's declared function type.
-    pub(super) fn static_member_receiver_dispatches_dynamically(
+    pub(in crate::lowering) fn static_member_receiver_dispatches_dynamically(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
@@ -3158,7 +3158,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Expand a JavaScript spread call into fixed function parameters plus rest.
-    pub(super) fn spread_closure_call_arguments(
+    pub(in crate::lowering) fn spread_closure_call_arguments(
         &mut self,
         function: &FunctionType,
         rest: Option<RestParam>,
@@ -3303,7 +3303,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// when their source constraint is an array. A rest call still needs their
     /// array payload for concatenation, so extract that payload before building
     /// the packed argument vector.
-    pub(super) fn rest_spread_list_expression(
+    pub(in crate::lowering) fn rest_spread_list_expression(
         &mut self,
         expression: &Expression<'_>,
         rest_ty: smelt_hir::TypeId,
@@ -3334,7 +3334,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower a small positional index as the numeric literal used by JS indexing.
-    pub(super) fn usize_float_literal(
+    pub(in crate::lowering) fn usize_float_literal(
         &mut self,
         value: usize,
         span: Span,
@@ -3352,7 +3352,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Append queued rest items to the accumulated rest list expression.
-    pub(super) fn flush_rest_items(
+    pub(in crate::lowering) fn flush_rest_items(
         rest_items: &mut Vec<smelt_hir::ExprId>,
         rest_list: &mut Option<smelt_hir::ExprId>,
         rest_ty: smelt_hir::TypeId,
@@ -3377,7 +3377,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Pack JavaScript spread call arguments into one variadic list argument.
-    pub(super) fn packed_spread_call_arguments(
+    pub(in crate::lowering) fn packed_spread_call_arguments(
         &mut self,
         item_ty: smelt_hir::TypeId,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -3452,7 +3452,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// to make TypeScript's checker verify source types. They do not represent
     /// runtime behavior, so Smelt lowers the value under test to keep ordinary
     /// expression/type errors visible and erases the assertion call itself.
-    pub(super) fn type_test_call(
+    pub(in crate::lowering) fn type_test_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -3476,7 +3476,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return whether a call uses JavaScript spread arguments.
-    pub(super) fn call_has_spread_arguments(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+    pub(in crate::lowering) fn call_has_spread_arguments(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
         call.arguments
             .iter()
             .any(|argument| matches!(argument, Argument::SpreadElement(_)))
@@ -3488,7 +3488,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// the spread wrapper after TypeScript-specific normalization. The source
     /// span probe keeps spread-call lowering tied to source syntax instead of
     /// treating the argument as an ordinary array value.
-    pub(super) fn call_has_spread_arguments_or_source_spread(
+    pub(in crate::lowering) fn call_has_spread_arguments_or_source_spread(
         &self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> bool {
@@ -3519,7 +3519,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower Remeda's `$typed<T>()` declaration-test helper to an opaque value.
-    pub(super) fn typed_test_value_call(
+    pub(in crate::lowering) fn typed_test_value_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -3539,7 +3539,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Fold Remeda partial-bind nested calls into direct closure calls.
-    pub(super) fn partial_bind_nested_call(
+    pub(in crate::lowering) fn partial_bind_nested_call(
         &mut self,
         callee_call: &oxc::ast::ast::CallExpression<'_>,
         outer_call: &oxc::ast::ast::CallExpression<'_>,
@@ -3621,7 +3621,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Fold Remeda `sliceString(start, end?)(data)` into a string slice.
-    pub(super) fn slice_string_nested_call(
+    pub(in crate::lowering) fn slice_string_nested_call(
         &mut self,
         callee_call: &oxc::ast::ast::CallExpression<'_>,
         outer_call: &oxc::ast::ast::CallExpression<'_>,
@@ -3667,7 +3667,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return the root `expectTypeOf(...)`-style call for a type-test chain.
-    pub(super) fn type_test_root_call<'a>(
+    pub(in crate::lowering) fn type_test_root_call<'a>(
         &self,
         call: &'a oxc::ast::ast::CallExpression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
@@ -3686,7 +3686,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return the root type-test call for an expression in a member chain.
-    pub(super) fn type_test_root_expression<'a>(
+    pub(in crate::lowering) fn type_test_root_expression<'a>(
         &self,
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
@@ -3715,7 +3715,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Return whether `callee` starts a supported type-test assertion chain.
-    pub(super) fn is_type_test_root_callee(&self, callee: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_type_test_root_callee(&self, callee: &Expression<'_>) -> bool {
         matches!(
             callee,
             Expression::Identifier(ident)
@@ -3725,7 +3725,7 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Strip transparent wrappers around an asserted function-call callee.
-    pub(super) fn transparent_asserted_callee<'a>(callee: &'a Expression<'a>) -> Option<&'a Expression<'a>> {
+    pub(in crate::lowering) fn transparent_asserted_callee<'a>(callee: &'a Expression<'a>) -> Option<&'a Expression<'a>> {
         match callee {
             Expression::ParenthesizedExpression(parenthesized) => {
                 Self::transparent_asserted_callee(&parenthesized.expression)

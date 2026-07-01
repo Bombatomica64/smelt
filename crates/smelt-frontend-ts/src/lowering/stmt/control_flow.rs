@@ -2,7 +2,7 @@
 
 use oxc::span::GetSpan;
 
-use super::{
+use crate::lowering::{
     BindingPattern, Body, DictProjectionOp, Expr, ExprKind, Expression, ForStatementInit,
     ForStatementLeft, Literal, LocalDecl, ModuleBuilder, Pattern, SetProjectionOp, SmeltError, Stmt,
     Type,
@@ -10,7 +10,7 @@ use super::{
 
 impl ModuleBuilder<'_> {
     /// Lower a C-style TypeScript `for` statement into HIR control-flow blocks.
-    pub(super) fn c_for_statement(
+    pub(in crate::lowering) fn c_for_statement(
         &mut self,
         for_stmt: &oxc::ast::ast::ForStatement<'_>,
         body: &mut Body,
@@ -66,7 +66,7 @@ impl ModuleBuilder<'_> {
     /// (`step++, resultIndex++`). A sequence evaluates each sub-expression
     /// left-to-right, so each one is lowered into its own `Assign` statement in
     /// source order.
-    pub(super) fn push_for_update(
+    pub(in crate::lowering) fn push_for_update(
         &mut self,
         update: &Expression<'_>,
         body: &mut Body,
@@ -97,7 +97,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract pattern from for-of left side.
-    pub(super) fn for_left_pattern(
+    pub(in crate::lowering) fn for_left_pattern(
         &mut self,
         left: &ForStatementLeft<'_>,
         iter_ty: smelt_hir::TypeId,
@@ -150,7 +150,7 @@ impl ModuleBuilder<'_> {
     /// pattern. For destructuring, Smelt binds that item to a compiler-generated
     /// local and inserts ordinary destructuring `let` statements at the start of
     /// the loop body.
-    pub(super) fn for_left_destructuring<'a>(
+    pub(in crate::lowering) fn for_left_destructuring<'a>(
         &mut self,
         left: &'a ForStatementLeft<'a>,
         iter_ty: smelt_hir::TypeId,
@@ -201,7 +201,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Adapt TypeScript for-of iterables whose Rust representation is not indexable.
-    pub(super) fn for_of_iterable(
+    pub(in crate::lowering) fn for_of_iterable(
         &mut self,
         iter: smelt_hir::ExprId,
         source: &Expression<'_>,
@@ -254,7 +254,7 @@ impl ModuleBuilder<'_> {
     /// JavaScript iterates enumerable property names. Smelt models record-like
     /// objects with dictionaries, so `for (const key in object)` becomes a
     /// dictionary key projection and then reuses the ordinary HIR `For` loop.
-    pub(super) fn for_in_iterable(
+    pub(in crate::lowering) fn for_in_iterable(
         &mut self,
         source: &Expression<'_>,
         body: &mut Body,
@@ -313,7 +313,7 @@ Type::Optional(_)) => {
     /// `export const stringTag = '[object String]'`. These fold to the same
     /// literal at compile time, so resolve any constant-foldable label through
     /// the shared exported-const folder before failing.
-    pub(super) fn literal_case_label(&mut self, expression: &Expression<'_>) -> Result<Literal, SmeltError> {
+    pub(in crate::lowering) fn literal_case_label(&mut self, expression: &Expression<'_>) -> Result<Literal, SmeltError> {
         match expression {
             Expression::StringLiteral(lit) => Ok(Literal::String(lit.value.to_string())),
             Expression::NumericLiteral(lit) => Ok(Literal::Float(lit.value)),
@@ -330,7 +330,7 @@ Type::Optional(_)) => {
     }
 
     /// Lower an expression without type hint.
-    pub(super) fn expression(
+    pub(in crate::lowering) fn expression(
         &mut self,
         expression: &Expression<'_>,
         body: &mut Body,

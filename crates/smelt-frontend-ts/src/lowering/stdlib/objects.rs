@@ -1,7 +1,7 @@
 //! Lowering helpers continued: `SameValueZero` equality and additional
 //! JavaScript call and expression forms.
 
-use super::ModuleBuilder;
+use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
@@ -14,7 +14,7 @@ use smelt_hir::{
 
 impl ModuleBuilder<'_> {
     /// Lower `a === b || Object.is(a, b)` as JavaScript `SameValueZero` equality.
-    pub(super) fn same_value_zero_logical(
+    pub(in crate::lowering) fn same_value_zero_logical(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -54,7 +54,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return identifier names from an `Object.is(left, right)` call.
-    pub(super) fn object_is_identifier_pair<'a>(
+    pub(in crate::lowering) fn object_is_identifier_pair<'a>(
         call: &'a oxc::ast::ast::CallExpression<'a>,
     ) -> Option<(&'a str, &'a str)> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -75,7 +75,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the identifier name carried by a normal call argument.
-    pub(super) fn argument_identifier<'a>(argument: &'a Argument<'a>) -> Option<&'a str> {
+    pub(in crate::lowering) fn argument_identifier<'a>(argument: &'a Argument<'a>) -> Option<&'a str> {
         match argument {
             Argument::Identifier(ident) => Some(ident.name.as_str()),
             _ => None,
@@ -83,12 +83,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an expression is the requested identifier.
-    pub(super) fn expression_is_identifier(expression: &Expression<'_>, name: &str) -> bool {
+    pub(in crate::lowering) fn expression_is_identifier(expression: &Expression<'_>, name: &str) -> bool {
         matches!(expression, Expression::Identifier(ident) if ident.name == name)
     }
 
     /// Lower `Object.is(a, b)` as a strict equality expression.
-    pub(super) fn object_is_call(
+    pub(in crate::lowering) fn object_is_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -123,7 +123,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a supported `Math.pow` call into a HIR numeric runtime call.
-    pub(super) fn math_pow_call(
+    pub(in crate::lowering) fn math_pow_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -169,7 +169,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Math.atan2` calls.
-    pub(super) fn math_atan2_call(
+    pub(in crate::lowering) fn math_atan2_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -225,7 +225,7 @@ impl ModuleBuilder<'_> {
     /// Smelt records carry no non-enumerable or symbol keys. Modeling it through
     /// the existing `DictProjection` keeps a concrete `List<string>` instead of
     /// leaving `Reflect` an unresolved identifier or erasing the result.
-    pub(super) fn object_projection_call(
+    pub(in crate::lowering) fn object_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -327,7 +327,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type can use JavaScript object projection through `Object.*`.
-    pub(super) fn object_keys_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn object_keys_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(
                 Type::Dict(_, _)
@@ -345,7 +345,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `Object.getOwnPropertySymbols(value)` to an opaque symbol-key list.
-    pub(super) fn object_get_own_property_symbols_call(
+    pub(in crate::lowering) fn object_get_own_property_symbols_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -387,7 +387,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `Object.getPrototypeOf(value)` to opaque prototype metadata.
-    pub(super) fn object_get_prototype_of_call(
+    pub(in crate::lowering) fn object_get_prototype_of_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -427,7 +427,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `Object.create(proto)` to an erased object shaped from its prototype.
-    pub(super) fn object_create_call(
+    pub(in crate::lowering) fn object_create_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -473,7 +473,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `Object.create({ ... })` while marking properties as inherited.
-    pub(super) fn object_create_from_literal_prototype(
+    pub(in crate::lowering) fn object_create_from_literal_prototype(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         prototype_object: &oxc::ast::ast::ObjectExpression<'_>,
@@ -522,7 +522,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return a static object-literal key when one is available.
-    pub(super) fn static_object_property_key_text(
+    pub(in crate::lowering) fn static_object_property_key_text(
         &self,
         object_property: &oxc::ast::ast::ObjectProperty<'_>,
     ) -> Result<Option<String>, SmeltError> {
@@ -553,7 +553,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Fall back to the broad erased `Object.create` approximation.
-    pub(super) fn object_create_call_fallback(
+    pub(in crate::lowering) fn object_create_call_fallback(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -577,7 +577,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower opaque side-effecting `Object` metadata calls.
-    pub(super) fn object_metadata_mutation_call(
+    pub(in crate::lowering) fn object_metadata_mutation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -615,7 +615,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower Node `Buffer.alloc(length)` as a zero-filled array-like value.
-    pub(super) fn buffer_alloc_call(
+    pub(in crate::lowering) fn buffer_alloc_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -655,7 +655,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower Node `Buffer.from(value[, encoding])` as an opaque string-producing decode.
-    pub(super) fn buffer_from_call(
+    pub(in crate::lowering) fn buffer_from_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -701,7 +701,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower lodash/fp `negate(predicate)` as an opaque boolean predicate function.
-    pub(super) fn lodash_negate_call(
+    pub(in crate::lowering) fn lodash_negate_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -738,7 +738,7 @@ return_ty,
     }
 
     /// Lower lodash `_.has(object, path)` as an opaque boolean ownership check.
-    pub(super) fn lodash_has_call(
+    pub(in crate::lowering) fn lodash_has_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -772,7 +772,7 @@ return_ty,
     }
 
     /// Lower common curried lodash/fp helpers as opaque callable values.
-    pub(super) fn lodash_fp_curried_call(
+    pub(in crate::lowering) fn lodash_fp_curried_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -823,7 +823,7 @@ return_ty,
     }
 
     /// Lower Node `path.join(...)` and `path.resolve(...)` as string path builders.
-    pub(super) fn node_path_static_call(
+    pub(in crate::lowering) fn node_path_static_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -858,7 +858,7 @@ return_ty,
     }
 
     /// Lower TypeScript `Object.fromEntries([[key, value], ...])` to a dictionary literal.
-    pub(super) fn object_from_entries_call(
+    pub(in crate::lowering) fn object_from_entries_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -974,7 +974,7 @@ return_ty,
     }
 
     /// Infer dictionary key/value types from an entry tuple item type.
-    pub(super) fn entries_tuple_item_types(
+    pub(in crate::lowering) fn entries_tuple_item_types(
         &self,
         entry_ty: smelt_hir::TypeId,
     ) -> Option<(smelt_hir::TypeId, smelt_hir::TypeId)> {
@@ -988,7 +988,7 @@ return_ty,
     }
 
     /// Lower direct TypeScript object key ownership checks.
-    pub(super) fn object_has_own_call(
+    pub(in crate::lowering) fn object_has_own_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1038,7 +1038,7 @@ return_ty,
     }
 
     /// Return true for the canonical unbound ownership helper.
-    pub(super) fn is_object_prototype_has_own_property(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_object_prototype_has_own_property(expression: &Expression<'_>) -> bool {
         let Expression::StaticMemberExpression(has_own_member) = expression else {
             return false;
         };
@@ -1058,7 +1058,7 @@ return_ty,
     }
 
     /// Build a HIR expression for a TypeScript record key ownership check.
-    pub(super) fn object_has_own_expr(
+    pub(in crate::lowering) fn object_has_own_expr(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1196,7 +1196,7 @@ return_ty,
     }
 
     /// Lower direct TypeScript `Array.isArray` calls using static HIR types.
-    pub(super) fn array_is_array_call(
+    pub(in crate::lowering) fn array_is_array_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1244,7 +1244,7 @@ return_ty,
     }
 
     /// Lower direct TypeScript string case methods.
-    pub(super) fn string_case_call(
+    pub(in crate::lowering) fn string_case_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1316,7 +1316,7 @@ return_ty,
     }
 
     /// Return whether an erased receiver can be treated as a string method target.
-    pub(super) fn string_method_erased_receiver(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn string_method_erased_receiver(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => true,
             Some(Type::Optional(inner)) => self.string_method_erased_receiver(*inner),
@@ -1332,7 +1332,7 @@ return_ty,
     }
 
     /// Lower direct TypeScript Unicode string normalization.
-    pub(super) fn string_normalize_call(
+    pub(in crate::lowering) fn string_normalize_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1387,7 +1387,7 @@ return_ty,
     }
 
     /// Lower direct TypeScript string trimming.
-    pub(super) fn string_trim_call(
+    pub(in crate::lowering) fn string_trim_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1432,7 +1432,7 @@ return_ty,
     }
 
     /// Lower direct TypeScript string prefix and suffix tests.
-    pub(super) fn string_affix_call(
+    pub(in crate::lowering) fn string_affix_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1541,7 +1541,7 @@ return_ty,
     }
 
     /// Lower direct TypeScript string search methods.
-    pub(super) fn string_search_call(
+    pub(in crate::lowering) fn string_search_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1602,7 +1602,7 @@ return_ty,
     }
 
     /// Lower `String.prototype.matchAll` to a match-record list surface.
-    pub(super) fn string_match_all_call(
+    pub(in crate::lowering) fn string_match_all_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1639,7 +1639,7 @@ return_ty,
     }
 
     /// Lower direct TypeScript literal string replacement.
-    pub(super) fn string_replace_call(
+    pub(in crate::lowering) fn string_replace_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1691,7 +1691,7 @@ return_ty,
     }
 
     /// Lower direct TypeScript string repetition.
-    pub(super) fn string_repeat_call(
+    pub(in crate::lowering) fn string_repeat_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,

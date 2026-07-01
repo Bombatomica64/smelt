@@ -1,10 +1,10 @@
 //! Arrow-function const-declaration lowering and related helpers.
 
 
-use super::support::{
+use crate::lowering::support::{
     const_literal_from_item, single_arg, two_args,
 };
-use super::{
+use crate::lowering::{
     ConstLiteral,
     ModuleBuilder, RestParam, ambient_globals, stdlib_dispatch,
 };
@@ -22,7 +22,7 @@ use smelt_hir::{
 
 impl ModuleBuilder<'_> {
     /// Lower a `const name = (...) => ...` declaration into a HIR function item.
-    pub(super) fn arrow_function_const_declaration(
+    pub(in crate::lowering) fn arrow_function_const_declaration(
         &mut self,
         name_text: &str,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
@@ -36,7 +36,7 @@ impl ModuleBuilder<'_> {
     /// Multiple TypeScript modules legitimately use helper spellings such as
     /// `lazyImplementation`; their Rust items must remain distinct after all
     /// source modules are emitted into one generated crate.
-    pub(super) fn private_arrow_function_const_declaration(
+    pub(in crate::lowering) fn private_arrow_function_const_declaration(
         &mut self,
         name_text: &str,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
@@ -46,7 +46,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a synthetic object-table arrow function while preserving exact key spelling.
-    pub(super) fn arrow_function_const_declaration_with_source_name(
+    pub(in crate::lowering) fn arrow_function_const_declaration_with_source_name(
         &mut self,
         name_text: &str,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
@@ -56,7 +56,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Shared implementation for arrow function constants.
-    pub(super) fn arrow_function_const_declaration_inner(
+    pub(in crate::lowering) fn arrow_function_const_declaration_inner(
         &mut self,
         name_text: &str,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
@@ -360,7 +360,7 @@ return_ty,
     }
 
     /// Pick the public return type for a lowered arrow-const function item.
-    pub(super) fn arrow_const_return_type(
+    pub(in crate::lowering) fn arrow_const_return_type(
         &mut self,
         declared_return_ty: Option<smelt_hir::TypeId>,
         inferred_return_ty: Option<smelt_hir::TypeId>,
@@ -378,7 +378,7 @@ return_ty,
     }
 
     /// Preserve callable parameters from an erased API surface while dropping precise return data.
-    pub(super) fn erase_opaque_callable_return(&mut self, inferred: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn erase_opaque_callable_return(&mut self, inferred: smelt_hir::TypeId) -> smelt_hir::TypeId {
         let Some(Type::Function(function)) = self.ctx.krate.types.get(inferred).cloned() else {
             return inferred;
         };
@@ -399,7 +399,7 @@ return_ty,
     }
 
     /// Create a stable internal symbol for a destructured parameter slot.
-    pub(super) fn synthetic_param_symbol(&mut self, index: usize) -> smelt_hir::Symbol {
+    pub(in crate::lowering) fn synthetic_param_symbol(&mut self, index: usize) -> smelt_hir::Symbol {
         self.ctx
             .krate
             .symbols
@@ -407,7 +407,7 @@ return_ty,
     }
 
     /// Infer a block-bodied arrow return type from reachable direct returns.
-    pub(super) fn last_return_type(&mut self, body: &Body) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn last_return_type(&mut self, body: &Body) -> Option<smelt_hir::TypeId> {
         let mut found = Vec::new();
         Self::collect_return_types_from_block(body, body.root, &mut found);
         if let Some(first) = found.first().copied() {
@@ -425,7 +425,7 @@ return_ty,
     }
 
     /// Collect return value types from a block and nested control-flow blocks.
-    pub(super) fn collect_return_types_from_block(
+    pub(in crate::lowering) fn collect_return_types_from_block(
         body: &Body,
         block: smelt_hir::BlockId,
         out: &mut Vec<smelt_hir::TypeId>,
@@ -440,7 +440,7 @@ return_ty,
     }
 
     /// Collect return value types from a statement and any nested statement bodies.
-    pub(super) fn collect_return_types_from_stmt(body: &Body, stmt_id: smelt_hir::StmtId, out: &mut Vec<smelt_hir::TypeId>) {
+    pub(in crate::lowering) fn collect_return_types_from_stmt(body: &Body, stmt_id: smelt_hir::StmtId, out: &mut Vec<smelt_hir::TypeId>) {
         let Some(stmt) = body.stmts.get(usize::try_from(stmt_id.0).ok().unwrap_or(usize::MAX))
         else {
             return;
@@ -497,7 +497,7 @@ return_ty,
     /// this helper emits the direct uncurried wrapper shape used by generated
     /// date-fns `src/fp` entrypoints while preserving the real target return
     /// type and parameter types.
-    pub(super) fn fp_wrapper_const_declaration(
+    pub(in crate::lowering) fn fp_wrapper_const_declaration(
         &mut self,
         name_text: &str,
         init: &Expression<'_>,
@@ -627,7 +627,7 @@ return_ty: target_function.return_ty,
     /// when Smelt has only retained the target's required parameters. Keeping a
     /// synthetic unknown slot preserves the callable arity and lets the wrapper
     /// pass all collected FP arguments through in the original order.
-    pub(super) fn pad_fp_wrapper_target_params(
+    pub(in crate::lowering) fn pad_fp_wrapper_target_params(
         &mut self,
         target_item: smelt_hir::ItemId,
         arity: usize,
@@ -686,7 +686,7 @@ return_ty: target_function.return_ty,
     }
 
     /// Extract the literal arity used by generated date-fns `convertToFP` calls.
-    pub(super) fn fp_wrapper_arity(argument: &Argument<'_>, fallback_span: Span) -> Result<usize, SmeltError> {
+    pub(in crate::lowering) fn fp_wrapper_arity(argument: &Argument<'_>, fallback_span: Span) -> Result<usize, SmeltError> {
         let Argument::NumericLiteral(literal) = argument else {
             return Err(SmeltError::unsupported(
                 fallback_span,
@@ -714,7 +714,7 @@ return_ty: target_function.return_ty,
     /// initializers that reference such an import must still fold to the same
     /// literal, so fall back to the lowered const item when the precomputed map
     /// misses the name.
-    pub(super) fn resolve_const_literal_by_name(&self, name: &str) -> Option<ConstLiteral> {
+    pub(in crate::lowering) fn resolve_const_literal_by_name(&self, name: &str) -> Option<ConstLiteral> {
         if let Some(value) = self.const_literals.get(name) {
             return Some(value.clone());
         }
@@ -726,7 +726,7 @@ return_ty: target_function.return_ty,
     }
 
     /// Convert a supported TypeScript literal expression into an importable const value.
-    pub(super) fn literal_const_expression(
+    pub(in crate::lowering) fn literal_const_expression(
         &mut self,
         expression: &Expression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
@@ -788,7 +788,7 @@ return_ty: target_function.return_ty,
     }
 
     /// Convert a JavaScript regex literal into a Rust `regex` pattern string.
-    pub(super) fn regex_literal_pattern_text(literal: &oxc::ast::ast::RegExpLiteral<'_>) -> String {
+    pub(in crate::lowering) fn regex_literal_pattern_text(literal: &oxc::ast::ast::RegExpLiteral<'_>) -> String {
         let flags = literal.regex.flags.to_string();
         let mut inline_flags = String::new();
         for flag in flags.chars() {
@@ -806,14 +806,14 @@ return_ty: target_function.return_ty,
     }
 
     /// Convert a JavaScript regex literal pattern without applying flags.
-    pub(super) fn regex_literal_pattern_text_without_flags(
+    pub(in crate::lowering) fn regex_literal_pattern_text_without_flags(
         literal: &oxc::ast::ast::RegExpLiteral<'_>,
     ) -> String {
         Self::rust_regex_pattern_text(&literal.regex.pattern.text)
     }
 
     /// Translate JavaScript regex syntax accepted by Smelt into Rust regex syntax.
-    pub(super) fn rust_regex_pattern_text(pattern: &str) -> String {
+    pub(in crate::lowering) fn rust_regex_pattern_text(pattern: &str) -> String {
         pattern
             .replace("(?<", "(?P<")
             .replace("\\.{0,4096}", "\\.*")
@@ -834,7 +834,7 @@ return_ty: target_function.return_ty,
     ///   always models the constructor (`new DOMException`, `instanceof
     ///   DOMException`), so the alias const is dropped and the identifier resolves
     ///   through the builtin path instead.
-    pub(super) fn is_known_non_importable_exported_const(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_known_non_importable_exported_const(expression: &Expression<'_>) -> bool {
         if let Expression::CallExpression(call) = expression
             && let Expression::StaticMemberExpression(member) = &call.callee
             && let Expression::Identifier(object) = &member.object
@@ -852,7 +852,7 @@ return_ty: target_function.return_ty,
     /// being a `globalThis.X` member access whose property names a builtin Smelt
     /// models (currently `DOMException`); the test and fallback shapes are not
     /// inspected because the modeled builtin makes them irrelevant.
-    pub(super) fn is_host_constructor_presence_alias(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_host_constructor_presence_alias(expression: &Expression<'_>) -> bool {
         let Expression::ConditionalExpression(conditional) = expression else {
             return false;
         };
@@ -864,7 +864,7 @@ return_ty: target_function.return_ty,
 
     /// Return whether a member access is `globalThis.X` (or `global.X` / `self.X`)
     /// for a modeled builtin host constructor `X`.
-    pub(super) fn is_global_alias_member_host_constructor(
+    pub(in crate::lowering) fn is_global_alias_member_host_constructor(
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> bool {
         let Expression::Identifier(object) = &member.object else {
@@ -875,7 +875,7 @@ return_ty: target_function.return_ty,
     }
 
     /// Fold a supported unary expression inside an exported const initializer.
-    pub(super) fn unary_literal_const_expression(
+    pub(in crate::lowering) fn unary_literal_const_expression(
         &mut self,
         unary: &oxc::ast::ast::UnaryExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
@@ -907,7 +907,7 @@ return_ty: target_function.return_ty,
     /// global numeric members (`export const MAX_INTEGER = Number.MAX_VALUE`).
     /// These are compile-time constants, so they fold to the same `Float`
     /// literals that the runtime `Number.<constant>` reader produces.
-    pub(super) fn member_literal_const_expression(
+    pub(in crate::lowering) fn member_literal_const_expression(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
@@ -945,7 +945,7 @@ return_ty: target_function.return_ty,
     }
 
     /// Fold a supported binary expression inside an exported const initializer.
-    pub(super) fn binary_literal_const_expression(
+    pub(in crate::lowering) fn binary_literal_const_expression(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
@@ -1002,7 +1002,7 @@ return_ty: target_function.return_ty,
     /// keeps `export const supported = typeof globalThis === "object";` a foldable
     /// primitive instead of an "unresolved const" blocker. Returns `None` when the
     /// binary expression is not a recognized global probe.
-    pub(super) fn global_probe_const_value(&self, binary: &oxc::ast::ast::BinaryExpression<'_>) -> Option<bool> {
+    pub(in crate::lowering) fn global_probe_const_value(&self, binary: &oxc::ast::ast::BinaryExpression<'_>) -> Option<bool> {
         // `"<key>" in <global-alias>`.
         if binary.operator == BinaryOperator::In
             && self.expr_is_global_alias(&binary.right)
@@ -1038,7 +1038,7 @@ return_ty: target_function.return_ty,
     }
 
     /// Fold supported pure calls inside exported const initializers.
-    pub(super) fn call_literal_const_expression(
+    pub(in crate::lowering) fn call_literal_const_expression(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
@@ -1078,7 +1078,7 @@ return_ty: target_function.return_ty,
     }
 
     /// Fold one pure numeric Math operation using JavaScript-compatible f64 behavior.
-    pub(super) fn fold_pure_math_const(op: stdlib_dispatch::PureMathCall, args: &[f64]) -> Option<f64> {
+    pub(in crate::lowering) fn fold_pure_math_const(op: stdlib_dispatch::PureMathCall, args: &[f64]) -> Option<f64> {
         use stdlib_dispatch::PureMathCall;
         match op {
             PureMathCall::Abs => single_arg(args).map(f64::abs),
@@ -1114,7 +1114,7 @@ return_ty: target_function.return_ty,
     }
 
     /// Fold one numeric argument in an exported const call expression.
-    pub(super) fn number_literal_const_argument(
+    pub(in crate::lowering) fn number_literal_const_argument(
         &mut self,
         argument: &Argument<'_>,
     ) -> Result<f64, SmeltError> {

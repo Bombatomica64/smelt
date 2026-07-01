@@ -2,5 +2,6 @@
 //! interface/heritage field lookup.
 
 mod annotations;
+mod assignability;
 mod generics;
 mod interface_lookup;

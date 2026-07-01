@@ -1,8 +1,8 @@
 //! `ModuleBuilder` lowering methods (part 04): type-declaration name qualification
 //! and related HIR construction helpers split out of `lowering.rs`.
 
-use super::support::{is_static_property_key, statement_terminates};
-use super::{InterfaceHeritageRef, ModuleBuilder};
+use crate::lowering::support::{is_static_property_key, statement_terminates};
+use crate::lowering::{InterfaceHeritageRef, ModuleBuilder};
 use crate::SmeltError;
 use oxc::ast::ast::{
     Argument, AssignmentTarget, BindingPattern, ChainElement, Declaration, Expression, Statement,
@@ -17,7 +17,7 @@ use smelt_hir::{
 
 impl ModuleBuilder<'_> {
     /// Prefix a local type declaration with the active TypeScript namespace path.
-    pub(super) fn qualified_type_declaration_name(&self, name: &str) -> String {
+    pub(in crate::lowering) fn qualified_type_declaration_name(&self, name: &str) -> String {
         if self.type_namespace_prefix.is_empty() {
             return name.to_owned();
         }
@@ -25,7 +25,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a TypeScript type alias declaration to HIR.
-    pub(super) fn type_alias_declaration(
+    pub(in crate::lowering) fn type_alias_declaration(
         &mut self,
         alias: &oxc::ast::ast::TSTypeAliasDeclaration<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
@@ -59,7 +59,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a TypeScript interface declaration to HIR.
-    pub(super) fn interface_declaration(
+    pub(in crate::lowering) fn interface_declaration(
         &mut self,
         interface: &oxc::ast::ast::TSInterfaceDeclaration<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
@@ -307,7 +307,7 @@ return_ty,
     }
 
     /// Lower TypeScript namespace declarations that contain exported type declarations.
-    pub(super) fn type_namespace_declaration(
+    pub(in crate::lowering) fn type_namespace_declaration(
         &mut self,
         module_decl: &oxc::ast::ast::TSModuleDeclaration<'_>,
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
@@ -321,7 +321,7 @@ return_ty,
     }
 
     /// Return the source namespace identifier for namespace declarations.
-    pub(super) fn type_namespace_name(name: &TSModuleDeclarationName<'_>) -> Option<String> {
+    pub(in crate::lowering) fn type_namespace_name(name: &TSModuleDeclarationName<'_>) -> Option<String> {
         match name {
             TSModuleDeclarationName::Identifier(ident) => Some(ident.name.to_string()),
             TSModuleDeclarationName::StringLiteral(_) => None,
@@ -329,7 +329,7 @@ return_ty,
     }
 
     /// Lower exported type declarations from a namespace body.
-    pub(super) fn type_namespace_body(
+    pub(in crate::lowering) fn type_namespace_body(
         &mut self,
         body: Option<&TSModuleDeclarationBody<'_>>,
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
@@ -379,7 +379,7 @@ return_ty,
     }
 
     /// Lower a statement within a specific block.
-    pub(super) fn statement_in_block(
+    pub(in crate::lowering) fn statement_in_block(
         &mut self,
         statement: &Statement<'_>,
         body: &mut Body,
@@ -864,7 +864,7 @@ return_ty,
     }
 
     /// Lower side-effecting `array.forEach((item) => { ... })` as a normal loop.
-    pub(super) fn for_each_statement(
+    pub(in crate::lowering) fn for_each_statement(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1084,7 +1084,7 @@ return_ty,
     }
 
     /// Lower a statement inside a `forEach` callback body.
-    pub(super) fn for_each_callback_statement(
+    pub(in crate::lowering) fn for_each_callback_statement(
         &mut self,
         statement: &Statement<'_>,
         body: &mut Body,
@@ -1160,7 +1160,7 @@ return_ty,
     }
 
     /// Append a `yield` statement value to the active generator accumulator.
-    pub(super) fn generator_yield_statement(
+    pub(in crate::lowering) fn generator_yield_statement(
         &mut self,
         yield_expr: &oxc::ast::ast::YieldExpression<'_>,
         body: &mut Body,
@@ -1209,7 +1209,7 @@ return_ty,
     }
 
     /// Lower writes to known module-level variables without requiring a local target.
-    pub(super) fn module_global_assignment_statement(
+    pub(in crate::lowering) fn module_global_assignment_statement(
         &mut self,
         assign: &oxc::ast::ast::AssignmentExpression<'_>,
         body: &mut Body,
@@ -1230,7 +1230,7 @@ return_ty,
     }
 
     /// Lower `while ((target = value) !== null)` without dropping the assignment.
-    pub(super) fn while_assignment_condition_body(
+    pub(in crate::lowering) fn while_assignment_condition_body(
         &mut self,
         while_stmt: &oxc::ast::ast::WhileStatement<'_>,
         body: &mut Body,
@@ -1288,7 +1288,7 @@ return_ty,
     }
 
     /// Strip transparent parentheses from a TypeScript expression.
-    pub(super) fn unparenthesized_expression<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
+    pub(in crate::lowering) fn unparenthesized_expression<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
         let mut current = expression;
         while let Expression::ParenthesizedExpression(parenthesized) = current {
             current = &parenthesized.expression;
@@ -1297,7 +1297,7 @@ return_ty,
     }
 
     /// Return whether an expression is a top-level Vitest organization call.
-    pub(super) fn is_test_framework_statement(&self, expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_test_framework_statement(&self, expression: &Expression<'_>) -> bool {
         if self.table_test_call(expression).is_some() {
             return true;
         }
@@ -1311,7 +1311,7 @@ return_ty,
     }
 
     /// Return whether this is a top-level `vi.mock(...)` registration.
-    pub(super) fn is_vitest_mock_statement(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_vitest_mock_statement(expression: &Expression<'_>) -> bool {
         let Expression::CallExpression(call) = expression else {
             return false;
         };
@@ -1323,7 +1323,7 @@ return_ty,
     }
 
     /// Return whether this is a top-level `await import("...")` side-effect load.
-    pub(super) fn is_top_level_dynamic_import_await(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_top_level_dynamic_import_await(expression: &Expression<'_>) -> bool {
         let Expression::AwaitExpression(await_expr) = expression else {
             return false;
         };
@@ -1331,7 +1331,7 @@ return_ty,
     }
 
     /// Return a supported top-level test case call, if this expression is one.
-    pub(super) fn test_case_call<'a>(
+    pub(in crate::lowering) fn test_case_call<'a>(
         &self,
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
@@ -1346,7 +1346,7 @@ return_ty,
     }
 
     /// Return whether an expression is a skipped Vitest test case.
-    pub(super) fn skipped_test_case_call(&self, expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn skipped_test_case_call(&self, expression: &Expression<'_>) -> bool {
         let Expression::CallExpression(call) = expression else {
             return false;
         };
@@ -1365,17 +1365,17 @@ return_ty,
     }
 
     /// Return whether a suite-level condition is known false for native Rust tests.
-    pub(super) fn describe_condition_is_native_false(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn describe_condition_is_native_false(expression: &Expression<'_>) -> bool {
         Self::typeof_window_undefined_comparison(expression, false)
     }
 
     /// Return whether a suite-level condition is known true for native Rust tests.
-    pub(super) fn describe_condition_is_native_true(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn describe_condition_is_native_true(expression: &Expression<'_>) -> bool {
         Self::typeof_window_undefined_comparison(expression, true)
     }
 
     /// Evaluate `typeof window ===/!== "undefined"` for the Rust test target.
-    pub(super) fn typeof_window_undefined_comparison(
+    pub(in crate::lowering) fn typeof_window_undefined_comparison(
         expression: &Expression<'_>,
         want_equal: bool,
     ) -> bool {
@@ -1402,7 +1402,7 @@ return_ty,
     }
 
     /// Return whether an expression is `typeof window`.
-    pub(super) fn is_typeof_window(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_typeof_window(expression: &Expression<'_>) -> bool {
         let Expression::UnaryExpression(unary) = expression else {
             return false;
         };
@@ -1413,7 +1413,7 @@ return_ty,
     }
 
     /// Return a supported `test.each(...)` or `describe.each(...)` outer call.
-    pub(super) fn table_test_call<'a>(
+    pub(in crate::lowering) fn table_test_call<'a>(
         &self,
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
@@ -1429,7 +1429,7 @@ return_ty,
     }
 
     /// Return whether a callee is the invoked result of `.each(...)`.
-    pub(super) fn table_each_callee(&self, callee: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn table_each_callee(&self, callee: &Expression<'_>) -> bool {
         let Expression::CallExpression(each_call) = callee else {
             return false;
         };
@@ -1448,7 +1448,7 @@ return_ty,
     }
 
     /// Return a supported `test.prop(...)` or `it.prop(...)` property-test call.
-    pub(super) fn property_test_call<'a>(
+    pub(in crate::lowering) fn property_test_call<'a>(
         &self,
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
@@ -1474,7 +1474,7 @@ return_ty,
     }
 
     /// Return a supported top-level `describe` call, if this expression is one.
-    pub(super) fn describe_call<'a>(
+    pub(in crate::lowering) fn describe_call<'a>(
         &self,
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
@@ -1488,7 +1488,7 @@ return_ty,
     ///
     /// Smelt emits one Rust test per supported Vitest test case, so suite-level
     /// hooks are inherited into each flattened test body in declaration order.
-    pub(super) fn collect_lifecycle_hook<'a>(
+    pub(in crate::lowering) fn collect_lifecycle_hook<'a>(
         &self,
         expression: &'a Expression<'a>,
         before_each: &mut Vec<&'a oxc::ast::ast::ArrowFunctionExpression<'a>>,
@@ -1527,7 +1527,7 @@ return_ty,
     /// that copied call site gives the same setup ordering for the current test.
     /// Teardown hooks remain handled by ordinary suite collection or by the
     /// per-test reset emitted for mutable Vitest runtime state.
-    pub(super) fn inline_runtime_lifecycle_setup(
+    pub(in crate::lowering) fn inline_runtime_lifecycle_setup(
         &mut self,
         expression: &Expression<'_>,
         body: &mut Body,
@@ -1555,7 +1555,7 @@ return_ty,
     }
 
     /// Return whether a callee belongs to an imported test-framework API.
-    pub(super) fn is_test_framework_callee(&self, callee: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_test_framework_callee(&self, callee: &Expression<'_>) -> bool {
         match callee {
             Expression::Identifier(ident) => self.test_builtins.contains(ident.name.as_str()),
             Expression::CallExpression(call) => self.is_test_framework_callee(&call.callee),
@@ -1577,7 +1577,7 @@ return_ty,
     }
 
     /// Return whether a callee is `describe` or `describe.concurrent`.
-    pub(super) fn is_describe_callee(&self, callee: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_describe_callee(&self, callee: &Expression<'_>) -> bool {
         match callee {
             Expression::Identifier(ident) => {
                 ident.name == "describe" && self.test_builtins.contains("describe")

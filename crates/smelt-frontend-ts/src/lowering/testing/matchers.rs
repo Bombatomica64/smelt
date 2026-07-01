@@ -1,7 +1,7 @@
 //! `ModuleBuilder` lowering methods (part 06): assertion/expectation lowering
 //! and related HIR construction helpers split out of `lowering.rs`.
 
-use super::{LocalCallback, LocalCallbackDefault, ModuleBuilder, RestParam, TestMatcher};
+use crate::lowering::{LocalCallback, LocalCallbackDefault, ModuleBuilder, RestParam, TestMatcher};
 use crate::{SmeltError, camel_to_snake};
 use oxc::ast::ast::{Argument, BindingPattern, Expression, PropertyKey, Statement};
 use oxc::span::GetSpan;
@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 
 impl ModuleBuilder<'_> {
     /// Lower a Node `assert.deepStrictEqual` call statement when one is present.
-    pub(super) fn deep_strict_equal_statement(
+    pub(in crate::lowering) fn deep_strict_equal_statement(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -48,7 +48,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower supported Node `assert` equality calls into runtime assertions.
-    pub(super) fn node_assert_statement(
+    pub(in crate::lowering) fn node_assert_statement(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -82,7 +82,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower supported `expect(actual).matcher(expected)` calls to failure paths.
-    pub(super) fn expect_matcher_statement(
+    pub(in crate::lowering) fn expect_matcher_statement(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -186,7 +186,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether Vitest `toBe` needs JavaScript `SameValue` semantics.
-    pub(super) fn test_to_be_needs_strict_identity(
+    pub(in crate::lowering) fn test_to_be_needs_strict_identity(
         &self,
         actual: smelt_hir::ExprId,
         expected: smelt_hir::ExprId,
@@ -216,7 +216,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an assertion operand is the JavaScript `NaN` literal.
-    pub(super) fn test_to_be_nan_literal(value: smelt_hir::ExprId, body: &Body) -> bool {
+    pub(in crate::lowering) fn test_to_be_nan_literal(value: smelt_hir::ExprId, body: &Body) -> bool {
         matches!(
             usize::try_from(value.0)
                 .ok()
@@ -229,7 +229,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type has reference identity under JavaScript `toBe`.
-    pub(super) fn test_to_be_identity_type(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn test_to_be_identity_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Optional(inner)) => self.test_to_be_identity_type(*inner),
             Some(
@@ -245,7 +245,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type is erased enough that `toBe` must defer to runtime.
-    pub(super) fn test_to_be_erased_type(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn test_to_be_erased_type(&self, ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -253,7 +253,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower nullish zero-argument matchers to strict singleton checks.
-    pub(super) fn expect_to_be_none_statement(
+    pub(in crate::lowering) fn expect_to_be_none_statement(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
@@ -319,7 +319,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract `expect(...)` and whether `.not` was present from a matcher receiver.
-    pub(super) fn expect_call_from_matcher_object<'a>(
+    pub(in crate::lowering) fn expect_call_from_matcher_object<'a>(
         &self,
         expression: &'a Expression<'a>,
     ) -> Result<(&'a oxc::ast::ast::CallExpression<'a>, bool), SmeltError> {
@@ -352,7 +352,7 @@ impl ModuleBuilder<'_> {
     /// The initial lowering only needs to prove that the callback throws. The
     /// optional expected message argument is intentionally ignored until HIR has
     /// a first-class panic payload comparison path for TypeScript exceptions.
-    pub(super) fn expect_to_throw_statement(
+    pub(in crate::lowering) fn expect_to_throw_statement(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
@@ -550,7 +550,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an `expect(...).toThrow()` argument is a bound function call.
-    pub(super) fn is_bind_call_argument(argument: &Argument<'_>) -> bool {
+    pub(in crate::lowering) fn is_bind_call_argument(argument: &Argument<'_>) -> bool {
         let Some(Expression::CallExpression(call)) = argument.as_expression() else {
             return false;
         };
@@ -561,7 +561,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Build the boolean expression that means a supported matcher has failed.
-    pub(super) fn expect_matcher_failure_expr(
+    pub(in crate::lowering) fn expect_matcher_failure_expr(
         &mut self,
         matcher: TestMatcher,
         actual: smelt_hir::ExprId,
@@ -598,7 +598,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Push a throwing failure block guarded by a boolean condition.
-    pub(super) fn push_test_failure_if(
+    pub(in crate::lowering) fn push_test_failure_if(
         &mut self,
         cond: smelt_hir::ExprId,
         message: &str,
@@ -621,7 +621,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a boolean unary expression for synthesized test assertions.
-    pub(super) fn unary_bool_expr(
+    pub(in crate::lowering) fn unary_bool_expr(
         &mut self,
         op: UnaryOp,
         operand: smelt_hir::ExprId,
@@ -637,7 +637,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a boolean comparison expression for synthesized test assertions.
-    pub(super) fn comparison_expr(
+    pub(in crate::lowering) fn comparison_expr(
         &mut self,
         op: BinOp,
         lhs: smelt_hir::ExprId,
@@ -678,7 +678,7 @@ impl ModuleBuilder<'_> {
     /// pipeline still uses the narrower `type_contains_unknown` helper because
     /// treating every `Array<unknown>` as unknown-like changes overload choices
     /// in normal library code.
-    pub(super) fn assertion_type_contains_unknown(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn assertion_type_contains_unknown(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown | Type::TypeParam { .. }) => true,
             Some(
@@ -697,7 +697,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a length expression for synthesized test assertions.
-    pub(super) fn len_expr(
+    pub(in crate::lowering) fn len_expr(
         &mut self,
         operand: smelt_hir::ExprId,
         span: oxc::span::Span,
@@ -741,7 +741,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a containment expression for synthesized test assertions.
-    pub(super) fn contains_expr(
+    pub(in crate::lowering) fn contains_expr(
         &mut self,
         actual: smelt_hir::ExprId,
         expected: smelt_hir::ExprId,
@@ -808,7 +808,7 @@ impl ModuleBuilder<'_> {
     /// runtime; the key may be any string-convertible value there, so no
     /// static key-type match is demanded. This keeps `toHaveProperty` general
     /// over both concrete records and erased object actuals.
-    pub(super) fn dict_contains_key_expr(
+    pub(in crate::lowering) fn dict_contains_key_expr(
         &mut self,
         actual: smelt_hir::ExprId,
         expected: smelt_hir::ExprId,
@@ -845,7 +845,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a string literal expression for synthesized test diagnostics.
-    pub(super) fn string_literal_expr(
+    pub(in crate::lowering) fn string_literal_expr(
         &mut self,
         value: &str,
         span: oxc::span::Span,
@@ -860,7 +860,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a block from a statement (wrapping if needed).
-    pub(super) fn block_from_statement(
+    pub(in crate::lowering) fn block_from_statement(
         &mut self,
         statement: &Statement<'_>,
         body: &mut Body,
@@ -878,7 +878,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a HIR block from a JavaScript block statement.
-    pub(super) fn block_from_block_statement(
+    pub(in crate::lowering) fn block_from_block_statement(
         &mut self,
         block_stmt: &oxc::ast::ast::BlockStatement<'_>,
         body: &mut Body,
@@ -891,7 +891,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Apply a local narrowing in the current lexical lowering context.
-    pub(super) fn apply_narrowing(&mut self, name: String, target: smelt_hir::TypeId) {
+    pub(in crate::lowering) fn apply_narrowing(&mut self, name: String, target: smelt_hir::TypeId) {
         if let Some(scope) = self.narrowed_locals.last_mut() {
             scope.insert(name, target);
         } else {
@@ -902,7 +902,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the active narrowed type for a source local, if any.
-    pub(super) fn narrowed_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn narrowed_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
         self.narrowed_locals
             .iter()
             .rev()
@@ -910,7 +910,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Discover the narrowing applied by a successful assertion call statement.
-    pub(super) fn assertion_call_narrowing(
+    pub(in crate::lowering) fn assertion_call_narrowing(
         &self,
         expression: &Expression<'_>,
     ) -> Option<(String, smelt_hir::TypeId)> {
@@ -929,7 +929,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Discover local type facts proven by a boolean guard expression.
-    pub(super) fn guard_narrowing(
+    pub(in crate::lowering) fn guard_narrowing(
         &mut self,
         expression: &Expression<'_>,
         body: &Body,
@@ -961,7 +961,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Discover local type facts proven after a guard exits early.
-    pub(super) fn inverse_guard_narrowing(
+    pub(in crate::lowering) fn inverse_guard_narrowing(
         &mut self,
         expression: &Expression<'_>,
         body: &Body,
@@ -990,7 +990,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recognize `value !== undefined/null` guards.
-    pub(super) fn optional_some_guard(
+    pub(in crate::lowering) fn optional_some_guard(
         &mut self,
         expression: &Expression<'_>,
         body: &Body,
@@ -1041,7 +1041,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recognize `typeof value === "kind"` guards whose true branch exits.
-    pub(super) fn typeof_inverse_guard(
+    pub(in crate::lowering) fn typeof_inverse_guard(
         &mut self,
         expression: &Expression<'_>,
         body: &Body,
@@ -1055,7 +1055,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return a type with members matching a `typeof` kind removed.
-    pub(super) fn remove_typeof_member(
+    pub(in crate::lowering) fn remove_typeof_member(
         &mut self,
         ty: smelt_hir::TypeId,
         kind: &str,
@@ -1081,7 +1081,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a HIR type corresponds to a JavaScript `typeof` result.
-    pub(super) fn type_matches_typeof(&self, ty: smelt_hir::TypeId, kind: &str) -> bool {
+    pub(in crate::lowering) fn type_matches_typeof(&self, ty: smelt_hir::TypeId, kind: &str) -> bool {
         let resolved_ty = self.type_param_constraint_or_self(ty);
         match (self.ctx.krate.types.get(resolved_ty), kind) {
             (Some(Type::Bool), "boolean")
@@ -1110,7 +1110,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether two branch types can be represented by one callable shape.
-    pub(super) fn compatible_function_branch_types(
+    pub(in crate::lowering) fn compatible_function_branch_types(
         &self,
         left: smelt_hir::TypeId,
         right: smelt_hir::TypeId,
@@ -1127,7 +1127,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the callable branch when the other branch is imprecise metadata.
-    pub(super) fn single_function_branch_type(
+    pub(in crate::lowering) fn single_function_branch_type(
         &self,
         left: smelt_hir::TypeId,
         right: smelt_hir::TypeId,
@@ -1145,7 +1145,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recognize `value === undefined/null` guards whose true branch exits.
-    pub(super) fn optional_none_inverse_guard(
+    pub(in crate::lowering) fn optional_none_inverse_guard(
         &mut self,
         expression: &Expression<'_>,
         body: &Body,
@@ -1196,7 +1196,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a source statement always exits the current flow path.
-    pub(super) fn statement_must_exit(statement: &Statement<'_>) -> bool {
+    pub(in crate::lowering) fn statement_must_exit(statement: &Statement<'_>) -> bool {
         match statement {
             Statement::ReturnStatement(_)
             | Statement::BreakStatement(_)
@@ -1216,7 +1216,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recognize `typeof value === "kind"` guard expressions.
-    pub(super) fn typeof_guard(
+    pub(in crate::lowering) fn typeof_guard(
         &mut self,
         expression: &Expression<'_>,
         body: &Body,
@@ -1234,7 +1234,7 @@ impl ModuleBuilder<'_> {
     /// JavaScript code commonly writes both `typeof value === "kind"` and
     /// `"kind" !== typeof value`; the boolean indicates whether the expression
     /// proves that the local matches the `typeof` kind.
-    pub(super) fn typeof_comparison(expression: &Expression<'_>) -> Option<(String, String, bool)> {
+    pub(in crate::lowering) fn typeof_comparison(expression: &Expression<'_>) -> Option<(String, String, bool)> {
         let Expression::BinaryExpression(binary) = expression else {
             return None;
         };
@@ -1255,7 +1255,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the identifier operand of a `typeof name` expression.
-    pub(super) fn typeof_identifier_name(expression: &Expression<'_>) -> Option<String> {
+    pub(in crate::lowering) fn typeof_identifier_name(expression: &Expression<'_>) -> Option<String> {
         let Expression::UnaryExpression(unary) = expression else {
             return None;
         };
@@ -1269,7 +1269,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the local type proven by a positive `typeof` comparison.
-    pub(super) fn typeof_matched_type(
+    pub(in crate::lowering) fn typeof_matched_type(
         &mut self,
         name: &str,
         kind: &str,
@@ -1307,7 +1307,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the local type proven by excluding one `typeof` kind.
-    pub(super) fn typeof_excluded_type(
+    pub(in crate::lowering) fn typeof_excluded_type(
         &mut self,
         name: &str,
         kind: &str,
@@ -1322,12 +1322,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract a callable member from a union or function type.
-    pub(super) fn function_member_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn function_member_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
         self.function_member_type_for_arg_count(ty, None)
     }
 
     /// Extract a callable member matching a supplied argument count when available.
-    pub(super) fn function_member_type_for_arg_count(
+    pub(in crate::lowering) fn function_member_type_for_arg_count(
         &mut self,
         ty: smelt_hir::TypeId,
         arg_count: Option<usize>,
@@ -1348,7 +1348,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Instantiate an interface call signature as a HIR function type.
-    pub(super) fn interface_call_signature_type(
+    pub(in crate::lowering) fn interface_call_signature_type(
         &mut self,
         name: smelt_hir::Symbol,
         args: &[smelt_hir::TypeId],
@@ -1385,7 +1385,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recognize `Array.isArray(value)` guard expressions.
-    pub(super) fn array_is_array_guard(
+    pub(in crate::lowering) fn array_is_array_guard(
         &mut self,
         expression: &Expression<'_>,
     ) -> Option<(String, smelt_hir::TypeId)> {
@@ -1410,7 +1410,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recognize a call to a user-defined `value is T` predicate function.
-    pub(super) fn predicate_call_guard(
+    pub(in crate::lowering) fn predicate_call_guard(
         &self,
         expression: &Expression<'_>,
     ) -> Option<(String, smelt_hir::TypeId)> {
@@ -1429,7 +1429,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recognize `value === null` guard expressions.
-    pub(super) fn null_guard(&mut self, expression: &Expression<'_>) -> Option<(String, smelt_hir::TypeId)> {
+    pub(in crate::lowering) fn null_guard(&mut self, expression: &Expression<'_>) -> Option<(String, smelt_hir::TypeId)> {
         let Expression::BinaryExpression(binary) = expression else {
             return None;
         };
@@ -1451,7 +1451,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recognize bare truthiness guards that remove `undefined`/`None` from locals.
-    pub(super) fn truthy_guard(
+    pub(in crate::lowering) fn truthy_guard(
         &mut self,
         expression: &Expression<'_>,
         body: &Body,
@@ -1487,7 +1487,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a catch parameter to an optional HIR local binding.
-    pub(super) fn catch_binding(
+    pub(in crate::lowering) fn catch_binding(
         &mut self,
         param: &oxc::ast::ast::CatchParameter<'_>,
         body: &mut Body,
@@ -1523,7 +1523,7 @@ impl ModuleBuilder<'_> {
     /// `const recursive = wrap(() => recursive())`. Temporarily making that
     /// binding visible lets the existing capture walk identify this case
     /// without assigning premature types to unrelated factory results.
-    pub(super) fn initializer_needs_deferred_self_binding(
+    pub(in crate::lowering) fn initializer_needs_deferred_self_binding(
         &mut self,
         initializer: &Expression<'_>,
         name: &str,
@@ -1554,7 +1554,7 @@ impl ModuleBuilder<'_> {
     /// can reference the binding receiving that factory's result. Smelt still
     /// lowers statements in source order, so this pass reserves required locals
     /// first; declaration lowering later fills in the runtime value.
-    pub(super) fn predeclare_local_arrow_callbacks(
+    pub(in crate::lowering) fn predeclare_local_arrow_callbacks(
         &mut self,
         statements: &[Statement<'_>],
         body: &mut Body,
@@ -1630,7 +1630,7 @@ impl ModuleBuilder<'_> {
     /// JavaScript hoists `function name(...) {}` declarations within a function
     /// body. Reserving callable locals here lets earlier sibling functions call
     /// declarations that appear later in the same block.
-    pub(super) fn predeclare_local_function_declarations(
+    pub(in crate::lowering) fn predeclare_local_function_declarations(
         &mut self,
         statements: &[Statement<'_>],
         body: &mut Body,
@@ -1710,7 +1710,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a variable declaration statement.
-    pub(super) fn variable_declaration(
+    pub(in crate::lowering) fn variable_declaration(
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
         body: &mut Body,
@@ -1857,7 +1857,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a local arrow function variable as a non-escaping closure value.
-    pub(super) fn local_arrow_callback_declaration(
+    pub(in crate::lowering) fn local_arrow_callback_declaration(
         &mut self,
         name: &str,
         start: u32,
@@ -2058,7 +2058,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Bind parameter names that may be referenced by local callback default values.
-    pub(super) fn bind_local_callback_default_param<'a>(
+    pub(in crate::lowering) fn bind_local_callback_default_param<'a>(
         pattern: &'a BindingPattern<'a>,
         index: usize,
         ty: smelt_hir::TypeId,
@@ -2083,7 +2083,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a nested `function name(...) { ... }` declaration as a local closure.
-    pub(super) fn local_function_declaration(
+    pub(in crate::lowering) fn local_function_declaration(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         outer_body: &mut Body,
@@ -2367,7 +2367,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return a contextual function type from an optional type hint.
-    pub(super) fn contextual_function_type(
+    pub(in crate::lowering) fn contextual_function_type(
         &mut self,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Option<FunctionType> {
@@ -2382,7 +2382,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Build the public function type for a local arrow declaration.
-    pub(super) fn local_arrow_function_type(
+    pub(in crate::lowering) fn local_arrow_function_type(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
@@ -2430,7 +2430,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return a predeclared local arrow binding that belongs to this body.
-    pub(super) fn local_arrow_existing_body_local(
+    pub(in crate::lowering) fn local_arrow_existing_body_local(
         &self,
         name: &str,
         body: &Body,
@@ -2443,7 +2443,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the local slot for a local arrow declaration, updating predeclared slots.
-    pub(super) fn local_arrow_binding_local(
+    pub(in crate::lowering) fn local_arrow_binding_local(
         &self,
         name: &str,
         symbol: smelt_hir::Symbol,
@@ -2471,7 +2471,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a lowered local callback body satisfies its declared return type.
-    pub(super) fn local_callback_return_type_compatible(
+    pub(in crate::lowering) fn local_callback_return_type_compatible(
         &self,
         actual: smelt_hir::TypeId,
         expected: smelt_hir::TypeId,
@@ -2497,7 +2497,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a binding pattern in a variable declaration.
-    pub(super) fn binding_declaration(
+    pub(in crate::lowering) fn binding_declaration(
         &mut self,
         pattern: &BindingPattern<'_>,
         value: Option<smelt_hir::ExprId>,
@@ -2852,7 +2852,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a string key expression for a static object destructuring property.
-    pub(super) fn object_destructuring_static_key_expr(
+    pub(in crate::lowering) fn object_destructuring_static_key_expr(
         &mut self,
         key: &PropertyKey<'_>,
         body: &mut Body,
@@ -2889,7 +2889,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Bind an object rest pattern by copying the receiver and deleting extracted keys.
-    pub(super) fn object_rest_binding_declaration(
+    pub(in crate::lowering) fn object_rest_binding_declaration(
         &mut self,
         pattern: &BindingPattern<'_>,
         receiver: smelt_hir::ExprId,
@@ -2928,7 +2928,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the span for an expression already inserted into a body.
-    pub(super) fn body_expr_span(body: &Body, expr: smelt_hir::ExprId) -> Span {
+    pub(in crate::lowering) fn body_expr_span(body: &Body, expr: smelt_hir::ExprId) -> Span {
         let root_span = usize::try_from(body.root.0)
             .ok()
             .and_then(|index| body.blocks.get(index))
@@ -2941,7 +2941,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect source names introduced by a binding pattern.
-    pub(super) fn binding_pattern_names(pattern: &BindingPattern<'_>, names: &mut Vec<String>) {
+    pub(in crate::lowering) fn binding_pattern_names(pattern: &BindingPattern<'_>, names: &mut Vec<String>) {
         match pattern {
             BindingPattern::BindingIdentifier(binding) => {
                 names.push(binding.name.as_str().to_owned());

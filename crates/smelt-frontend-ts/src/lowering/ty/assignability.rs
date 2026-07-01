@@ -9,7 +9,7 @@
 //! coercing string/numeric/erased operand surfaces to the exact runtime types
 //! the emitted calls require.
 
-use super::{
+use crate::lowering::{
     Argument, Body, Expr, ExprKind, Expression, FunctionType, Literal, ModuleBuilder,
     PrimitiveCastOp, SmeltError, Span, StringPadOp, Type,
 };
@@ -21,7 +21,7 @@ impl ModuleBuilder<'_> {
     /// This models the parts of TypeScript assignability that survive Smelt's
     /// erased HIR types: bottom `never`, top-like annotations, union inclusion,
     /// nullish optionals, and recursive container/function shapes.
-    pub(super) fn type_assignable_to(
+    pub(in crate::lowering) fn type_assignable_to(
         &self,
         actual: smelt_hir::TypeId,
         expected: smelt_hir::TypeId,
@@ -30,7 +30,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recursive implementation for `type_assignable_to` with a depth guard.
-    pub(super) fn type_assignable_to_inner(
+    pub(in crate::lowering) fn type_assignable_to_inner(
         &self,
         actual: smelt_hir::TypeId,
         expected: smelt_hir::TypeId,
@@ -147,7 +147,7 @@ impl ModuleBuilder<'_> {
     /// A target with *more* parameters than the source is only acceptable when the
     /// source has a rest parameter to absorb the extras; otherwise the source could
     /// not be called with all the arguments the target promises to pass.
-    pub(super) fn function_arity_assignable(actual: &FunctionType, expected: &FunctionType) -> bool {
+    pub(in crate::lowering) fn function_arity_assignable(actual: &FunctionType, expected: &FunctionType) -> bool {
         let actual_required = actual.required_params.unwrap_or(actual.params.len());
         if expected.params.len() < actual_required {
             // The target would call the source with fewer arguments than the
@@ -169,7 +169,7 @@ impl ModuleBuilder<'_> {
     /// returns a `Promise<T>`-compatible union, such as `T | Promise<T>`. Smelt
     /// keeps both the async bit and the return surface, so the async bit can be
     /// relaxed when the actual return type already satisfies the expected one.
-    pub(super) fn function_async_assignable(
+    pub(in crate::lowering) fn function_async_assignable(
         &self,
         actual: &FunctionType,
         expected: &FunctionType,
@@ -180,7 +180,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a key argument can be used with a lowered map key type.
-    pub(super) fn map_key_type_compatible(
+    pub(in crate::lowering) fn map_key_type_compatible(
         &self,
         expected: smelt_hir::TypeId,
         actual: smelt_hir::TypeId,
@@ -223,7 +223,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether numeric literal widening makes two map value types compatible.
-    pub(super) fn numeric_type_compatible(
+    pub(in crate::lowering) fn numeric_type_compatible(
         &self,
         expected: smelt_hir::TypeId,
         actual: smelt_hir::TypeId,
@@ -233,7 +233,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type is represented by Smelt's numeric runtime value.
-    pub(super) fn is_numeric_like_type(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn is_numeric_like_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(Type::Float | Type::Int) => true,
             Some(Type::Union(items)) => items
@@ -247,7 +247,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a type is an `Optional<...>` (or union containing one)
     /// wrapping a numeric-like inner type, i.e. the surface produced by a JS
     /// `number | undefined` / optional parameter.
-    pub(super) fn optional_numeric_surface(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn optional_numeric_surface(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(Type::Optional(inner)) => {
                 let inner = *inner;
@@ -268,7 +268,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type comes from an erased JavaScript surface.
-    pub(super) fn erased_or_union_surface(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn erased_or_union_surface(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. }) => true,
             Some(Type::Optional(item)) => self.erased_or_union_surface(*item),
@@ -287,7 +287,7 @@ impl ModuleBuilder<'_> {
     /// already typed `String` is returned unchanged; a string-compatible surface
     /// is converted with a JS `ToString` cast so the runtime padding sees a
     /// concrete string.
-    pub(super) fn coerce_pad_string_operand(
+    pub(in crate::lowering) fn coerce_pad_string_operand(
         &mut self,
         operand: smelt_hir::ExprId,
         span: Span,
@@ -312,7 +312,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower supported string padding calls into HIR string runtime calls.
-    pub(super) fn string_pad_call(
+    pub(in crate::lowering) fn string_pad_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -417,7 +417,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `String.prototype.charAt` and `charCodeAt`.
-    pub(super) fn string_char_at_call(
+    pub(in crate::lowering) fn string_char_at_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -495,7 +495,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Array.prototype.join` for string arrays.
-    pub(super) fn string_join_call(
+    pub(in crate::lowering) fn string_join_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -541,7 +541,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Finish array join lowering after receiver-style or helper-style arguments are known.
-    pub(super) fn finish_string_join_call(
+    pub(in crate::lowering) fn finish_string_join_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         mut items: smelt_hir::ExprId,
@@ -627,7 +627,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether `Array.prototype.join` can stringify this lowered item type.
-    pub(super) fn array_join_item_type_supported(&self, item_ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn array_join_item_type_supported(&self, item_ty: smelt_hir::TypeId) -> bool {
         match self
             .ctx
             .krate
@@ -652,7 +652,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript string containment.
-    pub(super) fn string_contains_call(
+    pub(in crate::lowering) fn string_contains_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -722,7 +722,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript array containment.
-    pub(super) fn list_contains_call(
+    pub(in crate::lowering) fn list_contains_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -767,7 +767,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the concrete list and item type for list-like receiver surfaces.
-    pub(super) fn list_surface_type(
+    pub(in crate::lowering) fn list_surface_type(
         &self,
         ty: smelt_hir::TypeId,
     ) -> Option<(smelt_hir::TypeId, smelt_hir::TypeId)> {

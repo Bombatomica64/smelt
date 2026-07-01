@@ -1,6 +1,6 @@
 //! Identifier, constant-expression, and source-location lowering helpers.
 
-use super::{ConstCollectionItem, ConstCollectionValue, ModuleBuilder, ambient_globals};
+use crate::lowering::{ConstCollectionItem, ConstCollectionValue, ModuleBuilder, ambient_globals};
 use crate::{SmeltError, camel_to_snake};
 use oxc::ast::ast::{Expression, Statement};
 use oxc::span::GetSpan;
@@ -12,7 +12,7 @@ use smelt_hir::{
 
 impl ModuleBuilder<'_> {
     /// Intern a source identifier name and convert from `camelCase` to `snake_case`.
-    pub(super) fn intern_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
+    pub(in crate::lowering) fn intern_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
         self.ctx.krate.names.record(symbol, name);
         symbol
@@ -23,21 +23,21 @@ impl ModuleBuilder<'_> {
     /// Synthetic object function-table entries need exact key spelling because
     /// JavaScript object keys are case-sensitive (`M` and `m` are distinct
     /// date-fns formatters).
-    pub(super) fn intern_exact_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
+    pub(in crate::lowering) fn intern_exact_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(name);
         self.ctx.krate.names.record(symbol, name);
         symbol
     }
 
     /// Intern a type name symbol.
-    pub(super) fn intern_type_name(&mut self, name: &str) -> smelt_hir::Symbol {
+    pub(in crate::lowering) fn intern_type_name(&mut self, name: &str) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(name);
         self.ctx.krate.names.record(symbol, name);
         symbol
     }
 
     /// Create an identifier expression from a local variable.
-    pub(super) fn identifier_expression(
+    pub(in crate::lowering) fn identifier_expression(
         &mut self,
         name: &str,
         start: u32,
@@ -276,7 +276,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower JavaScript `arguments` to the array-like shape used by object checks.
-    pub(super) fn arguments_object_expression(
+    pub(in crate::lowering) fn arguments_object_expression(
         &mut self,
         start: u32,
         end: u32,
@@ -338,7 +338,7 @@ impl ModuleBuilder<'_> {
     ///
     /// Returns `None` for names that are not builtin function values so the
     /// caller can continue its normal resolution chain.
-    pub(super) fn builtin_function_value_expression(
+    pub(in crate::lowering) fn builtin_function_value_expression(
         &mut self,
         name: &str,
         start: u32,
@@ -409,7 +409,7 @@ impl ModuleBuilder<'_> {
     ///
     /// Returns `None` for names that are not builtin namespace objects so the
     /// caller continues its normal resolution chain.
-    pub(super) fn builtin_namespace_value_expression(
+    pub(in crate::lowering) fn builtin_namespace_value_expression(
         &mut self,
         name: &str,
         start: u32,
@@ -502,7 +502,7 @@ impl ModuleBuilder<'_> {
     /// Returns `None` for anything that is not this exact guarded-alias chain
     /// shape, so ordinary `||` lowering keeps handling every other case (and any
     /// honest blocker it would otherwise raise).
-    pub(super) fn global_detection_chain_expression(
+    pub(in crate::lowering) fn global_detection_chain_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -532,7 +532,7 @@ impl ModuleBuilder<'_> {
     /// non-guard fallback (e.g. the `((function(){return this})())` or a literal)
     /// is allowed only after at least one present alias was found. Any other shape
     /// returns `false`, leaving the expression to ordinary lowering.
-    pub(super) fn or_chain_resolves_to_global(&self, expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn or_chain_resolves_to_global(&self, expression: &Expression<'_>) -> bool {
         match Self::unparenthesized_expression(expression) {
             Expression::LogicalExpression(logical)
                 if logical.operator == LogicalOperator::Or =>
@@ -552,7 +552,7 @@ impl ModuleBuilder<'_> {
     /// statically falsy, so it returns `false` here — the chain walker skips it
     /// rather than treating it as the resolving clause, and crucially the dead
     /// `window` operand is never lowered.
-    pub(super) fn clause_is_present_global_guard(&self, expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn clause_is_present_global_guard(&self, expression: &Expression<'_>) -> bool {
         let Expression::LogicalExpression(clause) = Self::unparenthesized_expression(expression)
         else {
             return false;
@@ -592,7 +592,7 @@ impl ModuleBuilder<'_> {
             && ambient_globals::global_alias_object_presence(guard_name) == Some(true)
     }
 
-    pub(super) fn global_object_value_expression(
+    pub(in crate::lowering) fn global_object_value_expression(
         &mut self,
         start: u32,
         end: u32,
@@ -632,7 +632,7 @@ impl ModuleBuilder<'_> {
     ///
     /// The single parameter is typed `unknown` so any argument the closure is
     /// later applied to is accepted; the result type matches the cast's output.
-    pub(super) fn builtin_cast_closure_expression(
+    pub(in crate::lowering) fn builtin_cast_closure_expression(
         &mut self,
         op: PrimitiveCastOp,
         return_type: Type,
@@ -655,7 +655,7 @@ impl ModuleBuilder<'_> {
     /// whose single argument is a string. A concrete `string` parameter routes
     /// the cast through its real numeric-parse emission rather than the erased
     /// `unknown` fallback (which would yield a constant `0`).
-    pub(super) fn builtin_string_cast_closure_expression(
+    pub(in crate::lowering) fn builtin_string_cast_closure_expression(
         &mut self,
         op: PrimitiveCastOp,
         span: Span,
@@ -672,7 +672,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Build a `(value) => <NumericPredicate op>(value)` closure value.
-    pub(super) fn builtin_numeric_predicate_closure_expression(
+    pub(in crate::lowering) fn builtin_numeric_predicate_closure_expression(
         &mut self,
         op: NumericPredicateOp,
         span: Span,
@@ -693,7 +693,7 @@ impl ModuleBuilder<'_> {
     ///
     /// Shared by the builtin coercion/parse/predicate value lowerings so each
     /// only specifies its parameter type, result type, and the IR op to run.
-    pub(super) fn builtin_unary_closure_expression(
+    pub(in crate::lowering) fn builtin_unary_closure_expression(
         &mut self,
         param_ty: smelt_hir::TypeId,
         return_ty: smelt_hir::TypeId,
@@ -758,7 +758,7 @@ impl ModuleBuilder<'_> {
     /// method result; the builtin closures built above carry it in their
     /// interned `Type::Function`. Falls back to `unknown` for non-function
     /// values, which never occurs for the builtin closure helpers.
-    pub(super) fn closure_value_return_ty(
+    pub(in crate::lowering) fn closure_value_return_ty(
         &mut self,
         expr: smelt_hir::ExprId,
         body: &Body,
@@ -771,7 +771,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Wrap a function item in a first-class closure value for argument positions.
-    pub(super) fn item_function_closure_expression(
+    pub(in crate::lowering) fn item_function_closure_expression(
         &mut self,
         item: smelt_hir::ItemId,
         start: u32,
@@ -852,7 +852,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Synthesize a read value for a known module-level variable.
-    pub(super) fn module_global_expression(
+    pub(in crate::lowering) fn module_global_expression(
         &mut self,
         name: &str,
         ty: smelt_hir::TypeId,
@@ -923,7 +923,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recreate one module-level constant collection element in the active body.
-    pub(super) fn const_collection_item_expression(
+    pub(in crate::lowering) fn const_collection_item_expression(
         &mut self,
         item: &ConstCollectionItem,
         span: Span,
@@ -1036,7 +1036,7 @@ return_ty: item.ty,
     /// bindings and then reads those bindings while building exported locale
     /// objects. The module body owns the real closure, while exported constant
     /// lowering only needs a callable value with the same public type.
-    pub(super) fn module_global_function_expression(
+    pub(in crate::lowering) fn module_global_function_expression(
         &mut self,
         function: &FunctionType,
         ty: smelt_hir::TypeId,
@@ -1083,7 +1083,7 @@ return_ty: function.return_ty,
     }
 
     /// Build a conservative default expression for synthesized module globals.
-    pub(super) fn default_module_global_value(
+    pub(in crate::lowering) fn default_module_global_value(
         &mut self,
         ty: smelt_hir::TypeId,
         span: Span,
@@ -1146,7 +1146,7 @@ return_ty: function.return_ty,
     }
 
     /// Inline an importable HIR const item into the current expression body.
-    pub(super) fn const_item_expression(
+    pub(in crate::lowering) fn const_item_expression(
         &self,
         const_item: &ConstItem,
         start: u32,
@@ -1169,7 +1169,7 @@ return_ty: function.return_ty,
     }
 
     /// Clone one expression from a const body, remapping nested expression IDs.
-    pub(super) fn clone_const_body_expr(
+    pub(in crate::lowering) fn clone_const_body_expr(
         source_body: &Body,
         expr_id: smelt_hir::ExprId,
         target_body: &mut Body,
@@ -1296,7 +1296,7 @@ return_ty: function.return_ty,
     }
 
     /// Ensure a console.log item exists in the HIR.
-    pub(super) fn ensure_console_log_item(&mut self, span: Span) -> smelt_hir::ItemId {
+    pub(in crate::lowering) fn ensure_console_log_item(&mut self, span: Span) -> smelt_hir::ItemId {
         let name = self.ctx.krate.symbols.intern(smelt_hir::CONSOLE_LOG_SYMBOL);
         let none = self.ctx.krate.types.intern(Type::None);
         self.ctx.krate.push_item(Item::Function(Function {
@@ -1314,18 +1314,18 @@ return_ty: none,
     }
 
     /// Create a Span from byte offsets.
-    pub(super) fn span(&self, start: u32, end: u32) -> Span {
+    pub(in crate::lowering) fn span(&self, start: u32, end: u32) -> Span {
         Span::new(self.file_id, start, end)
     }
 
     /// Get the span of a statement.
-    pub(super) fn statement_span(&self, statement: &Statement<'_>) -> Span {
+    pub(in crate::lowering) fn statement_span(&self, statement: &Statement<'_>) -> Span {
         let span = statement.span();
         self.span(span.start, span.end)
     }
 
     /// Get the span of an expression.
-    pub(super) fn expression_span(&self, expression: &Expression<'_>) -> Span {
+    pub(in crate::lowering) fn expression_span(&self, expression: &Expression<'_>) -> Span {
         let span = expression.span();
         self.span(span.start, span.end)
     }

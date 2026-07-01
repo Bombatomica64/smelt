@@ -6,7 +6,7 @@
 //! feed construction. The helpers classify receiver and argument types and
 //! emit the concrete HIR construction and projection kinds.
 
-use super::{
+use crate::lowering::{
     Argument, ArrayExpressionElement, AsyncOp, BinOp, BinaryOperator, BindingPattern, Body,
     CaptureMode, ClosureCapture, DictProjectionOp, Expr, ExprKind, Expression, Field, FunctionType,
     HashSet, Literal, LocalDecl, LogicalOperator, ModuleBuilder, ObjectPropertyKind, Param,
@@ -18,7 +18,7 @@ use oxc::span::GetSpan;
 
 impl ModuleBuilder<'_> {
     /// Lower static `Array.from({ length }, mapper)` calls into indexed list construction.
-    pub(super) fn array_from_call(
+    pub(in crate::lowering) fn array_from_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -143,7 +143,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract the numeric `length` expression from `Array.from`'s source argument.
-    pub(super) fn array_from_length_argument(
+    pub(in crate::lowering) fn array_from_length_argument(
         &mut self,
         source_arg: &Argument<'_>,
         body: &mut Body,
@@ -180,7 +180,7 @@ impl ModuleBuilder<'_> {
     ///
     /// JavaScript creates a sparse array here; Smelt models the later indexed
     /// writes and only needs the list container type at construction time.
-    pub(super) fn array_constructor_expression(
+    pub(in crate::lowering) fn array_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -203,7 +203,7 @@ impl ModuleBuilder<'_> {
     /// two spellings in lockstep instead of special-casing the call form. The
     /// es-toolkit corpus relies heavily on `Array(n)` to preallocate a list that
     /// is then filled by indexed writes.
-    pub(super) fn array_constructor_call(
+    pub(in crate::lowering) fn array_constructor_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -231,7 +231,7 @@ impl ModuleBuilder<'_> {
     /// single array-literal argument (`Array([1, 2])`) builds that literal, a
     /// single numeric argument (`Array(3)`) preallocates a list, and an optional
     /// type argument supplies the element type.
-    pub(super) fn lower_array_construction(
+    pub(in crate::lowering) fn lower_array_construction(
         &mut self,
         arguments: &[Argument<'_>],
         type_arguments: Option<&oxc::ast::ast::TSTypeParameterInstantiation<'_>>,
@@ -290,7 +290,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `new TypedArray(length)` to a numeric list used by typed-array consumers.
-    pub(super) fn numeric_typed_array_constructor_expression(
+    pub(in crate::lowering) fn numeric_typed_array_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -344,7 +344,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower supported string split calls into HIR string runtime calls.
-    pub(super) fn string_split_call(
+    pub(in crate::lowering) fn string_split_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -409,7 +409,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Finish string split lowering after the receiver-style or helper-style arguments are known.
-    pub(super) fn finish_string_split_call(
+    pub(in crate::lowering) fn finish_string_split_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         haystack: smelt_hir::ExprId,
@@ -452,7 +452,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type can act as a JavaScript string split separator.
-    pub(super) fn string_split_separator_type_is_supported(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn string_split_separator_type_is_supported(&self, ty: smelt_hir::TypeId) -> bool {
         match self
             .ctx
             .krate
@@ -476,7 +476,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type can act as a JavaScript string split limit.
-    pub(super) fn string_split_limit_type_is_supported(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn string_split_limit_type_is_supported(&self, ty: smelt_hir::TypeId) -> bool {
         match self
             .ctx
             .krate
@@ -496,7 +496,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower array entries passed to a `Promise.*` combinator.
-    pub(super) fn promise_array_args(
+    pub(in crate::lowering) fn promise_array_args(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
         body: &mut Body,
@@ -543,7 +543,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `new Set(...)` from an array literal or annotated empty constructor.
-    pub(super) fn set_constructor_expression(
+    pub(in crate::lowering) fn set_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -728,7 +728,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `new Map(...)` to a dictionary literal.
-    pub(super) fn map_constructor_expression(
+    pub(in crate::lowering) fn map_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -838,7 +838,7 @@ impl ModuleBuilder<'_> {
     /// - Boxing a primitive (`Object(42)` -> a boxed `Number` object) has no
     ///   concrete Smelt model yet and is rejected as an unsupported lowering
     ///   rather than erased, so the boundary stays explicit.
-    pub(super) fn object_constructor_expression(
+    pub(in crate::lowering) fn object_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -879,7 +879,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower the entry array passed to `new Map([[key, value], ...])`.
-    pub(super) fn map_constructor_entries(
+    pub(in crate::lowering) fn map_constructor_entries(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
         body: &mut Body,
@@ -906,7 +906,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an array element.
-    pub(super) fn array_element(
+    pub(in crate::lowering) fn array_element(
         &mut self,
         element: &ArrayExpressionElement<'_>,
         body: &mut Body,
@@ -1062,7 +1062,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a binary expression.
-    pub(super) fn binary_expression(
+    pub(in crate::lowering) fn binary_expression(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
@@ -1128,7 +1128,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a logical expression.
-    pub(super) fn logical_expression(
+    pub(in crate::lowering) fn logical_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -1169,7 +1169,7 @@ impl ModuleBuilder<'_> {
     /// the right side is numeric, generated Rust needs a numeric result instead
     /// of the boolean shape used for conditions, so falsy left values are
     /// represented by numeric zero.
-    pub(super) fn logical_and_numeric_value_expression(
+    pub(in crate::lowering) fn logical_and_numeric_value_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -1207,7 +1207,7 @@ impl ModuleBuilder<'_> {
     /// Date-fns uses this for locale-width defaults. For optional left operands
     /// Smelt preserves the runtime value fallback with the same optional
     /// coalescing HIR shape used by `??`.
-    pub(super) fn logical_or_fallback_expression(
+    pub(in crate::lowering) fn logical_or_fallback_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -1328,7 +1328,7 @@ impl ModuleBuilder<'_> {
     /// after TypeScript lowering. JavaScript still returns the selected operand
     /// for `||`, so object-like operands must branch on runtime truthiness before
     /// the string fallback path can treat classes as string-compatible values.
-    pub(super) fn logical_or_object_fallback_expression(
+    pub(in crate::lowering) fn logical_or_object_fallback_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -1369,7 +1369,7 @@ impl ModuleBuilder<'_> {
     /// JavaScript `||` returns one of the original operands, so erased values
     /// must branch on runtime truthiness instead of being coerced through a
     /// string or boolean fallback representation.
-    pub(super) fn logical_or_unknown_fallback_expression(
+    pub(in crate::lowering) fn logical_or_unknown_fallback_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -1411,7 +1411,7 @@ impl ModuleBuilder<'_> {
     /// operand. This shape appears in option-bag and locale lookup code where a
     /// guarded member access falls back to another member with the same value
     /// type.
-    pub(super) fn logical_and_value_fallback_expression(
+    pub(in crate::lowering) fn logical_and_value_fallback_expression(
         &mut self,
         outer: &oxc::ast::ast::LogicalExpression<'_>,
         left: &oxc::ast::ast::LogicalExpression<'_>,
@@ -1443,7 +1443,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the common value type for JavaScript logical fallback operands.
-    pub(super) fn logical_fallback_result_type(
+    pub(in crate::lowering) fn logical_fallback_result_type(
         &mut self,
         value_ty: smelt_hir::TypeId,
         fallback_ty: smelt_hir::TypeId,
@@ -1472,7 +1472,7 @@ impl ModuleBuilder<'_> {
     /// Date-fns uses `numeric % 7 || 7` to replace zero with a default value.
     /// Lowering this as boolean `||` loses the numeric result type, so Smelt
     /// models the expression as `left != 0 ? left : right` for numeric operands.
-    pub(super) fn logical_or_numeric_fallback_expression(
+    pub(in crate::lowering) fn logical_or_numeric_fallback_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -1517,7 +1517,7 @@ impl ModuleBuilder<'_> {
     /// A numeric fallback remains an erased selected value because expressions
     /// such as `+(parts[index] || 0)` numerically coerce either branch after
     /// selection. Emitting a boolean result would discard the string value.
-    pub(super) fn logical_or_string_fallback_expression(
+    pub(in crate::lowering) fn logical_or_string_fallback_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -1563,7 +1563,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower JavaScript `left || []` fallback expressions for array values.
-    pub(super) fn logical_or_list_fallback_expression(
+    pub(in crate::lowering) fn logical_or_list_fallback_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -1589,7 +1589,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the item type for a value that can participate in an array fallback.
-    pub(super) fn list_fallback_item_ty(&mut self, value_ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn list_fallback_item_ty(&mut self, value_ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
         match self.ctx.krate.types.get(value_ty).cloned() {
             Some(Type::List(item_ty)) => Some(item_ty),
             Some(Type::Optional(inner_ty)) => self.list_fallback_item_ty(inner_ty),
@@ -1601,7 +1601,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower TypeScript nullish coalescing while preserving falsey values.
-    pub(super) fn nullish_coalesce_expression(
+    pub(in crate::lowering) fn nullish_coalesce_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
@@ -1707,7 +1707,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a `??` fallback is covered by one member of the non-null union.
-    pub(super) fn nullish_fallback_matches_union_member(
+    pub(in crate::lowering) fn nullish_fallback_matches_union_member(
         &self,
         non_nullish_ty: smelt_hir::TypeId,
         fallback_ty: smelt_hir::TypeId,
@@ -1727,7 +1727,7 @@ impl ModuleBuilder<'_> {
     /// an optional `Locale` interface with a concrete exported locale object.
     /// Smelt keeps the optional side's type and inserts a typed assertion around
     /// the fallback expression when both sides are object-like surfaces.
-    pub(super) fn nullish_fallback_types_are_structurally_compatible(
+    pub(in crate::lowering) fn nullish_fallback_types_are_structurally_compatible(
         &mut self,
         optional_inner: smelt_hir::TypeId,
         fallback_ty: smelt_hir::TypeId,
@@ -1738,7 +1738,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type behaves as a structural object surface.
-    pub(super) fn is_structural_object_surface(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn is_structural_object_surface(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(
                 Type::Class { .. } | Type::Dict(_, _) | Type::TypeParam { .. } | Type::Unknown,
@@ -1753,12 +1753,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the type left after removing TypeScript nullish values.
-    pub(super) fn non_nullish_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn non_nullish_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
         smelt_hir::type_normalize::non_nullish_type(&mut self.ctx.krate.types, ty)
     }
 
     /// Lower a TypeScript non-null assertion while preserving the narrowed type.
-    pub(super) fn non_null_assertion_expression(
+    pub(in crate::lowering) fn non_null_assertion_expression(
         &mut self,
         expression: &Expression<'_>,
         span: Span,
@@ -1769,7 +1769,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Apply non-null assertion narrowing to an already-lowered expression.
-    pub(super) fn non_null_assertion_value(
+    pub(in crate::lowering) fn non_null_assertion_value(
         &mut self,
         value: smelt_hir::ExprId,
         span: Span,
@@ -1798,7 +1798,7 @@ impl ModuleBuilder<'_> {
     /// recognition registries via [`smelt_stdlib::global_member_presence`], so an
     /// unmodeled key (`Unknown`) is *not* folded: it returns `None` and falls
     /// through to ordinary lowering instead of guessing.
-    pub(super) fn global_contains_key_probe(
+    pub(in crate::lowering) fn global_contains_key_probe(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
@@ -1830,7 +1830,7 @@ impl ModuleBuilder<'_> {
     /// function body is lowered. For those, membership is a pure key-set test,
     /// so emitting string equality checks keeps the generated Rust independent
     /// from a runtime object allocation.
-    pub(super) fn in_expression(
+    pub(in crate::lowering) fn in_expression(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
@@ -1986,7 +1986,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a unary expression.
-    pub(super) fn unary_expression(
+    pub(in crate::lowering) fn unary_expression(
         &mut self,
         unary: &oxc::ast::ast::UnaryExpression<'_>,
         body: &mut Body,
@@ -2062,7 +2062,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower JavaScript `delete object[key]` to a dictionary key removal.
-    pub(super) fn delete_unary_expression(
+    pub(in crate::lowering) fn delete_unary_expression(
         &mut self,
         unary: &oxc::ast::ast::UnaryExpression<'_>,
         body: &mut Body,
@@ -2099,7 +2099,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an array expression.
-    pub(super) fn array_expression(
+    pub(in crate::lowering) fn array_expression(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
         body: &mut Body,
@@ -2166,7 +2166,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Infer one item type for an array literal, preserving nullability when needed.
-    pub(super) fn array_literal_item_type(
+    pub(in crate::lowering) fn array_literal_item_type(
         &mut self,
         items: &[smelt_hir::ExprId],
         body: &Body,
@@ -2203,7 +2203,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an array literal element with contextual type information.
-    pub(super) fn array_element_with_hint(
+    pub(in crate::lowering) fn array_element_with_hint(
         &mut self,
         element: &ArrayExpressionElement<'_>,
         body: &mut Body,
@@ -2221,7 +2221,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an array literal that contains one or more spread elements.
-    pub(super) fn array_expression_with_spread(
+    pub(in crate::lowering) fn array_expression_with_spread(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
         body: &mut Body,
@@ -2318,7 +2318,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Infer the list item type for an array spread literal.
-    pub(super) fn array_spread_item_type(
+    pub(in crate::lowering) fn array_spread_item_type(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
@@ -2340,7 +2340,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert an iterable spread operand into the list value required by list concatenation.
-    pub(super) fn list_expr_from_spread_value(
+    pub(in crate::lowering) fn list_expr_from_spread_value(
         &self,
         value: smelt_hir::ExprId,
         list_ty: smelt_hir::TypeId,
@@ -2417,7 +2417,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an object expression.
-    pub(super) fn object_expression(
+    pub(in crate::lowering) fn object_expression(
         &mut self,
         object: &oxc::ast::ast::ObjectExpression<'_>,
         body: &mut Body,
@@ -2525,7 +2525,7 @@ impl ModuleBuilder<'_> {
     /// The spread order is preserved by lowering each contiguous explicit
     /// property run into a dictionary literal and combining those chunks with
     /// spread sources through the ordered `DictAssign` operation.
-    pub(super) fn object_expression_with_spread(
+    pub(in crate::lowering) fn object_expression_with_spread(
         &mut self,
         object: &oxc::ast::ast::ObjectExpression<'_>,
         body: &mut Body,
@@ -2667,7 +2667,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for `[Symbol.iterator]()` methods that only mark an object as iterable.
-    pub(super) fn object_method_erases_to_iterable_marker(
+    pub(in crate::lowering) fn object_method_erases_to_iterable_marker(
         &self,
         object_property: &oxc::ast::ast::ObjectProperty<'_>,
     ) -> bool {
@@ -2688,7 +2688,7 @@ impl ModuleBuilder<'_> {
     /// HIR spread operation expects object-like sources, so this helper keeps the
     /// object branch typed as a record and supplies an empty record for the
     /// false branch instead of exposing the boolean result of `&&`.
-    pub(super) fn conditional_object_spread_source(
+    pub(in crate::lowering) fn conditional_object_spread_source(
         &mut self,
         argument: &Expression<'_>,
         record_ty: Option<smelt_hir::TypeId>,
@@ -2732,7 +2732,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Strip transparent wrappers around an object-spread source condition.
-    pub(super) fn object_spread_condition_source<'a>(argument: &'a Expression<'a>) -> &'a Expression<'a> {
+    pub(in crate::lowering) fn object_spread_condition_source<'a>(argument: &'a Expression<'a>) -> &'a Expression<'a> {
         match argument {
             Expression::ParenthesizedExpression(parenthesized) => {
                 Self::object_spread_condition_source(&parenthesized.expression)
@@ -2751,7 +2751,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Resolve a contextual field type for an object-literal property value.
-    pub(super) fn object_property_value_hint(
+    pub(in crate::lowering) fn object_property_value_hint(
         &mut self,
         property: &oxc::ast::ast::ObjectProperty<'_>,
         object_hint: Option<smelt_hir::TypeId>,
@@ -2787,7 +2787,7 @@ impl ModuleBuilder<'_> {
     /// zero-parameter object-method function expression must be lowered as a
     /// real function value (which establishes the array-like `arguments`
     /// object) rather than collapsed into a getter return expression.
-    pub(super) fn function_body_references_arguments(
+    pub(in crate::lowering) fn function_body_references_arguments(
         &self,
         function_body: &oxc::ast::ast::FunctionBody<'_>,
     ) -> bool {
@@ -2806,7 +2806,7 @@ impl ModuleBuilder<'_> {
     /// Report whether `text` contains `identifier` as a standalone JavaScript
     /// identifier (not as a substring of a longer identifier such as a property
     /// name or a different variable).
-    pub(super) fn source_slice_mentions_identifier(text: &str, identifier: &str) -> bool {
+    pub(in crate::lowering) fn source_slice_mentions_identifier(text: &str, identifier: &str) -> bool {
         let bytes = text.as_bytes();
         let mut search_from = 0;
         while let Some(offset) = text.get(search_from..).and_then(|tail| tail.find(identifier)) {
@@ -2828,12 +2828,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Report whether `byte` can appear inside a JavaScript identifier.
-    pub(super) fn is_identifier_byte(byte: u8) -> bool {
+    pub(in crate::lowering) fn is_identifier_byte(byte: u8) -> bool {
         byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
     }
 
     /// Lower an object property value, treating zero-argument getters as field values.
-    pub(super) fn object_property_value_expr(
+    pub(in crate::lowering) fn object_property_value_expr(
         &mut self,
         property: &oxc::ast::ast::ObjectProperty<'_>,
         body: &mut Body,
@@ -2893,7 +2893,7 @@ impl ModuleBuilder<'_> {
     /// Object tables such as date-fns `formatters` use `key: function (...) {}`
     /// entries. Contextual object types provide the function parameter and
     /// return types when the function expression omits annotations.
-    pub(super) fn function_expression_value(
+    pub(in crate::lowering) fn function_expression_value(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         type_hint: Option<smelt_hir::TypeId>,
@@ -3153,7 +3153,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an object property key to a dictionary key expression.
-    pub(super) fn object_property_key_expr(
+    pub(in crate::lowering) fn object_property_key_expr(
         &mut self,
         object_property: &oxc::ast::ast::ObjectProperty<'_>,
         body: &mut Body,
@@ -3208,7 +3208,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for computed symbol keys that getter/method enumeration ignores.
-    pub(super) fn is_computed_symbol_key(object_property: &oxc::ast::ast::ObjectProperty<'_>) -> bool {
+    pub(in crate::lowering) fn is_computed_symbol_key(object_property: &oxc::ast::ast::ObjectProperty<'_>) -> bool {
         if !object_property.computed {
             return false;
         }
@@ -3219,7 +3219,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when a computed key is a direct `Symbol(...)` expression.
-    pub(super) fn is_direct_computed_symbol_call_key(
+    pub(in crate::lowering) fn is_direct_computed_symbol_call_key(
         object_property: &oxc::ast::ast::ObjectProperty<'_>,
     ) -> bool {
         object_property.computed
@@ -3231,7 +3231,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract the source string from a computed string literal key with erased assertions.
-    pub(super) fn computed_string_literal_key(
+    pub(in crate::lowering) fn computed_string_literal_key(
         &self,
         object_property: &oxc::ast::ast::ObjectProperty<'_>,
     ) -> Option<String> {
@@ -3252,7 +3252,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Flush pending explicit properties into an ordered object-spread source.
-    pub(super) fn flush_object_spread_entries(
+    pub(in crate::lowering) fn flush_object_spread_entries(
         &mut self,
         pending_entries: &mut Vec<(smelt_hir::ExprId, smelt_hir::ExprId)>,
         sources: &mut Vec<smelt_hir::ExprId>,
@@ -3287,7 +3287,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether every explicit property in a spread chunk is callable.
-    pub(super) fn object_spread_entries_are_callable(
+    pub(in crate::lowering) fn object_spread_entries_are_callable(
         &self,
         entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
         body: &Body,
@@ -3302,7 +3302,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Validate a source expression used by an object spread property.
-    pub(super) fn accept_object_spread_source(
+    pub(in crate::lowering) fn accept_object_spread_source(
         &mut self,
         source_ty: smelt_hir::TypeId,
         record_ty: Option<smelt_hir::TypeId>,
@@ -3346,7 +3346,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether JavaScript object spread treats a source as an empty object.
-    pub(super) fn object_spread_source_erases_to_empty(&self, source_ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn object_spread_source_erases_to_empty(&self, source_ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(source_ty),
             Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None)
@@ -3359,7 +3359,7 @@ impl ModuleBuilder<'_> {
     /// heterogeneous property values. Without a contextual record type, later
     /// explicit properties must not force those copied fields into their own
     /// value type.
-    pub(super) fn object_spread_source_needs_unknown_record(&self, source_ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn object_spread_source_needs_unknown_record(&self, source_ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(source_ty) {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => true,
             Some(Type::Optional(inner)) => self.object_spread_source_needs_unknown_record(*inner),
@@ -3368,7 +3368,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract a dictionary type from a contextual object-literal type hint.
-    pub(super) fn dict_type_from_hint(
+    pub(in crate::lowering) fn dict_type_from_hint(
         &self,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Option<smelt_hir::TypeId> {
@@ -3389,7 +3389,7 @@ impl ModuleBuilder<'_> {
     /// a locale option bag, from first erasing through `Record<string, unknown>`.
     /// Incomplete or incompatible contextual records remain dictionaries so
     /// ordinary structural adaptation can still occur at their use site.
-    pub(super) fn object_literal_type(
+    pub(in crate::lowering) fn object_literal_type(
         &mut self,
         entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
         type_hint: Option<smelt_hir::TypeId>,
@@ -3429,7 +3429,7 @@ impl ModuleBuilder<'_> {
 
     /// Preserve a contextual interface type only when the literal can be
     /// constructed directly without inventing values for required fields.
-    pub(super) fn contextual_record_literal_type(
+    pub(in crate::lowering) fn contextual_record_literal_type(
         &mut self,
         type_hint: smelt_hir::TypeId,
         entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
@@ -3469,7 +3469,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a contextual field can be assigned without record adaptation.
-    pub(super) fn contextual_record_field_directly_assignable(
+    pub(in crate::lowering) fn contextual_record_field_directly_assignable(
         &self,
         actual: smelt_hir::TypeId,
         expected: smelt_hir::TypeId,
@@ -3484,7 +3484,7 @@ impl ModuleBuilder<'_> {
     ///
     /// Typed interface values may require the backend's established structural
     /// record adapter even when their nominal HIR names differ.
-    pub(super) fn contextual_record_field_assignable(
+    pub(in crate::lowering) fn contextual_record_field_assignable(
         &self,
         actual: smelt_hir::TypeId,
         expected: smelt_hir::TypeId,
@@ -3503,7 +3503,7 @@ impl ModuleBuilder<'_> {
     ///
     /// Plain classes are deliberately excluded: constructor semantics are not
     /// equivalent to constructing a TypeScript options/interface literal.
-    pub(super) fn contextual_record_literal_fields(
+    pub(in crate::lowering) fn contextual_record_literal_fields(
         &self,
         candidate: smelt_hir::TypeId,
     ) -> Option<Vec<Field>> {
@@ -3517,7 +3517,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect inherited interface fields while rejecting recursive surfaces.
-    pub(super) fn contextual_interface_fields(
+    pub(in crate::lowering) fn contextual_interface_fields(
         &self,
         name: smelt_hir::Symbol,
         visited: &mut HashSet<smelt_hir::Symbol>,
@@ -3538,7 +3538,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a static member access expression.
-    pub(super) fn namespace_member_expression(
+    pub(in crate::lowering) fn namespace_member_expression(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,

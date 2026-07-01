@@ -6,7 +6,7 @@
 //! adds instance methods. This module materializes that shape once so ordinary
 //! class construction and `instanceof` lowering need no special use-site path.
 
-use super::{
+use crate::lowering::{
     AssignmentTarget, BinaryOperator, BindingPattern, Body, Class, Expression, Field, Function,
     FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig,
     SmeltError, Span, Statement, Type, Visibility,
@@ -19,7 +19,7 @@ impl ModuleBuilder<'_> {
     /// A bare `function Foo(){}` that is only ever called normally is left as a
     /// plain function; it only becomes a class when the surrounding scope uses it
     /// with `new`, `instanceof`, or `Foo.prototype.x = …`.
-    pub(super) fn statements_use_function_as_constructor(
+    pub(in crate::lowering) fn statements_use_function_as_constructor(
         name: &str,
         statements: &[Statement<'_>],
     ) -> bool {
@@ -192,7 +192,7 @@ impl ModuleBuilder<'_> {
     /// Prototype members were consumed when the class was built, and static
     /// members on a constructor are not modeled on synthesized classes, so both
     /// assignment statements are dropped rather than lowered as runtime writes.
-    pub(super) fn is_synthesized_prototype_assignment(
+    pub(in crate::lowering) fn is_synthesized_prototype_assignment(
         &self,
         expression: &Expression<'_>,
     ) -> bool {
@@ -242,7 +242,7 @@ impl ModuleBuilder<'_> {
     /// Returns the binding name and the function expression. The function
     /// expression's own optional `id` is ignored; the binding name is what `new`
     /// and `instanceof` reference.
-    pub(super) fn const_constructor_function<'a>(
+    pub(in crate::lowering) fn const_constructor_function<'a>(
         declarator: &'a oxc::ast::ast::VariableDeclarator<'a>,
     ) -> Option<(&'a str, &'a oxc::ast::ast::Function<'a>)> {
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
@@ -269,7 +269,7 @@ impl ModuleBuilder<'_> {
 
     /// Synthesize classes for `const Foo = function () { … }` constructor
     /// bindings declared in a statement list and used as constructors there.
-    pub(super) fn synthesize_const_constructor_functions(
+    pub(in crate::lowering) fn synthesize_const_constructor_functions(
         &mut self,
         statements: &[Statement<'_>],
     ) -> Result<(), SmeltError> {
@@ -350,7 +350,7 @@ impl ModuleBuilder<'_> {
     /// live in a different `it` callback body. This scans the setup declarations
     /// and synthesizes a class whenever the function is used as a constructor in
     /// either the setup itself or the test body, before the setup is lowered.
-    pub(super) fn synthesize_setup_constructor_functions(
+    pub(in crate::lowering) fn synthesize_setup_constructor_functions(
         &mut self,
         setup: &[&Statement<'_>],
         body_statements: &[Statement<'_>],
@@ -384,7 +384,7 @@ impl ModuleBuilder<'_> {
 
     /// Synthesize a class for a constructor function declared in a block or
     /// module body, scanning the same statement list for prototype assignments.
-    pub(super) fn synthesize_constructor_function_class(
+    pub(in crate::lowering) fn synthesize_constructor_function_class(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         siblings: &[Statement<'_>],

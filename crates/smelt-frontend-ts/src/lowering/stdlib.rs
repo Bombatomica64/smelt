@@ -1,5 +1,10 @@
 //! Focused TypeScript standard-library lowering helpers.
 
+mod call_dispatch;
+mod collections;
+mod numbers_math;
+mod objects;
+
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{

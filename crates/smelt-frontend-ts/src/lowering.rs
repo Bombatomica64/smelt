@@ -1,7 +1,6 @@
 //! TypeScript AST lowering into Smelt HIR.
 
 mod ambient_globals;
-mod constructor_function;
 mod specialization;
 mod stdlib;
 mod stdlib_dispatch;
@@ -475,20 +474,10 @@ struct GeneratorYieldAccumulator {
 
 // Lowering builder implementation split into small include files.
 mod module_init;
-mod builder_part02;
-mod builder_part03;
-mod builder_part04;
-mod builder_part05;
-mod builder_part06;
-mod builder_part07;
 mod new_expr;
-mod call;
-mod collections;
 mod guards;
-mod builder_part10;
-mod builder_part11;
-mod builder_part12;
 mod callbacks;
-mod builder_part14;
-mod builder_part15;
-mod builder_part16;
+mod decls;
+mod expr;
+mod stmt;
+mod testing;

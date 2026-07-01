@@ -3,7 +3,7 @@
 //! Lowers standard-library `Map` and `Set` receiver methods into typed HIR
 //! dict/set operations. The impl block below documents the concern in detail.
 
-use super::ModuleBuilder;
+use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
@@ -39,7 +39,7 @@ impl ModuleBuilder<'_> {
     /// receiver/member pairs are standard-library collection methods lives in
     /// `smelt-stdlib`. This is the primary collection-method entry registered in
     /// `call.rs`'s builtin handler chain.
-    pub(super) fn dispatch_collection_method(
+    pub(in crate::lowering) fn dispatch_collection_method(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -74,7 +74,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a member name belongs to a registry-backed collection method family.
-    pub(super) fn is_collection_method_name(member: &str) -> bool {
+    pub(in crate::lowering) fn is_collection_method_name(member: &str) -> bool {
         matches!(
             member,
             "add" | "clear" | "delete" | "entries" | "get" | "has" | "keys" | "set" | "values"
@@ -82,7 +82,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Set.prototype.has`.
-    pub(super) fn set_contains_call(
+    pub(in crate::lowering) fn set_contains_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -121,7 +121,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Set` mutation methods.
-    pub(super) fn set_mutation_call(
+    pub(in crate::lowering) fn set_mutation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -204,7 +204,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Map.prototype.has`.
-    pub(super) fn map_has_call(
+    pub(in crate::lowering) fn map_has_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -243,7 +243,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Map.prototype.get`.
-    pub(super) fn map_get_call(
+    pub(in crate::lowering) fn map_get_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -287,7 +287,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Map` mutation methods.
-    pub(super) fn map_mutation_call(
+    pub(in crate::lowering) fn map_mutation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -393,7 +393,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a value argument can be stored in a lowered map value slot.
     ///
     /// Internal to `collections.rs`: only `map_mutation_call` consumes this.
-    pub(super) fn map_value_type_compatible(
+    pub(in crate::lowering) fn map_value_type_compatible(
         &self,
         expected: smelt_hir::TypeId,
         actual: smelt_hir::TypeId,
@@ -410,7 +410,7 @@ impl ModuleBuilder<'_> {
     /// Registered directly in `call.rs` in addition to being dispatched by
     /// [`Self::dispatch_collection_method`], because the single-argument utility
     /// form (`keys(value)` etc.) reaches this function with a non-`Map` receiver.
-    pub(super) fn map_projection_call(
+    pub(in crate::lowering) fn map_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -474,7 +474,7 @@ impl ModuleBuilder<'_> {
     /// operation used by `Object.keys`.
     ///
     /// Internal to `collections.rs`: only `map_projection_call` calls this.
-    pub(super) fn static_dict_projection_utility_call(
+    pub(in crate::lowering) fn static_dict_projection_utility_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -551,7 +551,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Set` projection methods.
-    pub(super) fn set_projection_call(
+    pub(in crate::lowering) fn set_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
