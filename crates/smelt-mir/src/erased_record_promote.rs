@@ -36,7 +36,12 @@ pub fn promote_erased_mutated_records(mir: &mut Mir) {
             let tys = function
                 .params
                 .iter()
-                .filter_map(|local| function.locals.get(local.0 as usize).map(|decl| decl.ty))
+                .filter_map(|local| {
+                    usize::try_from(local.0)
+                        .ok()
+                        .and_then(|index| function.locals.get(index))
+                        .map(|decl| decl.ty)
+                })
                 .collect::<Vec<_>>();
             (function.id, tys)
         })
@@ -99,21 +104,29 @@ fn promote_body(
                         Place::Local(_) => {}
                     }
                     // A value erased through an explicit cast escapes by reference.
-                    if let Rvalue::UnknownCast { value, .. } = value {
-                        note_erased_operand(&mut erased, value);
+                    if let Rvalue::UnknownCast {
+                        value: cast_value, ..
+                    } = value
+                    {
+                        note_erased_operand(&mut erased, cast_value);
                     }
                 }
-                Statement::Assign { dest, value } => match value {
-                    Rvalue::Use(
+                Statement::Assign { dest, value } => {
+                    // Only alias copies and explicit erasure casts feed this
+                    // analysis; every other rvalue is irrelevant here, so an
+                    // if-let chain avoids an exhaustive `Rvalue` listing.
+                    if let Rvalue::Use(
                         Operand::Copy(Place::Local(src)) | Operand::Move(Place::Local(src)),
-                    ) => {
+                    ) = value
+                    {
                         copy_edges.push((*dest, *src));
+                    } else if let Rvalue::UnknownCast {
+                        value: cast_value, ..
+                    } = value
+                    {
+                        note_erased_operand(&mut erased, cast_value);
                     }
-                    Rvalue::UnknownCast { value, .. } => {
-                        note_erased_operand(&mut erased, value);
-                    }
-                    _ => {}
-                },
+                }
                 Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
@@ -149,7 +162,10 @@ fn promote_body(
         if param_set.contains(&local) {
             continue;
         }
-        let Some(decl) = locals.get_mut(local.0 as usize) else {
+        let Some(decl) = usize::try_from(local.0)
+            .ok()
+            .and_then(|index| locals.get_mut(index))
+        else {
             continue;
         };
         if let Some(Type::Dict(key_ty, value_ty)) = types.get(decl.ty).cloned() {

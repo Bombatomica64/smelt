@@ -769,10 +769,13 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListFromLength { length } => {
             format!("list_from_length {}", operand_text(length))
         }
-        Rvalue::ListRepeat { value, count } => {
+        Rvalue::ListRepeat {
+            value: repeat_value,
+            count,
+        } => {
             format!(
                 "list_repeat {}, {}",
-                operand_text(value),
+                operand_text(repeat_value),
                 operand_text(count)
             )
         }

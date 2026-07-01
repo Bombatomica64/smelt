@@ -180,25 +180,25 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item)) => Some(*item),
             _ => None,
         };
-        if let (Some(left_item), Some(right_item)) = (left_item, right_item) {
-            if left_item == right_item
-                || matches!(self.mir.types.get(right_item), Some(Type::Never))
+        if let (Some(left_item_ty), Some(right_item_ty)) = (left_item, right_item) {
+            if left_item_ty == right_item_ty
+                || matches!(self.mir.types.get(right_item_ty), Some(Type::Never))
             {
-                return self.type_id(Type::List(left_item));
+                return self.type_id(Type::List(left_item_ty));
             }
-            if matches!(self.mir.types.get(left_item), Some(Type::Never)) {
-                return self.type_id(Type::List(right_item));
+            if matches!(self.mir.types.get(left_item_ty), Some(Type::Never)) {
+                return self.type_id(Type::List(right_item_ty));
             }
         }
-        if let Some(left_item) = left_item
+        if let Some(left_item_ty) = left_item
             && self.is_erased_concat_operand(right_ty)
         {
-            return self.type_id(Type::List(left_item));
+            return self.type_id(Type::List(left_item_ty));
         }
-        if let Some(right_item) = right_item
+        if let Some(right_item_ty) = right_item
             && self.is_erased_concat_operand(left_ty)
         {
-            return self.type_id(Type::List(right_item));
+            return self.type_id(Type::List(right_item_ty));
         }
         let unknown_ty = self.type_id(Type::Unknown)?;
         self.type_id(Type::List(unknown_ty))

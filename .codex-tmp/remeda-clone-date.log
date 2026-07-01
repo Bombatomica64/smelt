@@ -1,9 +1,0 @@
-   Compiling remeda_smelt_probe v0.1.0 (/home/lollo/Playground/smelt/third_party/remeda/dist-smelt)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 35.68s
-     Running unittests src/main.rs (third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-2759082811376727)
-
-running 1 test
-test __smelt_module_clone_test::test_built_in_types_clones_date_object ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1788 filtered out; finished in 0.00s
-

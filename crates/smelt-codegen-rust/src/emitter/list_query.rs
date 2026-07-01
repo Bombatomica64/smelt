@@ -896,10 +896,10 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, EmitError>>()?;
             params.extend((0..extra_params).map(|index| format!("_arg{index}")));
             let params_text = params.join(", ");
-            let mut body_text = String::new();
-            emitter.emit_mutable_local_preludes(&mut body_text)?;
-            emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
-            let body_text = promote_trailing_future_binding_return(body_text);
+            let mut raw_body_text = String::new();
+            emitter.emit_mutable_local_preludes(&mut raw_body_text)?;
+            emitter.emit_closure_block(emitter.entry_block()?, &mut raw_body_text)?;
+            let body_text = promote_trailing_future_binding_return(raw_body_text);
             let returns_future = matches!(
                 emitter.mir.types.get(function.return_ty),
                 Some(Type::Future(_))
@@ -987,16 +987,11 @@ impl FunctionEmitter<'_> {
                     "|{params_text}| {{ {async_capture_prelude}Box::pin(async move {{\n        let smelt_async_value = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>> }}"
                 )
             } else {
-                let wrapped_body_text = if closure
-                    .captures
-                    .iter()
-                    .any(|capture| self.closure_capture_needs_shared_access(closure, capture))
-                {
-                    format!("unsafe {{\n{body_text}    }}\n")
-                } else {
-                    body_text
-                };
-                format!("|{params_text}| {{\n{wrapped_body_text}    }}")
+                // Shared captures are emitted as safe `Rc<RefCell<T>>` and accessed via
+                // `borrow_mut()` (see core.rs), so the closure body contains no `unsafe`
+                // operations. Emit the body directly; wrapping it in an `unsafe` block only
+                // produced `unnecessary unsafe block` warnings in generated crates.
+                format!("|{params_text}| {{\n{body_text}    }}")
             }
         };
         let capture_prefix = if closure.escapes
@@ -1525,7 +1520,10 @@ fn async_body_returns_future_value(body_text: &str) -> bool {
 /// async wrapper.
 fn promote_trailing_future_binding_return(body_text: String) -> String {
     let lines = body_text.lines().collect::<Vec<_>>();
-    let Some((final_index, _)) = lines
+    // Locate the last non-blank line. Binding `final_line` here (instead of
+    // re-indexing `lines[final_index]`) keeps the check panic-free: the iterator
+    // already handed us the line, so no bounds-checked index is needed.
+    let Some((final_index, final_line)) = lines
         .iter()
         .enumerate()
         .rev()
@@ -1533,22 +1531,33 @@ fn promote_trailing_future_binding_return(body_text: String) -> String {
     else {
         return body_text;
     };
-    if lines[final_index].trim() != "SmeltUnknown::Null" {
+    if final_line.trim() != "SmeltUnknown::Null" {
         return body_text;
     }
-    let Some(future_name) = lines[..final_index].iter().rev().find_map(|line| {
-        let trimmed = line.trim_start();
-        if !trimmed.starts_with("let ") || !trimmed.contains("::std::future::Future<Output =") {
-            return None;
-        }
-        let rest = trimmed.strip_prefix("let ")?;
-        rest.split(':').next().map(str::trim).filter(|name| {
-            !name.is_empty()
-                && name
-                    .chars()
-                    .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+    // Scan the lines preceding the trailing null for the future binding to
+    // promote. `get(..final_index)` yields the same prefix as `lines[..final_index]`
+    // but returns `None` rather than panicking if the range is ever invalid.
+    let Some(future_name) = lines
+        .get(..final_index)
+        .unwrap_or(&[])
+        .iter()
+        .rev()
+        .find_map(|line| {
+            let trimmed = line.trim_start();
+            if !trimmed.starts_with("let ")
+                || !trimmed.contains("::std::future::Future<Output =")
+            {
+                return None;
+            }
+            let rest = trimmed.strip_prefix("let ")?;
+            rest.split(':').next().map(str::trim).filter(|name| {
+                !name.is_empty()
+                    && name
+                        .chars()
+                        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+            })
         })
-    }) else {
+    else {
         return body_text;
     };
     let mut rewritten = String::new();
@@ -1573,27 +1582,35 @@ fn promote_trailing_future_binding_return(body_text: String) -> String {
 /// containing callback return a future.
 fn contains_await_outside_nested_async_block(body_text: &str) -> bool {
     let bytes = body_text.as_bytes();
-    let mut index = 0usize;
+    // Byte offsets of the opening `{` that begins each still-open `async move`
+    // block, keyed indirectly by the brace depth recorded when it opened. A
+    // `.await` seen while this stack is empty belongs to the enclosing callback
+    // rather than a nested async block.
     let mut async_depths = Vec::<usize>::new();
     let mut brace_depth = 0usize;
-    while index < bytes.len() {
+    let mut index = 0usize;
+    // Walk the text one byte at a time. Every offset step is a `saturating`/
+    // `checked`-style advance so no arithmetic can overflow and every lookup uses
+    // `get`, keeping this scanner panic-free on arbitrary emitted text.
+    while let Some(&byte) = bytes.get(index) {
         if starts_with_at(body_text, index, "async move") {
-            let mut cursor = index + "async move".len();
-            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
-                cursor += 1;
+            // Skip whitespace after `async move` to find the opening brace.
+            let mut cursor = index.saturating_add("async move".len());
+            while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+                cursor = cursor.saturating_add(1);
             }
-            if cursor < bytes.len() && bytes[cursor] == b'{' {
-                brace_depth += 1;
+            if bytes.get(cursor) == Some(&b'{') {
+                brace_depth = brace_depth.saturating_add(1);
                 async_depths.push(brace_depth);
-                index = cursor + 1;
+                index = cursor.saturating_add(1);
                 continue;
             }
         }
         if starts_with_at(body_text, index, ".await") && async_depths.is_empty() {
             return true;
         }
-        match bytes[index] {
-            b'{' => brace_depth += 1,
+        match byte {
+            b'{' => brace_depth = brace_depth.saturating_add(1),
             b'}' => {
                 if async_depths.last().copied() == Some(brace_depth) {
                     async_depths.pop();
@@ -1602,7 +1619,7 @@ fn contains_await_outside_nested_async_block(body_text: &str) -> bool {
             }
             _ => {}
         }
-        index += 1;
+        index = index.saturating_add(1);
     }
     false
 }

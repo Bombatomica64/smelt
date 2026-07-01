@@ -23,3 +23,10 @@ target
 codedb.snapshot
 dist/
 dist-smelt/
+
+# Analysis/profiling scratch output — never track
+.codex-tmp/
+graphify-out/
+crates/graphify-out/
+perf.data
+perf.data.old

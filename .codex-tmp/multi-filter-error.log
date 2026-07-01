@@ -1,5 +1,0 @@
-error: unexpected argument 'emits_nullish_vitest_matchers_as_success_for_null_literals' found
-
-Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
-
-For more information, try '--help'.

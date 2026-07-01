@@ -542,8 +542,14 @@ impl FunctionEmitter<'_> {
         } else {
             "()".to_owned()
         };
-        if let Some(comparator) = comparator {
-            return self.list_sort_comparator_text(comparator, element_ty, returns_list, &list_text, &result_text);
+        if let Some(comparator_operand) = comparator {
+            return self.list_sort_comparator_text(
+                comparator_operand,
+                element_ty,
+                returns_list,
+                &list_text,
+                &result_text,
+            );
         }
         if key.is_some() || reverse {
             let (prefix, closure) = self.list_sort_by_text(key, reverse, element_ty)?;

@@ -18,6 +18,30 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Render the runtime dispatch snippet for invoking a dynamically-typed
+    /// callable (`SmeltUnknown`).
+    ///
+    /// When the callee is erased to `SmeltUnknown` (source `unknown`, a union, or
+    /// an erased class), the concrete callable shape is only known at runtime: it
+    /// may be a `SmeltUnknown::Function`, or an object that exposes a
+    /// `__smelt_call` function member (a callable object). This snippet clones the
+    /// callee value, coerces the argument expression into a `Vec<SmeltUnknown>`,
+    /// extracts whichever callable form is present, invokes it (propagating a
+    /// thrown error via `panic!`), and falls back to `SmeltUnknown::Null` when the
+    /// value is not callable.
+    ///
+    /// `callee_text` is the expression producing the callee value. `args_expr` is
+    /// the expression fed to `Into::into` to build the argument vector; callers
+    /// differ only in how they materialize that expression (an explicit
+    /// `vec![...]` for `ClosureCall`, a pre-flattened list for
+    /// `ClosureCallSpread`), so it is the single parameterized hole in the shared
+    /// snippet.
+    fn dynamic_callable_dispatch_text(&self, callee_text: &str, args_expr: &str) -> String {
+        format!(
+            "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
+        )
+    }
+
     /// Render a dictionary literal as a generated record when the destination
     /// type is a known class/interface storage shape.
     ///
@@ -102,6 +126,13 @@ impl FunctionEmitter<'_> {
         Ok(text)
     }
 
+    /// Render an rvalue at a destination type, before list-identity coercion.
+    ///
+    /// This is the dispatch body behind [`Self::rvalue_text_for_dest`]: it
+    /// matches every `Rvalue` variant and produces the raw Rust expression for
+    /// it. The public wrapper then applies the single `SmeltList` `Into`
+    /// choke-point coercion for list-typed destinations, so variants here may
+    /// freely emit bare `Vec` expressions.
     fn rvalue_text_for_dest_inner(
         &self,
         value: &Rvalue,
@@ -147,8 +178,7 @@ impl FunctionEmitter<'_> {
                         .join(", ");
                     return Ok(self.erase_array_text(&items_text));
                 }
-                if let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) {
-                    let item_ty = *item_ty;
+                if let Some(&Type::List(item_ty)) = self.mir.types.get(dest_ty) {
                     let items_text = items
                         .iter()
                         .map(|item| self.value_at_type(&self.list_literal_operand(item), item_ty))
@@ -762,9 +792,8 @@ impl FunctionEmitter<'_> {
                     // so a single array argument is delivered as one value instead of
                     // being mistaken for a spread and flattened into its elements.
                     let smelt_call_args = format!("vec![{}]", rendered_args.join(", "));
-                    let call_text = format!(
-                        "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into({smelt_call_args}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
-                    );
+                    let call_text =
+                        self.dynamic_callable_dispatch_text(&callee_text, &smelt_call_args);
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                         return Ok(call_text);
@@ -926,9 +955,7 @@ impl FunctionEmitter<'_> {
                     }
                     return self.value_at_type_text(&call_text, function.return_ty, dest_ty);
                 }
-                let call_text = format!(
-                    "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_text}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
-                );
+                let call_text = self.dynamic_callable_dispatch_text(&callee_text, &args_text);
                 if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                     return Ok(call_text);
                 }
@@ -938,7 +965,10 @@ impl FunctionEmitter<'_> {
                 self.list_callback_text(*op, list, callback, dest_ty)
             }
             Rvalue::ListFromLength { length } => self.list_from_length_text(length, dest_ty),
-            Rvalue::ListRepeat { value, count } => self.list_repeat_text(value, count, dest_ty),
+            Rvalue::ListRepeat {
+                value: repeat_value,
+                count,
+            } => self.list_repeat_text(repeat_value, count, dest_ty),
             Rvalue::ListFromLengthMap { length, callback } => {
                 self.list_from_length_map_text(length, callback, dest_ty)
             }
