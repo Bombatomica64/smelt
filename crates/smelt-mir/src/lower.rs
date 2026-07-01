@@ -528,9 +528,9 @@ struct LoweringCtx<'hir> {
 /// Return whether `module` contains any function marked as a source test.
 fn module_has_test_items(krate: &smelt_hir::Crate, module: &smelt_hir::Module) -> bool {
     module.items.iter().any(|item_id| {
-        krate
-            .items
-            .get(usize::try_from(item_id.0).unwrap_or(usize::MAX))
+        usize::try_from(item_id.0)
+            .ok()
+            .and_then(|index| krate.items.get(index))
             .is_some_and(
                 |item| matches!(item, smelt_hir::Item::Function(function) if function.is_test),
             )
@@ -539,12 +539,13 @@ fn module_has_test_items(krate: &smelt_hir::Crate, module: &smelt_hir::Module) -
 
 /// Return whether a HIR body has no executable statements or tail expression.
 fn body_is_empty(krate: &smelt_hir::Crate, body_id: BodyId) -> bool {
-    krate
-        .bodies
-        .get(usize::try_from(body_id.0).unwrap_or(usize::MAX))
+    usize::try_from(body_id.0)
+        .ok()
+        .and_then(|index| krate.bodies.get(index))
         .is_some_and(|body| {
-            body.blocks
-                .get(usize::try_from(body.root.0).unwrap_or(usize::MAX))
+            usize::try_from(body.root.0)
+                .ok()
+                .and_then(|index| body.blocks.get(index))
                 .is_some_and(|block| block.stmts.is_empty() && block.tail.is_none())
         })
 }
@@ -1186,20 +1187,26 @@ impl<'hir> LoweringCtx<'hir> {
             }
         }
 
-        let default_target = default
-            .map(|default_body| {
+        let default_target = if let Some(default_body) = default {
+            Some(
                 *targets_by_hir_block
                     .entry(default_body)
-                    .or_insert_with(|| self.function.push_block(span))
-            })
-            .or_else(|| {
-                let target = self.function.push_block(span);
-                let target_index = usize::try_from(target.0).unwrap_or(usize::MAX);
-                if let Some(block) = self.function.blocks.get_mut(target_index) {
-                    block.terminator = Some(Terminator::Goto(join));
-                }
-                Some(target)
-            });
+                    .or_insert_with(|| self.function.push_block(span)),
+            )
+        } else {
+            // Synthesize an empty default block that jumps straight to the join.
+            let target = self.function.push_block(span);
+            let target_index =
+                usize_from_u32(target.0, "synthesized MIR match default block index")?;
+            let Some(block) = self.function.blocks.get_mut(target_index) else {
+                return Err(self.error(
+                    "synthesized MIR match default block is missing after allocation",
+                    Some(span),
+                ));
+            };
+            block.terminator = Some(Terminator::Goto(join));
+            Some(target)
+        };
         self.set_terminator(Terminator::Match {
             scrutinee: lowered_scrutinee,
             arms: mir_arms,
@@ -1291,28 +1298,26 @@ impl<'hir> LoweringCtx<'hir> {
             ExprKind::BinOp { op, lhs, rhs } => {
                 let lhs_operand = self.lower_expr(*lhs)?;
                 let rhs_operand = self.lower_expr(*rhs)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::Binary {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::Binary {
                         op: *op,
                         lhs: lhs_operand,
                         rhs: rhs_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::UnaryOp { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::Unary {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::Unary {
                         op: *op,
                         operand: lowered_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::Conditional {
                 cond,
@@ -1362,121 +1367,95 @@ impl<'hir> LoweringCtx<'hir> {
                             .map(|operand| (case_key.clone(), operand))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::FunctionTableLookup {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::FunctionTableLookup {
                         key: lowered_key,
                         cases: lowered_cases,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::InstanceOf { value, class } => {
                 let lowered_value = self.lower_expr(*value)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::InstanceOf {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::InstanceOf {
                         value: lowered_value,
                         class: *class,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::UnknownIs { value, kind } => {
                 let lowered_value = self.lower_expr(*value)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::UnknownIs {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::UnknownIs {
                         value: lowered_value,
                         kind: *kind,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::TypeofValue { value } => {
                 let lowered_value = self.lower_expr(*value)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::TypeofValue {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TypeofValue {
                         value: lowered_value,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::PrototypeSentinel { value } => {
                 let lowered_value = self.lower_expr(*value)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::PrototypeSentinel {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::PrototypeSentinel {
                         value: lowered_value,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::UnknownCast { value, target } => {
                 let lowered_value = self.lower_expr(*value)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::UnknownCast {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::UnknownCast {
                         value: lowered_value,
                         target: *target,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListLit(items) => {
                 let lowered_items = items
                     .iter()
                     .map(|item| self.lower_expr(*item))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::List(lowered_items),
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::List(lowered_items))?
             }
             ExprKind::SetLit(items) => {
                 let lowered_items = items
                     .iter()
                     .map(|item| self.lower_expr(*item))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::Set(lowered_items),
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::Set(lowered_items))?
             }
             ExprKind::DictLit(entries) => {
                 let lowered_entries = entries
                     .iter()
                     .map(|(key, value)| Ok((self.lower_expr(*key)?, self.lower_expr(*value)?)))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::Dict(lowered_entries),
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::Dict(lowered_entries))?
             }
             ExprKind::TupleLit(items) => {
                 let lowered_items = items
                     .iter()
                     .map(|item| self.lower_expr(*item))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::Tuple(lowered_items),
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::Tuple(lowered_items))?
             }
             ExprKind::Field { receiver, field } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
@@ -1490,15 +1469,14 @@ impl<'hir> LoweringCtx<'hir> {
             }
             ExprKind::OptionalField { receiver, field } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::OptionalField {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::OptionalField {
                         receiver: receiver_operand,
                         field: *field,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::Index { receiver, index } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
@@ -1525,15 +1503,14 @@ impl<'hir> LoweringCtx<'hir> {
             ExprKind::OptionalIndex { receiver, index } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
                 let index_operand = self.lower_expr(*index)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::OptionalIndex {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::OptionalIndex {
                         receiver: receiver_operand,
                         index: index_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::OptionalMethod {
                 receiver,
@@ -1545,253 +1522,212 @@ impl<'hir> LoweringCtx<'hir> {
                     .iter()
                     .map(|arg| self.lower_expr(*arg))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::OptionalMethod {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::OptionalMethod {
                         receiver: receiver_operand,
                         method: *method,
                         args: lowered_args,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::OptionalCoalesce { optional, fallback } => {
                 let lowered_optional = self.lower_expr(*optional)?;
                 let lowered_fallback = self.lower_expr(*fallback)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::OptionalCoalesce {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::OptionalCoalesce {
                         optional: lowered_optional,
                         fallback: lowered_fallback,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::TypeAssert { value } => {
                 let lowered_value = self.lower_expr(*value)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::Use(lowered_value),
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::Use(lowered_value))?
             }
             ExprKind::Len { operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::Len(lowered_operand),
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::Len(lowered_operand))?
             }
             ExprKind::NumericAbs { operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericAbs(lowered_operand),
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::NumericAbs(lowered_operand))?
             }
             ExprKind::NumericRound { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericRound {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::NumericRound {
                         op: *op,
                         operand: lowered_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::NumericExtrema { op, args } => {
                 let lowered_args = args
                     .iter()
                     .map(|arg| self.lower_expr(*arg))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericExtrema {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::NumericExtrema {
                         op: *op,
                         args: lowered_args,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::NumericHypot { args } => {
                 let lowered_args = args
                     .iter()
                     .map(|arg| self.lower_expr(*arg))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericHypot { args: lowered_args },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::NumericHypot { args: lowered_args })?
             }
             ExprKind::NumericPredicate { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericPredicate {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::NumericPredicate {
                         op: *op,
                         operand: lowered_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::NumericUnaryFunc { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericUnaryFunc {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::NumericUnaryFunc {
                         op: *op,
                         operand: lowered_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::NumericPow { base, exponent } => {
                 let base_operand = self.lower_expr(*base)?;
                 let exponent_operand = self.lower_expr(*exponent)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericPow {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::NumericPow {
                         base: base_operand,
                         exponent: exponent_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::NumericAtan2 { y, x } => {
                 let y_operand = self.lower_expr(*y)?;
                 let x_operand = self.lower_expr(*x)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericAtan2 {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::NumericAtan2 {
                         y: y_operand,
                         x: x_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::NumericRandom => {
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericRandom,
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::NumericRandom)?
             }
             ExprKind::NumericRandomInt { start, end } => {
                 let start_operand = self.lower_expr(*start)?;
                 let end_operand = self.lower_expr(*end)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericRandomInt {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::NumericRandomInt {
                         start: start_operand,
                         end: end_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::NumericToStringRadix { operand, radix } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let lowered_radix = self.lower_expr(*radix)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericToStringRadix {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::NumericToStringRadix {
                         operand: lowered_operand,
                         radix: lowered_radix,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::NumericToFixed { operand, digits } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let lowered_digits = self.lower_expr(*digits)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::NumericToFixed {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::NumericToFixed {
                         operand: lowered_operand,
                         digits: lowered_digits,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ParseIntRadix { operand, radix } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let lowered_radix = self.lower_expr(*radix)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ParseIntRadix {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ParseIntRadix {
                         operand: lowered_operand,
                         radix: lowered_radix,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::PrimitiveCast { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::PrimitiveCast {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::PrimitiveCast {
                         op: *op,
                         operand: lowered_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringCase { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringCase {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringCase {
                         op: *op,
                         operand: lowered_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringNormalize { form, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringNormalize {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringNormalize {
                         form: *form,
                         operand: lowered_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringTrim { side, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringTrim {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringTrim {
                         side: *side,
                         operand: lowered_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringAffix {
                 op,
@@ -1800,16 +1736,15 @@ impl<'hir> LoweringCtx<'hir> {
             } => {
                 let haystack_operand = self.lower_expr(*haystack)?;
                 let needle_operand = self.lower_expr(*needle)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringAffix {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringAffix {
                         op: *op,
                         haystack: haystack_operand,
                         needle: needle_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringSearch {
                 op,
@@ -1821,17 +1756,16 @@ impl<'hir> LoweringCtx<'hir> {
                 let needle_operand = self.lower_expr(*needle)?;
                 let from_index_operand =
                     from_index.map(|value| self.lower_expr(value)).transpose()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringSearch {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringSearch {
                         op: *op,
                         haystack: haystack_operand,
                         needle: needle_operand,
                         from_index: from_index_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringReplace {
                 op,
@@ -1842,17 +1776,16 @@ impl<'hir> LoweringCtx<'hir> {
                 let haystack_operand = self.lower_expr(*haystack)?;
                 let pattern_operand = self.lower_expr(*pattern)?;
                 let replacement_operand = self.lower_expr(*replacement)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringReplace {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringReplace {
                         op: *op,
                         haystack: haystack_operand,
                         pattern: pattern_operand,
                         replacement: replacement_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringRemoveAffix {
                 op,
@@ -1861,29 +1794,27 @@ impl<'hir> LoweringCtx<'hir> {
             } => {
                 let haystack_operand = self.lower_expr(*haystack)?;
                 let affix_operand = self.lower_expr(*affix)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringRemoveAffix {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringRemoveAffix {
                         op: *op,
                         haystack: haystack_operand,
                         affix: affix_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringRepeat { operand, count } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let count_operand = self.lower_expr(*count)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringRepeat {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringRepeat {
                         operand: lowered_operand,
                         count: count_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringPad {
                 op,
@@ -1894,29 +1825,27 @@ impl<'hir> LoweringCtx<'hir> {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let target_len_operand = self.lower_expr(*target_len)?;
                 let pad_operand = self.lower_expr(*pad)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringPad {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringPad {
                         op: *op,
                         operand: lowered_operand,
                         target_len: target_len_operand,
                         pad: pad_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringPredicate { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringPredicate {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringPredicate {
                         op: *op,
                         operand: lowered_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::RegexIsMatch {
                 op,
@@ -1925,16 +1854,15 @@ impl<'hir> LoweringCtx<'hir> {
             } => {
                 let pattern_operand = self.lower_expr(*pattern)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::RegexIsMatch {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RegexIsMatch {
                         op: *op,
                         pattern: pattern_operand,
                         haystack: haystack_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::RegexReplace {
                 op,
@@ -1945,17 +1873,16 @@ impl<'hir> LoweringCtx<'hir> {
                 let pattern_operand = self.lower_expr(*pattern)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
                 let replacement_operand = self.lower_expr(*replacement)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::RegexReplace {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RegexReplace {
                         op: *op,
                         pattern: pattern_operand,
                         haystack: haystack_operand,
                         replacement: replacement_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::RegexReplaceCallback {
                 op,
@@ -1966,121 +1893,112 @@ impl<'hir> LoweringCtx<'hir> {
                 let pattern_operand = self.lower_expr(*pattern)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
                 let callback_operand = self.lower_expr(*callback)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::RegexReplaceCallback {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RegexReplaceCallback {
                         op: *op,
                         pattern: pattern_operand,
                         haystack: haystack_operand,
                         callback: callback_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
                 let pattern_operand = self.lower_expr(*pattern)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::RegexReplaceFirstMatchUppercase {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RegexReplaceFirstMatchUppercase {
                         pattern: pattern_operand,
                         haystack: haystack_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::RegexSplit { pattern, haystack } => {
                 let pattern_operand = self.lower_expr(*pattern)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::RegexSplit {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RegexSplit {
                         pattern: pattern_operand,
                         haystack: haystack_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::RegexFind { pattern, haystack } => {
                 let pattern_operand = self.lower_expr(*pattern)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::RegexFind {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RegexFind {
                         pattern: pattern_operand,
                         haystack: haystack_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::RegexExec { regex, haystack } => {
                 let regex_operand = self.lower_expr(*regex)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::RegexExec {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RegexExec {
                         regex: regex_operand,
                         haystack: haystack_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::RegexMatchAll { regex, haystack } => {
                 let regex_operand = self.lower_expr(*regex)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::RegexMatchAll {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RegexMatchAll {
                         regex: regex_operand,
                         haystack: haystack_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringCharAt { operand, index } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let index_operand = self.lower_expr(*index)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringCharAt {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringCharAt {
                         operand: lowered_operand,
                         index: index_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringCharCodeAt { operand, index } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let index_operand = self.lower_expr(*index)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringCharCodeAt {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringCharCodeAt {
                         operand: lowered_operand,
                         index: index_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringContains { haystack, needle } => {
                 let haystack_operand = self.lower_expr(*haystack)?;
                 let needle_operand = self.lower_expr(*needle)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringContains {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringContains {
                         haystack: haystack_operand,
                         needle: needle_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringSlice {
                 operand,
@@ -2090,236 +2008,201 @@ impl<'hir> LoweringCtx<'hir> {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let start_operand = start.map(|bound| self.lower_expr(bound)).transpose()?;
                 let end_operand = end.map(|bound| self.lower_expr(bound)).transpose()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringSlice {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringSlice {
                         operand: lowered_operand,
                         start: start_operand,
                         end: end_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListContains { list, item } => {
                 let list_operand = self.lower_expr(*list)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListContains {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListContains {
                         list: list_operand,
                         item: item_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::SetContains { set, item } => {
                 let set_operand = self.lower_expr(*set)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::SetContains {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::SetContains {
                         set: set_operand,
                         item: item_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::SetDisjoint { left, right } => {
                 let left_operand = self.lower_expr(*left)?;
                 let right_operand = self.lower_expr(*right)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::SetDisjoint {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::SetDisjoint {
                         left: left_operand,
                         right: right_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::SetRelation { op, left, right } => {
                 let left_operand = self.lower_expr(*left)?;
                 let right_operand = self.lower_expr(*right)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::SetRelation {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::SetRelation {
                         op: *op,
                         left: left_operand,
                         right: right_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::SetAdd { set, item } => {
                 let set_operand = self.lower_expr(*set)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::SetAdd {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::SetAdd {
                         set: set_operand,
                         item: item_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::SetRemove { op, set, item } => {
                 let set_operand = self.lower_expr(*set)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::SetRemove {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::SetRemove {
                         op: *op,
                         set: set_operand,
                         item: item_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::SetClear { set } => {
                 let set_operand = self.lower_expr(*set)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::SetClear { set: set_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::SetClear { set: set_operand })?
             }
             ExprKind::SetCopy { set } => {
                 let set_operand = self.lower_expr(*set)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::SetCopy { set: set_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::SetCopy { set: set_operand })?
             }
             ExprKind::ListToSet { list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListToSet { list: list_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::ListToSet { list: list_operand })?
             }
             ExprKind::ListPairsToDict { list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListPairsToDict { list: list_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::ListPairsToDict { list: list_operand })?
             }
             ExprKind::SetBinary { op, left, right } => {
                 let left_operand = self.lower_expr(*left)?;
                 let right_operand = self.lower_expr(*right)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::SetBinary {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::SetBinary {
                         op: *op,
                         left: left_operand,
                         right: right_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::SetProjection { op, set } => {
                 let set_operand = self.lower_expr(*set)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::SetProjection {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::SetProjection {
                         op: *op,
                         set: set_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListConcat { left, right } => {
                 let left_operand = self.lower_expr(*left)?;
                 let right_operand = self.lower_expr(*right)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListConcat {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListConcat {
                         left: left_operand,
                         right: right_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListSearch { op, list, item } => {
                 let list_operand = self.lower_expr(*list)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListSearch {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListSearch {
                         op: *op,
                         list: list_operand,
                         item: item_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListCallback { op, list, callback } => {
                 let list_operand = self.lower_expr(*list)?;
                 let callback_operand = self.lower_expr(*callback)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListCallback {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListCallback {
                         op: *op,
                         list: list_operand,
                         callback: callback_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListFromLength { length } => {
                 let length_operand = self.lower_expr(*length)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListFromLength {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListFromLength {
                         length: length_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListRepeat { value, count } => {
                 let value_operand = self.lower_expr(*value)?;
                 let count_operand = self.lower_expr(*count)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListRepeat {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListRepeat {
                         value: value_operand,
                         count: count_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListFromLengthMap { length, callback } => {
                 let length_operand = self.lower_expr(*length)?;
                 let callback_operand = self.lower_expr(*callback)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListFromLengthMap {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListFromLengthMap {
                         length: length_operand,
                         callback: callback_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListReduce {
                 list,
@@ -2329,31 +2212,29 @@ impl<'hir> LoweringCtx<'hir> {
                 let list_operand = self.lower_expr(*list)?;
                 let initial_operand = initial.map(|expr| self.lower_expr(expr)).transpose()?;
                 let callback_operand = self.lower_expr(*callback)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListReduce {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListReduce {
                         list: list_operand,
                         initial: initial_operand,
                         callback: callback_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListSlice { list, start, end } => {
                 let list_operand = self.lower_expr(*list)?;
                 let start_operand = start.map(|bound| self.lower_expr(bound)).transpose()?;
                 let end_operand = end.map(|bound| self.lower_expr(bound)).transpose()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListSlice {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListSlice {
                         list: list_operand,
                         start: start_operand,
                         end: end_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListSplice {
                 list,
@@ -2376,18 +2257,17 @@ impl<'hir> LoweringCtx<'hir> {
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListSplice {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListSplice {
                         list: list_operand,
                         start: start_operand,
                         delete_count: delete_count_operand,
                         items: item_operands,
                         mutate: *mutate,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListFill {
                 list,
@@ -2399,17 +2279,16 @@ impl<'hir> LoweringCtx<'hir> {
                 let value_operand = self.lower_expr(*value)?;
                 let start_operand = start.map(|bound| self.lower_expr(bound)).transpose()?;
                 let end_operand = end.map(|bound| self.lower_expr(bound)).transpose()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListFill {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListFill {
                         list: list_operand,
                         value: value_operand,
                         start: start_operand,
                         end: end_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListCopyWithin {
                 list,
@@ -2421,103 +2300,96 @@ impl<'hir> LoweringCtx<'hir> {
                 let target_operand = self.lower_expr(*target)?;
                 let start_operand = self.lower_expr(*start)?;
                 let end_operand = end.map(|bound| self.lower_expr(bound)).transpose()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListCopyWithin {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListCopyWithin {
                         list: list_operand,
                         target: target_operand,
                         start: start_operand,
                         end: end_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListWith { list, index, value } => {
                 let list_operand = self.lower_expr(*list)?;
                 let index_operand = self.lower_expr(*index)?;
                 let value_operand = self.lower_expr(*value)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListWith {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListWith {
                         list: list_operand,
                         index: index_operand,
                         value: value_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListFlat { list, depth } => {
                 let list_operand = self.lower_expr(*list)?;
                 let depth_operand = depth
                     .map(|depth_expr| self.lower_expr(depth_expr))
                     .transpose()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListFlat {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListFlat {
                         list: list_operand,
                         depth: depth_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListProjection { op, list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListProjection {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListProjection {
                         op: *op,
                         list: list_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListPush { list, item } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListPush {
+                self.assign_temp_with_writeback(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListPush {
                         list: list_operand,
                         item: item_operand,
                     },
-                });
-                self.write_back_mutation_receiver(writeback)?;
-                Operand::Copy(Place::Local(dest))
+                    writeback,
+                )?
             }
             ExprKind::ListExtend { list, other } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let other_operand = self.lower_expr(*other)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListExtend {
+                self.assign_temp_with_writeback(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListExtend {
                         list: list_operand,
                         other: other_operand,
                     },
-                });
-                self.write_back_mutation_receiver(writeback)?;
-                Operand::Copy(Place::Local(dest))
+                    writeback,
+                )?
             }
             ExprKind::ListInsert { list, index, item } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let index_operand = self.lower_expr(*index)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListInsert {
+                self.assign_temp_with_writeback(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListInsert {
                         list: list_operand,
                         index: index_operand,
                         item: item_operand,
                     },
-                });
-                self.write_back_mutation_receiver(writeback)?;
-                Operand::Copy(Place::Local(dest))
+                    writeback,
+                )?
             }
             ExprKind::ListUnshift { list, items } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
@@ -2525,209 +2397,164 @@ impl<'hir> LoweringCtx<'hir> {
                     .iter()
                     .map(|item| self.lower_expr(*item))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListUnshift {
+                self.assign_temp_with_writeback(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListUnshift {
                         list: list_operand,
                         items: item_operands,
                     },
-                });
-                self.write_back_mutation_receiver(writeback)?;
-                Operand::Copy(Place::Local(dest))
+                    writeback,
+                )?
             }
             ExprKind::ListReverse { list } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListReverse { list: list_operand },
-                });
-                self.write_back_mutation_receiver(writeback)?;
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp_with_writeback(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListReverse { list: list_operand },
+                    writeback,
+                )?
             }
             ExprKind::ListClear { list } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListClear { list: list_operand },
-                });
-                self.write_back_mutation_receiver(writeback)?;
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp_with_writeback(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListClear { list: list_operand },
+                    writeback,
+                )?
             }
             ExprKind::ListCopy { list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListCopy { list: list_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::ListCopy { list: list_operand })?
             }
             ExprKind::TupleToList { tuple } => {
                 let tuple_operand = self.lower_expr(*tuple)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::TupleToList {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TupleToList {
                         tuple: tuple_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListToTuple { list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListToTuple { list: list_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::ListToTuple { list: list_operand })?
             }
             ExprKind::TupleToSet { tuple } => {
                 let tuple_operand = self.lower_expr(*tuple)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::TupleToSet {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TupleToSet {
                         tuple: tuple_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListCount { list, item } => {
                 let list_operand = self.lower_expr(*list)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListCount {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListCount {
                         list: list_operand,
                         item: item_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListSum { list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListSum { list: list_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::ListSum { list: list_operand })?
             }
             ExprKind::ListBoolFold { op, list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListBoolFold {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListBoolFold {
                         op: *op,
                         list: list_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListSorted { list, key, reverse } => {
                 let list_operand = self.lower_expr(*list)?;
-                let key_operand = match key {
-                    Some(key) => Some(self.lower_expr(*key)?),
-                    None => None,
-                };
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListSorted {
+                let key_operand = key.map(|key_expr| self.lower_expr(key_expr)).transpose()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListSorted {
                         list: list_operand,
                         key: key_operand,
                         reverse: *reverse,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListReversed { list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListReversed { list: list_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::ListReversed { list: list_operand })?
             }
             ExprKind::ListEnumerate { list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListEnumerate { list: list_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::ListEnumerate { list: list_operand })?
             }
             ExprKind::ListZip { left, right } => {
                 let left_operand = self.lower_expr(*left)?;
                 let right_operand = self.lower_expr(*right)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListZip {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListZip {
                         left: left_operand,
                         right: right_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListRange { start, end, step } => {
                 let start_operand = self.lower_expr(*start)?;
                 let end_operand = self.lower_expr(*end)?;
                 let step_operand = self.lower_expr(*step)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListRange {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListRange {
                         start: start_operand,
                         end: end_operand,
                         step: step_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListRandomChoice { list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListRandomChoice { list: list_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::ListRandomChoice { list: list_operand })?
             }
             ExprKind::ListIndex { list, item } => {
                 let list_operand = self.lower_expr(*list)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListIndex {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListIndex {
                         list: list_operand,
                         item: item_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::ListRemove { list, item } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListRemove {
+                self.assign_temp_with_writeback(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListRemove {
                         list: list_operand,
                         item: item_operand,
                     },
-                });
-                self.write_back_mutation_receiver(writeback)?;
-                Operand::Copy(Place::Local(dest))
+                    writeback,
+                )?
             }
             ExprKind::ListSort {
                 list,
@@ -2736,156 +2563,136 @@ impl<'hir> LoweringCtx<'hir> {
                 reverse,
             } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
-                let comparator_operand = match comparator {
-                    Some(comparator) => Some(self.lower_expr(*comparator)?),
-                    None => None,
-                };
-                let key_operand = match key {
-                    Some(key) => Some(self.lower_expr(*key)?),
-                    None => None,
-                };
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListSort {
+                let comparator_operand = comparator
+                    .map(|comparator_expr| self.lower_expr(comparator_expr))
+                    .transpose()?;
+                let key_operand = key.map(|key_expr| self.lower_expr(key_expr)).transpose()?;
+                self.assign_temp_with_writeback(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListSort {
                         list: list_operand,
                         comparator: comparator_operand,
                         key: key_operand,
                         reverse: *reverse,
                     },
-                });
-                self.write_back_mutation_receiver(writeback)?;
-                Operand::Copy(Place::Local(dest))
+                    writeback,
+                )?
             }
             ExprKind::ListPop { list } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListPop { list: list_operand },
-                });
-                self.write_back_mutation_receiver(writeback)?;
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp_with_writeback(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListPop { list: list_operand },
+                    writeback,
+                )?
             }
             ExprKind::ListShift { list } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListShift { list: list_operand },
-                });
-                self.write_back_mutation_receiver(writeback)?;
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp_with_writeback(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ListShift { list: list_operand },
+                    writeback,
+                )?
             }
             ExprKind::ListNext { list } => {
                 let list_operand = self.lower_expr(*list)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ListNext { list: list_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::ListNext { list: list_operand })?
             }
             ExprKind::IteratorDone { result } => {
                 let result_operand = self.lower_expr(*result)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::IteratorDone {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::IteratorDone {
                         result: result_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::IteratorValue { result } => {
                 let result_operand = self.lower_expr(*result)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::IteratorValue {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::IteratorValue {
                         result: result_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::TupleContains { tuple, item } => {
                 let tuple_operand = self.lower_expr(*tuple)?;
                 let item_operand = self.lower_expr(*item)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::TupleContains {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TupleContains {
                         tuple: tuple_operand,
                         item: item_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::TupleIndex { tuple, index } => {
                 let tuple_operand = self.lower_expr(*tuple)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::TupleIndex {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TupleIndex {
                         tuple: tuple_operand,
                         index: *index,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::TupleSlice { tuple, start, end } => {
                 let tuple_operand = self.lower_expr(*tuple)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::TupleSlice {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TupleSlice {
                         tuple: tuple_operand,
                         start: *start,
                         end: *end,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DictContainsKey { dict, key } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let key_operand = self.lower_expr(*key)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictContainsKey {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DictContainsKey {
                         dict: dict_operand,
                         key: key_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DictSet { dict, key, value } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let key_operand = self.lower_expr(*key)?;
                 let value_operand = self.lower_expr(*value)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictSet {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DictSet {
                         dict: dict_operand,
                         key: key_operand,
                         value: value_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DictRemoveKey { dict, key } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let key_operand = self.lower_expr(*key)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictRemoveKey {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DictRemoveKey {
                         dict: dict_operand,
                         key: key_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DictGet { dict, key, default } => {
                 let dict_operand = self.lower_expr(*dict)?;
@@ -2893,40 +2700,33 @@ impl<'hir> LoweringCtx<'hir> {
                 let default_operand = default
                     .map(|default_expr| self.lower_expr(default_expr))
                     .transpose()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictGet {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DictGet {
                         dict: dict_operand,
                         key: key_operand,
                         default: default_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DictSetDefault { dict, key, default } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let key_operand = self.lower_expr(*key)?;
                 let default_operand = self.lower_expr(*default)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictSetDefault {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DictSetDefault {
                         dict: dict_operand,
                         key: key_operand,
                         default: default_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DictClear { dict } => {
                 let dict_operand = self.lower_expr(*dict)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictClear { dict: dict_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::DictClear { dict: dict_operand })?
             }
             ExprKind::DictPop { dict, key, default } => {
                 let dict_operand = self.lower_expr(*dict)?;
@@ -2935,29 +2735,27 @@ impl<'hir> LoweringCtx<'hir> {
                     .as_ref()
                     .map(|default_expr| self.lower_expr(*default_expr))
                     .transpose()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictPop {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DictPop {
                         dict: dict_operand,
                         key: key_operand,
                         default: default_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DictUpdate { dict, other } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let other_operand = self.lower_expr(*other)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictUpdate {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DictUpdate {
                         dict: dict_operand,
                         other: other_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DictAssign { target, sources } => {
                 let target_operand = self.lower_expr(*target)?;
@@ -2965,15 +2763,14 @@ impl<'hir> LoweringCtx<'hir> {
                     .iter()
                     .map(|source| self.lower_expr(*source))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictAssign {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DictAssign {
                         target: target_operand,
                         sources: source_operands,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::CallableObjectAssign { callable, props } => {
                 let callable_operand = self.lower_expr(*callable)?;
@@ -2981,36 +2778,29 @@ impl<'hir> LoweringCtx<'hir> {
                     .iter()
                     .map(|(name, value)| Ok((*name, self.lower_expr(*value)?)))
                     .collect::<Result<Vec<_>, LowerError>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::CallableObjectAssign {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::CallableObjectAssign {
                         callable: callable_operand,
                         props: prop_operands,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DictCopy { dict } => {
                 let dict_operand = self.lower_expr(*dict)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictCopy { dict: dict_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::DictCopy { dict: dict_operand })?
             }
             ExprKind::DictProjection { op, dict } => {
                 let dict_operand = self.lower_expr(*dict)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DictProjection {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DictProjection {
                         op: *op,
                         dict: dict_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringSplit {
                 haystack,
@@ -3022,193 +2812,151 @@ impl<'hir> LoweringCtx<'hir> {
                 let limit_operand = limit
                     .map(|limit_expr| self.lower_expr(limit_expr))
                     .transpose()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringSplit {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringSplit {
                         haystack: haystack_operand,
                         separator: separator_operand,
                         limit: limit_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringChars { haystack } => {
                 let haystack_operand = self.lower_expr(*haystack)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringChars {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringChars {
                         haystack: haystack_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::StringJoin { items, separator } => {
                 let items_operand = self.lower_expr(*items)?;
                 let separator_operand = self.lower_expr(*separator)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::StringJoin {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringJoin {
                         items: items_operand,
                         separator: separator_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::JsonStringify { value } => {
                 let value_operand = self.lower_expr(*value)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::JsonStringify {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::JsonStringify {
                         value: value_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::JsonParse { text } => {
                 let text_operand = self.lower_expr(*text)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::JsonParse { text: text_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::JsonParse { text: text_operand })?
             }
             ExprKind::HttpGetText { url } => {
                 let url_operand = self.lower_expr(*url)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::HttpGetText { url: url_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::HttpGetText { url: url_operand })?
             }
             ExprKind::DateNow => {
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateNow,
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::DateNow)?
             }
             ExprKind::DateSetNow { timestamp } => {
                 let timestamp_operand = self.lower_expr(*timestamp)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateSetNow {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DateSetNow {
                         timestamp: timestamp_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DateResetNow => {
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateResetNow,
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::DateResetNow)?
             }
             ExprKind::DateTimezoneOffset => {
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateTimezoneOffset,
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::DateTimezoneOffset)?
             }
             ExprKind::DateSetTimezoneOffset { offset } => {
                 let offset_operand = self.lower_expr(*offset)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateSetTimezoneOffset {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DateSetTimezoneOffset {
                         offset: offset_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DateResetTimezoneOffset => {
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateResetTimezoneOffset,
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::DateResetTimezoneOffset)?
             }
             ExprKind::DateTimezoneContext { timezone } => {
                 let timezone_operand = self.lower_expr(*timezone)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateTimezoneContext {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DateTimezoneContext {
                         timezone: timezone_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DateToIsoString { timestamp_ms } => {
                 let timestamp_operand = self.lower_expr(*timestamp_ms)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateToIsoString {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DateToIsoString {
                         timestamp_ms: timestamp_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DateToString { timestamp_ms } => {
                 let timestamp_operand = self.lower_expr(*timestamp_ms)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateToString {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DateToString {
                         timestamp_ms: timestamp_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DateFromParts { parts } => {
                 let part_operands = parts
                     .iter()
                     .map(|part| self.lower_expr(*part))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateFromParts {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DateFromParts {
                         parts: part_operands,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DateFromValue { value } => {
                 let value_operand = self.lower_expr(*value)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateFromValue {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DateFromValue {
                         value: value_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DateGetPart { part, timestamp_ms } => {
                 let timestamp_operand = self.lower_expr(*timestamp_ms)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateGetPart {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DateGetPart {
                         part: *part,
                         timestamp_ms: timestamp_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::DateSetPart {
                 part,
@@ -3220,50 +2968,42 @@ impl<'hir> LoweringCtx<'hir> {
                     .iter()
                     .map(|value| self.lower_expr(*value))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::DateSetPart {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DateSetPart {
                         part: *part,
                         timestamp_ms: timestamp_operand,
                         values: value_operands,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::UrlField { field, url } => {
                 let url_operand = self.lower_expr(*url)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::UrlField {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::UrlField {
                         field: *field,
                         url: url_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::FileReadText { path } => {
                 let path_operand = self.lower_expr(*path)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::FileReadText { path: path_operand },
-                });
-                Operand::Copy(Place::Local(dest))
+                self.assign_temp(expr.ty, expr.span, Rvalue::FileReadText { path: path_operand })?
             }
             ExprKind::FileWriteText { path, text } => {
                 let path_operand = self.lower_expr(*path)?;
                 let text_operand = self.lower_expr(*text)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::FileWriteText {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::FileWriteText {
                         path: path_operand,
                         text: text_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::Method {
                 receiver,
@@ -3350,15 +3090,14 @@ impl<'hir> LoweringCtx<'hir> {
                     .iter()
                     .map(|arg| self.lower_expr(*arg))
                     .collect::<Result<Vec<_>, _>>()?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::AsyncOp {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::AsyncOp {
                         op: *op,
                         args: lowered_args,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::Closure(closure) => self.lower_closure_expr(closure, expr.ty, expr.span)?,
             ExprKind::ClosureCall { callee, args } => {
@@ -3396,15 +3135,14 @@ impl<'hir> LoweringCtx<'hir> {
             ExprKind::ClosureCallSpread { callee, args } => {
                 let callee_operand = self.lower_expr(*callee)?;
                 let args_operand = self.lower_expr(*args)?;
-                let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::ClosureCallSpread {
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ClosureCallSpread {
                         callee: callee_operand,
                         args: args_operand,
                     },
-                });
-                Operand::Copy(Place::Local(dest))
+                )?
             }
             ExprKind::Block(block_id) => {
                 // Execute the block's statements in the current control flow,
@@ -3553,6 +3291,43 @@ impl<'hir> LoweringCtx<'hir> {
         })
     }
 
+    /// Materializes an `Rvalue` into a fresh temporary and returns an operand reading it.
+    ///
+    /// This captures the shape shared by the large majority of `lower_expr` arms:
+    /// allocate a temp of the expression's type, push a `Statement::Assign` that
+    /// stores `value` into it, and hand back `Operand::Copy` of the temp. Each arm
+    /// only has to build its `Rvalue`; the temp bookkeeping lives here.
+    fn assign_temp(
+        &mut self,
+        ty: TypeId,
+        span: Span,
+        value: Rvalue,
+    ) -> Result<Operand, LowerError> {
+        let dest = self.push_temp(ty, span);
+        self.block_mut()?
+            .statements
+            .push(Statement::Assign { dest, value });
+        Ok(Operand::Copy(Place::Local(dest)))
+    }
+
+    /// Like [`Self::assign_temp`] but flushes a mutable-receiver writeback afterwards.
+    ///
+    /// Collection-mutation arms (list push/pop/sort, and so on) lower their receiver
+    /// through [`Self::lower_mutation_receiver`], which may hand back a `writeback`
+    /// that must be replayed once the mutation statement has been emitted. Keeping
+    /// that ordering here lets those arms stay a single call.
+    fn assign_temp_with_writeback(
+        &mut self,
+        ty: TypeId,
+        span: Span,
+        value: Rvalue,
+        writeback: MutationWriteback,
+    ) -> Result<Operand, LowerError> {
+        let operand = self.assign_temp(ty, span, value)?;
+        self.write_back_mutation_receiver(writeback)?;
+        Ok(operand)
+    }
+
     /// Lowers a mutable collection receiver and records non-local place writeback.
     fn lower_mutation_receiver(
         &mut self,
@@ -3598,6 +3373,14 @@ impl<'hir> LoweringCtx<'hir> {
     }
 
     /// Lowers an lvalue expression to a MIR place for assignment targets.
+    ///
+    /// Only a handful of expression kinds form assignable places; the wildcard
+    /// arm routes everything else to [`Self::place_unsupported`], which owns the
+    /// exhaustive listing that keeps compile-time coverage of new `ExprKind`s.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "compile-time exhaustiveness for non-place kinds is enforced in place_unsupported"
+    )]
     fn lower_place(&mut self, expr_id: ExprId) -> Result<Place, LowerError> {
         let expr = self.hir_expr(expr_id)?.clone();
         match &expr.kind {
@@ -3643,7 +3426,33 @@ impl<'hir> LoweringCtx<'hir> {
             ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. } => {
                 self.lower_place(*value)
             }
-            ExprKind::Literal(_)
+            // Every other expression kind produces a value, not an assignable
+            // place. The exhaustive listing that documents and enforces this at
+            // compile time lives in `place_unsupported`, keeping this match short.
+            _ => Err(self.place_unsupported(&expr)),
+        }
+    }
+
+    /// Builds the rejection error for expression kinds that cannot form a place.
+    ///
+    /// Only [`ExprKind::Local`], [`ExprKind::Field`], [`ExprKind::Index`],
+    /// [`ExprKind::TupleIndex`], and the transparent [`ExprKind::TypeAssert`] /
+    /// [`ExprKind::UnknownCast`] wrappers lower to assignable places; every other
+    /// kind is a value expression and is rejected here.
+    ///
+    /// The exhaustive `match` below is intentional: it has no wildcard arm, so
+    /// adding a new `ExprKind` variant forces a compile error here and a decision
+    /// about whether that variant can be an assignment target. This is the single
+    /// place-lowering exhaustiveness site that [`Self::lower_place`] delegates to.
+    fn place_unsupported(&self, expr: &smelt_hir::Expr) -> LowerError {
+        match &expr.kind {
+            ExprKind::Local(_)
+            | ExprKind::Field { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::TupleIndex { .. }
+            | ExprKind::TypeAssert { .. }
+            | ExprKind::UnknownCast { .. }
+            | ExprKind::Literal(_)
             | ExprKind::Item(_)
             | ExprKind::Call { .. }
             | ExprKind::ClosureCall { .. }
@@ -3796,10 +3605,10 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::TupleLit(_)
             | ExprKind::New { .. }
             | ExprKind::Await(_)
-            | ExprKind::AsyncOp { .. } => Err(self.error(
+            | ExprKind::AsyncOp { .. } => self.error(
                 "only local, field, and index expressions can be assigned",
                 Some(expr.span),
-            )),
+            ),
         }
     }
 
