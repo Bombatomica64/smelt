@@ -24,6 +24,40 @@ pub struct SmeltError {
 }
 
 impl SmeltError {
+    /// Create a diagnostic for decorated source lowered without its manifest.
+    pub(crate) fn specialization_required(span: Span, definition: &str) -> Self {
+        Self {
+            code: "smelt::specialization-required",
+            category: DiagnosticCategory::UnsupportedLowering,
+            span,
+            message: format!(
+                "definition-time metaprogramming for '{definition}' requires host-runtime specialization"
+            ),
+            note: Some(
+                "Run the specialization pipeline before lowering this TypeScript module."
+                    .to_owned(),
+            ),
+        }
+    }
+
+    /// Create a diagnostic for manifest behavior that cannot map to source.
+    pub(crate) fn native_specialization_adapter_required(
+        span: Span,
+        adapter: &str,
+        detail: &str,
+    ) -> Self {
+        Self {
+            code: "smelt::native-specialization-adapter-required",
+            category: DiagnosticCategory::UnsupportedLowering,
+            span,
+            message: format!("native specialization adapter '{adapter}' is required: {detail}"),
+            note: Some(
+                "Install an exact versioned adapter or replace the opaque definition-time behavior with source-defined code."
+                    .to_owned(),
+            ),
+        }
+    }
+
     /// Create an unsupported TypeScript feature error (an unimplemented
     /// lowering). This is the default for constructs Smelt cannot yet emit.
     pub(crate) fn unsupported(span: Span, message: impl Into<String>) -> Self {

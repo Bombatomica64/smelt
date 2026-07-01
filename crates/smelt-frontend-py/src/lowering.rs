@@ -7,7 +7,7 @@
 mod stdlib;
 mod stdlib_dispatch;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::path::Path;
 
@@ -36,6 +36,19 @@ use crate::helpers::{
     two_type_args,
 };
 use crate::{HirCtx, SmeltError, test_support};
+
+/// Option-owned specialization data for one source module.
+#[derive(Debug, Clone)]
+pub(crate) struct SpecializationData {
+    /// Materialized module definitions.
+    module: smelt_specialize::ModuleRecord,
+    /// Shared reference-preserving value graph.
+    values: Vec<smelt_specialize::GraphValue>,
+    /// Opaque behavior that requires explicit adapters.
+    required_adapters: Vec<smelt_specialize::AdapterRequirement>,
+    /// Ordered deterministic effects replayed once by the first manifest module.
+    effects: Vec<smelt_specialize::EffectReplay>,
+}
 
 /// Stateful Python-module lowering context.
 pub(crate) struct ModuleBuilder<'ctx> {
@@ -69,6 +82,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     local_callbacks: HashMap<String, LocalCallback>,
     /// Variadic parameter metadata for top-level Python function items.
     function_variadics: HashMap<String, FunctionVariadics>,
+    /// Materialized final bindings for this source module.
+    specialization: Option<SpecializationData>,
 }
 
 /// A local Python lambda value that can be consumed by callback APIs without escaping.
@@ -189,7 +204,12 @@ enum PytestLiteral {
 
 impl<'ctx> ModuleBuilder<'ctx> {
     /// Build a lowering context for one Python source module.
-    pub(crate) fn new(file_id: FileId, path: String, ctx: &'ctx mut HirCtx) -> Self {
+    pub(crate) fn new(
+        file_id: FileId,
+        path: String,
+        ctx: &'ctx mut HirCtx,
+        specialization: Option<SpecializationData>,
+    ) -> Self {
         let items = visible_items(ctx);
         let enum_members = ctx.enum_members.clone();
         let class_methods = visible_class_methods(ctx);
@@ -210,6 +230,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_async: false,
             local_callbacks: HashMap::new(),
             function_variadics: HashMap::new(),
+            specialization,
         }
     }
 
@@ -228,16 +249,29 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut body = Body::new(None, module_span);
         let mut errors: Vec<SmeltError> = Vec::new();
 
+        if self.specialization.is_none()
+            && let Some((span, name)) = self.required_specialization_definition(module)
+        {
+            return Err(vec![SmeltError::specialization_required(span, name)]);
+        }
+        self.replay_specialization_output(&mut body);
+
         // Pass 1 — collect top-level function/class declarations so later
         // statements can reference them in calls.
         for stmt in &module.body {
             if let Stmt::FunctionDef(func) = stmt {
-                match self.function_defs(func) {
+                if self.is_materialized_decorator_factory(func, module) {
+                    continue;
+                }
+                match self.specialized_function_defs(func, module) {
                     Ok(item_ids) => hir_module.items.extend(item_ids),
                     Err(err) => errors.push(err),
                 }
             } else if let Stmt::ClassDef(class) = stmt {
-                match self.class_def(class, &mut hir_module) {
+                if self.is_materialized_metaclass_definition(class, module) {
+                    continue;
+                }
+                match self.class_def(class, module, &mut hir_module) {
                     Ok(()) => {}
                     Err(err) => errors.push(err),
                 }
@@ -281,6 +315,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
 // Module/import lowering helpers.
 include!("lowering/module_imports.rs");
+// Host-runtime specialization manifest consumption.
+include!("lowering/specialization.rs");
 // Class lowering helpers.
 include!("lowering/class.rs");
 // Class initializer synthesis helpers.

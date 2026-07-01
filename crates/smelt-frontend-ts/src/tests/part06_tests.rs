@@ -202,7 +202,10 @@ class User {
 "),
         &mut decorator_ctx,
     )?;
-    assert_unsupported_ts(&decorator_errors, "decorators")?;
+    let decorator_error = decorator_errors
+        .first()
+        .ok_or_else(|| "missing decorator specialization diagnostic".to_owned())?;
+    ensure_eq!(decorator_error.code, "smelt::specialization-required");
 
     let mut abstract_ctx = HirCtx::new();
     lower_ok(

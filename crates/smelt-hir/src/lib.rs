@@ -77,10 +77,14 @@ pub use ids::{
     TypeId,
 };
 pub use item::{
-    Class, ClassKind, ConstItem, Field, Function, FunctionOwner, Interface, InterfaceHeritage,
-    Item, MethodSig, Param, ParamSig, TypeAlias, TypeParamDef, Visibility,
+    Class, ClassKind, ConstItem, Descriptor, DescriptorValueField, Field, Function, FunctionOwner,
+    Interface, InterfaceHeritage, Item, MethodSig, Param, ParamSig, StaticField, TypeAlias,
+    TypeParamDef, Visibility,
 };
-pub use krate::{CONSOLE_LOG_SYMBOL, Crate, Import, Language, Module, SourceFile};
+pub use krate::{
+    CONSOLE_ERROR_WRITE_SYMBOL, CONSOLE_LOG_SYMBOL, CONSOLE_WRITE_SYMBOL, Crate, Import, Language,
+    Module, SourceFile,
+};
 pub use symbol::{OriginalNameTable, SymbolInterner};
 pub use ty::{FunctionType, Type, TypeInterner};
 pub use validate::{ValidationError, validate};

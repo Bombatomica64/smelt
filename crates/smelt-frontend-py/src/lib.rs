@@ -108,6 +108,61 @@ pub struct SmeltError {
 }
 
 impl SmeltError {
+    /// Error emitted when definition-time behavior has no materialized manifest.
+    pub(crate) fn specialization_required(span: Span, definition: &str) -> Self {
+        Self {
+            code: "smelt::specialization-required",
+            category: DiagnosticCategory::UnsupportedLowering,
+            span,
+            message: format!(
+                "definition-time metaprogramming for '{definition}' requires host-runtime specialization"
+            ),
+            note: Some(
+                "Run the manifest-aware compiler pipeline; frontend entry points never launch CPython."
+                    .to_owned(),
+            ),
+        }
+    }
+
+    /// Error emitted when a manifest requires an unavailable native adapter.
+    pub(crate) fn native_specialization_adapter_required(
+        span: Span,
+        adapter_id: &str,
+        reason: &str,
+    ) -> Self {
+        Self {
+            code: "smelt::native-specialization-adapter-required",
+            category: DiagnosticCategory::UnsupportedLowering,
+            span,
+            message: format!("native specialization adapter '{adapter_id}' is required: {reason}"),
+            note: Some(
+                "Install an exact versioned adapter or replace the opaque definition-time behavior with source-defined code."
+                    .to_owned(),
+            ),
+        }
+    }
+
+    /// Error emitted when host materialization disagrees with source typing.
+    pub(crate) fn specialization_type_mismatch(
+        span: Span,
+        definition: &str,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: "smelt::specialization-type-mismatch",
+            category: DiagnosticCategory::TypeConstraint,
+            span,
+            message: format!(
+                "specialization manifest type mismatch for '{definition}': {}",
+                detail.into()
+            ),
+            note: Some(
+                "Regenerate specialization after strict source type checking and cache invalidation."
+                    .to_owned(),
+            ),
+        }
+    }
+
     /// Create an "unsupported construct" error (an unimplemented lowering).
     pub(crate) fn unsupported(span: Span, message: impl Into<String>) -> Self {
         Self {
@@ -203,6 +258,13 @@ impl SmeltError {
     }
 }
 
+/// Options for pure Python frontend lowering.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FrontendOptions<'manifest> {
+    /// Optional build-time specialization manifest.
+    pub specialization: Option<&'manifest smelt_specialize::SpecializationManifest>,
+}
+
 /// Reusable lowering context — one per crate, shared across files.
 #[derive(Debug)]
 pub struct HirCtx {
@@ -273,7 +335,7 @@ pub fn to_hir(
     file_id: FileId,
     ctx: &mut HirCtx,
 ) -> Result<ModuleId, Vec<SmeltError>> {
-    to_hir_with_path(source, file_id, "", ctx)
+    to_hir_with_options(source, file_id, "", ctx, FrontendOptions::default())
 }
 
 /// Parse `source` from `path` as a Python module and lower it to HIR.
@@ -286,6 +348,21 @@ pub fn to_hir_with_path(
     path: &str,
     ctx: &mut HirCtx,
 ) -> Result<ModuleId, Vec<SmeltError>> {
+    to_hir_with_options(source, file_id, path, ctx, FrontendOptions::default())
+}
+
+/// Parse `source` from `path` and lower it with frontend options.
+///
+/// # Errors
+/// Returns `Err` for parse errors, missing required specialization, invalid
+/// materialization, or unsupported Python constructs.
+pub fn to_hir_with_options(
+    source: &str,
+    file_id: FileId,
+    path: &str,
+    ctx: &mut HirCtx,
+    options: FrontendOptions<'_>,
+) -> Result<ModuleId, Vec<SmeltError>> {
     if is_generated_stub_file(path, source) {
         return Ok(ctx.krate.push_module(Module::new(
             "main",
@@ -296,7 +373,8 @@ pub fn to_hir_with_path(
         )));
     }
     let module_ast = parse_module(source, file_id)?;
-    let mut builder = ModuleBuilder::new(file_id, path.to_owned(), ctx);
+    let specialization = lowering::specialization_for_path(path, options.specialization);
+    let mut builder = ModuleBuilder::new(file_id, path.to_owned(), ctx, specialization);
     builder.module(&module_ast)
 }
 

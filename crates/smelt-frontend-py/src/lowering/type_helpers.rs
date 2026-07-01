@@ -42,10 +42,17 @@ impl ModuleBuilder<'_> {
                 return None;
             }
             class
-                .fields
+                .descriptors
                 .iter()
-                .find(|class_field| class_field.name == field)
-                .map(|class_field| class_field.ty)
+                .find(|descriptor| descriptor.name == field)
+                .map(|descriptor| descriptor.read_ty)
+                .or_else(|| {
+                    class
+                        .fields
+                        .iter()
+                        .find(|class_field| class_field.name == field)
+                        .map(|class_field| class_field.ty)
+                })
                 .or_else(|| class.base.and_then(|base| self.field_type_on_class(base, field)))
         })
     }
@@ -58,6 +65,7 @@ impl ModuleBuilder<'_> {
             };
             class.name == class_name
                 && class.fields.is_empty()
+                && class.descriptors.is_empty()
                 && class.base.is_none_or(|base| {
                     !self.ctx.krate.items.iter().any(|candidate_item| {
                         matches!(candidate_item, Item::Class(base_class) if base_class.name == base)

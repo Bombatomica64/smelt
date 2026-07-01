@@ -82,6 +82,13 @@ fn normalize_class(mir: &mut Mir, class: &mut MirClass) {
     for field in &mut class.fields {
         normalize_field(mir, field);
     }
+    for descriptor in &mut class.descriptors {
+        descriptor.read_ty = normalize(mir, descriptor.read_ty);
+        descriptor.write_ty = descriptor.write_ty.map(|ty| normalize(mir, ty));
+        for field in &mut descriptor.value_fields {
+            field.ty = normalize(mir, field.ty);
+        }
+    }
     for method in &mut class.abstract_methods {
         for param in &mut method.params {
             param.ty = normalize(mir, param.ty);

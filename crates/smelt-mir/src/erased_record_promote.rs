@@ -103,18 +103,17 @@ fn promote_body(
                         note_erased_operand(&mut erased, value);
                     }
                 }
-                Statement::Assign { dest, value } => {
-                    match value {
-                        Rvalue::Use(Operand::Copy(Place::Local(src)) |
-Operand::Move(Place::Local(src))) => {
-                            copy_edges.push((*dest, *src));
-                        }
-                        Rvalue::UnknownCast { value, .. } => {
-                            note_erased_operand(&mut erased, value);
-                        }
-                        _ => {}
+                Statement::Assign { dest, value } => match value {
+                    Rvalue::Use(
+                        Operand::Copy(Place::Local(src)) | Operand::Move(Place::Local(src)),
+                    ) => {
+                        copy_edges.push((*dest, *src));
                     }
-                }
+                    Rvalue::UnknownCast { value, .. } => {
+                        note_erased_operand(&mut erased, value);
+                    }
+                    _ => {}
+                },
                 Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }

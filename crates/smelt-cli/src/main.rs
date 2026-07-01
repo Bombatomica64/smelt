@@ -44,6 +44,7 @@ mod lowering;
 mod manifest;
 mod pipeline;
 mod probe;
+mod specialization;
 pub mod stubs;
 mod test_report;
 mod timing;

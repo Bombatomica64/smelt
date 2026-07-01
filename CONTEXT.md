@@ -10,6 +10,11 @@ Smelt lowers source through four stages, each behind a small interface:
 
 `frontend (TS/Python) → HIR → MIR → codegen-rust (Rust text)`
 
+- **Specialization** — build-time partial evaluation of definition-time
+  metaprogramming by a sandboxed host runtime before frontend lowering.
+- **Specialization artifact** — cache-addressed, versioned manifest carrying
+  materialized definitions from specialization into pure frontend lowering or
+  across a package seam.
 - **HIR** — high-level IR produced by a frontend (`to_hir`). Closest to source shape.
 - **MIR** — mid-level IR with an explicit CFG and a flat `Rvalue` algebra (`lower_hir`).
 - **codegen-rust** — emits Rust source text from MIR (`emit_source`).

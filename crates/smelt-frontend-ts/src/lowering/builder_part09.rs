@@ -784,6 +784,11 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if self.preserve_specialization_receiver
+            && matches!(expression, Expression::ThisExpression(_))
+        {
+            return self.expression(expression, body);
+        }
         if Self::is_const_type_assertion(annotation) {
             return self.expression(expression, body);
         }

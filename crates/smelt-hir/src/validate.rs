@@ -30,6 +30,57 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
             *slot = function.is_async;
         }
     }
+    for (item_idx, item) in krate.items.iter().enumerate() {
+        let crate::Item::Class(class) = item else {
+            continue;
+        };
+        for descriptor in &class.descriptors {
+            if krate.types.get(descriptor.read_ty).is_none() {
+                errors.push(ValidationError {
+                    message: format!(
+                        "class item {item_idx} descriptor {:?} has unknown read type {:?}",
+                        descriptor.name, descriptor.read_ty
+                    ),
+                });
+            }
+            if descriptor
+                .write_ty
+                .is_some_and(|ty| krate.types.get(ty).is_none())
+            {
+                errors.push(ValidationError {
+                    message: format!(
+                        "class item {item_idx} descriptor {:?} has unknown write type",
+                        descriptor.name
+                    ),
+                });
+            }
+            for (role, callable) in [("getter", descriptor.getter), ("setter", descriptor.setter)] {
+                if callable.is_some_and(|callable| {
+                    !matches!(
+                        krate.items.get(callable.0 as usize),
+                        Some(crate::Item::Function(_))
+                    )
+                }) {
+                    errors.push(ValidationError {
+                        message: format!(
+                            "class item {item_idx} descriptor {:?} references an unknown {role}",
+                            descriptor.name
+                        ),
+                    });
+                }
+            }
+            for field in &descriptor.value_fields {
+                if krate.types.get(field.ty).is_none() {
+                    errors.push(ValidationError {
+                        message: format!(
+                            "class item {item_idx} descriptor {:?} value field {:?} has unknown type",
+                            descriptor.name, field.name
+                        ),
+                    });
+                }
+            }
+        }
+    }
     for body in &krate.bodies {
         for expr in &body.exprs {
             if let ExprKind::Closure(closure) = &expr.kind

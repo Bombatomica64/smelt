@@ -1,6 +1,13 @@
 
+//! Shared pure support functions for TypeScript lowering.
+
+use super::{
+    ConstItem, ConstLiteral, Declaration, ExprKind, HashMap, HashSet, Item, ModuleExportName,
+    Program, PropertyKey, Statement, TSAccessibility, UnknownKind, Visibility,
+};
+
 /// Return an item's original source name when available.
-fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<&'a str> {
+pub(super) fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<&'a str> {
     let symbol = match item {
         Item::Function(function) => function.name,
         Item::Class(class) => class.name,
@@ -15,7 +22,7 @@ fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<&'a str> {
 }
 
 /// Map a JavaScript `typeof` result string to an executable unknown tag.
-fn unknown_kind_from_typeof(kind: &str) -> Option<UnknownKind> {
+pub(super) fn unknown_kind_from_typeof(kind: &str) -> Option<UnknownKind> {
     match kind {
         "boolean" => Some(UnknownKind::Bool),
         "bigint" | "number" => Some(UnknownKind::Number),
@@ -29,7 +36,7 @@ fn unknown_kind_from_typeof(kind: &str) -> Option<UnknownKind> {
 }
 
 /// Insert an item into the visible lookup tables under a source-level name.
-fn insert_visible_item(
+pub(super) fn insert_visible_item(
     items: &mut HashMap<String, smelt_hir::ItemId>,
     classes: &mut HashMap<String, smelt_hir::ItemId>,
     interfaces: &mut HashMap<String, smelt_hir::ItemId>,
@@ -50,7 +57,7 @@ fn insert_visible_item(
 }
 
 /// Return a literal value from a HIR constant item when it can be inlined safely.
-fn const_literal_from_item(
+pub(super) fn const_literal_from_item(
     krate: &smelt_hir::Crate,
     const_item: &ConstItem,
 ) -> Option<ConstLiteral> {
@@ -66,7 +73,7 @@ fn const_literal_from_item(
 }
 
 /// Sanitize a source test title into a stable Rust identifier suffix.
-fn sanitize_test_name(name: &str) -> Option<String> {
+pub(super) fn sanitize_test_name(name: &str) -> Option<String> {
     let mut output = String::new();
     let mut previous_underscore = false;
     for ch in name.chars() {
@@ -85,7 +92,7 @@ fn sanitize_test_name(name: &str) -> Option<String> {
 }
 
 /// Return whether a property key can be resolved without runtime evaluation.
-fn is_static_property_key(key: &PropertyKey<'_>) -> bool {
+pub(super) fn is_static_property_key(key: &PropertyKey<'_>) -> bool {
     matches!(
         key,
         PropertyKey::StaticIdentifier(_)
@@ -95,7 +102,7 @@ fn is_static_property_key(key: &PropertyKey<'_>) -> bool {
 }
 
 /// Extract the source text represented by a module export name.
-fn module_export_name(name: &ModuleExportName<'_>) -> String {
+pub(super) fn module_export_name(name: &ModuleExportName<'_>) -> String {
     match name {
         ModuleExportName::IdentifierName(ident) => ident.name.as_str().to_owned(),
         ModuleExportName::IdentifierReference(ident) => ident.name.as_str().to_owned(),
@@ -104,7 +111,7 @@ fn module_export_name(name: &ModuleExportName<'_>) -> String {
 }
 
 /// Return top-level function names that have concrete implementation bodies.
-fn implemented_function_names(program: &Program<'_>) -> HashSet<String> {
+pub(super) fn implemented_function_names(program: &Program<'_>) -> HashSet<String> {
     let mut names = HashSet::new();
     for statement in &program.body {
         match statement {
@@ -128,7 +135,7 @@ fn implemented_function_names(program: &Program<'_>) -> HashSet<String> {
 }
 
 /// Return the only argument when a pure Math constant call is unary.
-fn single_arg(args: &[f64]) -> Option<f64> {
+pub(super) fn single_arg(args: &[f64]) -> Option<f64> {
     let [arg] = args else {
         return None;
     };
@@ -136,7 +143,7 @@ fn single_arg(args: &[f64]) -> Option<f64> {
 }
 
 /// Return both arguments when a pure Math constant call is binary.
-fn two_args(args: &[f64]) -> Option<(f64, f64)> {
+pub(super) fn two_args(args: &[f64]) -> Option<(f64, f64)> {
     let [lhs, rhs] = args else {
         return None;
     };
@@ -144,7 +151,7 @@ fn two_args(args: &[f64]) -> Option<(f64, f64)> {
 }
 
 /// Return true for a TypeScript overload signature backed by an implementation.
-fn is_implemented_overload_signature(
+pub(super) fn is_implemented_overload_signature(
     function: &oxc::ast::ast::Function<'_>,
     implemented_functions: &HashSet<String>,
 ) -> bool {
@@ -156,7 +163,7 @@ fn is_implemented_overload_signature(
 }
 
 /// Determine HIR visibility from TypeScript accessibility metadata.
-fn visibility(accessibility: Option<TSAccessibility>) -> Visibility {
+pub(super) fn visibility(accessibility: Option<TSAccessibility>) -> Visibility {
     match accessibility {
         Some(TSAccessibility::Private) => Visibility::Private,
         Some(TSAccessibility::Protected) => Visibility::Protected,
@@ -165,7 +172,7 @@ fn visibility(accessibility: Option<TSAccessibility>) -> Visibility {
 }
 
 /// Return whether a statement always terminates control flow.
-fn statement_terminates(statement: &Statement<'_>) -> bool {
+pub(super) fn statement_terminates(statement: &Statement<'_>) -> bool {
     match statement {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
         Statement::BlockStatement(block) => block.body.iter().any(statement_terminates),

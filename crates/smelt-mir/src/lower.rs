@@ -152,6 +152,34 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                             visibility: field.visibility,
                         })
                         .collect(),
+                    static_fields: class
+                        .static_fields
+                        .iter()
+                        .map(|field| crate::MirStaticField {
+                            name: field.name,
+                            ty: field.ty,
+                            visibility: field.visibility,
+                            value: field.value.clone(),
+                        })
+                        .collect(),
+                    descriptors: class
+                        .descriptors
+                        .iter()
+                        .map(|descriptor| crate::MirDescriptor {
+                            name: descriptor.name,
+                            read_ty: descriptor.read_ty,
+                            write_ty: descriptor.write_ty,
+                            getter: descriptor
+                                .getter
+                                .and_then(|item| item_functions.get(&item).copied()),
+                            setter: descriptor
+                                .setter
+                                .and_then(|item| item_functions.get(&item).copied()),
+                            data_descriptor: descriptor.data_descriptor,
+                            is_static: descriptor.is_static,
+                            value_fields: descriptor.value_fields.clone(),
+                        })
+                        .collect(),
                     constructor: class
                         .constructor
                         .and_then(|item_id| item_functions.get(&item_id).copied()),
@@ -3422,6 +3450,10 @@ impl<'hir> LoweringCtx<'hir> {
         };
         if name == smelt_hir::CONSOLE_LOG_SYMBOL {
             Ok(Callee::Builtin(BuiltinFn::ConsoleLog))
+        } else if name == smelt_hir::CONSOLE_WRITE_SYMBOL {
+            Ok(Callee::Builtin(BuiltinFn::ConsoleWrite))
+        } else if name == smelt_hir::CONSOLE_ERROR_WRITE_SYMBOL {
+            Ok(Callee::Builtin(BuiltinFn::ConsoleErrorWrite))
         } else if let Some(function_id) = self.item_functions.get(&item_id).copied() {
             Ok(Callee::Static(function_id))
         } else {

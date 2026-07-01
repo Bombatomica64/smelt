@@ -236,29 +236,25 @@ impl ModuleBuilder<'_> {
                 ty,
                 span: self.span(function.span.start, function.span.end),
             });
-            if let Err(error) = self.binding_declaration(
-                pattern,
-                Some(value),
-                Some(ty),
-                false,
-                &mut body,
-                root,
-            ) {
+            if let Err(error) =
+                self.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
+            {
                 errors.push(error);
             }
         }
-        if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+        if let Err(error) =
+            self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
         {
             errors.push(error);
         }
-        if let Err(error) = self.predeclare_local_function_declarations(&function_body.statements, &mut body)
+        if let Err(error) =
+            self.predeclare_local_function_declarations(&function_body.statements, &mut body)
         {
             errors.push(error);
         }
-        let generator_yields =
-            function
-                .generator
-                .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
+        let generator_yields = function
+            .generator
+            .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
         self.current_generator_yields = generator_yields;
         self.current_arguments_arities
             .push(function.params.items.len());
@@ -418,8 +414,7 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a TypeScript formal parameter has a default value.
     fn formal_parameter_has_default(param: &oxc::ast::ast::FormalParameter<'_>) -> bool {
-        param.initializer.is_some()
-            || matches!(param.pattern, BindingPattern::AssignmentPattern(_))
+        param.initializer.is_some() || matches!(param.pattern, BindingPattern::AssignmentPattern(_))
     }
 
     /// Resolve the HIR type for a function declaration parameter.
@@ -461,6 +456,17 @@ impl ModuleBuilder<'_> {
         function: &oxc::ast::ast::Function<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.function_expression_item_with_receiver(name_text, function, type_hint, None)
+    }
+
+    /// Lift a function expression, optionally binding it as a class method.
+    fn function_expression_item_with_receiver(
+        &mut self,
+        name_text: &str,
+        function: &oxc::ast::ast::Function<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+        receiver: Option<(smelt_hir::Symbol, smelt_hir::TypeId)>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &function.body else {
             return Err(SmeltError::unsupported(
                 self.span(function.span.start, function.span.end),
@@ -476,10 +482,11 @@ impl ModuleBuilder<'_> {
 
         let name = self.intern_exact_source_name(name_text);
         let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
-        let hinted_function = type_hint.and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
-            Some(Type::Function(function_ty)) => Some(function_ty),
-            _ => None,
-        });
+        let hinted_function =
+            type_hint.and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
+                Some(Type::Function(function_ty)) => Some(function_ty),
+                _ => None,
+            });
         let return_ty = if let Some(return_type) = &function.return_type {
             match self.ts_type_to_hir(&return_type.type_annotation) {
                 Ok(value) => value,
@@ -507,14 +514,33 @@ impl ModuleBuilder<'_> {
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
+        let saved_preserve_receiver = self.preserve_specialization_receiver;
         self.current_async = function.r#async;
         self.current_return_ty = Some(return_ty);
+        self.preserve_specialization_receiver = receiver.is_some();
         let mut body = Body::new(
             None,
             self.span(function_body.span.start, function_body.span.end),
         );
         let mut params = Vec::new();
         let mut errors = Vec::new();
+        if let Some((_, receiver_ty)) = receiver {
+            let this_name = self.intern_source_name("this");
+            let this_local = body.push_local(LocalDecl {
+                name: Some(this_name),
+                ty: receiver_ty,
+                mutable: true,
+                span: self.span(function.span.start, function.span.start),
+            });
+            body.params.push(this_local);
+            self.locals.insert("this".to_owned(), this_local);
+            params.push(Param {
+                name: this_name,
+                local: this_local,
+                ty: receiver_ty,
+                span: self.span(function.span.start, function.span.start),
+            });
+        }
 
         for (index, param) in function.params.items.iter().enumerate() {
             let result = (|| {
@@ -556,7 +582,7 @@ impl ModuleBuilder<'_> {
                 });
                 debug_assert_eq!(
                     usize::try_from(local.0).unwrap_or(usize::MAX),
-                    index,
+                    index + usize::from(receiver.is_some()),
                     "function expression parameters should be added in source order",
                 );
                 Ok(())
@@ -566,11 +592,19 @@ impl ModuleBuilder<'_> {
                 break;
             }
         }
+        let receiver_count = usize::from(receiver.is_some());
+        let source_param_count = params.len().saturating_sub(receiver_count);
         if errors.is_empty()
             && let Some(function_ty) = &hinted_function
-            && function_ty.params.len() > params.len()
+            && function_ty.params.len() > source_param_count
         {
-            for (index, ty) in function_ty.params.iter().copied().enumerate().skip(params.len()) {
+            for (index, ty) in function_ty
+                .params
+                .iter()
+                .copied()
+                .enumerate()
+                .skip(source_param_count)
+            {
                 let param_name = self.intern_source_name(&format!("__unused{index}"));
                 let local = body.push_local(LocalDecl {
                     name: Some(param_name),
@@ -600,6 +634,7 @@ impl ModuleBuilder<'_> {
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
+        self.preserve_specialization_receiver = saved_preserve_receiver;
         self.pop_type_parameter_scope();
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
@@ -612,11 +647,16 @@ impl ModuleBuilder<'_> {
             params,
             rest: None,
             required_params: None,
-return_ty,
+            return_ty,
             is_async: function.r#async,
             is_test: false,
             body: Some(body_id),
-            owner: FunctionOwner::Module,
+            owner: receiver.map_or(FunctionOwner::Module, |(class, _)| {
+                FunctionOwner::ClassMethod {
+                    class,
+                    method: name,
+                }
+            }),
         })))
     }
 
@@ -631,13 +671,18 @@ return_ty,
                 "anonymous classes are not lowered yet",
             )
         })?;
-        if !class.decorators.is_empty() {
-            return Err(SmeltError::unsupported(
+        let class_text = id.name.as_str();
+        let class_span = self.span(class.span.start, class.span.end);
+        let materialized = self.materialized_class(class_text).cloned();
+        if !class.decorators.is_empty() && materialized.is_none() {
+            return Err(SmeltError::specialization_required(
                 self.span(class.span.start, class.span.end),
-                "decorators are not lowered yet",
+                class_text,
             ));
         }
-        let class_text = id.name.as_str();
+        if materialized.is_some() {
+            self.validate_specialization_adapters(self.span(class.span.start, class.span.end))?;
+        }
         let class_name = self.intern_type_name(class_text);
         let type_params = self.push_type_parameter_scope(class.type_parameters.as_deref())?;
         let class_type_args = type_params
@@ -663,10 +708,17 @@ return_ty,
         let mut constructor = None;
         let mut methods = Vec::new();
         let mut abstract_methods = Vec::new();
+        let mut descriptor_accessors = Vec::new();
 
         for element in &class.body.body {
             match element {
                 ClassElement::PropertyDefinition(property) => {
+                    if !property.decorators.is_empty() && materialized.is_none() {
+                        return Err(SmeltError::specialization_required(
+                            self.span(property.span.start, property.span.end),
+                            class_text,
+                        ));
+                    }
                     if property.computed && !is_static_property_key(&property.key) {
                         return Err(SmeltError::unsupported(
                             self.span(property.span.start, property.span.end),
@@ -674,6 +726,9 @@ return_ty,
                         ));
                     }
                     if property.r#static {
+                        if materialized.is_some() {
+                            continue;
+                        }
                         return Err(SmeltError::unsupported(
                             self.span(property.span.start, property.span.end),
                             "static fields are not lowered yet",
@@ -704,14 +759,12 @@ return_ty,
                             self.span(property.span.start, property.span.end),
                         ));
                     }
-                    let field_visibility = if matches!(
-                        &property.key,
-                        PropertyKey::PrivateIdentifier(_)
-                    ) {
-                        Visibility::Private
-                    } else {
-                        visibility(property.accessibility)
-                    };
+                    let field_visibility =
+                        if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
+                            Visibility::Private
+                        } else {
+                            visibility(property.accessibility)
+                        };
                     fields.push(Field {
                         name,
                         ty,
@@ -724,9 +777,12 @@ return_ty,
                     if method.kind == MethodDefinitionKind::Get =>
                 {
                     if !method.decorators.is_empty() {
-                        return Err(SmeltError::unsupported(
+                        if materialized.is_some() {
+                            continue;
+                        }
+                        return Err(SmeltError::specialization_required(
                             self.span(method.span.start, method.span.end),
-                            "method decorators are not lowered yet",
+                            class_text,
                         ));
                     }
                     if method.computed && !is_static_property_key(&method.key) {
@@ -736,6 +792,9 @@ return_ty,
                         ));
                     }
                     if method.r#static {
+                        if materialized.is_some() {
+                            continue;
+                        }
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
                             "static methods are not lowered yet",
@@ -797,8 +856,14 @@ return_ty,
                 });
             }
         }
+        let static_fields = materialized
+            .as_ref()
+            .map_or_else(Vec::new, |materialized_class| {
+                self.merge_materialized_class_members(materialized_class, &mut fields, class_span)
+            });
         let method_sigs = self.class_method_signatures(&class.body.body)?;
-        let virtual_method_fields = self.virtual_method_field_names(&class.body.body, class.r#abstract);
+        let virtual_method_fields =
+            self.virtual_method_field_names(&class.body.body, class.r#abstract);
         self.add_virtual_class_method_fields(&mut fields, &method_sigs, &virtual_method_fields);
         self.class_fields
             .insert(class_text.to_owned(), fields.clone());
@@ -810,13 +875,19 @@ return_ty,
             match element {
                 ClassElement::PropertyDefinition(_) => {}
                 ClassElement::MethodDefinition(method) => {
-                    if method.kind == MethodDefinitionKind::Get {
+                    if !method.decorators.is_empty() && materialized.is_none() {
+                        return Err(SmeltError::specialization_required(
+                            self.span(method.span.start, method.span.end),
+                            class_text,
+                        ));
+                    }
+                    if materialized.is_none() && method.kind == MethodDefinitionKind::Get {
                         continue;
                     }
-                    if !method.decorators.is_empty() {
+                    if materialized.is_none() && method.kind == MethodDefinitionKind::Set {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
-                            "method decorators are not lowered yet",
+                            "getters and setters are not lowered yet",
                         ));
                     }
                     if method.computed && !is_static_property_key(&method.key) {
@@ -826,6 +897,9 @@ return_ty,
                         ));
                     }
                     if method.r#static {
+                        if materialized.is_some() {
+                            continue;
+                        }
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
                             "static methods are not lowered yet",
@@ -844,7 +918,10 @@ return_ty,
                     }
                     if !matches!(
                         method.kind,
-                        MethodDefinitionKind::Constructor | MethodDefinitionKind::Method
+                        MethodDefinitionKind::Constructor
+                            | MethodDefinitionKind::Method
+                            | MethodDefinitionKind::Get
+                            | MethodDefinitionKind::Set
                     ) {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
@@ -858,33 +935,50 @@ return_ty,
                                 "duplicate constructors are not allowed",
                             ));
                         }
-                        let item =
-                            self.class_function(
-                                class_text,
-                                class_name,
-                                class_ty,
-                                method,
-                                true,
-                                &field_initializers,
-                            )?;
+                        let item = self.class_function(
+                            class_text,
+                            class_name,
+                            class_ty,
+                            method,
+                            true,
+                            &field_initializers,
+                        )?;
                         constructor = Some(item);
                         item
                     } else {
-                        let item =
-                            self.class_function(
-                                class_text,
-                                class_name,
-                                class_ty,
-                                method,
-                                false,
-                                &[],
-                            )?;
+                        let item = self.class_function(
+                            class_text,
+                            class_name,
+                            class_ty,
+                            method,
+                            false,
+                            &[],
+                        )?;
+                        if matches!(
+                            method.kind,
+                            MethodDefinitionKind::Get | MethodDefinitionKind::Set
+                        ) {
+                            descriptor_accessors.push((
+                                self.property_key_symbol(&method.key)?,
+                                method.kind,
+                                item,
+                            ));
+                        }
                         methods.push(item);
                         item
                     };
                     let _ = item;
                 }
                 ClassElement::AccessorProperty(accessor) => {
+                    if materialized.is_some() {
+                        continue;
+                    }
+                    if !accessor.decorators.is_empty() {
+                        return Err(SmeltError::specialization_required(
+                            self.span(accessor.span.start, accessor.span.end),
+                            class_text,
+                        ));
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(accessor.span.start, accessor.span.end),
                         "accessor properties are not lowered yet",
@@ -905,6 +999,56 @@ return_ty,
             }
         }
 
+        if let Some(materialized_class) = &materialized {
+            let lifted_methods = materialized_class
+                .methods
+                .iter()
+                .filter(|method| {
+                    method.binding_mode == smelt_specialize::BindingMode::Instance
+                        && self.materialized_callable_needs_lift(&method.callable)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            for materialized_method in lifted_methods {
+                let method_name =
+                    self.intern_source_name(specialization::materialized_member_name(
+                        &materialized_method.name,
+                    ));
+                let lifted = self.lift_materialized_class_callable(
+                    &materialized_method.callable,
+                    &materialized_method.signature,
+                    specialization::materialized_member_name(&materialized_method.name),
+                    class_name,
+                    class_ty,
+                )?;
+                let original_name =
+                    self.intern_source_name(&format!("__smelt_original_{}", materialized_method.name));
+                let originals = methods
+                    .iter()
+                    .copied()
+                    .filter(|item| {
+                        matches!(
+                            self.item_ref(*item),
+                            Item::Function(function) if function.name == method_name
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                for original in originals {
+                    let index = usize::try_from(original.0).unwrap_or(usize::MAX);
+                    if let Some(Item::Function(function)) =
+                        self.ctx.krate.items.get_mut(index)
+                    {
+                        function.name = original_name;
+                        function.owner = FunctionOwner::ClassMethod {
+                            class: class_name,
+                            method: original_name,
+                        };
+                    }
+                }
+                methods.push(lifted);
+            }
+        }
+
         if constructor.is_none() {
             constructor = Some(self.synthesize_default_class_constructor(
                 class_text,
@@ -915,6 +1059,50 @@ return_ty,
                 self.span(class.span.start, class.span.end),
             )?);
         }
+        let mut instance_initializers = Vec::new();
+        if let Some(materialized_class) = &materialized {
+            let initializer_signature = smelt_specialize::FunctionSignature {
+                parameters: Vec::new(),
+                return_type: smelt_specialize::StaticType::Null,
+                is_async: false,
+                throws: false,
+            };
+            for initializer in materialized_class.initializers.iter().filter(|initializer| {
+                initializer.kind == smelt_specialize::InitializerKind::Instance
+            }) {
+                let hidden_name = format!("__smelt_initializer_{}", initializer.order);
+                let item = self.lift_materialized_class_callable(
+                    &initializer.callable,
+                    &initializer_signature,
+                    &hidden_name,
+                    class_name,
+                    class_ty,
+                )?;
+                methods.push(item);
+                instance_initializers.push((
+                    item,
+                    initializer.target_kind.clone(),
+                    initializer.target_name.clone(),
+                ));
+            }
+        }
+        if let Some(constructor) = constructor {
+            self.prepend_materialized_initializer_calls(
+                constructor,
+                &instance_initializers,
+                class_ty,
+                class_span,
+            )?;
+        }
+        let descriptors = materialized
+            .as_ref()
+            .map_or_else(Vec::new, |materialized_class| {
+                self.merge_materialized_class_descriptors(
+                    materialized_class,
+                    &descriptor_accessors,
+                    class_span,
+                )
+            });
 
         let implements = class
             .implements
@@ -933,6 +1121,8 @@ return_ty,
             base,
             base_args,
             fields,
+            static_fields,
+            descriptors,
             constructor,
             methods,
             abstract_methods,
@@ -959,7 +1149,7 @@ return_ty,
             let ClassElement::MethodDefinition(method) = element else {
                 continue;
             };
-            if method.kind != MethodDefinitionKind::Method {
+            if method.kind != MethodDefinitionKind::Method || method.r#static {
                 continue;
             }
             methods.push(self.abstract_class_method_sig(method)?);
@@ -1003,7 +1193,11 @@ return_ty,
             {
                 continue;
             }
-            let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+            let params = method
+                .params
+                .iter()
+                .map(|param| param.ty)
+                .collect::<Vec<_>>();
             let mutable_params =
                 self.mutable_params_from_returned_tuple_state(&params, method.return_ty);
             let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -1051,13 +1245,21 @@ return_ty,
             .collect::<HashSet<_>>();
         let overridden_methods = subclass_methods
             .iter()
-            .filter_map(|method| base_method_names.contains(&method.name).then_some(method.name))
+            .filter_map(|method| {
+                base_method_names
+                    .contains(&method.name)
+                    .then_some(method.name)
+            })
             .collect::<HashSet<_>>();
         if overridden_methods.is_empty() {
             return;
         }
 
-        let existing_fields = self.class_fields.get(&base_name).cloned().unwrap_or_default();
+        let existing_fields = self
+            .class_fields
+            .get(&base_name)
+            .cloned()
+            .unwrap_or_default();
         let new_fields =
             self.virtual_class_method_fields(&existing_fields, &base_methods, &overridden_methods);
         if new_fields.is_empty() {
@@ -1067,9 +1269,13 @@ return_ty,
             .entry(base_name)
             .or_default()
             .extend(new_fields.clone());
-        if let Some(Item::Class(class)) = self.ctx.krate.items.iter_mut().find(|item| {
-            matches!(item, Item::Class(class) if class.name == base)
-        }) {
+        if let Some(Item::Class(class)) = self
+            .ctx
+            .krate
+            .items
+            .iter_mut()
+            .find(|item| matches!(item, Item::Class(class) if class.name == base))
+        {
             class.fields.extend(new_fields);
         }
     }
@@ -1221,7 +1427,10 @@ return_ty,
                         }
                         other => {
                             if let Some(element_expression) = other.as_expression() {
-                                self.collect_this_member_names_from_expression(element_expression, names);
+                                self.collect_this_member_names_from_expression(
+                                    element_expression,
+                                    names,
+                                );
                             }
                         }
                     }
@@ -1244,12 +1453,7 @@ return_ty,
         class_name: smelt_hir::Symbol,
         class_ty: smelt_hir::TypeId,
         has_base: bool,
-        field_initializers: &[(
-            smelt_hir::Symbol,
-            &Expression<'_>,
-            smelt_hir::TypeId,
-            Span,
-        )],
+        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
         span: Span,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = std::mem::take(&mut self.locals);
@@ -1294,7 +1498,7 @@ return_ty,
             params,
             rest: None,
             required_params: has_base.then_some(0),
-return_ty: class_ty,
+            return_ty: class_ty,
             is_async: false,
             is_test: false,
             body: Some(body_id),
@@ -1312,12 +1516,7 @@ return_ty: class_ty,
         &mut self,
         this_local: smelt_hir::LocalId,
         class_ty: smelt_hir::TypeId,
-        field_initializers: &[(
-            smelt_hir::Symbol,
-            &Expression<'_>,
-            smelt_hir::TypeId,
-            Span,
-        )],
+        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
         body: &mut Body,
     ) -> Result<(), SmeltError> {
         for (field, initializer, field_ty, span) in field_initializers {
@@ -1350,7 +1549,12 @@ return_ty: class_ty,
     fn emit_parameter_property_initializers(
         this_local: smelt_hir::LocalId,
         class_ty: smelt_hir::TypeId,
-        parameter_properties: &[(smelt_hir::Symbol, smelt_hir::LocalId, smelt_hir::TypeId, Span)],
+        parameter_properties: &[(
+            smelt_hir::Symbol,
+            smelt_hir::LocalId,
+            smelt_hir::TypeId,
+            Span,
+        )],
         body: &mut Body,
     ) {
         for (field, local, ty, span) in parameter_properties {
@@ -1464,7 +1668,8 @@ return_ty: class_ty,
                 "this-parameter abstract methods are not lowered yet",
             ));
         }
-        let _type_params = self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
+        let _type_params =
+            self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
         let return_ty = method
             .value
             .return_type
@@ -1487,10 +1692,9 @@ return_ty: class_ty,
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
                 .or_else(|| {
-                    param
-                        .initializer
-                        .as_ref()
-                        .and_then(|initializer| self.infer_module_global_initializer_type(initializer).ok())
+                    param.initializer.as_ref().and_then(|initializer| {
+                        self.infer_module_global_initializer_type(initializer).ok()
+                    })
                 })
                 .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
             let (name, span) = if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
@@ -1504,18 +1708,14 @@ return_ty: class_ty,
                     self.span(param.span.start, param.span.end),
                 )
             };
-            params.push(ParamSig {
-                name,
-                ty,
-                span,
-            });
+            params.push(ParamSig { name, ty, span });
         }
         let sig = MethodSig {
             name: self.property_key_symbol(&method.key)?,
             params,
             rest: None,
             required_params: None,
-return_ty,
+            return_ty,
             visibility: visibility(method.accessibility),
             is_async: matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))),
             span: self.span(method.span.start, method.span.end),
@@ -1532,12 +1732,7 @@ return_ty,
         class_ty: smelt_hir::TypeId,
         method: &oxc::ast::ast::MethodDefinition<'_>,
         is_constructor: bool,
-        field_initializers: &[(
-            smelt_hir::Symbol,
-            &Expression<'_>,
-            smelt_hir::TypeId,
-            Span,
-        )],
+        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &method.value.body else {
             return Err(SmeltError::unsupported(
@@ -1548,7 +1743,24 @@ return_ty,
         let method_name = if is_constructor {
             self.ctx.krate.symbols.intern("new")
         } else {
-            self.property_key_symbol(&method.key)?
+            let source_name = self.property_key_symbol(&method.key)?;
+            let prefix = match method.kind {
+                MethodDefinitionKind::Get => Some("__smelt_get_"),
+                MethodDefinitionKind::Set => Some("__smelt_set_"),
+                _ => None,
+            };
+            prefix.map_or(source_name, |prefix| {
+                let source_name = self
+                    .ctx
+                    .krate
+                    .symbols
+                    .get(source_name)
+                    .unwrap_or("accessor");
+                self.ctx
+                    .krate
+                    .symbols
+                    .intern(&format!("{prefix}{source_name}"))
+            })
         };
         let _method_type_params =
             self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
@@ -1560,6 +1772,8 @@ return_ty,
                 ));
             }
             class_ty
+        } else if method.kind == MethodDefinitionKind::Set {
+            self.ctx.krate.types.intern(Type::None)
         } else {
             method
                 .value
@@ -1667,7 +1881,12 @@ return_ty,
             }
         }
         if is_constructor {
-            self.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
+            self.emit_class_field_initializers(
+                this_local,
+                class_ty,
+                field_initializers,
+                &mut body,
+            )?;
             Self::emit_parameter_property_initializers(
                 this_local,
                 class_ty,
@@ -1690,11 +1909,13 @@ return_ty,
                 errors.push(error);
             }
         }
-        if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+        if let Err(error) =
+            self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
         {
             errors.push(error);
         }
-        if let Err(error) = self.predeclare_local_function_declarations(&function_body.statements, &mut body)
+        if let Err(error) =
+            self.predeclare_local_function_declarations(&function_body.statements, &mut body)
         {
             errors.push(error);
         }
@@ -1724,7 +1945,7 @@ return_ty,
             params,
             rest: None,
             required_params: None,
-return_ty,
+            return_ty,
             is_async: method.value.r#async,
             is_test: false,
             body: Some(body_id),

@@ -1708,7 +1708,10 @@ function passthrough(values: readonly unknown[]): readonly unknown[] {
     assert!(source.contains("pub enum SmeltUnknown"));
     assert!(source.contains("String(String),"));
     assert!(source.contains("fn identity(value: SmeltUnknown) -> SmeltUnknown"));
-    assert!(source.contains("fn passthrough(values: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown>"));
+    assert!(
+        source
+            .contains("fn passthrough(values: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown>")
+    );
 }
 
 #[test]
@@ -3223,9 +3226,8 @@ export function run(): unknown {
     );
 
     assert!(
-        source.contains(
-            "(identity)(SmeltUnknown::String(\"hello\".to_owned()), _smelt_tmp_2)"
-        ) && source.contains("_smelt_tmp_2 = Into::<SmeltList<_>>::into(SmeltList::from("),
+        source.contains("(identity)(SmeltUnknown::String(\"hello\".to_owned()), _smelt_tmp_2)")
+            && source.contains("_smelt_tmp_2 = Into::<SmeltList<_>>::into(SmeltList::from("),
         "normal closure calls should preserve fixed arguments and pack an empty rest vector: {source}"
     );
 }
@@ -4588,6 +4590,115 @@ const flags = values.map(value => value.endsWith("x"));
     assert!(
         source.contains("ends_with"),
         "string .endsWith on an erased callback receiver should still lower to ends_with\n{source}"
+    );
+}
+
+#[test]
+fn emits_materialized_property_reads_and_writes_as_accessor_calls() {
+    let mut ctx = py_frontend::HirCtx::new();
+    let source = r#"
+class Model:
+    _value: int
+    value: int
+
+    def __init__(self, value: int) -> None:
+        self._value = value
+
+    def __smelt_get_value(self) -> int:
+        return self._value
+
+    def __smelt_set_value(self, value: int) -> None:
+        self._value = value
+
+def update(model: Model) -> int:
+    model.value = 7
+    return model.value
+"#;
+    assert!(
+        py_frontend::to_hir(source, FileId(0), &mut ctx).is_ok(),
+        "HIR"
+    );
+    let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
+    let class_name = mir
+        .classes
+        .iter()
+        .find(|class| mir.symbols.get(class.name) == Some("Model"))
+        .map(|class| class.name)
+        .expect("Model class");
+    let value_name = mir
+        .classes
+        .iter()
+        .find(|class| class.name == class_name)
+        .and_then(|class| {
+            class
+                .fields
+                .iter()
+                .find(|field| mir.symbols.get(field.name) == Some("value"))
+                .map(|field| field.name)
+        })
+        .expect("value field");
+    let value_ty = mir
+        .classes
+        .iter()
+        .find(|class| class.name == class_name)
+        .and_then(|class| {
+            class
+                .fields
+                .iter()
+                .find(|field| field.name == value_name)
+                .map(|field| field.ty)
+        })
+        .expect("value type");
+    let method = |expected: &str| {
+        mir.functions
+            .iter()
+            .find(|function| {
+                matches!(
+                    function.origin,
+                    HirOrigin::ClassMethod { class, method, .. }
+                        if class == class_name && mir.symbols.get(method) == Some(expected)
+                )
+            })
+            .map(|function| function.id)
+            .unwrap_or_else(|| panic!("{expected} method"))
+    };
+    let getter = method("__smelt_get_value");
+    let setter = method("__smelt_set_value");
+    let class = mir
+        .classes
+        .iter_mut()
+        .find(|class| class.name == class_name)
+        .expect("mutable Model class");
+    class.descriptors.push(smelt_mir::MirDescriptor {
+        name: value_name,
+        read_ty: value_ty,
+        write_ty: Some(value_ty),
+        getter: Some(getter),
+        setter: Some(setter),
+        data_descriptor: true,
+        is_static: false,
+        value_fields: Vec::new(),
+    });
+
+    smelt_mir::opt::optimize(&mut mir);
+    let emitted = emit_source(&mir).expect("Rust source");
+    assert!(emitted.contains("model.__smelt_set_value(7);"), "{emitted}");
+    assert!(emitted.contains("model.__smelt_get_value()"), "{emitted}");
+    assert!(
+        !emitted.contains("model.value ="),
+        "descriptor retained direct storage assignment\n{emitted}"
+    );
+
+    mir.classes
+        .iter_mut()
+        .find(|class| class.name == class_name)
+        .and_then(|class| class.descriptors.first_mut())
+        .expect("Model descriptor")
+        .data_descriptor = false;
+    let emitted = emit_source(&mir).expect("non-data descriptor Rust source");
+    assert!(
+        emitted.contains("model.value = 7;"),
+        "instance storage must shadow a non-data descriptor\n{emitted}"
     );
 }
 

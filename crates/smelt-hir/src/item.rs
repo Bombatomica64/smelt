@@ -2,7 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{BodyId, ExprId, ItemId, LocalId, Span, Symbol, TypeId};
+use crate::{
+    expr::Literal,
+    ids::{BodyId, ExprId, ItemId, LocalId, Span, Symbol, TypeId},
+};
 
 /// A top-level item in the HIR.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +130,10 @@ pub struct Class {
     pub base_args: Vec<TypeId>,
     /// Fields of the class.
     pub fields: Vec<Field>,
+    /// Materialized class-level fields.
+    pub static_fields: Vec<StaticField>,
+    /// Materialized descriptor-backed members.
+    pub descriptors: Vec<Descriptor>,
     /// Optional constructor method ID.
     pub constructor: Option<ItemId>,
     /// Method IDs of the class.
@@ -135,6 +142,38 @@ pub struct Class {
     pub abstract_methods: Vec<MethodSig>,
     /// Interfaces implemented by this class.
     pub implements: Vec<Symbol>,
+}
+
+/// A typed materialized descriptor member.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Descriptor {
+    /// Bound class member name.
+    pub name: Symbol,
+    /// Concrete type produced by descriptor reads.
+    pub read_ty: TypeId,
+    /// Concrete type accepted by writes, when this is a data descriptor.
+    pub write_ty: Option<TypeId>,
+    /// Source-defined getter function item.
+    pub getter: Option<ItemId>,
+    /// Source-defined setter function item.
+    pub setter: Option<ItemId>,
+    /// Whether data-descriptor precedence applies.
+    pub data_descriptor: bool,
+    /// Whether the descriptor is bound on the constructor rather than instances.
+    pub is_static: bool,
+    /// Concrete descriptor instance fields used to construct static state.
+    pub value_fields: Vec<DescriptorValueField>,
+}
+
+/// One concrete primitive field on a materialized descriptor instance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DescriptorValueField {
+    /// Descriptor object field name.
+    pub name: Symbol,
+    /// Concrete primitive value.
+    pub value: Literal,
+    /// Concrete value type.
+    pub ty: TypeId,
 }
 
 /// An interface item.
@@ -188,6 +227,21 @@ pub struct Field {
     /// Whether this field is optional.
     pub optional: bool,
     /// Source location of the field.
+    pub span: Span,
+}
+
+/// A typed class-level field materialized during specialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaticField {
+    /// Source member name.
+    pub name: Symbol,
+    /// Concrete field type.
+    pub ty: TypeId,
+    /// Source visibility.
+    pub visibility: Visibility,
+    /// Materialized primitive value, when directly representable.
+    pub value: Option<Literal>,
+    /// Source location.
     pub span: Span,
 }
 

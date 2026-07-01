@@ -1,24 +1,16 @@
-// JavaScript constructor-function (`function Foo(){}` + `Foo.prototype.x = …`)
-// lowering into a synthesized HIR class.
-//
-// TypeScript/JavaScript lets a plain `function` declaration act as a class:
-// `new Foo()` constructs an instance whose own properties are the `this.x = …`
-// assignments in the function body, `Foo.prototype.m = function () { … }` adds
-// instance methods, `Foo.prototype.f = value` adds inherited (non-own)
-// prototype data, and `x instanceof Foo` walks the prototype chain. Smelt's HIR
-// only models `class` declarations as constructable, so this module recognizes
-// the constructor-function idiom in a statement list and synthesizes an
-// equivalent `Item::Class` from it. The synthesized class carries:
-//
-// * one field per distinct `this.<name>` member written in the constructor body
-//   (own enumerable properties, the values `Object.keys`/`values`/`has` see),
-// * the constructor body itself as the class constructor, and
-// * one method per `Foo.prototype.<name> = …` assignment (prototype members,
-//   which JavaScript treats as inherited and therefore non-own).
-//
-// Once registered in `self.classes`, the existing `new`/`instanceof` lowering
-// resolves the name like any other class, so no special-casing is needed at the
-// use sites.
+//! JavaScript constructor-function lowering into synthesized HIR classes.
+//!
+//! TypeScript/JavaScript lets a plain `function` declaration act as a class:
+//! `new Foo()` constructs an instance whose own properties are the `this.x = …`
+//! assignments in the function body, while `Foo.prototype.m = function () { … }`
+//! adds instance methods. This module materializes that shape once so ordinary
+//! class construction and `instanceof` lowering need no special use-site path.
+
+use super::{
+    AssignmentTarget, BinaryOperator, BindingPattern, Body, Class, Expression, Field, Function,
+    FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig,
+    SmeltError, Span, Statement, Type, Visibility,
+};
 
 impl ModuleBuilder<'_> {
     /// Return whether a statement list constructs, type-tests, or extends the
@@ -27,7 +19,10 @@ impl ModuleBuilder<'_> {
     /// A bare `function Foo(){}` that is only ever called normally is left as a
     /// plain function; it only becomes a class when the surrounding scope uses it
     /// with `new`, `instanceof`, or `Foo.prototype.x = …`.
-    fn statements_use_function_as_constructor(name: &str, statements: &[Statement<'_>]) -> bool {
+    pub(super) fn statements_use_function_as_constructor(
+        name: &str,
+        statements: &[Statement<'_>],
+    ) -> bool {
         statements
             .iter()
             .any(|statement| Self::statement_uses_constructor_function(name, statement))
@@ -197,7 +192,10 @@ impl ModuleBuilder<'_> {
     /// Prototype members were consumed when the class was built, and static
     /// members on a constructor are not modeled on synthesized classes, so both
     /// assignment statements are dropped rather than lowered as runtime writes.
-    fn is_synthesized_prototype_assignment(&self, expression: &Expression<'_>) -> bool {
+    pub(super) fn is_synthesized_prototype_assignment(
+        &self,
+        expression: &Expression<'_>,
+    ) -> bool {
         let Expression::AssignmentExpression(assign) = expression else {
             return false;
         };
@@ -244,7 +242,7 @@ impl ModuleBuilder<'_> {
     /// Returns the binding name and the function expression. The function
     /// expression's own optional `id` is ignored; the binding name is what `new`
     /// and `instanceof` reference.
-    fn const_constructor_function<'a>(
+    pub(super) fn const_constructor_function<'a>(
         declarator: &'a oxc::ast::ast::VariableDeclarator<'a>,
     ) -> Option<(&'a str, &'a oxc::ast::ast::Function<'a>)> {
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
@@ -271,7 +269,7 @@ impl ModuleBuilder<'_> {
 
     /// Synthesize classes for `const Foo = function () { … }` constructor
     /// bindings declared in a statement list and used as constructors there.
-    fn synthesize_const_constructor_functions(
+    pub(super) fn synthesize_const_constructor_functions(
         &mut self,
         statements: &[Statement<'_>],
     ) -> Result<(), SmeltError> {
@@ -352,7 +350,7 @@ impl ModuleBuilder<'_> {
     /// live in a different `it` callback body. This scans the setup declarations
     /// and synthesizes a class whenever the function is used as a constructor in
     /// either the setup itself or the test body, before the setup is lowered.
-    fn synthesize_setup_constructor_functions(
+    pub(super) fn synthesize_setup_constructor_functions(
         &mut self,
         setup: &[&Statement<'_>],
         body_statements: &[Statement<'_>],
@@ -386,7 +384,7 @@ impl ModuleBuilder<'_> {
 
     /// Synthesize a class for a constructor function declared in a block or
     /// module body, scanning the same statement list for prototype assignments.
-    fn synthesize_constructor_function_class(
+    pub(super) fn synthesize_constructor_function_class(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         siblings: &[Statement<'_>],
@@ -512,6 +510,8 @@ impl ModuleBuilder<'_> {
             methods,
             abstract_methods: Vec::new(),
             implements: Vec::new(),
+            static_fields: Vec::new(),
+            descriptors: Vec::new(),
         }));
         self.classes.insert(class_text, item);
         Ok(())

@@ -69,7 +69,10 @@ pub use context::{
 };
 pub use error::SmeltError;
 pub use ident::camel_to_snake;
-pub use lowering::{ConstCollection, InterfaceHeritageRef, RestParam, to_hir, to_hir_with_path};
+pub use lowering::{
+    ConstCollection, FrontendOptions, InterfaceHeritageRef, RestParam, to_hir, to_hir_with_options,
+    to_hir_with_path,
+};
 
 #[cfg(test)]
 mod tests;

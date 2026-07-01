@@ -370,7 +370,7 @@ class C(A, B):
 }
 
 #[test]
-fn unknown_decorator_rejected() -> TestResult {
+fn unknown_decorator_requires_specialization() -> TestResult {
     let source = py!(r#"
 @some_decorator
 class Foo:
@@ -379,7 +379,7 @@ class Foo:
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
-    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
+    ensure_eq(&error.code, &"smelt::specialization-required", "error code")?;
     Ok(())
 }
 

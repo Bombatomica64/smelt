@@ -189,6 +189,34 @@ pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirFiel
     fields
 }
 
+/// Render a primitive class-level value captured by specialization.
+///
+/// Static members are emitted as associated getter functions because owned
+/// values such as `String` cannot be Rust `const` items.
+pub(crate) fn materialized_static_value_text(literal: Option<&smelt_hir::Literal>) -> String {
+    match literal {
+        Some(smelt_hir::Literal::Bool(value)) => value.to_string(),
+        Some(smelt_hir::Literal::Int(value)) => value.to_string(),
+        Some(smelt_hir::Literal::Float(value)) if value.is_nan() => "f64::NAN".to_owned(),
+        Some(smelt_hir::Literal::Float(value))
+            if value.is_infinite() && value.is_sign_positive() =>
+        {
+            "f64::INFINITY".to_owned()
+        }
+        Some(smelt_hir::Literal::Float(value)) if value.is_infinite() => {
+            "f64::NEG_INFINITY".to_owned()
+        }
+        Some(smelt_hir::Literal::Float(value)) => format!("{value:?}"),
+        Some(smelt_hir::Literal::String(value)) => format!("{value:?}.to_owned()"),
+        Some(
+            smelt_hir::Literal::Symbol(_)
+            | smelt_hir::Literal::Undefined
+            | smelt_hir::Literal::None,
+        )
+        | None => "Default::default()".to_owned(),
+    }
+}
+
 /// Return the Rust-valid field layout for an interface.
 ///
 /// TypeScript interface inheritance and utility-type expansion can present the

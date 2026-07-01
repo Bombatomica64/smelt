@@ -7,6 +7,69 @@ use std::fs;
 use common::{TempProject, TestResult, cargo_test_manifest, ensure, ensure_eq, smelt, utf8_path};
 
 #[test]
+fn build_specializes_python_decorators_and_emits_package_artifact() -> TestResult {
+    if !std::path::Path::new("/usr/bin/bwrap").is_file()
+        || std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_err()
+    {
+        return Ok(());
+    }
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "python-specialization-cache"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.py"]
+
+[output]
+target = "./dist"
+crate-name = "python_specialization_cache"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.py"),
+        r#"def decorate(function):
+    def wrapped(name: str) -> str:
+        return "wrapped " + function(name)
+    return wrapped
+
+@decorate
+def greet(name: str) -> str:
+    return "hello " + name
+
+print(greet("smelt"))
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let artifact_root = project_path.join("dist/.smelt/specialization/python");
+    ensure(
+        fs::read_dir(&artifact_root)?
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "json")
+            }),
+        "Python specialization package artifact was not emitted",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn dump_hir_prints_compact_hir_for_single_file() -> TestResult {
     let stdout = smelt(&["dump-hir", "examples/typescript/hir/01_number.ts"])?;
 

@@ -199,6 +199,7 @@ mod constructor_function_tests;
 mod part04_tests;
 mod part05_tests;
 mod part06_tests;
+mod specialization_tests;
 mod part07_tests;
 mod estk6_coverage_tests;
 mod class_module_tests;

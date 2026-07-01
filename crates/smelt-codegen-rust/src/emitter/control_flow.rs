@@ -296,6 +296,14 @@ impl FunctionEmitter<'_> {
         match place {
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                if let Some(statement) =
+                    self.descriptor_setter_statement(*base, *field, value)?
+                {
+                    out.push_str("    ");
+                    out.push_str(&statement);
+                    out.push('\n');
+                    return Ok(());
+                }
                 if let Some(Type::Dict(key, item)) = self.mir.types.get(base_ty)
                     && self.mir.types.get(*key) == Some(&Type::String)
                 {

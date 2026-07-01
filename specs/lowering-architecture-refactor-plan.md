@@ -1,6 +1,11 @@
 # TS Frontend Lowering — Architecture Refactor Plan
 
-**Status:** PLAN ONLY. Do not execute until the active feature phase (es-toolkit batches / estk*) stabilizes, per `CLAUDE.md` ("finish active feature phases before broad codebase division refactors"; "do a deliberate architecture pass after the feature phase stabilizes"). This document records the deliberate pass so it can be done one PR at a time later with zero behavior change.
+**Status:** FOCUSED PASS COMPLETE. After host-runtime specialization stabilized,
+the first low-risk module splits landed: pure support helpers now live behind a
+real `support` module seam, and constructor-function lowering is a real focused
+module rather than a textual include. The larger semantic re-division below
+remains an incremental backlog and is intentionally not bundled with the
+specialization feature.
 
 **Scope:** `crates/smelt-frontend-ts/src/lowering*` re-division by semantic concern. The codegen emitter (`crates/smelt-codegen-rust/src/emitter/`) is already cleanly modularized and is covered only as a contrast / secondary backlog at the end. MIR closures are noted for completeness.
 
