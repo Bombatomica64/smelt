@@ -474,21 +474,21 @@ struct GeneratorYieldAccumulator {
 }
 
 // Lowering builder implementation split into small include files.
-mod builder_part01;
+mod module_init;
 mod builder_part02;
 mod builder_part03;
 mod builder_part04;
 mod builder_part05;
 mod builder_part06;
 mod builder_part07;
-mod builder_part08;
+mod new_expr;
 mod call;
 mod collections;
-mod builder_part09;
+mod guards;
 mod builder_part10;
 mod builder_part11;
 mod builder_part12;
-mod builder_part13;
+mod callbacks;
 mod builder_part14;
 mod builder_part15;
 mod builder_part16;
