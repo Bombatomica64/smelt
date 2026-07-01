@@ -158,10 +158,19 @@ impl ModuleBuilder<'_> {
             // default (JavaScript evaluates defaults per call, in callee
             // scope), so omitted arguments lower through the general
             // `Optional` machinery instead of per-function fixups.
+            //
+            // Defaults that equal the type's zero value (`= 0`, `= ""`,
+            // `= []`, `= {}`, `= new Map()`, ...) keep the plain ABI instead:
+            // call sites already synthesize exactly that value for omitted
+            // arguments, and keeping the parameter un-wrapped preserves
+            // mutable-reference threading for state accumulators such as
+            // Remeda's `cloneImplementation(value, refFrom = [], refTo = [])`,
+            // where recursive callees must observe the caller's array.
             let default_initializer = source_name
                 .is_some()
                 .then_some(param.initializer.as_ref())
-                .flatten();
+                .flatten()
+                .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
             let ty = if default_initializer.is_some()
                 && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
             {
@@ -507,6 +516,34 @@ impl ModuleBuilder<'_> {
     /// Return whether a TypeScript formal parameter has a default value.
     pub(in crate::lowering) fn formal_parameter_has_default(param: &oxc::ast::ast::FormalParameter<'_>) -> bool {
         param.initializer.is_some() || matches!(param.pattern, BindingPattern::AssignmentPattern(_))
+    }
+
+    /// Return whether a parameter default is the type's zero value.
+    ///
+    /// For such defaults (`= 0`, `= ""`, `= false`, `= []`, `= {}`,
+    /// `= new Map()`, `= new Set()`, `= undefined`) omitted call arguments
+    /// already synthesize exactly the defaulted value, so the parameter keeps
+    /// its plain (non-`Optional`) ABI. This also preserves mutable-reference
+    /// threading for parameters that accumulate state across recursive calls.
+    fn initializer_is_type_zero_default(initializer: &Expression<'_>) -> bool {
+        match initializer {
+            Expression::NumericLiteral(literal) => literal.value == 0.0,
+            Expression::StringLiteral(literal) => literal.value.is_empty(),
+            Expression::BooleanLiteral(literal) => !literal.value,
+            Expression::NullLiteral(_) => true,
+            Expression::Identifier(identifier) => identifier.name == "undefined",
+            Expression::ArrayExpression(array) => array.elements.is_empty(),
+            Expression::ObjectExpression(object) => object.properties.is_empty(),
+            Expression::NewExpression(new_expr) => {
+                new_expr.arguments.is_empty()
+                    && matches!(
+                        &new_expr.callee,
+                        Expression::Identifier(callee)
+                            if callee.name == "Map" || callee.name == "Set"
+                    )
+            }
+            _ => false,
+        }
     }
 
     /// Resolve the HIR type for a function declaration parameter.
