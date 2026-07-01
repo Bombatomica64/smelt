@@ -487,7 +487,7 @@ include!("lowering/builder_part03.rs");
 include!("lowering/builder_part04.rs");
 include!("lowering/builder_part05.rs");
 include!("lowering/builder_part06.rs");
-include!("lowering/builder_part07.rs");
+mod builder_part07;
 include!("lowering/builder_part08.rs");
 include!("lowering/call.rs");
 include!("lowering/collections.rs");
