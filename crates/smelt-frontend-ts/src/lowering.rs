@@ -1,12 +1,20 @@
 //! TypeScript AST lowering into Smelt HIR.
 
-mod specialization;
 mod ambient_globals;
+mod constructor_function;
+mod specialization;
 mod stdlib;
 mod stdlib_dispatch;
+mod support;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
+};
+use support::{
+    const_literal_from_item, implemented_function_names, insert_visible_item,
+    is_implemented_overload_signature, is_static_property_key, item_name, module_export_name,
+    sanitize_test_name, single_arg, statement_terminates, two_args, unknown_kind_from_typeof,
+    visibility,
 };
 
 use crate::{
@@ -494,7 +502,3 @@ include!("lowering/types.rs");
 include!("lowering/builder_part16.rs");
 include!("lowering/builder_part17.rs");
 include!("lowering/builder_part18.rs");
-include!("lowering/constructor_function.rs");
-
-// Top-level lowering helper functions split into include files.
-include!("lowering/helpers_part01.rs");
