@@ -166,17 +166,82 @@ fn is_python_factory_binding(line: &str) -> bool {
 
 /// Conservatively identifies TypeScript standard decorator syntax.
 fn typescript_reasons(source: &str) -> BTreeSet<DetectionReason> {
-    let has_decorator = source.lines().map(str::trim_start).any(|line| {
-        line.starts_with('@')
-            || line
-                .split_whitespace()
-                .any(|word| word.starts_with('@') && word.len() > 1)
+    let executable = typescript_without_comments_and_strings(source);
+    let has_decorator = executable.lines().any(|line| {
+        line.split(['{', '}', ';']).any(|candidate| {
+            let segment = candidate.trim_start();
+            segment.starts_with('@')
+                && segment
+                    .chars()
+                    .nth(1)
+                    .is_some_and(|character| character == '_' || character.is_alphabetic())
+        })
     });
     if has_decorator {
         BTreeSet::from([DetectionReason::TypeScriptDecorator])
     } else {
         BTreeSet::new()
     }
+}
+
+/// Replaces comments and string contents while preserving statement structure.
+fn typescript_without_comments_and_strings(source: &str) -> String {
+    #[derive(Clone, Copy)]
+    enum LexState {
+        Code,
+        LineComment,
+        BlockComment,
+        Quoted(char),
+    }
+
+    let mut output = String::with_capacity(source.len());
+    let mut state = LexState::Code;
+    let mut escaped = false;
+    let mut chars = source.chars().peekable();
+    while let Some(character) = chars.next() {
+        match state {
+            LexState::Code if character == '/' && chars.peek() == Some(&'/') => {
+                output.push(' ');
+                output.push(' ');
+                chars.next();
+                state = LexState::LineComment;
+            }
+            LexState::Code if character == '/' && chars.peek() == Some(&'*') => {
+                output.push(' ');
+                output.push(' ');
+                chars.next();
+                state = LexState::BlockComment;
+            }
+            LexState::Code if matches!(character, '\'' | '"' | '`') => {
+                output.push(' ');
+                state = LexState::Quoted(character);
+            }
+            LexState::Code => output.push(character),
+            LexState::LineComment if character == '\n' => {
+                output.push('\n');
+                state = LexState::Code;
+            }
+            LexState::BlockComment if character == '*' && chars.peek() == Some(&'/') => {
+                output.push(' ');
+                output.push(' ');
+                chars.next();
+                state = LexState::Code;
+            }
+            LexState::Quoted(quote) if !escaped && character == quote => {
+                output.push(' ');
+                state = LexState::Code;
+            }
+            LexState::Quoted(_) if !escaped && character == '\\' => {
+                output.push(' ');
+                escaped = true;
+            }
+            LexState::LineComment | LexState::BlockComment | LexState::Quoted(_) => {
+                output.push(if character == '\n' { '\n' } else { ' ' });
+                escaped = false;
+            }
+        }
+    }
+    output
 }
 
 #[cfg(test)]
@@ -247,6 +312,31 @@ mod tests {
             return Err("standard member decorators were not detected".to_owned());
         }
         Ok(())
+    }
+
+    #[test]
+    fn ignores_typescript_doc_tags_and_string_at_signs() {
+        let detected = detect_specialization_modules(&[module(
+            "plain.ts",
+            HostLanguage::TypeScript,
+            "/** @deprecated use next */\nexport const email = \"user@example.com\";\n",
+            &[],
+        )]);
+        assert!(
+            detected.is_empty(),
+            "comments and strings must not trigger decorator specialization"
+        );
+    }
+
+    #[test]
+    fn detects_same_line_typescript_member_decorators() {
+        let detected = detect_specialization_modules(&[module(
+            "model.ts",
+            HostLanguage::TypeScript,
+            "class Model { @bound method(): void {} }",
+            &[],
+        )]);
+        assert_eq!(detected.len(), 1);
     }
 
     #[test]
