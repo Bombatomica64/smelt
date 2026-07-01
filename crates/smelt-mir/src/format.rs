@@ -3,12 +3,24 @@
 //! This module provides functions to format MIR in a human-readable compact format,
 //! suitable for debugging and testing.
 
+use std::fmt::Write as _;
+
 use smelt_hir::{Type, TypeId};
 
 use crate::{
     BuiltinFn, Callee, Constant, LocalId, LocalKind, Mir, Operand, Place, Rvalue, Statement,
     Terminator,
 };
+
+/// Append formatted text to the output buffer.
+///
+/// Writing to a `String` is infallible, so the `Result` from `write_fmt` is
+/// deliberately ignored. This mirrors the HIR formatter's `push_fmt` helper and
+/// lets the formatters use `write!`/`writeln!`-style assembly without tripping
+/// the workspace `unwrap_used`/`expect_used` lints.
+fn push_fmt(out: &mut String, args: std::fmt::Arguments<'_>) {
+    let _ignored = out.write_fmt(args);
+}
 
 /// Formats a MIR module into a human-readable compact string representation.
 ///
@@ -33,14 +45,17 @@ pub fn format_compact(mir: &Mir) -> String {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        out.push_str(&format!(
-            "class {name} fields [{fields}] constructor {:?} methods {:?}\n",
-            class.constructor, class.methods
-        ));
+        push_fmt(
+            &mut out,
+            format_args!(
+                "class {name} fields [{fields}] constructor {:?} methods {:?}\n",
+                class.constructor, class.methods
+            ),
+        );
     }
     for interface in &mir.interfaces {
         let name = mir.symbols.get(interface.name).unwrap_or("<unknown>");
-        out.push_str(&format!("interface {name}\n"));
+        push_fmt(&mut out, format_args!("interface {name}\n"));
     }
     if !mir.classes.is_empty() || !mir.interfaces.is_empty() {
         out.push('\n');
@@ -48,84 +63,100 @@ pub fn format_compact(mir: &Mir) -> String {
     for function in &mir.functions {
         let name = mir.symbols.get(function.name).unwrap_or("<unknown>");
         let async_prefix = if function.is_async { "async " } else { "" };
-        out.push_str(&format!(
-            "{async_prefix}fn {name} ({:?}) -> {}{}\n",
-            function.id,
-            type_ref(mir, function.return_ty),
-            if function.can_throw { " throws" } else { "" }
-        ));
+        push_fmt(
+            &mut out,
+            format_args!(
+                "{async_prefix}fn {name} ({:?}) -> {}{}\n",
+                function.id,
+                type_ref(mir, function.return_ty),
+                if function.can_throw { " throws" } else { "" }
+            ),
+        );
 
         if !function.locals.is_empty() {
             out.push_str("  locals\n");
             for (idx, local) in function.locals.iter().enumerate() {
                 let local_id = index_to_u32(idx, "MIR local index");
-                out.push_str(&format!(
-                    "    {} {}: {}\n",
-                    local_ref(LocalId(local_id)),
-                    local_kind_text(mir, local.kind),
-                    type_ref(mir, local.ty)
-                ));
+                push_fmt(
+                    &mut out,
+                    format_args!(
+                        "    {} {}: {}\n",
+                        local_ref(LocalId(local_id)),
+                        local_kind_text(mir, local.kind),
+                        type_ref(mir, local.ty)
+                    ),
+                );
             }
         }
 
         for block in &function.blocks {
-            out.push_str(&format!("  bb{}:\n", block.id.0));
+            push_fmt(&mut out, format_args!("  bb{}:\n", block.id.0));
             for phi in &block.phis {
-                out.push_str(&format!(
-                    "    {} = phi {}\n",
-                    local_ref(phi.dest),
-                    type_ref(mir, phi.ty)
-                ));
+                push_fmt(
+                    &mut out,
+                    format_args!(
+                        "    {} = phi {}\n",
+                        local_ref(phi.dest),
+                        type_ref(mir, phi.ty)
+                    ),
+                );
             }
             for statement in &block.statements {
-                out.push_str(&format!("    {}\n", statement_text(statement)));
+                push_fmt(&mut out, format_args!("    {}\n", statement_text(statement)));
             }
             let terminator = block
                 .terminator
                 .as_ref()
-                .map(terminator_text)
-                .unwrap_or_else(|| "<missing terminator>".to_owned());
-            out.push_str(&format!("    {terminator}\n"));
+                .map_or_else(|| "<missing terminator>".to_owned(), terminator_text);
+            push_fmt(&mut out, format_args!("    {terminator}\n"));
         }
         out.push('\n');
     }
     for closure in &mir.closures {
-        out.push_str(&format!(
-            "closure {:?} -> {}{}\n",
-            closure.id,
-            type_ref(mir, closure.return_ty),
-            if closure.can_throw { " throws" } else { "" }
-        ));
+        push_fmt(
+            &mut out,
+            format_args!(
+                "closure {:?} -> {}{}\n",
+                closure.id,
+                type_ref(mir, closure.return_ty),
+                if closure.can_throw { " throws" } else { "" }
+            ),
+        );
         if !closure.locals.is_empty() {
             out.push_str("  locals\n");
             for (idx, local) in closure.locals.iter().enumerate() {
                 let local_id = index_to_u32(idx, "MIR closure local index");
-                out.push_str(&format!(
-                    "    {} {}: {}\n",
-                    local_ref(LocalId(local_id)),
-                    local_kind_text(mir, local.kind),
-                    type_ref(mir, local.ty)
-                ));
+                push_fmt(
+                    &mut out,
+                    format_args!(
+                        "    {} {}: {}\n",
+                        local_ref(LocalId(local_id)),
+                        local_kind_text(mir, local.kind),
+                        type_ref(mir, local.ty)
+                    ),
+                );
             }
         }
         for block in &closure.blocks {
-            out.push_str(&format!("  bb{}:\n", block.id.0));
+            push_fmt(&mut out, format_args!("  bb{}:\n", block.id.0));
             for phi in &block.phis {
-                out.push_str(&format!(
-                    "    {} = phi {}\n",
-                    local_ref(phi.dest),
-                    type_ref(mir, phi.ty)
-                ));
+                push_fmt(
+                    &mut out,
+                    format_args!(
+                        "    {} = phi {}\n",
+                        local_ref(phi.dest),
+                        type_ref(mir, phi.ty)
+                    ),
+                );
             }
             for statement in &block.statements {
-                out.push_str(&format!("    {}\n", statement_text(statement)));
+                push_fmt(&mut out, format_args!("    {}\n", statement_text(statement)));
             }
             let terminator = block
                 .terminator
                 .as_ref()
-                .map(terminator_text)
-                .unwrap_or_else(|| "<missing terminator>".to_owned());
-            out.push_str(&format!("    {terminator}\n"));
+                .map_or_else(|| "<missing terminator>".to_owned(), terminator_text);
+            push_fmt(&mut out, format_args!("    {terminator}\n"));
         }
         out.push('\n');
     }
@@ -1048,7 +1079,7 @@ fn rvalue_text(value: &Rvalue) -> String {
             operand_text(callable),
             props
                 .iter()
-                .map(|(name, value)| format!("{name:?}: {}", operand_text(value)))
+                .map(|(name, prop_value)| format!("{name:?}: {}", operand_text(prop_value)))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -1396,10 +1427,8 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
 
 /// Convert an index into a `u32` identifier.
 fn index_to_u32(index: usize, label: &str) -> u32 {
-    if let Ok(value) = u32::try_from(index) {
-        value
-    } else {
+    u32::try_from(index).unwrap_or_else(|_| {
         let _ = label;
         u32::MAX
-    }
+    })
 }

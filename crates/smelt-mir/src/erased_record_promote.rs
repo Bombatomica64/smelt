@@ -87,9 +87,9 @@ fn promote_body(
     // record literal feeding a binding is promoted alongside the binding.
     let mut copy_edges: Vec<(LocalId, LocalId)> = Vec::new();
 
-    let note_erased_operand = |erased: &mut HashSet<LocalId>, operand: &Operand| {
+    let note_erased_operand = |erased_set: &mut HashSet<LocalId>, operand: &Operand| {
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand {
-            erased.insert(*local);
+            erased_set.insert(*local);
         }
     };
 

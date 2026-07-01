@@ -30,3 +30,9 @@ graphify-out/
 crates/graphify-out/
 perf.data
 perf.data.old
+
+# Investigation reports are scratch output; keep the directory, not the logs
+blocker-logs/*.md
+!blocker-logs/.gitkeep
+# library-probes.md is CI-managed (library-probes.yml commits it)
+!blocker-logs/library-probes.md

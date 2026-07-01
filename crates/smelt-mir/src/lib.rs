@@ -6,43 +6,21 @@
 
 #![expect(
     clippy::too_many_lines,
-    reason = "MIR lowering and validation functions will be split during the next architecture pass"
-)]
-#![expect(
-    clippy::too_many_arguments,
-    reason = "lowering context construction mirrors the MIR function shape for now"
-)]
-#![expect(
-    clippy::format_push_string,
-    reason = "debug formatters favor straightforward string assembly until the formatter module is rewritten"
-)]
-#![expect(
-    clippy::option_if_let_else,
-    reason = "current control-flow validation is clearer with explicit branches"
+    reason = "the remaining long functions are single exhaustive matches over the full \
+              ExprKind/Rvalue surface (lower_expr, the for_each_operand walkers, the \
+              format/opt dispatchers); compile-time exhaustiveness keeps them in sync \
+              and splitting them per variant family would hide that guarantee"
 )]
 #![expect(
     clippy::match_same_arms,
-    reason = "separate MIR variants are kept visually distinct in validators"
-)]
-#![expect(
-    clippy::missing_errors_doc,
-    reason = "public compiler entrypoints need documentation polish as a separate pass"
-)]
-#![expect(
-    clippy::missing_const_for_fn,
-    reason = "const qualification will be applied once constructors are stabilized"
-)]
-#![expect(
-    clippy::map_unwrap_or,
-    reason = "existing option pipelines are being preserved until the lowering refactor"
-)]
-#![expect(
-    clippy::semicolon_if_nothing_returned,
-    reason = "validator match arms keep expression style for consistency"
+    reason = "exhaustive Rvalue/ExprKind walkers in validators and optimizers keep \
+              per-variant arms distinct so new variants get an explicit review site \
+              instead of silently joining a merged arm"
 )]
 #![expect(
     clippy::similar_names,
-    reason = "MIR lowering uses related HIR/MIR block names that differ only by role"
+    reason = "MIR lowering pairs HIR and MIR blocks with names that differ only by \
+              role (then_hir/then_mir, body_hir/body_mir); the pairing is the point"
 )]
 #![expect(
     clippy::exhaustive_enums,
@@ -51,10 +29,6 @@
 #![expect(
     clippy::exhaustive_structs,
     reason = "MIR structs are constructed across workspace crates during lowering and tests"
-)]
-#![expect(
-    clippy::shadow_unrelated,
-    reason = "optimizer match arms reuse domain variable names in independent scopes"
 )]
 
 /// Promote erased-and-mutated record locals to an erased value representation.
