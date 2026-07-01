@@ -8,127 +8,16 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(call.range);
 
-        if let Some(expr) = self.file_io_call_expression(call, body)? {
+        if let Some(expr) = self.stdlib_module_call_expression(call, body)? {
             return Ok(expr);
         }
-        if let Some(expr) = self.datetime_call_expression(call, body)? {
+        if let Some(expr) = self.string_call_expression(call, body)? {
             return Ok(expr);
         }
-        if let Some(expr) = self.urlparse_call_expression(call, body)? {
+        if let Some(expr) = self.collection_call_expression(call, body)? {
             return Ok(expr);
         }
-        if let Some(expr) = self.int_new_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.class_method_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.module_member_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.asyncio_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_case_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_trim_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_affix_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_search_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_replace_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_remove_affix_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_predicate_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.re_expanded_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_split_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.string_join_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.dict_projection_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_append_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_extend_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_insert_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_reverse_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_pop_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.collection_clear_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.set_method_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_copy_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_count_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_index_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_remove_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.list_sort_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.dict_pop_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.requests_get_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.dict_get_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.dict_setdefault_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.dict_update_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.dict_copy_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.math_module_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.random_module_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.json_dumps_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.json_loads_call_expression(call, body, type_hint)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.re_module_call_expression(call, body)? {
+        if let Some(expr) = self.numeric_module_call_expression(call, body, type_hint)? {
             return Ok(expr);
         }
         if let Some(error) = self.unsupported_deferred_stdlib_call(call) {
@@ -137,59 +26,245 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.protocol_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.builtin_name_call_expression(call, body, type_hint, span)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.named_item_call_expression(call, body, span)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.callable_expression_call(call, body)? {
+            return Ok(expr);
+        }
+
+        Err(SmeltError::unsupported(
+            span,
+            "only calls to top-level functions, class constructors, and print() are supported",
+        ))
+    }
+
+    /// Try stdlib module / interop call handlers (file IO, datetime, urlparse,
+    /// `int()` construction, class-method and module-member dispatch, asyncio).
+    fn stdlib_module_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.file_io_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.datetime_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.urlparse_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.int_new_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.class_method_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.module_member_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.asyncio_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        Ok(None)
+    }
+
+    /// Try string-method and regex-expansion call handlers in source order.
+    fn string_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.string_case_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.string_trim_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.string_affix_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.string_search_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.string_replace_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.string_remove_affix_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.string_predicate_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.re_expanded_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.string_split_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.string_join_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        Ok(None)
+    }
+
+    /// Try dict/list/set collection-method call handlers in source order.
+    fn collection_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.dict_projection_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.list_append_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.list_extend_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.list_insert_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.list_reverse_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.list_pop_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.collection_clear_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.set_method_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.list_copy_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.list_count_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.list_index_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.list_remove_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.list_sort_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.dict_pop_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.requests_get_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.dict_get_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.dict_setdefault_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.dict_update_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.dict_copy_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        Ok(None)
+    }
+
+    /// Try math/random/json/re module-function call handlers in source order.
+    fn numeric_module_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        type_hint: Option<TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.math_module_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.random_module_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.json_dumps_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.json_loads_call_expression(call, body, type_hint)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.re_module_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        Ok(None)
+    }
+
+    /// Lower calls whose callee is a builtin name (`print`, `len`, container and
+    /// primitive constructors, and the numeric/iterator builtins).
+    fn builtin_name_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        type_hint: Option<TypeId>,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         // `print(...)` → CONSOLE_LOG_SYMBOL item (same as TS's `console.log`).
         if let Expr::Name(name) = call.func.as_ref() {
             if matches!(name.id.as_str(), "list" | "set" | "dict" | "tuple")
                 && let Some(expr) =
                     self.container_constructor_call_expression(call, body, type_hint)?
             {
-                return Ok(expr);
+                return Ok(Some(expr));
             }
             if matches!(name.id.as_str(), "bool" | "int" | "float" | "str")
                 && let Some(expr) = self.primitive_cast_call_expression(call, body)?
             {
-                return Ok(expr);
+                return Ok(Some(expr));
             }
             if name.id.as_str() == "abs" {
-                return self.numeric_abs_call_expression(call, body);
+                return self.numeric_abs_call_expression(call, body).map(Some);
             }
             if matches!(name.id.as_str(), "max" | "min") {
-                return self.numeric_extrema_call_expression(call, body);
+                return self.numeric_extrema_call_expression(call, body).map(Some);
             }
             if name.id.as_str() == "sum"
                 && let Some(expr) = self.numeric_sum_call_expression(call, body)?
             {
-                return Ok(expr);
+                return Ok(Some(expr));
             }
             if matches!(name.id.as_str(), "all" | "any")
                 && let Some(expr) = self.bool_fold_call_expression(call, body)?
             {
-                return Ok(expr);
+                return Ok(Some(expr));
             }
             if name.id.as_str() == "sorted"
                 && let Some(expr) = self.sorted_call_expression(call, body)?
             {
-                return Ok(expr);
+                return Ok(Some(expr));
             }
             if name.id.as_str() == "reversed"
                 && let Some(expr) = self.reversed_call_expression(call, body)?
             {
-                return Ok(expr);
+                return Ok(Some(expr));
             }
             if name.id.as_str() == "enumerate"
                 && let Some(expr) = self.enumerate_call_expression(call, body)?
             {
-                return Ok(expr);
+                return Ok(Some(expr));
             }
             if name.id.as_str() == "zip"
                 && let Some(expr) = self.zip_call_expression(call, body)?
             {
-                return Ok(expr);
+                return Ok(Some(expr));
             }
             if name.id.as_str() == "range"
                 && let Some(expr) = self.range_call_expression(call, body)?
             {
-                return Ok(expr);
+                return Ok(Some(expr));
             }
             if name.id.as_str() == "print" {
                 let print_item = self.ensure_print_item(span);
@@ -205,11 +280,11 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .map(|a| self.expression(a, body))
                     .collect::<Result<_, _>>()?;
-                return Ok(body.push_expr(HirExpr {
+                return Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::Call { callee, args },
                     ty: none_ty,
                     span,
-                }));
+                })));
             }
             if name.id.as_str() == "len" {
                 if call.arguments.args.len() != 1 {
@@ -233,19 +308,28 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let ty = self.intern_type(Type::Int);
-                return Ok(body.push_expr(HirExpr {
+                return Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::Len { operand },
                     ty,
                     span,
-                }));
+                })));
             }
         }
+        Ok(None)
+    }
 
+    /// Lower a named function call or class constructor call resolved by item table.
+    fn named_item_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         // Named function call OR class constructor call.
         if let Expr::Name(name) = call.func.as_ref() {
             let name_str = name.id.as_str();
             if let Some(expr) = self.local_callable_call(call, name_str, body)? {
-                return Ok(expr);
+                return Ok(Some(expr));
             }
             if let Some(&item_id) = self.items.get(name_str) {
                 let item = self.item_ref(item_id);
@@ -269,14 +353,14 @@ impl ModuleBuilder<'_> {
                             .iter()
                             .map(|a| self.expression(a, body))
                             .collect::<Result<_, _>>()?;
-                        return Ok(body.push_expr(HirExpr {
+                        return Ok(Some(body.push_expr(HirExpr {
                             kind: ExprKind::New {
                                 class: class_sym,
                                 args,
                             },
                             ty: class_ty,
                             span,
-                        }));
+                        })));
                     }
                     Item::Function(f) => {
                         let function = f.clone();
@@ -304,25 +388,17 @@ impl ModuleBuilder<'_> {
                                 label: "function",
                             },
                         )?;
-                        return Ok(body.push_expr(HirExpr {
+                        return Ok(Some(body.push_expr(HirExpr {
                             kind: ExprKind::Call { callee, args },
                             ty: return_ty,
                             span,
-                        }));
+                        })));
                     }
                     Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {}
                 }
             }
         }
-
-        if let Some(expr) = self.callable_expression_call(call, body)? {
-            return Ok(expr);
-        }
-
-        Err(SmeltError::unsupported(
-            span,
-            "only calls to top-level functions, class constructors, and print() are supported",
-        ))
+        Ok(None)
     }
 
     /// Lower a call whose callee is a local closure or function-typed local.

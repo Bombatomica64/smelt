@@ -1,3 +1,20 @@
+/// Accumulated results of walking a class body: fields, constructor/method
+/// item ids, and enum/abstract-method metadata used to assemble the class item.
+struct ClassBodyLowering {
+    /// Instance fields declared via annotated assignments.
+    fields: Vec<Field>,
+    /// Item id of the user-defined `__init__`, if any.
+    constructor_id: Option<ItemId>,
+    /// Item ids of non-constructor methods in declaration order.
+    method_ids: Vec<ItemId>,
+    /// Whether the class derives from `IntEnum`.
+    is_int_enum: bool,
+    /// Collected `IntEnum` member name → integer value pairs.
+    enum_members: HashMap<String, i64>,
+    /// Abstract-method signatures collected from `@abstractmethod` members.
+    abstract_methods: Vec<MethodSig>,
+}
+
 impl ModuleBuilder<'_> {
     /// Lower a Python class definition into the current HIR module.
     fn class_def(
@@ -16,6 +33,55 @@ impl ModuleBuilder<'_> {
         let materialized = self.materialized_class_definition(class_name_str).cloned();
 
         // --- Decorator check: only @dataclass is allowed ---
+        let mut kind = self.class_kind_from_decorators(class, &materialized, span, class_name_str)?;
+
+        // --- Metaclass and base classes ---
+        let (is_abstract_class, type_params, base) =
+            self.resolve_class_bases(class, &materialized, span, class_name_str)?;
+        if is_abstract_class {
+            kind = ClassKind::Abstract;
+        }
+
+        // --- Fields and methods ---
+        let target = MaterializedClassTarget {
+            name: class_name_str,
+            symbol: class_sym,
+            ty: class_ty,
+            span,
+        };
+        let (mut lowered, class_item_id) = self.lower_class_body(
+            class,
+            &materialized,
+            &target,
+            base,
+            &type_params,
+            &mut kind,
+            hir_module,
+        )?;
+
+        self.finalize_class_definition(
+            class,
+            &materialized,
+            &target,
+            module,
+            base,
+            type_params,
+            kind,
+            &mut lowered,
+            class_item_id,
+            hir_module,
+        )
+    }
+
+    /// Determine the class kind from its decorators, validating that only
+    /// `@dataclass` (or a materialized dataclass) is present.
+    fn class_kind_from_decorators(
+        &mut self,
+        class: &StmtClassDef,
+        materialized: &Option<smelt_specialize::ClassDefinition>,
+        span: Span,
+        class_name_str: &str,
+    ) -> Result<ClassKind, SmeltError> {
         let mut kind = if materialized.as_ref().is_some_and(|manifest_class| {
             manifest_class
                 .metadata
@@ -56,7 +122,18 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
+        Ok(kind)
+    }
 
+    /// Resolve the metaclass abstractness flag, generic type parameters, and the
+    /// single supported base class of a class definition.
+    fn resolve_class_bases(
+        &mut self,
+        class: &StmtClassDef,
+        materialized: &Option<smelt_specialize::ClassDefinition>,
+        span: Span,
+        class_name_str: &str,
+    ) -> Result<(bool, Vec<TypeParamDef>, Option<Symbol>), SmeltError> {
         // --- Metaclass check ---
         let mut is_abstract_class = false;
         if let Some(args) = class.arguments.as_deref() {
@@ -131,11 +208,28 @@ impl ModuleBuilder<'_> {
         } else {
             None
         };
-        if is_abstract_class {
-            kind = ClassKind::Abstract;
-        }
+        Ok((is_abstract_class, type_params, base))
+    }
 
-        // --- Fields and methods ---
+    /// Register the class item stub then walk the class body, collecting fields,
+    /// constructor, methods, enum members, and abstract-method signatures.
+    ///
+    /// `kind` may be promoted to [`ClassKind::Abstract`] when an
+    /// `@abstractmethod` is encountered.
+    fn lower_class_body(
+        &mut self,
+        class: &StmtClassDef,
+        materialized: &Option<smelt_specialize::ClassDefinition>,
+        target: &MaterializedClassTarget<'_>,
+        base: Option<Symbol>,
+        type_params: &[TypeParamDef],
+        kind: &mut ClassKind,
+        hir_module: &mut Module,
+    ) -> Result<(ClassBodyLowering, ItemId), SmeltError> {
+        let class_name_str = target.name;
+        let class_sym = target.symbol;
+        let class_ty = target.ty;
+        let span = target.span;
         let mut fields: Vec<Field> = Vec::new();
         let mut constructor_id: Option<ItemId> = None;
         let mut method_ids: Vec<ItemId> = Vec::new();
@@ -146,7 +240,7 @@ impl ModuleBuilder<'_> {
             name: class_sym,
             span,
             kind: kind.clone(),
-            type_params: type_params.clone(),
+            type_params: type_params.to_vec(),
             base,
             base_args: Vec::new(),
             fields: Vec::new(),
@@ -197,7 +291,7 @@ impl ModuleBuilder<'_> {
                         continue;
                     }
                     if Self::is_abstractmethod(func) {
-                        kind = ClassKind::Abstract;
+                        *kind = ClassKind::Abstract;
                         abstract_methods.push(self.abstract_method_sig(func)?);
                         continue;
                     }
@@ -266,8 +360,48 @@ impl ModuleBuilder<'_> {
             }
         }
 
-        let descriptors = if let Some(manifest_class) = &materialized {
-            self.merge_materialized_class_fields(class_name_str, manifest_class, &mut fields, span);
+        Ok((
+            ClassBodyLowering {
+                fields,
+                constructor_id,
+                method_ids,
+                is_int_enum,
+                enum_members,
+                abstract_methods,
+            },
+            class_item_id,
+        ))
+    }
+
+    /// Merge materialized descriptors/methods, synthesize the constructor, record
+    /// enum members, and write the finished class item back into its slot.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "final class assembly threads all accumulated class-definition phase outputs"
+    )]
+    fn finalize_class_definition(
+        &mut self,
+        class: &StmtClassDef,
+        materialized: &Option<smelt_specialize::ClassDefinition>,
+        target: &MaterializedClassTarget<'_>,
+        module: &ModModule,
+        base: Option<Symbol>,
+        type_params: Vec<TypeParamDef>,
+        kind: ClassKind,
+        lowered: &mut ClassBodyLowering,
+        class_item_id: ItemId,
+        hir_module: &mut Module,
+    ) -> Result<(), SmeltError> {
+        let class_name_str = target.name;
+        let class_sym = target.symbol;
+        let class_ty = target.ty;
+        let span = target.span;
+        let fields = &mut lowered.fields;
+        let method_ids = &mut lowered.method_ids;
+        let mut constructor_id = lowered.constructor_id;
+
+        let descriptors = if let Some(manifest_class) = materialized {
+            self.merge_materialized_class_fields(class_name_str, manifest_class, fields, span);
             self.lower_materialized_descriptors(manifest_class, span)?
         } else {
             Vec::new()
@@ -288,7 +422,7 @@ impl ModuleBuilder<'_> {
                         && Self::constructor_assigns_instance_field(class, field.name, self)
                 })
         });
-        if let Some(manifest_class) = &materialized {
+        if let Some(manifest_class) = materialized {
             let generated = self.lower_materialized_class_methods(
                 &MaterializedClassTarget {
                     name: class_name_str,
@@ -313,7 +447,7 @@ impl ModuleBuilder<'_> {
                     ),
                 ));
             }
-            let init_id = self.synthesize_dataclass_init(class_sym, class_ty, &fields, span)?;
+            let init_id = self.synthesize_dataclass_init(class_sym, class_ty, fields, span)?;
             constructor_id = Some(init_id);
             hir_module.items.push(init_id);
         } else if constructor_id.is_none() {
@@ -321,12 +455,12 @@ impl ModuleBuilder<'_> {
             constructor_id = Some(init_id);
             hir_module.items.push(init_id);
         }
-        if is_int_enum {
+        if lowered.is_int_enum {
             self.ctx
                 .enum_members
-                .insert(class_name_str.to_owned(), enum_members.clone());
+                .insert(class_name_str.to_owned(), lowered.enum_members.clone());
             self.enum_members
-                .insert(class_name_str.to_owned(), enum_members);
+                .insert(class_name_str.to_owned(), std::mem::take(&mut lowered.enum_members));
         }
 
         let class_item = Item::Class(Class {
@@ -336,12 +470,12 @@ impl ModuleBuilder<'_> {
             type_params,
             base,
             base_args: Vec::new(),
-            fields,
+            fields: std::mem::take(fields),
             static_fields: Vec::new(),
             descriptors,
             constructor: constructor_id,
-            methods: method_ids,
-            abstract_methods,
+            methods: std::mem::take(method_ids),
+            abstract_methods: std::mem::take(&mut lowered.abstract_methods),
             implements: vec![],
         });
         let class_index = usize::try_from(class_item_id.0).map_err(|err| {
