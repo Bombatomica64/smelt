@@ -123,6 +123,7 @@ impl ModuleBuilder<'_> {
         let mut params = Vec::new();
 
         let mut destructured_params = Vec::new();
+        let mut defaulted_params = Vec::new();
         for (index, param) in function.params.items.iter().enumerate() {
             let ty = match self.function_parameter_type(param) {
                 Ok(value) => value,
@@ -152,6 +153,31 @@ impl ModuleBuilder<'_> {
                         None,
                     )
                 };
+            // A default initializer makes the parameter optional for callers:
+            // the ABI parameter is `Optional<T>` and a body prelude applies the
+            // default (JavaScript evaluates defaults per call, in callee
+            // scope), so omitted arguments lower through the general
+            // `Optional` machinery instead of per-function fixups.
+            //
+            // Defaults that equal the type's zero value (`= 0`, `= ""`,
+            // `= []`, `= {}`, `= new Map()`, ...) keep the plain ABI instead:
+            // call sites already synthesize exactly that value for omitted
+            // arguments, and keeping the parameter un-wrapped preserves
+            // mutable-reference threading for state accumulators such as
+            // Remeda's `cloneImplementation(value, refFrom = [], refTo = [])`,
+            // where recursive callees must observe the caller's array.
+            let default_initializer = source_name
+                .is_some()
+                .then_some(param.initializer.as_ref())
+                .flatten()
+                .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
+            let ty = if default_initializer.is_some()
+                && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+            {
+                self.ctx.krate.types.intern(Type::Optional(ty))
+            } else {
+                ty
+            };
             let local = body.push_local(LocalDecl {
                 name: Some(param_name),
                 ty,
@@ -163,7 +189,10 @@ impl ModuleBuilder<'_> {
                 self.date_value_locals.insert(local);
             }
             if let Some(source_name) = source_name {
-                self.locals.insert(source_name, local);
+                self.locals.insert(source_name.clone(), local);
+                if let Some(initializer) = default_initializer {
+                    defaulted_params.push((local, ty, initializer, param_name, source_name, span));
+                }
             } else {
                 destructured_params.push((&param.pattern, local, ty));
             }
@@ -266,6 +295,53 @@ impl ModuleBuilder<'_> {
             {
                 errors.push(error);
             }
+        }
+        // Apply parameter defaults: shadow each defaulted `Optional<T>` ABI
+        // parameter with a body-scoped `T` local initialized to
+        // `param ?? <default>`. Later defaults may reference earlier
+        // parameters, which already resolve to their applied-default locals.
+        for (abi_local, abi_ty, initializer, param_name, source_name, span) in defaulted_params {
+            let inner_ty = match self.ctx.krate.types.get(abi_ty) {
+                Some(Type::Optional(inner)) => *inner,
+                _ => abi_ty,
+            };
+            let optional = body.push_expr(Expr {
+                kind: ExprKind::Local(abi_local),
+                ty: abi_ty,
+                span,
+            });
+            let fallback = match self.expression_with_hint(initializer, &mut body, Some(inner_ty)) {
+                Ok(value) => value,
+                Err(error) => {
+                    errors.push(error);
+                    continue;
+                }
+            };
+            let value = body.push_expr(Expr {
+                kind: ExprKind::OptionalCoalesce { optional, fallback },
+                ty: inner_ty,
+                span,
+            });
+            let applied = body.push_local(LocalDecl {
+                name: Some(param_name),
+                ty: inner_ty,
+                mutable: true,
+                span,
+            });
+            if self.type_is_known_date_value(inner_ty) {
+                self.date_value_locals.insert(applied);
+            }
+            self.locals.insert(source_name, applied);
+            let pat = body.push_pattern(Pattern::Binding(applied));
+            let root = body.root;
+            body.push_stmt_to_block(
+                root,
+                Stmt::Let {
+                    pat,
+                    ty: inner_ty,
+                    value: Some(value),
+                },
+            );
         }
         if let Err(error) =
             self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
@@ -440,6 +516,34 @@ impl ModuleBuilder<'_> {
     /// Return whether a TypeScript formal parameter has a default value.
     pub(in crate::lowering) fn formal_parameter_has_default(param: &oxc::ast::ast::FormalParameter<'_>) -> bool {
         param.initializer.is_some() || matches!(param.pattern, BindingPattern::AssignmentPattern(_))
+    }
+
+    /// Return whether a parameter default is the type's zero value.
+    ///
+    /// For such defaults (`= 0`, `= ""`, `= false`, `= []`, `= {}`,
+    /// `= new Map()`, `= new Set()`, `= undefined`) omitted call arguments
+    /// already synthesize exactly the defaulted value, so the parameter keeps
+    /// its plain (non-`Optional`) ABI. This also preserves mutable-reference
+    /// threading for parameters that accumulate state across recursive calls.
+    fn initializer_is_type_zero_default(initializer: &Expression<'_>) -> bool {
+        match initializer {
+            Expression::NumericLiteral(literal) => literal.value == 0.0,
+            Expression::StringLiteral(literal) => literal.value.is_empty(),
+            Expression::BooleanLiteral(literal) => !literal.value,
+            Expression::NullLiteral(_) => true,
+            Expression::Identifier(identifier) => identifier.name == "undefined",
+            Expression::ArrayExpression(array) => array.elements.is_empty(),
+            Expression::ObjectExpression(object) => object.properties.is_empty(),
+            Expression::NewExpression(new_expr) => {
+                new_expr.arguments.is_empty()
+                    && matches!(
+                        &new_expr.callee,
+                        Expression::Identifier(callee)
+                            if callee.name == "Map" || callee.name == "Set"
+                    )
+            }
+            _ => false,
+        }
     }
 
     /// Resolve the HIR type for a function declaration parameter.
