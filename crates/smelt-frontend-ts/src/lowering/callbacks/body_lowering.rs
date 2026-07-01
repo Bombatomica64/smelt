@@ -1,0 +1,1821 @@
+//! Callback body lowering: block/terminating/side-effect statements, guard
+//! narrowing, param-pattern binding and inference, arrow closure bodies,
+//! throw analysis, and capture-name collection over expressions/statements.
+
+use crate::lowering::{
+    Argument, ArrayExpressionElement, AssignmentTarget, BinOp, BinaryOperator, BindingPattern,
+    Body, CallbackExpr, CallbackExprKind, CaptureMode, ChainElement, ClosureCapture, Expr,
+    ExprKind, Expression, ForStatementInit, ForStatementLeft, FunctionType, HashMap, HashSet,
+    Literal, LocalDecl, LogicalOperator, ModuleBuilder, ObjectPropertyKind, Param, PropertyKey,
+    SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type, UnknownKind,
+};
+use oxc::span::GetSpan;
+
+impl ModuleBuilder<'_> {
+    /// Lower a terminating block-bodied callback into a nested callback expression.
+    pub(in crate::lowering) fn callback_block_expression<'a>(
+        &mut self,
+        statements: &'a [Statement<'a>],
+        params: &mut HashMap<&'a str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        let Some((first, rest)) = statements.split_first() else {
+            return Err(SmeltError::unsupported(
+                self.span(0, 0),
+                "block-bodied callbacks must terminate with return or throw",
+            ));
+        };
+        match first {
+            Statement::VariableDeclaration(declaration) => {
+                if declaration.declarations.len() != 1 {
+                    return Err(SmeltError::unsupported(
+                        self.span(declaration.span.start, declaration.span.end),
+                        "callback block declarations must declare one local",
+                    ));
+                }
+                let Some(declarator) = declaration.declarations.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(declaration.span.start, declaration.span.end),
+                        "callback block declarations must declare one local",
+                    ));
+                };
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    return Err(SmeltError::unsupported(
+                        self.span(declarator.span.start, declarator.span.end),
+                        "callback block declarations require simple bindings",
+                    ));
+                };
+                let Some(init) = &declarator.init else {
+                    return Err(SmeltError::unsupported(
+                        self.span(declarator.span.start, declarator.span.end),
+                        "callback block declarations require initializers",
+                    ));
+                };
+                let value = self.callback_expression(init, params, body)?;
+                let prior = params.insert(binding.name.as_str(), value);
+                let result = self.callback_block_expression(rest, params, body);
+                if let Some(prior) = prior {
+                    params.insert(binding.name.as_str(), prior);
+                } else {
+                    params.remove(binding.name.as_str());
+                }
+                result
+            }
+            Statement::IfStatement(if_stmt) => {
+                if if_stmt.alternate.is_some() {
+                    return Err(SmeltError::unsupported(
+                        self.span(if_stmt.span.start, if_stmt.span.end),
+                        "callback if/else blocks need direct conditional expression lowering",
+                    ));
+                }
+                let cond = self.callback_truthy_expression(&if_stmt.test, params, body)?;
+                let then_expr =
+                    match self.callback_terminating_statement(&if_stmt.consequent, params, body) {
+                        Ok(expr) => expr,
+                        Err(error) if !rest.is_empty() => {
+                            drop(error);
+                            let side_effect = self.callback_side_effect_statement(
+                                &if_stmt.consequent,
+                                params,
+                                body,
+                            )?;
+                            let none_ty = self.ctx.krate.types.intern(Type::None);
+                            let none_expr = CallbackExpr {
+                                kind: CallbackExprKind::Literal(Literal::None),
+                                ty: none_ty,
+                            };
+                            let guarded_effect = CallbackExpr {
+                                kind: CallbackExprKind::Conditional {
+                                    cond: Box::new(cond),
+                                    then_expr: Box::new(side_effect),
+                                    else_expr: Box::new(none_expr),
+                                },
+                                ty: none_ty,
+                            };
+                            let result = self.callback_block_expression(rest, params, body)?;
+                            let result_ty = result.ty;
+                            return Ok(CallbackExpr {
+                                kind: CallbackExprKind::Sequence {
+                                    effects: vec![guarded_effect],
+                                    result: Box::new(result),
+                                },
+                                ty: result_ty,
+                            });
+                        }
+                        Err(error) => return Err(error),
+                    };
+                let else_expr = self.callback_block_expression(rest, params, body)?;
+                let (then_expr, else_expr, ty) = self.callback_unify_conditional_exprs(
+                    then_expr,
+                    else_expr,
+                    if_stmt.span.start,
+                    if_stmt.span.end,
+                )?;
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Conditional {
+                        cond: Box::new(cond),
+                        then_expr: Box::new(then_expr),
+                        else_expr: Box::new(else_expr),
+                    },
+                    ty,
+                })
+            }
+            Statement::ReturnStatement(return_stmt) => {
+                if !rest.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        self.span(return_stmt.span.start, return_stmt.span.end),
+                        "callback statements after return are not supported",
+                    ));
+                }
+                let value = return_stmt.argument.as_ref().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(return_stmt.span.start, return_stmt.span.end),
+                        "callback return statements must return a value",
+                    )
+                })?;
+                self.callback_expression(value, params, body)
+            }
+            Statement::ThrowStatement(throw_stmt) => {
+                if !rest.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        self.span(throw_stmt.span.start, throw_stmt.span.end),
+                        "callback statements after throw are not supported",
+                    ));
+                }
+                self.callback_throw_expression(Some(&throw_stmt.argument), params, body)
+            }
+            Statement::ExpressionStatement(expr_stmt) => {
+                if rest.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        self.span(expr_stmt.span.start, expr_stmt.span.end),
+                        "callback expression statements must be followed by a return or throw",
+                    ));
+                }
+                let effect = self.callback_expression(&expr_stmt.expression, params, body)?;
+                let result = self.callback_block_expression(rest, params, body)?;
+                let result_ty = result.ty;
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Sequence {
+                        effects: vec![effect],
+                        result: Box::new(result),
+                    },
+                    ty: result_ty,
+                })
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(first.span().start, first.span().end),
+                "callback block statements must be const declarations, if guards, return, or throw",
+            )),
+        }
+    }
+
+    /// Lower a callback statement that is evaluated only for side effects.
+    pub(in crate::lowering) fn callback_side_effect_statement<'a>(
+        &mut self,
+        side_effect_statement: &'a Statement<'a>,
+        params: &HashMap<&'a str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        match side_effect_statement {
+            Statement::ExpressionStatement(expr_stmt) => {
+                self.callback_expression(&expr_stmt.expression, params, body)
+            }
+            Statement::BlockStatement(block) => {
+                let mut effects = Vec::new();
+                for block_statement in &block.body {
+                    let effect = match block_statement {
+                        Statement::ExpressionStatement(expr_stmt) => {
+                            self.callback_expression(&expr_stmt.expression, params, body)?
+                        }
+                        Statement::ThrowStatement(throw_stmt) => self.callback_throw_expression(
+                            Some(&throw_stmt.argument),
+                            params,
+                            body,
+                        )?,
+                        _ => {
+                            return Err(SmeltError::unsupported(
+                                self.span(block_statement.span().start, block_statement.span().end),
+                                "callback side-effect blocks only support expression and throw statements",
+                            ));
+                        }
+                    };
+                    effects.push(effect);
+                }
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Sequence {
+                        effects,
+                        result: Box::new(CallbackExpr {
+                            kind: CallbackExprKind::Literal(Literal::None),
+                            ty: none_ty,
+                        }),
+                    },
+                    ty: none_ty,
+                })
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(
+                    side_effect_statement.span().start,
+                    side_effect_statement.span().end,
+                ),
+                "callback side-effect statement kind is not supported yet",
+            )),
+        }
+    }
+
+    /// Lower a callback statement that must terminate the current branch.
+    pub(in crate::lowering) fn callback_terminating_statement<'a>(
+        &mut self,
+        statement: &'a Statement<'a>,
+        params: &mut HashMap<&'a str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        match statement {
+            Statement::BlockStatement(block) => {
+                self.callback_block_expression(&block.body, params, body)
+            }
+            Statement::ReturnStatement(return_stmt) => {
+                let value = return_stmt.argument.as_ref().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(return_stmt.span.start, return_stmt.span.end),
+                        "callback return statements must return a value",
+                    )
+                })?;
+                self.callback_expression(value, params, body)
+            }
+            Statement::ThrowStatement(throw_stmt) => {
+                self.callback_throw_expression(Some(&throw_stmt.argument), params, body)
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(statement.span().start, statement.span().end),
+                "callback branch must terminate with return or throw",
+            )),
+        }
+    }
+
+    /// Return callback parameters narrowed by facts proven in a true branch guard.
+    pub(in crate::lowering) fn callback_params_with_guard_narrowing<'a>(
+        &mut self,
+        params: &HashMap<&'a str, CallbackExpr>,
+        expression: &Expression<'_>,
+    ) -> HashMap<&'a str, CallbackExpr> {
+        let mut narrowed = params.clone();
+        self.apply_callback_guard_narrowing(&mut narrowed, expression);
+        narrowed
+    }
+
+    /// Apply simple `value !== undefined` callback type facts to a parameter map.
+    pub(in crate::lowering) fn apply_callback_guard_narrowing(
+        &mut self,
+        params: &mut HashMap<&str, CallbackExpr>,
+        expression: &Expression<'_>,
+    ) {
+        if let Expression::LogicalExpression(logical) = expression
+            && logical.operator == LogicalOperator::And
+        {
+            self.apply_callback_guard_narrowing(params, &logical.left);
+            self.apply_callback_guard_narrowing(params, &logical.right);
+            return;
+        }
+
+        let Expression::BinaryExpression(binary) = expression else {
+            return;
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        ) {
+            return;
+        }
+        let name = match (&binary.left, &binary.right) {
+            (Expression::Identifier(identifier), Expression::Identifier(undefined))
+                if undefined.name == "undefined" =>
+            {
+                identifier.name.as_str()
+            }
+            (Expression::Identifier(identifier), Expression::NullLiteral(_)) => {
+                identifier.name.as_str()
+            }
+            _ => return,
+        };
+        let Some(param) = params.get_mut(name) else {
+            return;
+        };
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(param.ty) {
+            param.ty = *inner;
+        }
+    }
+
+    /// Lower a callback condition using JavaScript truthiness where needed.
+    pub(in crate::lowering) fn callback_truthy_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        params: &HashMap<&str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        if let Expression::ChainExpression(chain) = expression
+            && let ChainElement::StaticMemberExpression(member) = &chain.expression
+        {
+            let receiver = self.callback_expression(&member.object, params, body)?;
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::FieldTruthy {
+                    receiver: Box::new(receiver),
+                    field: self.intern_source_name(member.property.name.as_str()),
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        if let Expression::ComputedMemberExpression(member) = expression {
+            if let Expression::Identifier(receiver_ident) = &member.object
+                && let Some(namespace) = self.object_namespaces.get(receiver_ident.name.as_str())
+            {
+                let case_keys = namespace.keys().cloned().collect::<Vec<_>>();
+                let key = self.callback_expression(&member.expression, params, body)?;
+                if self.ctx.krate.types.get(key.ty) != Some(&Type::String) {
+                    return Err(SmeltError::unsupported(
+                        self.span(member.expression.span().start, member.expression.span().end),
+                        "callback function-table truthy key must be a string",
+                    ));
+                }
+                return self.callback_function_table_has_key(
+                    &key,
+                    &case_keys,
+                    self.span(member.span.start, member.span.end),
+                );
+            }
+            let receiver = self.callback_expression(&member.object, params, body)?;
+            let field = self.callback_expression(&member.expression, params, body)?;
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::HasDynamicField {
+                    receiver: Box::new(receiver),
+                    field: Box::new(field),
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        let expr = self.callback_expression(expression, params, body)?;
+        let expr_ty = expr.ty;
+        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Bool) {
+            return Ok(expr);
+        }
+        if let CallbackExprKind::FunctionTableLookup { key, cases } = &expr.kind {
+            let case_keys = cases
+                .iter()
+                .map(|(case_key, _)| case_key.clone())
+                .collect::<Vec<_>>();
+            return self.callback_function_table_has_key(
+                key,
+                &case_keys,
+                self.expression_span(expression),
+            );
+        }
+        if matches!(
+            self.ctx.krate.types.get(expr_ty),
+            Some(Type::Function(_) | Type::Class { .. } | Type::TypeParam { .. })
+        ) {
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::Bool(true)),
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        if self.ctx.krate.types.get(expr_ty) == Some(&Type::String) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::NotEq,
+                    lhs: Box::new(expr),
+                    rhs: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::String(String::new())),
+                        ty: string_ty,
+                    }),
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Int) {
+            // JavaScript number truthiness: a non-NaN integer is truthy iff it is
+            // non-zero. Integers are never NaN, so `n != 0` is exact (this lowers
+            // the common `(value, index) => index ? a : b` index-guard idiom).
+            let int_ty = self.ctx.krate.types.intern(Type::Int);
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::NotEq,
+                    lhs: Box::new(expr),
+                    rhs: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::Int(0)),
+                        ty: int_ty,
+                    }),
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Float) {
+            // JavaScript number truthiness: a float is truthy iff it is non-zero
+            // (covering both `+0` and `-0`) and not `NaN`. `n != 0.0` rejects the
+            // zeroes; `n == n` rejects `NaN` (the only value not equal to itself).
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            let non_zero = CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::NotEq,
+                    lhs: Box::new(expr.clone()),
+                    rhs: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::Float(0.0)),
+                        ty: float_ty,
+                    }),
+                },
+                ty: bool_ty,
+            };
+            let not_nan = CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::Eq,
+                    lhs: Box::new(expr.clone()),
+                    rhs: Box::new(expr),
+                },
+                ty: bool_ty,
+            };
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::And,
+                    lhs: Box::new(non_zero),
+                    rhs: Box::new(not_nan),
+                },
+                ty: bool_ty,
+            });
+        }
+        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Unknown) {
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::UnknownIs {
+                    value: Box::new(expr),
+                    kind: UnknownKind::Bool,
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        if self.is_nullishable_type(expr_ty) || self.type_is_truthy_condition_surface(expr_ty) {
+            let none_ty = self.ctx.krate.types.intern(Type::None);
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::NotEq,
+                    lhs: Box::new(expr),
+                    rhs: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::None),
+                        ty: none_ty,
+                    }),
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            });
+        }
+        Err(SmeltError::unsupported(
+            self.expression_span(expression),
+            "callback conditions must be boolean, optional, or supported truthy checks",
+        ))
+    }
+
+    /// Lower a truthy check on a function table lookup into explicit key tests.
+    pub(in crate::lowering) fn callback_function_table_has_key(
+        &mut self,
+        key: &CallbackExpr,
+        cases: &[String],
+        span: Span,
+    ) -> Result<CallbackExpr, SmeltError> {
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let mut condition = None;
+        for case_key in cases {
+            let equals_case = CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::Eq,
+                    lhs: Box::new(key.clone()),
+                    rhs: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::String(case_key.clone())),
+                        ty: string_ty,
+                    }),
+                },
+                ty: bool_ty,
+            };
+            condition = Some(match condition {
+                Some(previous) => CallbackExpr {
+                    kind: CallbackExprKind::Binary {
+                        op: BinOp::Or,
+                        lhs: Box::new(previous),
+                        rhs: Box::new(equals_case),
+                    },
+                    ty: bool_ty,
+                },
+                None => equals_case,
+            });
+        }
+        condition.ok_or_else(|| {
+            SmeltError::unsupported(span, "callback function-table truthy check has no entries")
+        })
+    }
+
+    /// Lower a callback throw branch to a panic expression.
+    pub(in crate::lowering) fn callback_throw_expression(
+        &mut self,
+        argument: Option<&Expression<'_>>,
+        params: &HashMap<&str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        let message = argument
+            .map(|argument| self.callback_throw_message(argument, params, body))
+            .transpose()?;
+        Ok(CallbackExpr {
+            kind: CallbackExprKind::Throw {
+                message: message.map(Box::new),
+            },
+            ty: self.ctx.krate.types.intern(Type::Never),
+        })
+    }
+
+    /// Extract the message from common thrown error constructors.
+    pub(in crate::lowering) fn callback_throw_message(
+        &mut self,
+        argument: &Expression<'_>,
+        params: &HashMap<&str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        if let Expression::NewExpression(new_expr) = argument
+            && matches!(&new_expr.callee, Expression::Identifier(callee) if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError"))
+            && let Some(first) = new_expr.arguments.first()
+            && let Some(expression) = first.as_expression()
+        {
+            return self.callback_expression(expression, params, body);
+        }
+        if matches!(argument, Expression::NewExpression(_)) {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::String(String::new())),
+                ty,
+            });
+        }
+        self.callback_expression(argument, params, body)
+    }
+
+    /// Bind names from a callback parameter pattern to callback expressions.
+    pub(in crate::lowering) fn bind_callback_param_pattern<'a>(
+        &mut self,
+        pattern: &'a BindingPattern<'a>,
+        param_index: usize,
+        param_ty: smelt_hir::TypeId,
+        params: &mut HashMap<&'a str, CallbackExpr>,
+    ) -> Result<(), SmeltError> {
+        match pattern {
+            BindingPattern::BindingIdentifier(binding) => {
+                params.insert(
+                    binding.name.as_str(),
+                    CallbackExpr {
+                        kind: CallbackExprKind::Param(param_index),
+                        ty: param_ty,
+                    },
+                );
+                Ok(())
+            }
+            BindingPattern::ArrayPattern(array) => {
+                let item_tys = match self.ctx.krate.types.get(param_ty) {
+                    Some(Type::Tuple(items)) => items.clone(),
+                    Some(Type::List(item)) => vec![*item; array.elements.len()],
+                    _ => Vec::new(),
+                };
+                for (item_index, element) in array.elements.iter().enumerate() {
+                    let Some(element_pattern) = element else {
+                        continue;
+                    };
+                    let item_ty = item_tys.get(item_index).copied().unwrap_or(param_ty);
+                    let BindingPattern::BindingIdentifier(binding) = element_pattern else {
+                        return Err(SmeltError::unsupported(
+                            self.span(element_pattern.span().start, element_pattern.span().end),
+                            "nested callback parameter destructuring needs closure-body lowering",
+                        ));
+                    };
+                    params.insert(
+                        binding.name.as_str(),
+                        CallbackExpr {
+                            kind: CallbackExprKind::Index {
+                                receiver: Box::new(CallbackExpr {
+                                    kind: CallbackExprKind::Param(param_index),
+                                    ty: param_ty,
+                                }),
+                                index: item_index,
+                            },
+                            ty: item_ty,
+                        },
+                    );
+                }
+                Ok(())
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    if property.computed {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "computed callback parameter destructuring needs closure-body lowering",
+                        ));
+                    }
+                    let field_text = match &property.key {
+                        PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
+                        PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                        _ => {
+                            return Err(SmeltError::unsupported(
+                                self.span(property.key.span().start, property.key.span().end),
+                                "dynamic callback parameter destructuring needs closure-body lowering",
+                            ));
+                        }
+                    };
+                    let BindingPattern::BindingIdentifier(binding) = &property.value else {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.value.span().start, property.value.span().end),
+                            "nested callback parameter destructuring needs closure-body lowering",
+                        ));
+                    };
+                    let field = self.intern_source_name(field_text);
+                    let field_ty = match self.ctx.krate.types.get(param_ty) {
+                        Some(Type::Dict(_, value)) => *value,
+                        Some(Type::Class { .. }) => self.class_field_type(param_ty, field)?,
+                        _ => param_ty,
+                    };
+                    params.insert(
+                        binding.name.as_str(),
+                        CallbackExpr {
+                            kind: CallbackExprKind::Field {
+                                receiver: Box::new(CallbackExpr {
+                                    kind: CallbackExprKind::Param(param_index),
+                                    ty: param_ty,
+                                }),
+                                field,
+                            },
+                            ty: field_ty,
+                        },
+                    );
+                }
+                Ok(())
+            }
+            BindingPattern::AssignmentPattern(_) => Err(SmeltError::unsupported(
+                self.span(pattern.span().start, pattern.span().end),
+                "default callback parameter destructuring needs closure-body lowering",
+            )),
+        }
+    }
+
+    /// Read arrow parameter types, using contextual function types for omitted annotations.
+    pub(in crate::lowering) fn arrow_callback_param_types_with_hint(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        contextual_function: Option<&FunctionType>,
+    ) -> Result<Vec<smelt_hir::TypeId>, SmeltError> {
+        let mut params = Vec::new();
+        for (index, param) in arrow.params.items.iter().enumerate() {
+            let ty = param
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .or_else(|| {
+                    contextual_function.and_then(|function| function.params.get(index).copied())
+                });
+            let ty = match (&param.pattern, ty) {
+                (_, Some(ty)) => ty,
+                (BindingPattern::BindingIdentifier(_), None) => {
+                    self.infer_unannotated_arrow_param_type(arrow, index)
+                }
+                (_, None) => self.ctx.krate.types.intern(Type::Unknown),
+            };
+            // An optional parameter (`x?: T`) has type `T | undefined` inside the
+            // body, matching the function-type lowering in `types.rs`. Without
+            // this the param looks non-nullable, so an `x === undefined` guard
+            // constant-folds to `false`.
+            let ty = if param.optional
+                && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+            {
+                self.ctx.krate.types.intern(Type::Optional(ty))
+            } else {
+                ty
+            };
+            params.push(ty);
+        }
+        if let Some(rest) = &arrow.params.rest {
+            let BindingPattern::BindingIdentifier(_) = &rest.rest.argument else {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "destructured rest closure parameters need closure-body lowering",
+                ));
+            };
+            let ty = rest
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .or_else(|| {
+                    contextual_function.map(|function| {
+                        let rest_index = arrow.params.items.len();
+                        if function.rest == Some(rest_index)
+                            && let Some(rest_ty) = function.params.get(rest_index)
+                        {
+                            return *rest_ty;
+                        }
+                        let mut item_tys = Vec::new();
+                        for param_ty in function.params.iter().skip(rest_index).copied() {
+                            if !item_tys.contains(&param_ty) {
+                                item_tys.push(param_ty);
+                            }
+                        }
+                        let item_ty = match item_tys.as_slice() {
+                            [single] => *single,
+                            [] => self.ctx.krate.types.intern(Type::Unknown),
+                            _ => self.ctx.krate.types.intern(Type::Union(item_tys)),
+                        };
+                        self.ctx.krate.types.intern(Type::List(item_ty))
+                    })
+                })
+                .unwrap_or_else(|| {
+                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    self.ctx.krate.types.intern(Type::List(item_ty))
+                });
+            let Ok((ty, _)) = self.rest_param_array_type(ty) else {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest closure parameter type must be an array type",
+                ));
+            };
+            params.push(ty);
+        }
+        Ok(params)
+    }
+
+    /// Infer a conservative type for an unannotated arrow parameter.
+    ///
+    /// TypeScript normally gets these from contextual typing. When Smelt loses
+    /// that context through imported generic helpers, arithmetic use inside the
+    /// callback is still enough to recover a numeric parameter; other cases use
+    /// `unknown` so typed library code can keep lowering.
+    pub(in crate::lowering) fn infer_unannotated_arrow_param_type(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        index: usize,
+    ) -> smelt_hir::TypeId {
+        let Some(param_name) = arrow
+            .params
+            .items
+            .get(index)
+            .and_then(|param| Self::simple_binding_pattern_name(&param.pattern))
+        else {
+            return self.ctx.krate.types.intern(Type::Unknown);
+        };
+        if self.arrow_param_used_as_number(arrow, param_name) {
+            self.ctx.krate.types.intern(Type::Float)
+        } else {
+            self.ctx.krate.types.intern(Type::Unknown)
+        }
+    }
+
+    /// Return a simple identifier name from a binding or defaulted binding pattern.
+    pub(in crate::lowering) fn simple_binding_pattern_name<'a>(pattern: &'a BindingPattern<'a>) -> Option<&'a str> {
+        match pattern {
+            BindingPattern::BindingIdentifier(binding) => Some(binding.name.as_str()),
+            BindingPattern::AssignmentPattern(assign) => {
+                Self::simple_binding_pattern_name(&assign.left)
+            }
+            _ => None,
+        }
+    }
+
+    /// Return true when an arrow parameter participates in arithmetic.
+    pub(in crate::lowering) fn arrow_param_used_as_number(
+        &self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        param_name: &str,
+    ) -> bool {
+        self.arrow_return_expression(arrow)
+            .ok()
+            .is_some_and(|expr| Self::expression_uses_identifier_in_arithmetic(expr, param_name))
+    }
+
+    /// Scan an expression for arithmetic involving a named identifier.
+    pub(in crate::lowering) fn expression_uses_identifier_in_arithmetic(expression: &Expression<'_>, name: &str) -> bool {
+        match expression {
+            Expression::BinaryExpression(binary)
+                if matches!(
+                    binary.operator,
+                    BinaryOperator::Subtraction
+                        | BinaryOperator::Multiplication
+                        | BinaryOperator::Division
+                        | BinaryOperator::Remainder
+                        | BinaryOperator::Exponential
+                ) =>
+            {
+                Self::expression_contains_identifier(&binary.left, name)
+                    || Self::expression_contains_identifier(&binary.right, name)
+            }
+            Expression::BinaryExpression(binary) => {
+                Self::expression_uses_identifier_in_arithmetic(&binary.left, name)
+                    || Self::expression_uses_identifier_in_arithmetic(&binary.right, name)
+            }
+            Expression::NewExpression(new_expr) => {
+                matches!(
+                    &new_expr.callee,
+                    Expression::Identifier(identifier)
+                        if Self::is_ts_stdlib_class_name(
+                            identifier.name.as_str(),
+                            smelt_stdlib::StdlibClass::Date
+                        )
+                )
+                    && new_expr.arguments.iter().any(|argument| {
+                        argument
+                            .as_expression()
+                            .is_some_and(|expr| Self::expression_contains_identifier(expr, name))
+                    })
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::expression_uses_identifier_in_arithmetic(&parenthesized.expression, name)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::expression_uses_identifier_in_arithmetic(&as_expr.expression, name)
+            }
+            _ => false,
+        }
+    }
+
+    /// Return true when an expression contains a named identifier.
+    pub(in crate::lowering) fn expression_contains_identifier(expression: &Expression<'_>, name: &str) -> bool {
+        match expression {
+            Expression::Identifier(identifier) => identifier.name == name,
+            Expression::BinaryExpression(binary) => {
+                Self::expression_contains_identifier(&binary.left, name)
+                    || Self::expression_contains_identifier(&binary.right, name)
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::expression_contains_identifier(&parenthesized.expression, name)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::expression_contains_identifier(&as_expr.expression, name)
+            }
+            _ => false,
+        }
+    }
+
+    /// Lower a local arrow function through a real HIR closure body.
+    ///
+    /// Async arrows use the same body lowering as async function items: the
+    /// closure body is lowered with `current_async` enabled, receives the
+    /// contextual return type for return-expression hints, and records async
+    /// state metadata after await expressions have been collected.
+    pub(in crate::lowering) fn arrow_closure_body_expr(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        param_tys: &[smelt_hir::TypeId],
+        return_ty: smelt_hir::TypeId,
+        outer_body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(arrow.span.start, arrow.span.end);
+        let mut closure_body = Body::new(None, span);
+        let mut closure_params = Vec::new();
+        let mut param_names = HashSet::new();
+        let mut saved_locals = Vec::new();
+
+        for (index, param) in arrow.params.items.iter().enumerate() {
+            let ty = param_tys.get(index).copied().ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "closure parameter count does not match its type",
+                )
+            })?;
+            let (symbol, param_span) = match &param.pattern {
+                BindingPattern::BindingIdentifier(binding) => (
+                    self.intern_source_name(binding.name.as_str()),
+                    self.span(binding.span.start, binding.span.end),
+                ),
+                _ => (
+                    self.synthetic_param_symbol(index),
+                    self.span(param.span.start, param.span.end),
+                ),
+            };
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(symbol),
+                ty,
+                mutable: false,
+                span: param_span,
+            });
+            closure_body.params.push(local);
+            closure_params.push(Param {
+                name: symbol,
+                local,
+                ty,
+                span: param_span,
+            });
+            match &param.pattern {
+                BindingPattern::BindingIdentifier(binding) => {
+                    param_names.insert(binding.name.as_str().to_owned());
+                    saved_locals.push((
+                        binding.name.as_str().to_owned(),
+                        self.locals.insert(binding.name.as_str().to_owned(), local),
+                    ));
+                }
+                pattern => {
+                    let mut names = Vec::new();
+                    Self::binding_pattern_names(pattern, &mut names);
+                    for name in &names {
+                        param_names.insert(name.clone());
+                        saved_locals.push((name.clone(), self.locals.get(name.as_str()).copied()));
+                    }
+                    let value = closure_body.push_expr(Expr {
+                        kind: ExprKind::Local(local),
+                        ty,
+                        span: param_span,
+                    });
+                    let root = closure_body.root;
+                    self.binding_declaration(
+                        pattern,
+                        Some(value),
+                        Some(ty),
+                        false,
+                        &mut closure_body,
+                        root,
+                    )?;
+                }
+            }
+        }
+
+        if let Some(rest) = &arrow.params.rest {
+            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "destructured rest closure parameters need closure-body lowering",
+                ));
+            };
+            let ty = param_tys.last().copied().ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest closure parameter count does not match its type",
+                )
+            })?;
+            let symbol = self.intern_source_name(binding.name.as_str());
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(symbol),
+                ty,
+                mutable: false,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+            closure_body.params.push(local);
+            closure_params.push(Param {
+                name: symbol,
+                local,
+                ty,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+            param_names.insert(binding.name.as_str().to_owned());
+            saved_locals.push((
+                binding.name.as_str().to_owned(),
+                self.locals.insert(binding.name.as_str().to_owned(), local),
+            ));
+        }
+
+        let mut capture_names = Vec::new();
+        if arrow.expression {
+            let return_expression = self.arrow_return_expression(arrow)?;
+            self.collect_expression_capture_names(
+                return_expression,
+                &param_names,
+                &mut capture_names,
+            );
+        } else {
+            for statement in &arrow.body.statements {
+                self.collect_statement_capture_names(statement, &param_names, &mut capture_names);
+            }
+        }
+        capture_names.sort();
+        capture_names.dedup();
+
+        let mut captures = Vec::new();
+        for name in capture_names {
+            let Some(source_local) = saved_locals
+                .iter()
+                .find_map(|(saved_name, prior)| (saved_name == &name).then_some(*prior).flatten())
+                .or_else(|| self.locals.get(name.as_str()).copied())
+            else {
+                continue;
+            };
+            let Some(source_decl) = usize::try_from(source_local.0)
+                .ok()
+                .and_then(|index| outer_body.locals.get(index))
+            else {
+                continue;
+            };
+            let symbol = source_decl
+                .name
+                .unwrap_or_else(|| self.ctx.krate.symbols.intern(name.as_str()));
+            let body_local = closure_body.push_local(LocalDecl {
+                name: Some(symbol),
+                ty: source_decl.ty,
+                mutable: source_decl.mutable,
+                span: source_decl.span,
+            });
+            saved_locals.push((name.clone(), self.locals.insert(name, body_local)));
+            captures.push(ClosureCapture {
+                source_local,
+                body_local: Some(body_local),
+                symbol,
+                ty: source_decl.ty,
+                mode: CaptureMode::ByRef,
+            });
+        }
+
+        let saved_async = self.current_async;
+        let saved_return_ty = self.current_return_ty;
+        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let infer_expression_return =
+            arrow.expression && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
+        self.current_async = arrow.r#async;
+        self.current_return_ty = Some(return_ty);
+        let mut actual_return_ty = return_ty;
+        let predeclare_result = if arrow.expression {
+            Ok(())
+        } else {
+            self.predeclare_local_function_declarations(&arrow.body.statements, &mut closure_body)
+                .and_then(|()| {
+                    self.predeclare_local_arrow_callbacks(&arrow.body.statements, &mut closure_body)
+                })
+        };
+        let lowering_result = if let Err(error) = predeclare_result {
+            Err(error)
+        } else if arrow.expression {
+            match self.arrow_return_expression(arrow) {
+                Ok(return_expression) => {
+                    let hint = (!infer_expression_return).then_some(return_ty);
+                    self.expression_with_hint(return_expression, &mut closure_body, hint)
+                        .map(|value| {
+                            if infer_expression_return {
+                                actual_return_ty = Self::expr_ty(&closure_body, value);
+                            }
+                            closure_body.push_stmt(Stmt::Return(Some(value)));
+                        })
+                }
+                Err(error) => Err(error),
+            }
+        } else {
+            let mut result = Ok(());
+            for statement in &arrow.body.statements {
+                if let Err(error) = self.statement(statement, &mut closure_body) {
+                    result = Err(error);
+                    break;
+                }
+            }
+            result
+        };
+        if arrow.r#async {
+            closure_body.build_async_state_machine();
+        }
+        self.current_async = saved_async;
+        self.current_return_ty = saved_return_ty;
+        self.narrowed_locals = saved_narrowed_locals;
+        for (name, prior) in saved_locals.into_iter().rev() {
+            if let Some(local) = prior {
+                self.locals.insert(name, local);
+            } else {
+                self.locals.remove(name.as_str());
+            }
+        }
+        lowering_result?;
+        let may_throw = Self::body_contains_uncaught_throw(&closure_body);
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: param_tys.to_vec(),
+            rest: arrow.params.rest.as_ref().map(|_| arrow.params.items.len()),
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: actual_return_ty,
+            is_async: arrow.r#async,
+            may_throw,
+        }));
+        Ok(outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: closure_params,
+                rest: arrow.params.rest.as_ref().map(|_| arrow.params.items.len()),
+                required_params: None,
+                return_ty: actual_return_ty,
+                captures,
+                body: body_id,
+                function_item: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        }))
+    }
+
+    /// Returns whether a legacy callback expression contains a source throw.
+    pub(in crate::lowering) fn callback_expr_contains_throw(callback: &CallbackExpr) -> bool {
+        match &callback.kind {
+            CallbackExprKind::Throw { .. } => true,
+            CallbackExprKind::Unary { operand, .. } => Self::callback_expr_contains_throw(operand),
+            CallbackExprKind::Binary { lhs, rhs, .. } => {
+                Self::callback_expr_contains_throw(lhs) || Self::callback_expr_contains_throw(rhs)
+            }
+            CallbackExprKind::UnknownIs { value, .. } => Self::callback_expr_contains_throw(value),
+            CallbackExprKind::TypeofValue { value } => Self::callback_expr_contains_throw(value),
+            CallbackExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                Self::callback_expr_contains_throw(cond)
+                    || Self::callback_expr_contains_throw(then_expr)
+                    || Self::callback_expr_contains_throw(else_expr)
+            }
+            CallbackExprKind::Call { callee, args } => {
+                Self::callback_expr_contains_throw(callee)
+                    || args
+                        .iter()
+                        .any(|arg| Self::callback_expr_contains_throw(&arg.expr))
+            }
+            CallbackExprKind::MethodCall { receiver, args, .. } => {
+                Self::callback_expr_contains_throw(receiver)
+                    || args
+                        .iter()
+                        .any(|arg| Self::callback_expr_contains_throw(&arg.expr))
+            }
+            CallbackExprKind::ListLit(items) => {
+                items.iter().any(Self::callback_expr_contains_throw)
+            }
+            CallbackExprKind::DictLit(entries) => entries
+                .iter()
+                .any(|(_, value)| Self::callback_expr_contains_throw(value)),
+            CallbackExprKind::Sequence { effects, result } => {
+                effects.iter().any(Self::callback_expr_contains_throw)
+                    || Self::callback_expr_contains_throw(result)
+            }
+            CallbackExprKind::FunctionTableLookup { key, .. } => {
+                Self::callback_expr_contains_throw(key)
+            }
+            CallbackExprKind::AssignCapture { value, .. } => {
+                Self::callback_expr_contains_throw(value)
+            }
+            CallbackExprKind::Index { receiver, .. }
+            | CallbackExprKind::Field { receiver, .. }
+            | CallbackExprKind::HasField { receiver, .. }
+            | CallbackExprKind::FieldTruthy { receiver, .. } => {
+                Self::callback_expr_contains_throw(receiver)
+            }
+            CallbackExprKind::DynamicIndex { receiver, index } => {
+                Self::callback_expr_contains_throw(receiver)
+                    || Self::callback_expr_contains_throw(index)
+            }
+            CallbackExprKind::HasDynamicField { receiver, field } => {
+                Self::callback_expr_contains_throw(receiver)
+                    || Self::callback_expr_contains_throw(field)
+            }
+            CallbackExprKind::Param(_)
+            | CallbackExprKind::Capture(_)
+            | CallbackExprKind::Function(_)
+            | CallbackExprKind::Literal(_) => false,
+        }
+    }
+
+    /// Returns whether a lowered closure body can throw past its own boundary.
+    ///
+    /// Try bodies with a catch handler are considered locally handled here: the
+    /// MIR lowering attaches exception edges for nested calls and explicit
+    /// throws, so only statements that can escape the closure need to widen the
+    /// closure ABI to `Result`.
+    pub(in crate::lowering) fn body_contains_uncaught_throw(body: &Body) -> bool {
+        Self::block_contains_uncaught_throw(body, body.root)
+    }
+
+    /// Returns whether a HIR block contains a throw not protected by catch.
+    pub(in crate::lowering) fn block_contains_uncaught_throw(body: &Body, block: smelt_hir::BlockId) -> bool {
+        let Some(block_data) = usize::try_from(block.0)
+            .ok()
+            .and_then(|index| body.blocks.get(index))
+        else {
+            return false;
+        };
+        block_data.stmts.iter().any(|stmt_id| {
+            let Some(stmt) = usize::try_from(stmt_id.0)
+                .ok()
+                .and_then(|index| body.stmts.get(index))
+            else {
+                return false;
+            };
+            Self::stmt_contains_uncaught_throw(body, stmt)
+        })
+    }
+
+    /// Returns whether a HIR statement can throw out of the surrounding body.
+    pub(in crate::lowering) fn stmt_contains_uncaught_throw(body: &Body, stmt: &Stmt) -> bool {
+        match stmt {
+            Stmt::Throw(_) => true,
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                Self::block_contains_uncaught_throw(body, *then_block)
+                    || else_block
+                        .is_some_and(|block| Self::block_contains_uncaught_throw(body, block))
+            }
+            Stmt::While {
+                body: loop_body, ..
+            }
+            | Stmt::WhileUpdate {
+                body: loop_body, ..
+            }
+            | Stmt::For {
+                body: loop_body, ..
+            } => Self::block_contains_uncaught_throw(body, *loop_body),
+            Stmt::Match { arms, default, .. } => {
+                arms.iter()
+                    .any(|arm| Self::block_contains_uncaught_throw(body, arm.body))
+                    || default.is_some_and(|block| Self::block_contains_uncaught_throw(body, block))
+            }
+            Stmt::TryCatch {
+                body: try_body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                let try_escapes = if catch_body.is_none() {
+                    Self::block_contains_uncaught_throw(body, *try_body)
+                } else {
+                    false
+                };
+                let catch_escapes = catch_body
+                    .is_some_and(|block| Self::block_contains_uncaught_throw(body, block));
+                let finally_escapes = finally_body
+                    .is_some_and(|block| Self::block_contains_uncaught_throw(body, block));
+                try_escapes || catch_escapes || finally_escapes
+            }
+            Stmt::Let { .. }
+            | Stmt::Assign { .. }
+            | Stmt::Expr(_)
+            | Stmt::Return(_)
+            | Stmt::Break
+            | Stmt::Continue => false,
+        }
+    }
+
+    /// Lower an arrow function expression as a first-class closure value.
+    pub(in crate::lowering) fn arrow_function_expression(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.arrow_function_expression_with_hint(arrow, body, None)
+    }
+
+    /// Lower an arrow function expression using an optional contextual function type.
+    pub(in crate::lowering) fn arrow_function_expression_with_hint(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        let result = (|| {
+            let contextual_function = type_hint.and_then(|hint| {
+                let function_hint = self.function_member_type(hint).unwrap_or(hint);
+                if let Some(Type::Function(function)) = self.ctx.krate.types.get(function_hint) {
+                    Some(function.clone())
+                } else {
+                    None
+                }
+            });
+            let params =
+                self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
+            let explicit_return_ty = arrow
+                .return_type
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?;
+            if !arrow.r#async
+                && let Ok(callback) = self.arrow_callback_from_params(arrow, &params, body)
+            {
+                let return_ty = explicit_return_ty.unwrap_or(callback.ty);
+                if !self.type_assignable_to(callback.ty, return_ty) {
+                    return Err(SmeltError::unsupported(
+                        self.span(arrow.span.start, arrow.span.end),
+                        "arrow expression return type does not match its annotation",
+                    ));
+                }
+                let span = self.span(arrow.span.start, arrow.span.end);
+                let rest = arrow
+                    .params
+                    .rest
+                    .as_ref()
+                    .map(|_| arrow.params.items.len())
+                    .or_else(|| {
+                        contextual_function
+                            .as_ref()
+                            .and_then(|function| function.rest)
+                    });
+                return self.callback_expr_to_closure_with_return_ty(
+                    return_ty,
+                    &callback,
+                    &params,
+                    rest,
+                    contextual_function
+                        .as_ref()
+                        .and_then(|function| function.required_params),
+                    span,
+                    body,
+                );
+            }
+            let mut return_ty = explicit_return_ty
+                .or_else(|| {
+                    contextual_function
+                        .as_ref()
+                        .map(|function| function.return_ty)
+                })
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            if arrow.r#async
+                && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+            {
+                return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
+            }
+            self.arrow_closure_body_expr(arrow, &params, return_ty, body)
+        })();
+        self.pop_type_parameter_scope();
+        result
+    }
+
+    /// Return the expression produced by an arrow function body.
+    pub(in crate::lowering) fn arrow_return_expression<'a>(
+        &self,
+        arrow: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
+    ) -> Result<&'a Expression<'a>, SmeltError> {
+        if arrow.expression {
+            let [Statement::ExpressionStatement(statement)] = arrow.body.statements.as_slice()
+            else {
+                return Err(SmeltError::unsupported(
+                    self.span(arrow.body.span.start, arrow.body.span.end),
+                    "expression-bodied closures must contain one expression",
+                ));
+            };
+            Ok(&statement.expression)
+        } else {
+            let [Statement::ReturnStatement(statement)] = arrow.body.statements.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(arrow.body.span.start, arrow.body.span.end),
+                    "block-bodied closures currently require a single return statement",
+                ));
+            };
+            statement.argument.as_ref().ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(statement.span.start, statement.span.end),
+                    "closure return statements must return a value",
+                )
+            })
+        }
+    }
+
+    /// Collect outer identifier names referenced by an arrow body expression.
+    pub(in crate::lowering) fn collect_expression_capture_names(
+        &self,
+        expression: &Expression<'_>,
+        param_names: &HashSet<String>,
+        captures: &mut Vec<String>,
+    ) {
+        match expression {
+            Expression::ThisExpression(_) => {
+                if !param_names.contains("this") && self.locals.contains_key("this") {
+                    captures.push("this".to_owned());
+                }
+            }
+            Expression::Identifier(identifier) => {
+                let name = identifier.name.as_str();
+                if !param_names.contains(name) && self.locals.contains_key(name) {
+                    captures.push(name.to_owned());
+                }
+            }
+            Expression::CallExpression(call) => {
+                self.collect_expression_capture_names(&call.callee, param_names, captures);
+                for arg in &call.arguments {
+                    match arg {
+                        Argument::SpreadElement(spread) => self.collect_expression_capture_names(
+                            &spread.argument,
+                            param_names,
+                            captures,
+                        ),
+                        other => {
+                            if let Some(arg_expression) = other.as_expression() {
+                                self.collect_expression_capture_names(
+                                    arg_expression,
+                                    param_names,
+                                    captures,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Expression::NewExpression(new_expr) => {
+                self.collect_expression_capture_names(&new_expr.callee, param_names, captures);
+                for arg in &new_expr.arguments {
+                    match arg {
+                        Argument::SpreadElement(spread) => self.collect_expression_capture_names(
+                            &spread.argument,
+                            param_names,
+                            captures,
+                        ),
+                        other => {
+                            if let Some(arg_expression) = other.as_expression() {
+                                self.collect_expression_capture_names(
+                                    arg_expression,
+                                    param_names,
+                                    captures,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Expression::ParenthesizedExpression(parenthesized) => self
+                .collect_expression_capture_names(&parenthesized.expression, param_names, captures),
+            Expression::BinaryExpression(binary) => {
+                self.collect_expression_capture_names(&binary.left, param_names, captures);
+                self.collect_expression_capture_names(&binary.right, param_names, captures);
+            }
+            Expression::LogicalExpression(logical) => {
+                self.collect_expression_capture_names(&logical.left, param_names, captures);
+                self.collect_expression_capture_names(&logical.right, param_names, captures);
+            }
+            Expression::UnaryExpression(unary) => {
+                self.collect_expression_capture_names(&unary.argument, param_names, captures);
+            }
+            Expression::AwaitExpression(await_expr) => {
+                self.collect_expression_capture_names(&await_expr.argument, param_names, captures);
+            }
+            Expression::AssignmentExpression(assignment) => {
+                self.collect_assignment_target_capture_names(
+                    &assignment.left,
+                    param_names,
+                    captures,
+                );
+                self.collect_expression_capture_names(&assignment.right, param_names, captures);
+            }
+            Expression::ConditionalExpression(conditional) => {
+                self.collect_expression_capture_names(&conditional.test, param_names, captures);
+                self.collect_expression_capture_names(
+                    &conditional.consequent,
+                    param_names,
+                    captures,
+                );
+                self.collect_expression_capture_names(
+                    &conditional.alternate,
+                    param_names,
+                    captures,
+                );
+            }
+            Expression::TemplateLiteral(template) => {
+                for template_expression in &template.expressions {
+                    self.collect_expression_capture_names(
+                        template_expression,
+                        param_names,
+                        captures,
+                    );
+                }
+            }
+            Expression::StaticMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
+            Expression::ComputedMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+                self.collect_expression_capture_names(&member.expression, param_names, captures);
+            }
+            Expression::ObjectExpression(object) => {
+                for property in &object.properties {
+                    match property {
+                        ObjectPropertyKind::ObjectProperty(property) => {
+                            self.collect_expression_capture_names(
+                                &property.value,
+                                param_names,
+                                captures,
+                            );
+                        }
+                        ObjectPropertyKind::SpreadProperty(spread) => self
+                            .collect_expression_capture_names(
+                                &spread.argument,
+                                param_names,
+                                captures,
+                            ),
+                    }
+                }
+            }
+            Expression::ArrayExpression(array) => {
+                for element in &array.elements {
+                    match element {
+                        ArrayExpressionElement::SpreadElement(spread) => self
+                            .collect_expression_capture_names(
+                                &spread.argument,
+                                param_names,
+                                captures,
+                            ),
+                        other => {
+                            if let Some(expr) = other.as_expression() {
+                                self.collect_expression_capture_names(expr, param_names, captures);
+                            }
+                        }
+                    }
+                }
+            }
+            Expression::ArrowFunctionExpression(arrow) => {
+                let mut nested_params = param_names.clone();
+                for param in &arrow.params.items {
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        nested_params.insert(binding.name.as_str().to_owned());
+                    }
+                }
+                for statement in &arrow.body.statements {
+                    self.collect_statement_capture_names(statement, &nested_params, captures);
+                }
+            }
+            Expression::TSAsExpression(as_expr) => {
+                self.collect_expression_capture_names(&as_expr.expression, param_names, captures);
+            }
+            Expression::TSTypeAssertion(assertion) => {
+                self.collect_expression_capture_names(&assertion.expression, param_names, captures);
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.collect_expression_capture_names(&satisfies.expression, param_names, captures);
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.collect_expression_capture_names(&non_null.expression, param_names, captures);
+            }
+            Expression::ChainExpression(chain) => match &chain.expression {
+                ChainElement::CallExpression(call) => {
+                    self.collect_expression_capture_names(&call.callee, param_names, captures);
+                    for arg in &call.arguments {
+                        match arg {
+                            Argument::SpreadElement(spread) => self
+                                .collect_expression_capture_names(
+                                    &spread.argument,
+                                    param_names,
+                                    captures,
+                                ),
+                            other => {
+                                if let Some(arg_expression) = other.as_expression() {
+                                    self.collect_expression_capture_names(
+                                        arg_expression,
+                                        param_names,
+                                        captures,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                ChainElement::StaticMemberExpression(member) => {
+                    self.collect_expression_capture_names(&member.object, param_names, captures);
+                }
+                ChainElement::ComputedMemberExpression(member) => {
+                    self.collect_expression_capture_names(&member.object, param_names, captures);
+                    self.collect_expression_capture_names(
+                        &member.expression,
+                        param_names,
+                        captures,
+                    );
+                }
+                ChainElement::TSNonNullExpression(non_null) => {
+                    self.collect_expression_capture_names(
+                        &non_null.expression,
+                        param_names,
+                        captures,
+                    );
+                }
+                ChainElement::PrivateFieldExpression(_) => {}
+            },
+            Expression::UpdateExpression(update) => {
+                self.collect_simple_assignment_target_capture_names(
+                    &update.argument,
+                    param_names,
+                    captures,
+                );
+            }
+            Expression::SequenceExpression(sequence) => {
+                for expression in &sequence.expressions {
+                    self.collect_expression_capture_names(expression, param_names, captures);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Collect captured locals referenced by a simple assignment target
+    /// (the target of `x++`, `--y`, or `obj[i]++`).
+    ///
+    /// `++counter` and `startIndex++` in the curry/bind/after family mutate a
+    /// captured enclosing local; without traversing the update target the
+    /// mutated local is never recorded as a capture and the closure body fails
+    /// with `unresolved identifier`.
+    pub(in crate::lowering) fn collect_simple_assignment_target_capture_names(
+        &self,
+        target: &SimpleAssignmentTarget<'_>,
+        param_names: &HashSet<String>,
+        captures: &mut Vec<String>,
+    ) {
+        match target {
+            SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+                let name = identifier.name.as_str();
+                if !param_names.contains(name) && self.locals.contains_key(name) {
+                    captures.push(name.to_owned());
+                }
+            }
+            SimpleAssignmentTarget::StaticMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
+            SimpleAssignmentTarget::ComputedMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+                self.collect_expression_capture_names(&member.expression, param_names, captures);
+            }
+            _ => {}
+        }
+    }
+
+    /// Collect captured locals referenced by an assignment target.
+    pub(in crate::lowering) fn collect_assignment_target_capture_names(
+        &self,
+        target: &AssignmentTarget<'_>,
+        param_names: &HashSet<String>,
+        captures: &mut Vec<String>,
+    ) {
+        match target {
+            AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+                let name = identifier.name.as_str();
+                if !param_names.contains(name) && self.locals.contains_key(name) {
+                    captures.push(name.to_owned());
+                }
+            }
+            AssignmentTarget::ComputedMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+                self.collect_expression_capture_names(&member.expression, param_names, captures);
+            }
+            AssignmentTarget::StaticMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
+            _ => {}
+        }
+    }
+
+    /// Collect outer identifier names referenced by a block-bodied arrow statement.
+    pub(in crate::lowering) fn collect_statement_capture_names(
+        &self,
+        statement: &Statement<'_>,
+        param_names: &HashSet<String>,
+        captures: &mut Vec<String>,
+    ) {
+        match statement {
+            Statement::VariableDeclaration(decl) => {
+                let mut local_names = param_names.clone();
+                for declarator in &decl.declarations {
+                    if let BindingPattern::BindingIdentifier(binding) = &declarator.id {
+                        local_names.insert(binding.name.as_str().to_owned());
+                    }
+                }
+                for declarator in &decl.declarations {
+                    if let Some(init) = &declarator.init {
+                        self.collect_expression_capture_names(init, &local_names, captures);
+                    }
+                }
+            }
+            Statement::ExpressionStatement(statement) => {
+                self.collect_expression_capture_names(&statement.expression, param_names, captures);
+            }
+            Statement::ReturnStatement(statement) => {
+                if let Some(argument) = &statement.argument {
+                    self.collect_expression_capture_names(argument, param_names, captures);
+                }
+            }
+            Statement::IfStatement(statement) => {
+                self.collect_expression_capture_names(&statement.test, param_names, captures);
+                self.collect_statement_capture_names(&statement.consequent, param_names, captures);
+                if let Some(alternate) = &statement.alternate {
+                    self.collect_statement_capture_names(alternate, param_names, captures);
+                }
+            }
+            Statement::BlockStatement(block) => {
+                for child in &block.body {
+                    self.collect_statement_capture_names(child, param_names, captures);
+                }
+            }
+            Statement::ForOfStatement(statement) => {
+                self.collect_expression_capture_names(&statement.right, param_names, captures);
+                let mut local_names = param_names.clone();
+                Self::collect_for_left_binding_names(&statement.left, &mut local_names);
+                self.collect_statement_capture_names(&statement.body, &local_names, captures);
+            }
+            Statement::ForInStatement(statement) => {
+                self.collect_expression_capture_names(&statement.right, param_names, captures);
+                let mut local_names = param_names.clone();
+                Self::collect_for_left_binding_names(&statement.left, &mut local_names);
+                self.collect_statement_capture_names(&statement.body, &local_names, captures);
+            }
+            Statement::WhileStatement(statement) => {
+                self.collect_expression_capture_names(&statement.test, param_names, captures);
+                self.collect_statement_capture_names(&statement.body, param_names, captures);
+            }
+            Statement::TryStatement(statement) => {
+                for child in &statement.block.body {
+                    self.collect_statement_capture_names(child, param_names, captures);
+                }
+                if let Some(handler) = &statement.handler {
+                    let mut local_names = param_names.clone();
+                    if let Some(param) = &handler.param {
+                        let mut binding_names = Vec::new();
+                        Self::binding_pattern_names(&param.pattern, &mut binding_names);
+                        local_names.extend(binding_names);
+                    }
+                    for child in &handler.body.body {
+                        self.collect_statement_capture_names(child, &local_names, captures);
+                    }
+                }
+                if let Some(finalizer) = &statement.finalizer {
+                    for child in &finalizer.body {
+                        self.collect_statement_capture_names(child, param_names, captures);
+                    }
+                }
+            }
+            Statement::ThrowStatement(statement) => {
+                self.collect_expression_capture_names(&statement.argument, param_names, captures);
+            }
+            Statement::ForStatement(statement) => {
+                // C-style `for (let i = 0; i < n; ++i)` loops appear throughout
+                // the curry/bind/partial family's returned closures. The init
+                // declaration introduces loop-scoped locals (`i`); the test,
+                // update, and body all reference enclosing captures
+                // (`partialArgs.length`, `predicates[i]`). Thread the init's
+                // declared names so the loop variable is not treated as a
+                // capture while the genuinely-enclosing locals still are.
+                let mut local_names = param_names.clone();
+                if let Some(ForStatementInit::VariableDeclaration(decl)) = &statement.init {
+                    for declarator in &decl.declarations {
+                        let mut binding_names = Vec::new();
+                        Self::binding_pattern_names(&declarator.id, &mut binding_names);
+                        local_names.extend(binding_names);
+                    }
+                }
+                match &statement.init {
+                    Some(ForStatementInit::VariableDeclaration(decl)) => {
+                        for declarator in &decl.declarations {
+                            if let Some(init) = &declarator.init {
+                                self.collect_expression_capture_names(
+                                    init,
+                                    &local_names,
+                                    captures,
+                                );
+                            }
+                        }
+                    }
+                    Some(init) => {
+                        if let Some(expression) = init.as_expression() {
+                            self.collect_expression_capture_names(
+                                expression,
+                                &local_names,
+                                captures,
+                            );
+                        }
+                    }
+                    None => {}
+                }
+                if let Some(test) = &statement.test {
+                    self.collect_expression_capture_names(test, &local_names, captures);
+                }
+                if let Some(update) = &statement.update {
+                    self.collect_expression_capture_names(update, &local_names, captures);
+                }
+                self.collect_statement_capture_names(&statement.body, &local_names, captures);
+            }
+            Statement::DoWhileStatement(statement) => {
+                self.collect_statement_capture_names(&statement.body, param_names, captures);
+                self.collect_expression_capture_names(&statement.test, param_names, captures);
+            }
+            Statement::SwitchStatement(statement) => {
+                self.collect_expression_capture_names(
+                    &statement.discriminant,
+                    param_names,
+                    captures,
+                );
+                for case in &statement.cases {
+                    if let Some(test) = &case.test {
+                        self.collect_expression_capture_names(test, param_names, captures);
+                    }
+                    for child in &case.consequent {
+                        self.collect_statement_capture_names(child, param_names, captures);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Add names declared by a `for...of` or `for...in` left binding to a local name set.
+    pub(in crate::lowering) fn collect_for_left_binding_names(left: &ForStatementLeft<'_>, names: &mut HashSet<String>) {
+        let ForStatementLeft::VariableDeclaration(decl) = left else {
+            return;
+        };
+        for declarator in &decl.declarations {
+            let mut binding_names = Vec::new();
+            Self::binding_pattern_names(&declarator.id, &mut binding_names);
+            names.extend(binding_names);
+        }
+    }
+
+}
