@@ -4,7 +4,7 @@
 //! resolution, interface satisfaction checks, and small accessors for looking
 //! up expression, local, and item types.
 
-use super::{ModuleBuilder, field_type_satisfies};
+use crate::lowering::{ModuleBuilder, field_type_satisfies};
 use crate::SmeltError;
 use oxc::ast::ast::{Expression, PropertyKey, TSTypeName};
 use oxc::span::GetSpan;
@@ -12,7 +12,7 @@ use smelt_hir::{Body, Expr, ExprKind, Interface, Item, Literal, Type};
 
 impl ModuleBuilder<'_> {
     /// Convert a TypeScript property key into the interned HIR symbol it names.
-    pub(super) fn property_key_symbol(
+    pub(in crate::lowering) fn property_key_symbol(
         &mut self,
         key: &PropertyKey<'_>,
     ) -> Result<smelt_hir::Symbol, SmeltError> {
@@ -42,7 +42,7 @@ impl ModuleBuilder<'_> {
 
     /// Render a numeric property-key value as the string member name JavaScript
     /// would use when no raw source spelling is available (e.g. `0` -> "0").
-    pub(super) fn numeric_property_key_name(value: f64) -> String {
+    pub(in crate::lowering) fn numeric_property_key_name(value: f64) -> String {
         if value.fract() == 0.0 && value.is_finite() {
             // Whole, finite key: render without a fractional part (`0` -> "0",
             // `5` -> "5") via precision formatting, avoiding a lossy f64->int cast.
@@ -53,7 +53,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a computed property key to a HIR index expression.
-    pub(super) fn property_key_index_expression(
+    pub(in crate::lowering) fn property_key_index_expression(
         &mut self,
         key: &PropertyKey<'_>,
         body: &mut Body,
@@ -117,7 +117,7 @@ impl ModuleBuilder<'_> {
     /// interface validator, so they are ignored instead of blocking class
     /// lowering. Direct identifiers are still validated against local
     /// interfaces.
-    pub(super) fn implements_symbol(
+    pub(in crate::lowering) fn implements_symbol(
         &mut self,
         item: &oxc::ast::ast::TSClassImplements<'_>,
     ) -> Result<Option<smelt_hir::Symbol>, SmeltError> {
@@ -134,7 +134,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Convert an interface heritage clause to the referenced interface symbol and arguments.
-    pub(super) fn interface_heritage(
+    pub(in crate::lowering) fn interface_heritage(
         &mut self,
         item: &oxc::ast::ast::TSInterfaceHeritage<'_>,
     ) -> Result<(smelt_hir::Symbol, Vec<smelt_hir::TypeId>), SmeltError> {
@@ -176,7 +176,7 @@ impl ModuleBuilder<'_> {
     /// counterparts. Looking from the end keeps source declarations from being
     /// shadowed by earlier, weaker declarations while preserving ordinary
     /// dependency-first lookup.
-    pub(super) fn find_interface(&self, name: smelt_hir::Symbol) -> Option<&Interface> {
+    pub(in crate::lowering) fn find_interface(&self, name: smelt_hir::Symbol) -> Option<&Interface> {
         self.ctx.krate.items.iter().rev().find_map(|item| {
             if let Item::Interface(interface) = item {
                 if interface.name == name {
@@ -191,7 +191,7 @@ impl ModuleBuilder<'_> {
     ///
     /// This mirrors interface lookup so `.ts` aliases can refine generated
     /// declaration-file aliases when both appear in one manifest.
-    pub(super) fn find_type_alias(&self, name: smelt_hir::Symbol) -> Option<&smelt_hir::TypeAlias> {
+    pub(in crate::lowering) fn find_type_alias(&self, name: smelt_hir::Symbol) -> Option<&smelt_hir::TypeAlias> {
         self.ctx.krate.items.iter().rev().find_map(|item| {
             if let Item::TypeAlias(alias) = item
                 && alias.name == name
@@ -203,7 +203,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Validate that a lowered class satisfies all declared interfaces.
-    pub(super) fn validate_implements(&self, class_item: smelt_hir::ItemId) -> Result<(), SmeltError> {
+    pub(in crate::lowering) fn validate_implements(&self, class_item: smelt_hir::ItemId) -> Result<(), SmeltError> {
         let Item::Class(class) = self.item_ref(class_item) else {
             return Ok(());
         };
@@ -308,7 +308,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Look up the type of an existing expression.
-    pub(super) fn expr_ty(body: &Body, expr: smelt_hir::ExprId) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn expr_ty(body: &Body, expr: smelt_hir::ExprId) -> smelt_hir::TypeId {
         let index = usize::try_from(expr.0).expect("expr id should fit into usize");
         body.exprs
             .get(index)
@@ -317,7 +317,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Look up the type of an existing local.
-    pub(super) fn local_ty(body: &Body, local: smelt_hir::LocalId) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn local_ty(body: &Body, local: smelt_hir::LocalId) -> smelt_hir::TypeId {
         let index = usize::try_from(local.0).expect("local id should fit into usize");
         body.locals
             .get(index)
@@ -334,13 +334,13 @@ impl ModuleBuilder<'_> {
     /// plain [`Self::local_ty`] would panic. Callers performing best-effort type
     /// narrowing use this checked variant and treat a missing local as "no
     /// narrowing information available".
-    pub(super) fn local_ty_checked(body: &Body, local: smelt_hir::LocalId) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn local_ty_checked(body: &Body, local: smelt_hir::LocalId) -> Option<smelt_hir::TypeId> {
         let index = usize::try_from(local.0).ok()?;
         body.locals.get(index).map(|local| local.ty)
     }
 
     /// Look up a lowered item by id.
-    pub(super) fn item_ref(&self, item: smelt_hir::ItemId) -> &Item {
+    pub(in crate::lowering) fn item_ref(&self, item: smelt_hir::ItemId) -> &Item {
         let index = usize::try_from(item.0).expect("item id should fit into usize");
         self.ctx
             .krate

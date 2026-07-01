@@ -6,6 +6,7 @@ mod specialization;
 mod stdlib;
 mod stdlib_dispatch;
 mod support;
+mod ty;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
@@ -490,7 +491,4 @@ mod builder_part12;
 mod builder_part13;
 mod builder_part14;
 mod builder_part15;
-mod types;
 mod builder_part16;
-mod builder_part17;
-mod builder_part18;
