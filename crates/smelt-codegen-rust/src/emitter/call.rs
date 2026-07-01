@@ -438,6 +438,11 @@ impl FunctionEmitter<'_> {
                     {
                         return Ok(field_call);
                     }
+                    // Route the built-in `Array.prototype.concat` to the list-concat
+                    // helper. This is gated on the receiver's *static* type being a
+                    // `List` (not on argument text), so it is a general rule keyed by
+                    // the concrete receiver type rather than a name-based fixup: any
+                    // list receiver calling single-argument `concat` lowers here.
                     if method_name == "concat"
                         && rest.len() == 1
                         && matches!(
@@ -646,6 +651,36 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.default_value(target_ty)?);
                     }
                 }
+                // Default-argument fixups for specific generated stdlib/Remeda shim
+                // functions.
+                //
+                // When a call omits a trailing optional parameter, the loop above
+                // synthesizes a literal via `default_value(target_ty)` from the
+                // parameter's *source-declared* MIR type. For the shims below the
+                // declared type and the emitted Rust ABI disagree, so the synthesized
+                // literal is the wrong Rust value:
+                //
+                //   * an optional parameter is declared as a plain
+                //     `List`/`Set`/`Dict`/`unknown` (yielding `Vec::new()` /
+                //     `HashMap::new()` / `SmeltUnknown::Null`) even though the emitted
+                //     Rust signature takes an `Option<_>` and expects `None`;
+                //   * a numeric config slot is declared with a callback/list default
+                //     even though the emitted signature takes an `f64` and expects
+                //     `0.0`;
+                //   * a callback slot is declared as a plain list/callback default
+                //     even though the emitted signature takes a borrowed callback.
+                //
+                // The correct default depends on the *emitted* (overload-monomorphized)
+                // signature of the shim, which is not recoverable from the
+                // source-declared parameter type available at this render site
+                // (`emitted_params` is `None` for these erased/overloaded params, so
+                // `target_ty` falls back to the declared type). Each block therefore
+                // detects the exact wrong literal `default_value` produced and rewrites
+                // it to the value the shim's real Rust signature requires. These are
+                // matched by generated function name because the mismatch is per-shim.
+
+                // `flat_*` (Remeda `flat`): params 0 and 1 are optional; the shim takes
+                // `Option<_>`, so the erased list/null default must become `None`.
                 if rust_function_name.starts_with("flat_") && rendered_args.len() >= 2 {
                     if rendered_args
                         .first()
@@ -662,6 +697,9 @@ impl FunctionEmitter<'_> {
                         "None".clone_into(arg);
                     }
                 }
+                // `to_title_case_*` / `to_camel_case_*`: the optional word-boundary
+                // config parameter is `Option<_>` in the emitted signature, so the
+                // erased list/null default must become `None`.
                 if (rust_function_name.starts_with("to_title_case")
                     || rust_function_name.starts_with("to_camel_case"))
                     && rendered_args.len() >= 2
@@ -672,6 +710,7 @@ impl FunctionEmitter<'_> {
                 {
                     "None".clone_into(arg);
                 }
+                // `to_title_case_*` also has an optional param 0 (`Option<_>`).
                 if rust_function_name.starts_with("to_title_case")
                     && rendered_args
                         .first()
@@ -680,6 +719,9 @@ impl FunctionEmitter<'_> {
                 {
                     "None".clone_into(arg);
                 }
+                // `split_*` (Remeda `split`): trailing params 1 and 2 are optional
+                // (`Option<_>` in the emitted signature); the erased list/null default
+                // must become `None`.
                 if rust_function_name.starts_with("split_") && rendered_args.len() >= 3 {
                     if rendered_args
                         .get(1)
@@ -696,6 +738,9 @@ impl FunctionEmitter<'_> {
                         "None".clone_into(arg);
                     }
                 }
+                // `truncate_*`: trailing params 1 and 2 are optional (`Option<_>` in
+                // the emitted signature); the erased list/null default must become
+                // `None`.
                 if rust_function_name.starts_with("truncate_") && rendered_args.len() >= 3 {
                     if rendered_args
                         .get(1)
@@ -712,6 +757,10 @@ impl FunctionEmitter<'_> {
                         "None".clone_into(arg);
                     }
                 }
+                // `pipe_*` (Remeda `pipe`): the trailing variadic-operations slot is
+                // emitted as a `Vec<_>`, but its declared type resolves to a `Dict`
+                // (yielding `HashMap::new()`). Replace it with the empty vector the
+                // emitted signature expects.
                 if rust_function_name.starts_with("pipe_")
                     && rendered_args.len() >= 2
                     && rendered_args
@@ -721,6 +770,8 @@ impl FunctionEmitter<'_> {
                 {
                     "Vec::new()".clone_into(arg);
                 }
+                // `batch`: param 2 is a numeric config value (`f64`), but its declared
+                // type resolves to a list/callback default. Replace it with `0.0`.
                 if rust_function_name == "batch"
                     && rendered_args.len() >= 3
                     && rendered_args.get(2).is_some_and(|arg| {
@@ -730,6 +781,10 @@ impl FunctionEmitter<'_> {
                 {
                     "0.0".clone_into(arg);
                 }
+                // `zip_with_implementation` (Remeda `zipWith`): param 2 is a callback,
+                // but the synthesized default is a no-op owned callback. Re-render it
+                // as the borrowed-callback default the emitted signature expects, using
+                // the parameter's declared type.
                 if rust_function_name == "zip_with_implementation"
                     && rendered_args.len() >= 3
                     && rendered_args
@@ -742,6 +797,9 @@ impl FunctionEmitter<'_> {
                         *arg = self.borrowed_default_function_text(local.ty)?;
                     }
                 }
+                // `range_*` (Remeda `range`): the single argument slot is emitted as a
+                // `Vec<_>`, but its declared type resolves to erased `unknown`
+                // (yielding `SmeltUnknown::Null`). Replace it with the empty vector.
                 if rust_function_name.starts_with("range_")
                     && rendered_args.len() == 1
                     && rendered_args
