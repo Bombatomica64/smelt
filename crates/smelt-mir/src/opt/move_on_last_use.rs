@@ -318,7 +318,7 @@ fn apply_terminator_transfer(terminator: &Terminator, live: &mut HashSet<LocalId
 }
 
 /// The local defined (overwritten) by a statement, if any.
-fn statement_def(stmt: &Statement) -> Option<LocalId> {
+const fn statement_def(stmt: &Statement) -> Option<LocalId> {
     match stmt {
         Statement::Assign { dest, .. } => Some(*dest),
         Statement::AssignPlace {
@@ -332,7 +332,7 @@ fn statement_def(stmt: &Statement) -> Option<LocalId> {
 }
 
 /// The local defined by a terminator (the destination of a call/await), if any.
-fn terminator_def(terminator: &Terminator) -> Option<LocalId> {
+const fn terminator_def(terminator: &Terminator) -> Option<LocalId> {
     match terminator {
         Terminator::Call { dest, .. } | Terminator::Await { dest, .. } => Some(*dest),
         Terminator::Goto(_)
@@ -430,7 +430,7 @@ fn count(reads: Vec<LocalId>) -> HashMap<LocalId, usize> {
 }
 
 /// The rvalue assigned by a statement, if it assigns one.
-fn statement_value(stmt: &Statement) -> Option<&Rvalue> {
+const fn statement_value(stmt: &Statement) -> Option<&Rvalue> {
     match stmt {
         Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => Some(value),
         Statement::StorageLive(_) | Statement::StorageDead(_) => None,
@@ -438,7 +438,7 @@ fn statement_value(stmt: &Statement) -> Option<&Rvalue> {
 }
 
 /// The mutable rvalue assigned by a statement, if it assigns one.
-fn statement_value_mut(stmt: &mut Statement) -> Option<&mut Rvalue> {
+const fn statement_value_mut(stmt: &mut Statement) -> Option<&mut Rvalue> {
     match stmt {
         Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => Some(value),
         Statement::StorageLive(_) | Statement::StorageDead(_) => None,

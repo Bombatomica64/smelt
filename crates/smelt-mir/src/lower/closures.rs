@@ -53,10 +53,9 @@ use crate::{
     Operand, Place, Rvalue, Statement, Terminator,
 };
 
+use super::context::{LoweringCtx, LoweringShared};
 use super::passes::operand_local;
-use super::{
-    LowerError, LoweringCtx, closure_id_index, local_index, u32_from_usize, usize_from_u32,
-};
+use super::{LowerError, closure_id_index, local_index, u32_from_usize, usize_from_u32};
 
 impl LoweringCtx<'_> {
     /// Lower an `ExprKind::Closure` into a MIR closure entry and `Rvalue::Closure`.
@@ -127,18 +126,21 @@ impl LoweringCtx<'_> {
                 "HIR closure body index does not fit in usize",
             )?)
             .ok_or_else(|| self.error("closure references an unknown body", Some(closure.span)))?;
+        let shared = LoweringShared {
+            krate: self.krate,
+            item_functions: self.item_functions,
+            loop_index_ty: self.loop_index_ty,
+            loop_bool_ty: self.loop_bool_ty,
+            closure_base: closure_index
+                .checked_add(1)
+                .ok_or_else(|| self.error("MIR closure index overflowed usize", Some(expr_span)))?,
+        };
         let closure_ctx = LoweringCtx::new_closure(
-            self.krate,
-            self.item_functions,
+            shared,
             closure.body,
             closure_body,
             closure.return_ty,
             closure.span,
-            self.loop_index_ty,
-            self.loop_bool_ty,
-            closure_index
-                .checked_add(1)
-                .ok_or_else(|| self.error("MIR closure index overflowed usize", Some(expr_span)))?,
         )?;
         let (function, nested_closures) = closure_ctx.lower()?;
         // Carry the function-item identity tag from HIR so codegen can cache one
@@ -343,7 +345,7 @@ fn mark_local_escaping_closures(
             }
         }
         Rvalue::Dict(entries) => {
-            for (key, value) in entries {
+            for (key, entry_value) in entries {
                 mark_operand_escaping_closures(
                     key,
                     definitions,
@@ -352,7 +354,7 @@ fn mark_local_escaping_closures(
                     escaping,
                 );
                 mark_operand_escaping_closures(
-                    value,
+                    entry_value,
                     definitions,
                     local_rvalues,
                     seen_locals,
@@ -506,12 +508,12 @@ pub(super) fn widen_throwing_closure_types(mir: &mut Mir) {
             function_ty.may_throw = true;
             function_ty.return_ty = return_ty;
             let widened = mir.types.intern(Type::Function(function_ty));
-            if let Some(local_decl) = local_index(local).and_then(|index| {
+            if let Some(local_decl_mut) = local_index(local).and_then(|index| {
                 mir.functions
                     .get_mut(function_index)
                     .and_then(|function| function.locals.get_mut(index))
             }) {
-                local_decl.ty = widened;
+                local_decl_mut.ty = widened;
             }
         }
         let Some(function) = mir.functions.get_mut(function_index) else {
@@ -613,12 +615,12 @@ pub(super) fn widen_throwing_closure_types(mir: &mut Mir) {
             function_ty.may_throw = true;
             function_ty.return_ty = return_ty;
             let widened = mir.types.intern(Type::Function(function_ty));
-            if let Some(local_decl) = local_index(local).and_then(|index| {
+            if let Some(local_decl_mut) = local_index(local).and_then(|index| {
                 mir.closures
                     .get_mut(closure_index)
                     .and_then(|closure| closure.locals.get_mut(index))
             }) {
-                local_decl.ty = widened;
+                local_decl_mut.ty = widened;
             }
         }
         let Some(closure) = mir.closures.get_mut(closure_index) else {

@@ -13,7 +13,7 @@ pub(super) mod throwing;
 use crate::{LocalId, Operand, Place};
 
 /// Return the local behind a plain local operand.
-pub(super) fn operand_local(operand: &Operand) -> Option<LocalId> {
+pub(super) const fn operand_local(operand: &Operand) -> Option<LocalId> {
     match operand {
         Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
         Operand::Const(_) | Operand::Copy(_) | Operand::Move(_) => None,

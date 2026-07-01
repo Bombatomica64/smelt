@@ -97,10 +97,8 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
             callee: Callee::Static(func),
             unwind: None,
             ..
-        } => match usize_from_u32(func.0, "MIR function index does not fit in usize") {
-            Ok(index) => throwing.get(index).copied().unwrap_or(false),
-            Err(_) => false,
-        },
+        } => usize_from_u32(func.0, "MIR function index does not fit in usize")
+            .is_ok_and(|index| throwing.get(index).copied().unwrap_or(false)),
         Terminator::Call {
             callee: Callee::Indirect(_),
             unwind: None,

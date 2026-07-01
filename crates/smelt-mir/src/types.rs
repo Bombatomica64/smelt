@@ -53,7 +53,7 @@ pub struct Mir {
 impl Mir {
     /// Creates a new empty MIR crate with the given type and symbol interners.
     #[must_use]
-    pub fn new(
+    pub const fn new(
         types: smelt_hir::TypeInterner,
         symbols: smelt_hir::SymbolInterner,
         names: smelt_hir::OriginalNameTable,
@@ -347,12 +347,10 @@ impl MirFunction {
 
 /// Convert a length into a `u32` identifier.
 fn len_to_u32(len: usize, label: &str) -> u32 {
-    if let Ok(value) = u32::try_from(len) {
-        value
-    } else {
+    u32::try_from(len).unwrap_or_else(|_| {
         let _ = label;
         u32::MAX
-    }
+    })
 }
 
 /// Information about the origin of a MIR function in the HIR.

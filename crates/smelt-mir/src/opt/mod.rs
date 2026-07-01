@@ -222,9 +222,9 @@ fn rewrite_rvalue(
                 rewrite_operand_except(item, aliases, dest) | changed
             })
         }
-        Rvalue::Dict(entries) => entries.iter_mut().fold(false, |changed, (key, value)| {
+        Rvalue::Dict(entries) => entries.iter_mut().fold(false, |changed, (key, entry_value)| {
             rewrite_operand_except(key, aliases, dest)
-                | rewrite_operand_except(value, aliases, dest)
+                | rewrite_operand_except(entry_value, aliases, dest)
                 | changed
         }),
         Rvalue::Closure { captures, .. } => captures.iter_mut().fold(false, |changed, capture| {
@@ -625,8 +625,8 @@ fn rewrite_rvalue(
         }
         Rvalue::CallableObjectAssign { callable, props } => {
             let mut changed = rewrite_operand_except(callable, aliases, dest);
-            for (_, value) in props {
-                changed |= rewrite_operand_except(value, aliases, dest);
+            for (_, prop_value) in props {
+                changed |= rewrite_operand_except(prop_value, aliases, dest);
             }
             changed
         }
@@ -688,8 +688,8 @@ fn rewrite_rvalue(
             ..
         } => {
             let mut changed = rewrite_operand_except(timestamp_ms, aliases, dest);
-            for value in values {
-                changed |= rewrite_operand_except(value, aliases, dest);
+            for part_value in values {
+                changed |= rewrite_operand_except(part_value, aliases, dest);
             }
             changed
         }
@@ -731,9 +731,11 @@ fn rewrite_rvalue(
         }
         Rvalue::PrimitiveCast { operand, .. } => rewrite_operand_except(operand, aliases, dest),
         Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),
-        Rvalue::Struct { fields, .. } => fields.iter_mut().fold(false, |changed, (_, value)| {
-            rewrite_operand_except(value, aliases, dest) | changed
-        }),
+        Rvalue::Struct { fields, .. } => {
+            fields.iter_mut().fold(false, |changed, (_, field_value)| {
+                rewrite_operand_except(field_value, aliases, dest) | changed
+            })
+        }
         Rvalue::ExternalClassInstance { args, .. } => {
             args.iter_mut().fold(false, |changed, arg| {
                 rewrite_operand_except(arg, aliases, dest) | changed
