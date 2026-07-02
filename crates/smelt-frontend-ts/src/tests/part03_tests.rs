@@ -713,6 +713,43 @@ const last = values.lastIndexOf(2);
 }
 
 #[test]
+fn lowers_array_search_methods_with_from_index() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function findFrom(values: readonly number[], target: number, from: number): number {
+  return values.indexOf(target, from);
+}
+export function findLastFrom(values: readonly number[], target: number, from: number): number {
+  return values.lastIndexOf(target, from);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module_id;
+
+    // Both search directions must carry the optional `fromIndex` operand. The
+    // function bodies live in the crate body list, not the module top-level body.
+    for expected in [ListSearchOp::Find, ListSearchOp::RFind] {
+        let found_with_index = ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::ListSearch {
+                        op,
+                        from_index: Some(_),
+                        ..
+                    } if op == expected
+                )
+            })
+        });
+        ensure!(found_with_index);
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_array_callback_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

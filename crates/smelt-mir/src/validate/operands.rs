@@ -103,10 +103,6 @@ impl Rvalue {
             } => {
                 visit(unknown_value);
             }
-            Self::StringContains { haystack, needle } => {
-                visit(haystack);
-                visit(needle);
-            }
             Self::StringAffix {
                 haystack, needle, ..
             }
@@ -115,6 +111,11 @@ impl Rvalue {
                 needle,
                 from_index: None,
                 ..
+            }
+            | Self::StringContains {
+                haystack,
+                needle,
+                from_index: None,
             } => {
                 visit(haystack);
                 visit(needle);
@@ -124,6 +125,11 @@ impl Rvalue {
                 needle,
                 from_index: Some(from_index),
                 ..
+            }
+            | Self::StringContains {
+                haystack,
+                needle,
+                from_index: Some(from_index),
             } => {
                 visit(haystack);
                 visit(needle);
@@ -220,9 +226,24 @@ impl Rvalue {
                 visit(left);
                 visit(right);
             }
-            Self::ListSearch { list, item, .. } => {
+            Self::ListSearch {
+                list,
+                item,
+                from_index: None,
+                ..
+            } => {
                 visit(list);
                 visit(item);
+            }
+            Self::ListSearch {
+                list,
+                item,
+                from_index: Some(from_index),
+                ..
+            } => {
+                visit(list);
+                visit(item);
+                visit(from_index);
             }
             Self::ListCallback { list, callback, .. } => {
                 visit(list);
@@ -762,10 +783,6 @@ impl Rvalue {
             } => {
                 visit(unknown_value);
             }
-            Self::StringContains { haystack, needle } => {
-                visit(haystack);
-                visit(needle);
-            }
             Self::StringAffix {
                 haystack, needle, ..
             }
@@ -774,6 +791,11 @@ impl Rvalue {
                 needle,
                 from_index: None,
                 ..
+            }
+            | Self::StringContains {
+                haystack,
+                needle,
+                from_index: None,
             } => {
                 visit(haystack);
                 visit(needle);
@@ -783,6 +805,11 @@ impl Rvalue {
                 needle,
                 from_index: Some(from_index),
                 ..
+            }
+            | Self::StringContains {
+                haystack,
+                needle,
+                from_index: Some(from_index),
             } => {
                 visit(haystack);
                 visit(needle);
@@ -879,9 +906,24 @@ impl Rvalue {
                 visit(left);
                 visit(right);
             }
-            Self::ListSearch { list, item, .. } => {
+            Self::ListSearch {
+                list,
+                item,
+                from_index: None,
+                ..
+            } => {
                 visit(list);
                 visit(item);
+            }
+            Self::ListSearch {
+                list,
+                item,
+                from_index: Some(from_index),
+                ..
+            } => {
+                visit(list);
+                visit(item);
+                visit(from_index);
             }
             Self::ListCallback { list, callback, .. } => {
                 visit(list);

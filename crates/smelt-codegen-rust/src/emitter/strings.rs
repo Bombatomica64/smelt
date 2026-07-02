@@ -558,22 +558,35 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string containment operation to Rust text.
-    /// Converts a string containment operation to Rust text.
+    ///
+    /// Mirrors `String.prototype.includes(needle, position?)`. When `from_index`
+    /// is present the search starts at that position: JavaScript truncates the
+    /// position toward zero and clamps it into `[0, length]`, so the emitted code
+    /// takes the character prefix at that position (matching the char-based
+    /// convention shared with `string_search_text` and the other string helpers)
+    /// and searches the remaining suffix. A `position` past the end can only match
+    /// the empty needle, which `str::contains` handles for free.
+    ///
+    /// The erased-value fast paths only apply when no `position` is given; the
+    /// frontend coerces an erased haystack to a concrete string before attaching
+    /// a `from_index`, so the positional form always sees `Type::String` operands.
     pub(super) fn string_contains_text(
         &self,
         haystack: &Operand,
         needle: &Operand,
+        from_index: Option<&Operand>,
     ) -> Result<String, EmitError> {
         let haystack_ty = self.operand_ty(haystack)?;
         let needle_ty = self.operand_ty(needle)?;
-        if self.mir.types.get(haystack_ty) == Some(&Type::Unknown) {
+        if from_index.is_none() && self.mir.types.get(haystack_ty) == Some(&Type::Unknown) {
             return Ok(format!(
                 "{}.includes({})",
                 self.operand_text(haystack)?,
                 self.operand_text(needle)?
             ));
         }
-        if self.mir.types.get(needle_ty) == Some(&Type::Unknown)
+        if from_index.is_none()
+            && self.mir.types.get(needle_ty) == Some(&Type::Unknown)
             && self.mir.types.get(haystack_ty) == Some(&Type::String)
         {
             let erased_haystack = self.erase_value_text(
@@ -589,6 +602,14 @@ impl FunctionEmitter<'_> {
             || !matches!(self.mir.types.get(needle_ty), Some(Type::String))
         {
             return Err(EmitError::new("string contains operands must be strings"));
+        }
+        if let Some(from_index_operand) = from_index {
+            let haystack_text = self.operand_text(haystack)?;
+            let needle_text = self.operand_text(needle)?;
+            let index_text = self.value_at_type(from_index_operand, self.type_id(Type::Float)?)?;
+            return Ok(format!(
+                "{{ let smelt_haystack = {haystack_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).map_or(false, |suffix| suffix.contains(&{needle_text})) }}"
+            ));
         }
         Ok(format!(
             "{}.contains(&{})",

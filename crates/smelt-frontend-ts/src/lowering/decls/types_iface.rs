@@ -276,6 +276,16 @@ return_ty,
         })();
         self.pop_type_parameter_scope();
         result?;
+        // Method signatures describe callable members. Generated Rust interface
+        // structs only carry data fields, so each declared method is also given
+        // a function-typed storage field of the same name. This lets a value
+        // typed as the interface be invoked through the ordinary field-call
+        // machinery (`receiver.method` is a function value; `receiver.method()`
+        // is a closure call) exactly like a class virtual-method field, and lets
+        // an object literal satisfy the interface by supplying the method as a
+        // property. The `methods` list is retained so class `implements`
+        // validation continues to match a class method against the requirement.
+        self.add_interface_method_fields(&mut fields, &methods);
         let item = self.ctx.krate.push_item(Item::Interface(Interface {
             name,
             span: self.span(interface.span.start, interface.span.end),
@@ -304,6 +314,49 @@ return_ty,
         }
         self.interfaces.insert(name_text, item);
         Ok(item)
+    }
+
+    /// Add function-typed storage fields for an interface's method signatures.
+    ///
+    /// A TypeScript interface method such as `count(): number` is a callable
+    /// member, but the generated Rust interface struct only stores data fields.
+    /// This mirrors the class virtual-method-field lowering
+    /// (`add_virtual_class_method_fields`): each method becomes a field of the
+    /// same name whose type is the corresponding `Type::Function`, so
+    /// `receiver.count` reads a callable value and `receiver.count()` lowers
+    /// through the shared field-call path instead of the class-only
+    /// `resolve_method` machinery. An existing data field of the same name (for
+    /// example a method also declared as a property signature) is left
+    /// untouched.
+    pub(in crate::lowering) fn add_interface_method_fields(
+        &mut self,
+        fields: &mut Vec<Field>,
+        methods: &[MethodSig],
+    ) {
+        for method in methods {
+            if fields.iter().any(|field| field.name == method.name) {
+                continue;
+            }
+            let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+            let mutable_params =
+                self.mutable_params_from_returned_tuple_state(&params, method.return_ty);
+            let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params,
+                rest: method.rest,
+                required_params: method.required_params,
+                mutable_params,
+                return_ty: method.return_ty,
+                is_async: method.is_async,
+                may_throw: false,
+            }));
+            fields.push(Field {
+                name: method.name,
+                ty: function_ty,
+                visibility: method.visibility,
+                optional: false,
+                span: method.span,
+            });
+        }
     }
 
     /// Lower TypeScript namespace declarations that contain exported type declarations.

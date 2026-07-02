@@ -837,3 +837,121 @@ describe("sample", () => {
     );
     Ok(())
 }
+
+#[test]
+fn lowers_new_map_with_declared_union_value_type() -> Result<(), String> {
+    // A `Map<K, V>` annotation whose value type is a union should accept
+    // heterogeneous `[key, value]` entries: each entry coerces to the declared
+    // union value type instead of requiring a single homogeneous value type.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function tags(): Map<string, string | number> {
+  return new Map<string, string | number>([["a", 1], ["b", "two"]]);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    let dict_ty = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::DictLit(entries) if entries.len() == 2 => Some(expr.ty),
+            _ => None,
+        })
+        .ok_or("expected a two-entry Map DictLit")?;
+    let Some(Type::Dict(key_ty, value_ty)) = ctx.krate.types.get(dict_ty) else {
+        return Err("Map literal type must be a Dict".to_owned());
+    };
+    ensure!(
+        ctx.krate.types.get(*key_ty) == Some(&Type::String),
+        "declared Map key type should stay String",
+    );
+    ensure!(
+        matches!(ctx.krate.types.get(*value_ty), Some(Type::Union(_))),
+        "declared Map value type should preserve the union annotation",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_new_map_with_inferred_union_value_type() -> Result<(), String> {
+    // Without a `Map<K, V>` annotation, mixed entry value types are widened to
+    // the union of the observed types, mirroring array-literal inference rather
+    // than being rejected as non-homogeneous.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const mapping = new Map([["a", 1], ["b", "two"]]);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let dict_ty = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::DictLit(entries) if entries.len() == 2 => Some(expr.ty),
+            _ => None,
+        })
+        .ok_or("expected a two-entry Map DictLit")?;
+    let Some(Type::Dict(key_ty, value_ty)) = ctx.krate.types.get(dict_ty) else {
+        return Err("Map literal type must be a Dict".to_owned());
+    };
+    ensure!(
+        ctx.krate.types.get(*key_ty) == Some(&Type::String),
+        "homogeneous string keys should infer a String key type",
+    );
+    ensure!(
+        matches!(
+            ctx.krate.types.get(*value_ty),
+            Some(Type::Union(_) | Type::Unknown)
+        ),
+        "mixed entry values should infer a union (or erased) value type",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_new_map_with_homogeneous_entries() -> Result<(), String> {
+    // Regression: homogeneous entries still infer a single shared value type.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const mapping = new Map([["a", 1], ["b", 2]]);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let dict_ty = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::DictLit(entries) if entries.len() == 2 => Some(expr.ty),
+            _ => None,
+        })
+        .ok_or("expected a two-entry Map DictLit")?;
+    let Some(Type::Dict(key_ty, value_ty)) = ctx.krate.types.get(dict_ty) else {
+        return Err("Map literal type must be a Dict".to_owned());
+    };
+    ensure!(
+        ctx.krate.types.get(*key_ty) == Some(&Type::String),
+        "homogeneous string keys should infer a String key type",
+    );
+    ensure!(
+        ctx.krate.types.get(*value_ty) == Some(&Type::Float),
+        "homogeneous numeric values should infer a single Float value type",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

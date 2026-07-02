@@ -774,9 +774,20 @@ impl ModuleBuilder<'_> {
                             "new Map([...]) requires a Map<K, V> type annotation when annotated",
                         ));
                     };
+                    // The declared `Map<K, V>` annotation states the intended
+                    // entry key/value types, so each entry only needs to be
+                    // *assignable* to those declared types rather than exactly
+                    // equal. This mirrors array literals with a type hint: a
+                    // union annotation (`Map<string, string | number>`) accepts
+                    // heterogeneous entries, and the emitter coerces each entry
+                    // to the declared type (erasing to the union ABI) when the
+                    // dict literal is emitted.
+                    let (key_ty, value_ty) = (*key_ty, *value_ty);
                     for (key, value) in &entries {
-                        if Self::expr_ty(body, *key) != *key_ty
-                            || Self::expr_ty(body, *value) != *value_ty
+                        let entry_key_ty = Self::expr_ty(body, *key);
+                        let entry_value_ty = Self::expr_ty(body, *value);
+                        if !self.type_assignable_to(entry_key_ty, key_ty)
+                            || !self.type_assignable_to(entry_value_ty, value_ty)
                         {
                             return Err(SmeltError::unsupported(
                                 self.span(new_expr.span.start, new_expr.span.end),
@@ -785,23 +796,27 @@ impl ModuleBuilder<'_> {
                         }
                     }
                     hint
-                } else if let Some((key, value)) = entries.first().copied() {
-                    let key_ty = Self::expr_ty(body, key);
-                    let value_ty = Self::expr_ty(body, value);
-                    for (entry_key, entry_value) in &entries {
-                        if Self::expr_ty(body, *entry_key) != key_ty
-                            || Self::expr_ty(body, *entry_value) != value_ty
-                        {
-                            return Err(SmeltError::unsupported(
-                                self.span(new_expr.span.start, new_expr.span.end),
-                                "new Map entry key and value types must be homogeneous",
-                            ));
-                        }
-                    }
-                    self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
-                } else {
+                } else if entries.is_empty() {
                     let unknown = self.ctx.krate.types.intern(Type::Unknown);
                     self.ctx.krate.types.intern(Type::Dict(unknown, unknown))
+                } else {
+                    // Without an annotation, infer the key and value component
+                    // types the same way an array literal infers its element
+                    // type: a single shared type when the entries are
+                    // homogeneous, otherwise the union of the observed types
+                    // (falling back to the erased `Unknown` surface for shapes
+                    // that do not form a clean union). This matches how
+                    // TypeScript widens a mixed `new Map([...])` to a union
+                    // entry type and keeps Map inference consistent with the
+                    // array-literal path.
+                    let keys = entries.iter().map(|(key, _)| *key).collect::<Vec<_>>();
+                    let values = entries
+                        .iter()
+                        .map(|(_, value)| *value)
+                        .collect::<Vec<_>>();
+                    let key_ty = self.array_literal_item_type(&keys, body);
+                    let value_ty = self.array_literal_item_type(&values, body);
+                    self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
                 };
                 (entries, ty)
             }

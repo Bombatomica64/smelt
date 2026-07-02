@@ -4671,6 +4671,37 @@ const has = word.includes("mel");
 }
 
 #[test]
+fn lowers_string_includes_with_position() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function containsFrom(haystack: string, needle: string, from: number): boolean {
+  return haystack.includes(needle, from);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module_id;
+
+    // The optional JavaScript `position` argument lowers to `StringContains`'
+    // `from_index` operand. Function bodies live on the crate body list.
+    let found_with_index = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::StringContains {
+                    from_index: Some(_),
+                    ..
+                }
+            )
+        })
+    });
+    ensure!(found_with_index);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_array_includes_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -7098,6 +7129,96 @@ export const result = [isEmptyish(empty), isEmptyish(filled)];
 "#),
         &mut ctx,
     )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_constructor_type_annotation_to_callable() -> Result<(), String> {
+    // A constructor-type parameter (`new (message: string) => Error`) must lower
+    // to an ordinary callable (`Type::Function`), and `new ctor(message)` inside
+    // the function must route through the closure/indirect-call machinery.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function makeError(
+  ctor: new (message: string) => Error,
+  message: string,
+): Error {
+  return new ctor(message);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_new_through_value_with_user_class_at_call_site() -> Result<(), String> {
+    // A user class passed where a constructor type is expected must be adapted
+    // into a constructor closure that performs `new Class(args)`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Widget {
+  constructor(public name: string) {}
+}
+
+function build<T>(ctor: new (name: string) => T, name: string): T {
+  return new ctor(name);
+}
+
+export const widget = build(Widget, "gadget");
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+    );
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::New { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_error_builtin_as_constructor_value_argument() -> Result<(), String> {
+    // A builtin `Error` constructor passed where a constructor type is expected
+    // is adapted into a closure producing the erased-Error record.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function makeError(
+  ctor: new (message: string) => Error,
+  message: string,
+): Error {
+  return new ctor(message);
+}
+
+export const boom = makeError(TypeError, "boom");
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

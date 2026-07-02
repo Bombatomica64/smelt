@@ -516,10 +516,19 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.object.span().start, member.object.span().end),
             });
         }
-        let [item_argument] = call.arguments.as_slice() else {
+        // JavaScript `indexOf`/`lastIndexOf` accept the search item plus an
+        // optional `fromIndex`. The item argument is required; the second
+        // argument is a numeric start/end position handled by the emitter.
+        if !(1..=2).contains(&call.arguments.len()) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "array indexOf/lastIndexOf currently require exactly one item argument",
+                "array indexOf/lastIndexOf require one item and an optional fromIndex argument",
+            ));
+        }
+        let Some(item_argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array indexOf/lastIndexOf require one item and an optional fromIndex argument",
             ));
         };
         let item = self.argument(item_argument, body)?;
@@ -529,9 +538,29 @@ impl ModuleBuilder<'_> {
                 "array indexOf/lastIndexOf argument must match the array element type",
             ));
         }
+        let from_index = if let Some(from_index_argument) = call.arguments.get(1) {
+            let from_index = self.argument(from_index_argument, body)?;
+            if !self.slice_index_type_is_number(Self::expr_ty(body, from_index)) {
+                return Err(SmeltError::unsupported(
+                    self.span(
+                        from_index_argument.span().start,
+                        from_index_argument.span().end,
+                    ),
+                    "array indexOf/lastIndexOf fromIndex must be numeric",
+                ));
+            }
+            Some(from_index)
+        } else {
+            None
+        };
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListSearch { op, list, item },
+            kind: ExprKind::ListSearch {
+                op,
+                list,
+                item,
+                from_index,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

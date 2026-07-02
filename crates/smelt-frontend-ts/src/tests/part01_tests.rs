@@ -435,6 +435,173 @@ export function quartersToMonths(quarters: number): number {
     Ok(())
 }
 
+/// Return the const item with the given source name from a lowered module.
+fn named_const_item<'a>(
+    ctx: &'a HirCtx,
+    module: &smelt_hir::Module,
+    name: &str,
+) -> Result<&'a smelt_hir::ConstItem, String> {
+    module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize) {
+            Some(Item::Const(const_item)) if ctx.krate.names.get(const_item.name) == Some(name) => {
+                Some(const_item)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| format!("expected const item `{name}` in lowered module"))
+}
+
+/// An exported const initialized from another module-level const identifier
+/// (es-toolkit's `WORD_SEPARATORS` shape) inlines the referenced const array
+/// through the general expression path instead of erroring as an unresolved
+/// literal.
+#[test]
+fn exported_const_from_module_const_identifier() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const separators = ["-", "_", " "];
+export const WORD_SEPARATORS: ReadonlyArray<string> = separators;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let const_item = named_const_item(&ctx, module, "WORD_SEPARATORS")?;
+    let body = ctx
+        .krate
+        .bodies
+        .get(const_item.body.0 as usize)
+        .ok_or("missing const item body")?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::ListLit(items) if items.len() == 3)),
+        "expected the referenced const array to inline as a three-element list literal"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// An exported const initialized from a member of another module-level const
+/// object resolves through the referenced const instead of being rejected by
+/// the well-known Number/Math member folder.
+#[test]
+fn exported_const_from_module_const_member() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const limits = { lower: 1, upper: 640 };
+export const UPPER_LIMIT = limits.upper;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let const_item = named_const_item(&ctx, module, "UPPER_LIMIT")?;
+    let body = ctx
+        .krate
+        .bodies
+        .get(const_item.body.0 as usize)
+        .ok_or("missing const item body")?;
+    ensure!(
+        body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 640.0)
+        ),
+        "expected the const object member to resolve to its literal value"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Well-known Number/Math numeric constants keep folding to literal consts
+/// (they must not be routed through the module-reference expression path).
+#[test]
+fn exported_const_number_math_constants_still_fold() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const MAX_INTEGER = Number.MAX_VALUE;
+export const PI_VALUE = Math.PI;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    for (name, expected) in [("MAX_INTEGER", f64::MAX), ("PI_VALUE", std::f64::consts::PI)] {
+        let const_item = named_const_item(&ctx, module, name)?;
+        let body = ctx
+            .krate
+            .bodies
+            .get(const_item.body.0 as usize)
+            .ok_or("missing const item body")?;
+        ensure!(
+            body.exprs.iter().any(|expr| matches!(
+                expr.kind,
+                ExprKind::Literal(Literal::Float(value)) if value == expected
+            )),
+            "expected `{name}` to fold to its numeric literal"
+        );
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// An exported const-from-const array is visible to later modules that import
+/// it, mirroring how exported foldable numeric constants travel across files.
+#[test]
+fn exported_const_from_const_is_visible_to_later_modules() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+const separators = ["-", "_", " "];
+export const WORD_SEPARATORS: ReadonlyArray<string> = separators;
+"#),
+        "src/constants.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { WORD_SEPARATORS } from "./constants";
+
+export function firstSeparator(): string {
+  return WORD_SEPARATORS[0];
+}
+"#),
+        "src/words.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::ListLit(items) if items.len() == 3)),
+        "expected the imported exported const array to inline into the function body"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Member expressions on names Smelt has not lowered still fail with the
+/// well-known-constants unsupported message rather than lowering incorrectly.
+#[test]
+fn exported_const_unresolved_member_still_errors() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+export const MYSTERY = missingNamespace.someMember;
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors.iter().any(|error| format!("{error:?}")
+            .contains("exported const member expressions support well-known Number/Math")),
+        "expected the well-known-constants unsupported error, got: {errors:?}"
+    );
+    Ok(())
+}
+
 #[test]
 fn reexported_named_items_are_visible_to_later_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();

@@ -776,6 +776,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let name = Self::object_values_identifier_argument(call)?;
                 self.const_object_value_collections.get(&name).cloned()
             }
+            // `export const ALIAS = otherConst;` shares the referenced
+            // module-level collection so nested bodies inline the alias too.
+            Expression::Identifier(identifier) => self
+                .const_collections
+                .get(identifier.name.as_str())
+                .cloned(),
             Expression::TSAsExpression(as_expr) => {
                 self.const_collection_from_initializer(&as_expr.expression, ty)
             }
@@ -1873,53 +1879,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if Self::is_module_global_array_initializer(init)
                 && self.literal_const_expression(init).is_err()
             {
-                let span = self.span(binding.span.start, binding.span.end);
-                let mut body = Body::new(None, span);
-                let expr = self.expression(init, &mut body)?;
-                let ty = Self::expr_ty(&body, expr);
-                let body_id = self.ctx.krate.push_body(body);
-                let name_text = binding.name.as_str();
-                let name = self.intern_source_name(name_text);
-                let item = self.ctx.krate.push_item(Item::Const(ConstItem {
-                    name,
-                    ty,
-                    value: expr,
-                    body: body_id,
-                    span,
-                }));
-                self.items.insert(name_text.to_owned(), item);
-                self.ctx.export_aliases.insert(name_text.to_owned(), item);
-                self.module_globals.insert(name_text.to_owned(), ty);
-                if let Some(collection) = self.const_collection_from_initializer(init, ty) {
-                    self.const_collections
-                        .insert(name_text.to_owned(), collection.clone());
-                    self.ctx
-                        .const_collections
-                        .insert(name_text.to_owned(), collection);
-                }
+                let item = self.push_expression_const_item(binding, init)?;
                 items.push(item);
                 continue;
             }
             if let Some(identifier) = Self::imported_value_identifier(init)
                 && self.value_imports.contains(identifier.name.as_str())
             {
-                let span = self.span(binding.span.start, binding.span.end);
-                let mut body = Body::new(None, span);
-                let expr = self.expression(init, &mut body)?;
-                let ty = Self::expr_ty(&body, expr);
-                let body_id = self.ctx.krate.push_body(body);
-                let name_text = binding.name.as_str();
-                let name = self.intern_source_name(name_text);
-                let item = self.ctx.krate.push_item(Item::Const(ConstItem {
-                    name,
-                    ty,
-                    value: expr,
-                    body: body_id,
-                    span,
-                }));
-                self.items.insert(name_text.to_owned(), item);
-                self.ctx.export_aliases.insert(name_text.to_owned(), item);
-                self.module_globals.insert(name_text.to_owned(), ty);
+                let item = self.push_expression_const_item(binding, init)?;
                 items.push(item);
                 continue;
             }
@@ -1928,23 +1895,22 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Expression::CallExpression(_) | Expression::NewExpression(_)
             ) && self.literal_const_expression(init).is_err()
             {
-                let span = self.span(binding.span.start, binding.span.end);
-                let mut body = Body::new(None, span);
-                let expr = self.expression(init, &mut body)?;
-                let ty = Self::expr_ty(&body, expr);
-                let body_id = self.ctx.krate.push_body(body);
-                let name_text = binding.name.as_str();
-                let name = self.intern_source_name(name_text);
-                let item = self.ctx.krate.push_item(Item::Const(ConstItem {
-                    name,
-                    ty,
-                    value: expr,
-                    body: body_id,
-                    span,
-                }));
-                self.items.insert(name_text.to_owned(), item);
-                self.ctx.export_aliases.insert(name_text.to_owned(), item);
-                self.module_globals.insert(name_text.to_owned(), ty);
+                let item = self.push_expression_const_item(binding, init)?;
+                items.push(item);
+                continue;
+            }
+            // A bare reference to another module-level value (`export const A = b;`
+            // or `export const A = ns.member;`) is not a foldable primitive when the
+            // referenced value is a collection, object, or other non-literal const.
+            // Route it through the same general expression lowering that
+            // non-exported consts and array/call initializers already use, so the
+            // referenced module const is inlined instead of erroring as an
+            // unresolved literal. Literal-foldable references (numeric constants,
+            // const-from-const primitives) still fold below to keep those regressions.
+            if self.literal_const_expression(init).is_err()
+                && self.is_resolvable_module_reference(init)
+            {
+                let item = self.push_expression_const_item(binding, init)?;
                 items.push(item);
                 continue;
             }
@@ -1979,6 +1945,101 @@ impl<'ctx> ModuleBuilder<'ctx> {
             items.push(item);
         }
         Ok(items)
+    }
+
+    /// Lower an exported-const initializer through general expression lowering
+    /// and register the resulting HIR `Item::Const`.
+    ///
+    /// Initializers that are not foldable primitive literals (arrays, `Set`/`Map`
+    /// constructors, calls, imported-value aliases, and references to other
+    /// module-level consts) still bind to a real const item. They are lowered by
+    /// the same `self.expression` path a non-exported const uses, so a referenced
+    /// module const is inlined rather than erroring as an unresolved literal. The
+    /// item is registered under its source name in `items`, `export_aliases`, and
+    /// `module_globals`, and any recoverable literal-array/set collection shape is
+    /// recorded so nested bodies can inline the values. Returns the new item id.
+    pub(super) fn push_expression_const_item(
+        &mut self,
+        binding: &oxc::ast::ast::BindingIdentifier<'_>,
+        init: &Expression<'_>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let span = self.span(binding.span.start, binding.span.end);
+        let mut body = Body::new(None, span);
+        let expr = self.expression(init, &mut body)?;
+        let ty = Self::expr_ty(&body, expr);
+        let body_id = self.ctx.krate.push_body(body);
+        let name_text = binding.name.as_str();
+        let name = self.intern_source_name(name_text);
+        let item = self.ctx.krate.push_item(Item::Const(ConstItem {
+            name,
+            ty,
+            value: expr,
+            body: body_id,
+            span,
+        }));
+        self.items.insert(name_text.to_owned(), item);
+        self.ctx.export_aliases.insert(name_text.to_owned(), item);
+        self.module_globals.insert(name_text.to_owned(), ty);
+        if let Some(collection) = self.const_collection_from_initializer(init, ty) {
+            self.const_collections
+                .insert(name_text.to_owned(), collection.clone());
+            self.ctx
+                .const_collections
+                .insert(name_text.to_owned(), collection);
+        }
+        Ok(item)
+    }
+
+    /// Return whether an exported-const initializer references another
+    /// module-level value that general expression lowering can resolve.
+    ///
+    /// Recognizes a bare identifier (`export const A = b;`) or a static member
+    /// access (`export const A = ns.member;`), through the usual `as` / `satisfies`
+    /// / non-null / parenthesized wrappers, whose root identifier names a value
+    /// Smelt has already lowered in this module: a HIR item, a const object, a
+    /// const collection, a const literal, or a typed module global. Such
+    /// references inline the referenced const through the general expression path
+    /// instead of requiring a foldable primitive literal. Bare identifiers that
+    /// resolve to a builtin/global alias (`Number`, `Math`, `globalThis`, ...) are
+    /// deliberately excluded so numeric-constant folding and the well-known-member
+    /// path keep owning those shapes.
+    pub(super) fn is_resolvable_module_reference(&self, init: &Expression<'_>) -> bool {
+        let Some(root) = Self::module_reference_root_name(init) else {
+            return false;
+        };
+        self.items.contains_key(root)
+            || self.const_objects.contains_key(root)
+            || self.const_collections.contains_key(root)
+            || self.const_literals.contains_key(root)
+            || self.module_globals.contains_key(root)
+    }
+
+    /// Return the root identifier name of an identifier or static-member
+    /// initializer, unwrapping `as` / `satisfies` / non-null / parenthesized
+    /// expressions. Returns `None` for any other initializer shape.
+    pub(super) fn module_reference_root_name<'a>(init: &'a Expression<'a>) -> Option<&'a str> {
+        match init {
+            Expression::Identifier(identifier) => Some(identifier.name.as_str()),
+            Expression::StaticMemberExpression(member) => {
+                Self::module_reference_root_name(&member.object)
+            }
+            Expression::ComputedMemberExpression(member) => {
+                Self::module_reference_root_name(&member.object)
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::module_reference_root_name(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::module_reference_root_name(&as_expr.expression)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                Self::module_reference_root_name(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                Self::module_reference_root_name(&non_null.expression)
+            }
+            _ => None,
+        }
     }
 
     /// Return the identifier behind a top-level const initializer that aliases an imported value.

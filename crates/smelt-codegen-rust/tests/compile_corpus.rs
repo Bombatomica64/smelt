@@ -203,12 +203,45 @@ function lookup(): number | undefined {
 "#,
         },
         Case {
+            name: "map_union_values",
+            area: "collections",
+            source: r#"
+function tags(): Map<string, string | number> {
+  return new Map<string, string | number>([["a", 1], ["b", "two"]]);
+}
+function mixed(): Map<string, string | number> {
+  return new Map([["a", 1], ["b", "two"]]);
+}
+"#,
+        },
+        Case {
             name: "set_collection",
             area: "collections",
             source: r"
 function contains(): boolean {
   const values = new Set<number>([1, 2]);
   return values.has(2);
+}
+",
+        },
+        Case {
+            name: "search_from_index",
+            area: "collections",
+            source: r"
+export function findFrom(values: readonly number[], target: number, from: number): number {
+  return values.indexOf(target, from);
+}
+export function findLastFrom(values: readonly number[], target: number, from: number): number {
+  return values.lastIndexOf(target, from);
+}
+export function findWhole(values: readonly number[], target: number): number {
+  return values.indexOf(target);
+}
+export function containsFrom(haystack: string, needle: string, from: number): boolean {
+  return haystack.includes(needle, from);
+}
+export function containsWhole(haystack: string, needle: string): boolean {
+  return haystack.includes(needle);
 }
 ",
         },
@@ -223,6 +256,27 @@ async function lift(value: number): Promise<number> {
 
 async function run(): Promise<number> {
   return await lift(5);
+}
+",
+        },
+        Case {
+            name: "interface_method_call",
+            area: "interfaces",
+            source: r"
+interface Counter {
+  count(): number;
+}
+
+interface Adder {
+  add(a: number, b: number): number;
+}
+
+export function total(counter: Counter): number {
+  return counter.count();
+}
+
+export function sum(adder: Adder): number {
+  return adder.add(1, 2);
 }
 ",
         },

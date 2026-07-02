@@ -150,6 +150,27 @@ fn function_item<'a>(
     Ok(function)
 }
 
+/// Find a module's function item by its source name.
+///
+/// Modules that declare types (interfaces, aliases) before functions cannot be
+/// indexed positionally for the function, so this resolves by interned name.
+fn named_function_item<'a>(
+    ctx: &'a HirCtx,
+    module: &'a smelt_hir::Module,
+    name: &str,
+) -> Result<&'a Function, String> {
+    for item_id in &module.items {
+        let item_index = usize::try_from(item_id.0)
+            .map_err(|err| format!("item id {item_id:?} does not fit in usize: {err}"))?;
+        if let Some(Item::Function(function)) = ctx.krate.items.get(item_index)
+            && ctx.krate.symbols.get(function.name) == Some(name)
+        {
+            return Ok(function);
+        }
+    }
+    Err(format!("missing function item named `{name}`"))
+}
+
 /// Get the body owned by a function.
 fn function_body<'a>(
     ctx: &'a HirCtx,

@@ -231,6 +231,9 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
             }
             TSType::TSFunctionType(function) => self.function_type_to_hir(function),
+            TSType::TSConstructorType(constructor) => {
+                self.constructor_type_to_hir(constructor)
+            }
             TSType::TSThisType(this_ty) => {
                 let Some(class_name) = &self.current_class else {
                     return Ok(self.ctx.krate.types.intern(Type::Unknown));
@@ -1170,10 +1173,56 @@ return_ty: function.return_ty,
         // is just the declared `params`. oxc keeps `this_param` separate from
         // `params.items`, so erasing it here needs no further filtering.
         let _ = &function.this_param;
-        self.push_type_parameter_scope(function.type_parameters.as_deref())?;
-        let mut params = Vec::new();
+        self.callable_type_to_hir(
+            function.type_parameters.as_deref(),
+            &function.params,
+            &function.return_type,
+        )
+    }
+
+    /// Convert a TypeScript constructor type node into HIR callable metadata.
+    ///
+    /// A `new (args) => T` constructor type is, at runtime, an ordinary
+    /// callable value: JavaScript classes *are* constructor functions, and
+    /// `new ctor(args)` invokes that function to produce a `T`. So the honest
+    /// lowering is the same `Type::Function` a plain `(args) => T` produces —
+    /// its parameters are the constructor parameters and its return type is the
+    /// constructed type. This lets a value typed with a constructor type flow
+    /// through the existing closure / indirect-call machinery (see the
+    /// value-callee path in `new_expr.rs`). The `abstract` marker is purely
+    /// type-level (it forbids `new` on the *type-name* itself, not on values of
+    /// this callable type) and carries no runtime signature, so it is erased.
+    pub(in crate::lowering) fn constructor_type_to_hir(
+        &mut self,
+        constructor: &oxc::ast::ast::TSConstructorType<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        self.callable_type_to_hir(
+            constructor.type_parameters.as_deref(),
+            &constructor.params,
+            &constructor.return_type,
+        )
+    }
+
+    /// Lower the shared parts of a callable type annotation (function type or
+    /// constructor type) into an HIR [`FunctionType`].
+    ///
+    /// `TSFunctionType` and `TSConstructorType` differ only in surface spelling
+    /// (`(args) => T` vs `new (args) => T`) and a couple of type-level-only
+    /// fields (`this_param`, `abstract`) that do not affect the runtime
+    /// signature. Both reduce to the same ordinary callable value, so their
+    /// parameter/return lowering is factored here to keep the two entry points
+    /// in lockstep. A caller-supplied type-parameter scope wraps the lowering so
+    /// generic callable types resolve their own parameters.
+    fn callable_type_to_hir(
+        &mut self,
+        type_parameters: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
+        params: &oxc::ast::ast::FormalParameters<'_>,
+        return_type: &oxc::ast::ast::TSTypeAnnotation<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        self.push_type_parameter_scope(type_parameters)?;
+        let mut lowered_params = Vec::new();
         let result = (|| {
-            for param in &function.params.items {
+            for param in &params.items {
                 let param_ty = param
                     .type_annotation
                     .as_ref()
@@ -1190,10 +1239,10 @@ return_ty: function.return_ty,
                 } else {
                     param_ty
                 };
-                params.push(param_ty);
+                lowered_params.push(param_ty);
             }
             let mut rest_index = None;
-            if let Some(rest) = &function.params.rest {
+            if let Some(rest) = &params.rest {
                 let rest_ty = rest
                     .type_annotation
                     .as_ref()
@@ -1205,13 +1254,14 @@ return_ty: function.return_ty,
                             "rest function type parameters require explicit array types",
                         )
                     })?;
-                rest_index = Some(params.len());
-                params.push(rest_ty);
+                rest_index = Some(lowered_params.len());
+                lowered_params.push(rest_ty);
             }
-            let return_ty = self.ts_type_to_hir(&function.return_type.type_annotation)?;
-            let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
+            let return_ty = self.ts_type_to_hir(&return_type.type_annotation)?;
+            let mutable_params =
+                self.mutable_params_from_returned_tuple_state(&lowered_params, return_ty);
             Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params,
+                params: lowered_params,
                 rest: rest_index,
                 required_params: None,
                 mutable_params,
@@ -2241,6 +2291,27 @@ return_ty: function.return_ty,
                 self.in_progress_class_method_return(name, &args, method, span)?
             {
                 return Ok((return_ty, smelt_hir::ItemId(u32::MAX)));
+            }
+            // An interface-typed receiver has no concrete method item, but its
+            // method signatures carry return types. Resolving them keeps the
+            // call expression correctly typed (e.g. `counter.count()` is a
+            // `number`, not the interface itself). Interface method calls are
+            // ordinarily dispatched through the function-typed field path, so
+            // this branch is the type-only fallback; there is no callable item,
+            // hence `ItemId::MAX`.
+            if let Some(interface) = self.find_interface(name).cloned() {
+                let substitutions = self.type_argument_substitution(
+                    &interface.type_params,
+                    &args,
+                    self.span(span.start, span.end),
+                )?;
+                if let Some(method_sig) =
+                    interface.methods.iter().find(|item| item.name == method)
+                {
+                    let return_ty =
+                        self.substitute_type_params(method_sig.return_ty, &substitutions);
+                    return Ok((return_ty, smelt_hir::ItemId(u32::MAX)));
+                }
             }
             return Ok((receiver_ty, smelt_hir::ItemId(u32::MAX)));
         };

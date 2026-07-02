@@ -1109,6 +1109,24 @@ impl ModuleBuilder<'_> {
                     body,
                 ))
             }
+            // A class name passed where a constructor *type* is expected
+            // (`makeError(TypeError, ...)`, `factory(MyClass)`). The class name
+            // is a constructor value; the expected constructor type lowered to a
+            // `Type::Function` (see `constructor_type_to_hir`), so adapt the
+            // class into a callable closure `(args) => new Class(args)` that
+            // matches that signature. Falls through to plain lowering when the
+            // identifier is not a class-as-constructor for this hint.
+            Argument::Identifier(identifier) => {
+                if let Some(expr) = self.class_constructor_value_expression(
+                    identifier.name.as_str(),
+                    type_hint,
+                    identifier.span,
+                    body,
+                )? {
+                    return Ok(expr);
+                }
+                self.argument(argument, body)
+            }
             _ => self.argument(argument, body),
         }
     }

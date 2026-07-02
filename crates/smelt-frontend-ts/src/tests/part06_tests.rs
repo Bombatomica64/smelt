@@ -1013,3 +1013,133 @@ export function bind(...xs: number[]): (v: number) => number {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+#[test]
+fn lowers_interface_method_signature_as_callable_field() -> Result<(), String> {
+    // A method signature on an interface is a callable member. It is stored as
+    // a function-typed field of the same name so an interface-typed value can be
+    // invoked through the field-call machinery, mirroring class virtual-method
+    // fields. The `methods` list is retained for `implements` validation.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!("interface Counter { count(): number; }
+"),
+        &mut ctx,
+    )?;
+    let Some(Item::Interface(interface)) = ctx
+        .krate
+        .items
+        .iter()
+        .find(|item| matches!(item, Item::Interface(_)))
+    else {
+        return Err("expected an interface item".to_owned());
+    };
+    let count = interface
+        .fields
+        .iter()
+        .find(|field| ctx.krate.symbols.get(field.name) == Some("count"))
+        .ok_or_else(|| "expected a `count` callable field on the interface".to_owned())?;
+    let Some(Type::Function(function)) = ctx.krate.types.get(count.ty) else {
+        return Err("expected the `count` field to be function-typed".to_owned());
+    };
+    ensure!(function.params.is_empty());
+    ensure_eq!(ctx.krate.types.get(function.return_ty), Some(&Type::Float));
+    ensure!(
+        interface
+            .methods
+            .iter()
+            .any(|method| ctx.krate.symbols.get(method.name) == Some("count"))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_method_call_through_interface_typed_parameter() -> Result<(), String> {
+    // A parameter typed as a method-bearing interface can be called through: the
+    // call lowers to a closure call on the interface's callable field and takes
+    // the method's declared return type (`number`), not the interface itself.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("interface Counter { count(): number; }
+export function total(counter: Counter): number {
+  return counter.count();
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "total")?;
+    ensure_eq!(ctx.krate.types.get(function.return_ty), Some(&Type::Float));
+    let body = function_body(&ctx, function)?;
+    let call = body
+        .exprs
+        .iter()
+        .find(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+        .ok_or_else(|| "expected the interface method call to lower to a closure call".to_owned())?;
+    ensure_eq!(ctx.krate.types.get(call.ty), Some(&Type::Float));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_interface_method_call_with_arguments() -> Result<(), String> {
+    // Method signatures with parameters carry the parameter types into the
+    // callable field's function type, so the call type-checks the argument list.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("interface Adder { add(a: number, b: number): number; }
+export function run(x: Adder): number {
+  return x.add(1, 2);
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "run")?;
+    ensure_eq!(ctx.krate.types.get(function.return_ty), Some(&Type::Float));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn class_method_satisfies_implemented_interface_method() -> Result<(), String> {
+    // Turning interface methods into callable fields must not break class
+    // `implements` validation: a real class method still satisfies the required
+    // interface method rather than demanding a matching data field.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!("interface Counter { count(): number; }
+class MyCounter implements Counter {
+  count(): number {
+    return 7;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn object_literal_satisfies_interface_method_field() -> Result<(), String> {
+    // An object literal supplying the method as a property satisfies a
+    // method-bearing interface, because the method is stored as a field.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("interface Counter { count(): number; }
+export function total(counter: Counter): number {
+  return counter.count();
+}
+export function useit(): number {
+  const c: Counter = { count: () => 5 };
+  return total(c);
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

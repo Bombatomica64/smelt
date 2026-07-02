@@ -274,9 +274,22 @@ fn rewrite_rvalue(
         | Rvalue::UnknownCast { value: operand, .. } => {
             rewrite_operand_except(operand, aliases, dest)
         }
-        Rvalue::StringContains { haystack, needle } => {
+        Rvalue::StringContains {
+            haystack,
+            needle,
+            from_index: None,
+        } => {
             rewrite_operand_except(haystack, aliases, dest)
                 | rewrite_operand_except(needle, aliases, dest)
+        }
+        Rvalue::StringContains {
+            haystack,
+            needle,
+            from_index: Some(from_index),
+        } => {
+            rewrite_operand_except(haystack, aliases, dest)
+                | rewrite_operand_except(needle, aliases, dest)
+                | rewrite_operand_except(from_index, aliases, dest)
         }
         Rvalue::StringAffix {
             haystack, needle, ..
@@ -416,9 +429,24 @@ fn rewrite_rvalue(
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)
         }
-        Rvalue::ListSearch { list, item, .. } => {
+        Rvalue::ListSearch {
+            list,
+            item,
+            from_index: None,
+            ..
+        } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
+        }
+        Rvalue::ListSearch {
+            list,
+            item,
+            from_index: Some(from_index),
+            ..
+        } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_operand_except(item, aliases, dest)
+                | rewrite_operand_except(from_index, aliases, dest)
         }
         Rvalue::ListCallback { list, callback, .. } => {
             rewrite_operand_except(list, aliases, dest)

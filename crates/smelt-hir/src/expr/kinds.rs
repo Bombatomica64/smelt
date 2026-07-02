@@ -228,6 +228,11 @@ pub enum ExprKind {
     StringContains {
         haystack: ExprId,
         needle: ExprId,
+        /// Optional JavaScript `position` argument for `String.prototype.includes`.
+        ///
+        /// When present, the search starts at this position (truncated toward
+        /// zero and clamped to the valid range). `None` means search from the start.
+        from_index: Option<ExprId>,
     },
     StringSlice {
         operand: ExprId,
@@ -283,6 +288,12 @@ pub enum ExprKind {
         op: ListSearchOp,
         list: ExprId,
         item: ExprId,
+        /// Optional JavaScript `fromIndex` argument for `Array.prototype.indexOf`
+        /// and `lastIndexOf`.
+        ///
+        /// When present, the search starts at this index (truncated toward zero;
+        /// negative values count back from the end). `None` searches the whole array.
+        from_index: Option<ExprId>,
     },
     ListCallback {
         op: ListCallbackOp,

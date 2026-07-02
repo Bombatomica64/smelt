@@ -663,17 +663,19 @@ impl ModuleBuilder<'_> {
         if member.property.name != "includes" {
             return Ok(None);
         }
-        if call.arguments.len() != 1 {
+        // JavaScript `String.prototype.includes(needle, position?)` takes the
+        // needle plus an optional numeric start position handled by the emitter.
+        if !(1..=2).contains(&call.arguments.len()) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string includes requires exactly one argument",
+                "string includes requires a needle and an optional position argument",
             ));
         }
         let mut haystack = self.expression(&member.object, body)?;
         let Some(needle_argument) = call.arguments.first() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string includes requires exactly one argument",
+                "string includes requires a needle and an optional position argument",
             ));
         };
         let mut needle = self.argument(needle_argument, body)?;
@@ -713,9 +715,28 @@ impl ModuleBuilder<'_> {
                 "string includes requires string receiver and argument",
             ));
         }
+        let from_index = if let Some(position_argument) = call.arguments.get(1) {
+            let position = self.argument(position_argument, body)?;
+            if !self.slice_index_type_is_number(Self::expr_ty(body, position)) {
+                return Err(SmeltError::unsupported(
+                    self.span(
+                        position_argument.span().start,
+                        position_argument.span().end,
+                    ),
+                    "string includes position must be numeric",
+                ));
+            }
+            Some(position)
+        } else {
+            None
+        };
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::StringContains { haystack, needle },
+            kind: ExprKind::StringContains {
+                haystack,
+                needle,
+                from_index,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

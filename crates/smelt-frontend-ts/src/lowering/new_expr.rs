@@ -9,7 +9,8 @@ use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
-    BinOp, Body, Expr, ExprKind, Item, Literal, PrimitiveCastOp, Span, Type, UnaryOp, UrlField,
+    BinOp, Body, ClosureExpr, Expr, ExprKind, FunctionType, Item, Literal, LocalDecl, Param,
+    PrimitiveCastOp, Span, Stmt, Type, UnaryOp, UrlField,
 };
 
 impl ModuleBuilder<'_> {
@@ -61,6 +62,18 @@ impl ModuleBuilder<'_> {
                 "new expressions require a direct class name",
             ));
         };
+        // `new ctor(args)` where `ctor` is a *value* of a constructor type
+        // (`ctor: new (message: string) => Error`). A constructor type lowers to
+        // an ordinary `Type::Function` (see `constructor_type_to_hir`), so the
+        // construction is an ordinary indirect call through that callable value,
+        // routed through the same `ClosureCall` machinery a plain call uses. A
+        // local binding that shadows a stdlib name takes priority here, matching
+        // how the call-expression dispatch resolves callees.
+        if self.locals.contains_key(callee.name.as_str()) {
+            if let Some(expr) = self.new_through_value_expression(new_expr, callee, body)? {
+                return Ok(expr);
+            }
+        }
         if callee.name == "Date" {
             return self.new_date_expression(new_expr, body);
         }
@@ -237,6 +250,232 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))
+    }
+
+    /// Lower `new ctor(args)` where `ctor` is a callable value (a binding whose
+    /// type is a constructor/function type), returning `None` when the callee is
+    /// not such a value so the caller can fall through to the stdlib/class
+    /// dispatch.
+    ///
+    /// A constructor-type annotation lowers to an ordinary `Type::Function` (see
+    /// `constructor_type_to_hir`), so `new ctor(args)` is just an indirect call
+    /// through that callable value: JavaScript classes *are* constructor
+    /// functions, and invoking one produces the constructed value. This reuses
+    /// the exact `ExprKind::ClosureCall` path a plain `ctor(args)` call takes,
+    /// with the result typed as the callable's declared return type. When the
+    /// binding is present but is *not* a callable value, `None` is returned and
+    /// the caller reports the existing "unresolved class" / non-callable error.
+    pub(super) fn new_through_value_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        callee: &oxc::ast::ast::IdentifierReference<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(local) = self.locals.get(callee.name.as_str()).copied() else {
+            return Ok(None);
+        };
+        let local_ty = Self::local_ty(body, local);
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() else {
+            return Ok(None);
+        };
+        let callee_expr = self.identifier_expression(
+            callee.name.as_str(),
+            callee.span.start,
+            callee.span.end,
+            body,
+        )?;
+        let args = new_expr
+            .arguments
+            .iter()
+            .take(function.params.len())
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall {
+                callee: callee_expr,
+                args,
+            },
+            ty: function.return_ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        })))
+    }
+
+    /// Adapt a class name used as a *value* into a constructor closure when the
+    /// contextual type expects a constructor (a `Type::Function`), returning
+    /// `None` when `name` is not a constructable class or the hint is not a
+    /// callable type so the caller can fall through to plain identifier lowering.
+    ///
+    /// A class name in value position (`makeError(TypeError, ...)`,
+    /// `factory(MyClass)`) is a constructor value. A constructor-type parameter
+    /// lowers to a `Type::Function` (see `constructor_type_to_hir`), so the honest
+    /// bridge is a synthesized closure `(a0, a1, ...) => new Class(a0, a1, ...)`
+    /// whose parameter and return types are exactly the expected constructor
+    /// type's — matching how ordinary function items are wrapped as first-class
+    /// closure values (`item_function_closure_expression`) and how builtin
+    /// functions become closures in value position (the builtins-as-values work).
+    /// The closure body reuses the normal construction lowering: user / imported
+    /// / forward-declared classes construct through `ExprKind::New`, and the
+    /// builtin `Error` family constructs through the same erased-Error record the
+    /// direct `new Error(...)` path emits.
+    pub(super) fn class_constructor_value_expression(
+        &mut self,
+        name: &str,
+        type_hint: Option<smelt_hir::TypeId>,
+        identifier_span: oxc::span::Span,
+        outer_body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(hint) = type_hint else {
+            return Ok(None);
+        };
+        let Some(Type::Function(expected)) = self.ctx.krate.types.get(hint).cloned() else {
+            return Ok(None);
+        };
+        // A local binding shadowing the name is an ordinary value, not a class
+        // constructor; leave it to the normal identifier path.
+        if self.locals.contains_key(name) {
+            return Ok(None);
+        }
+        let is_error_builtin = Self::is_builtin_error_constructor(name);
+        let is_user_class = self.classes.contains_key(name)
+            || self.pending_class_names.contains(name)
+            || self.source_contains_class(name);
+        if !is_error_builtin && !is_user_class {
+            return Ok(None);
+        }
+
+        let span = self.span(identifier_span.start, identifier_span.end);
+        let class_symbol = self.intern_type_name(name);
+        // Build closure parameters mirroring the expected constructor signature so
+        // the adapter is assignable to the parameter's constructor type.
+        let mut closure_body = Body::new(None, span);
+        let mut closure_params = Vec::new();
+        let mut arg_exprs = Vec::new();
+        for (index, &param_ty) in expected.params.iter().enumerate() {
+            let param_name = self.intern_source_name(&format!("arg{index}"));
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(param_name),
+                ty: param_ty,
+                mutable: false,
+                span,
+            });
+            closure_body.params.push(local);
+            closure_params.push(Param {
+                name: param_name,
+                local,
+                ty: param_ty,
+                span,
+            });
+            arg_exprs.push(closure_body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty: param_ty,
+                span,
+            }));
+        }
+
+        let constructed = if is_error_builtin {
+            // Reuse the erased-Error record model. `new Error(message)` keeps
+            // only the message argument, so pass the first closure parameter
+            // through the shared error-object builder.
+            self.error_object_from_message(arg_exprs.first().copied(), span, &mut closure_body)
+        } else {
+            let class_ty = self.ctx.krate.types.intern(Type::Class {
+                name: class_symbol,
+                args: Vec::new(),
+            });
+            closure_body.push_expr(Expr {
+                kind: ExprKind::New {
+                    class: class_symbol,
+                    args: arg_exprs,
+                },
+                ty: class_ty,
+                span,
+            })
+        };
+        // The closure returns the constructed value; type the closure by what it
+        // actually returns. Builtin `Error` constructs an erased record
+        // (`unknown`), while user classes return their concrete class type.
+        let return_ty = Self::expr_ty(&closure_body, constructed);
+        closure_body.push_stmt(Stmt::Return(Some(constructed)));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: expected.params.clone(),
+            rest: expected.rest,
+            required_params: expected.required_params,
+            mutable_params: Vec::new(),
+            return_ty,
+            is_async: false,
+            may_throw: false,
+        }));
+        Ok(Some(outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(ClosureExpr {
+                params: closure_params,
+                rest: expected.rest,
+                required_params: expected.required_params,
+                return_ty,
+                captures: Vec::new(),
+                body: body_id,
+                function_item: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        })))
+    }
+
+    /// Build the erased-`Error` record used by `new Error(...)` from an optional
+    /// message expression already lowered in `body`.
+    ///
+    /// Shared by the direct `new Error(message)` path and the constructor-value
+    /// adapter (`class_constructor_value_expression`) so both stamp the same
+    /// `__smelt_error` marker + `message` shape, keeping `instanceof Error`
+    /// identity consistent regardless of how the constructor was invoked. When no
+    /// message is supplied the default `"Error"` string is used, matching the
+    /// zero-argument `new Error()` behavior.
+    pub(super) fn error_object_from_message(
+        &mut self,
+        message: Option<smelt_hir::ExprId>,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let message = message.unwrap_or_else(|| {
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("Error".to_owned())),
+                ty: string_ty,
+                span,
+            })
+        });
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("__smelt_error".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let marker_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        let message_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("message".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (message_key, message)]),
+            ty: dict_ty,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        })
     }
 
     /// Lower `new URL(text)` to its full URL string for string-oriented URL APIs.
