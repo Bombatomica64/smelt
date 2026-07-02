@@ -768,15 +768,22 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::StringContains { haystack, needle } => {
+            ExprKind::StringContains {
+                haystack,
+                needle,
+                from_index,
+            } => {
                 let haystack_operand = self.lower_expr(*haystack)?;
                 let needle_operand = self.lower_expr(*needle)?;
+                let from_index_operand =
+                    from_index.map(|value| self.lower_expr(value)).transpose()?;
                 self.assign_temp(
                     expr.ty,
                     expr.span,
                     Rvalue::StringContains {
                         haystack: haystack_operand,
                         needle: needle_operand,
+                        from_index: from_index_operand,
                     },
                 )?
             }
@@ -924,9 +931,16 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::ListSearch { op, list, item } => {
+            ExprKind::ListSearch {
+                op,
+                list,
+                item,
+                from_index,
+            } => {
                 let list_operand = self.lower_expr(*list)?;
                 let item_operand = self.lower_expr(*item)?;
+                let from_index_operand =
+                    from_index.map(|value| self.lower_expr(value)).transpose()?;
                 self.assign_temp(
                     expr.ty,
                     expr.span,
@@ -934,6 +948,7 @@ impl LoweringCtx<'_> {
                         op: *op,
                         list: list_operand,
                         item: item_operand,
+                        from_index: from_index_operand,
                     },
                 )?
             }

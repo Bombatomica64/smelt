@@ -852,6 +852,11 @@ impl ModuleBuilder<'_> {
                                 "callback array search requires an item",
                             )
                         })?,
+                        // The callback-expression path only accepts the single
+                        // item argument (guarded by `args.len() == 1` above); the
+                        // optional `fromIndex` form lowers through the regular
+                        // statement path in `list_search_call`.
+                        from_index: None,
                     },
                     ty,
                     span,

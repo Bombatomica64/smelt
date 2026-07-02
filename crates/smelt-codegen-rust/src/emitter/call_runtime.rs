@@ -687,9 +687,11 @@ impl FunctionEmitter<'_> {
             Rvalue::StringCharCodeAt { operand, index } => {
                 self.string_char_code_at_text(operand, index)
             }
-            Rvalue::StringContains { haystack, needle } => {
-                self.string_contains_text(haystack, needle)
-            }
+            Rvalue::StringContains {
+                haystack,
+                needle,
+                from_index,
+            } => self.string_contains_text(haystack, needle, from_index.as_ref()),
             Rvalue::StringSlice {
                 operand,
                 start,
@@ -730,8 +732,13 @@ impl FunctionEmitter<'_> {
                 let source_ty = self.concat_result_list_ty(left, right)?;
                 self.value_at_type_text(&text, source_ty, dest_ty)
             }
-            Rvalue::ListSearch { op, list, item } => {
-                let text = self.list_search_text(*op, list, item)?;
+            Rvalue::ListSearch {
+                op,
+                list,
+                item,
+                from_index,
+            } => {
+                let text = self.list_search_text(*op, list, item, from_index.as_ref())?;
                 let float_ty = self.type_id(Type::Float)?;
                 self.value_at_type_text(&text, float_ty, dest_ty)
             }

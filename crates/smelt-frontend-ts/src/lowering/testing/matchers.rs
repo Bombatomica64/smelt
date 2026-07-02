@@ -764,6 +764,7 @@ impl ModuleBuilder<'_> {
                 ExprKind::StringContains {
                     haystack: actual,
                     needle: expected,
+                    from_index: None,
                 }
             }
             Some(Type::List(item_ty)) if expected_ty == *item_ty || expected_is_erased => {

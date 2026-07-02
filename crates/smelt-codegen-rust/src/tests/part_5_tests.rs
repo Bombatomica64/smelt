@@ -529,6 +529,42 @@ const last = values.lastIndexOf(2);
 }
 
 #[test]
+fn emits_array_search_methods_with_from_index() {
+    let source = source_for(
+        r#"
+export function findFrom(values: readonly number[], target: number, from: number): number {
+  return values.indexOf(target, from);
+}
+export function findLastFrom(values: readonly number[], target: number, from: number): number {
+  return values.lastIndexOf(target, from);
+}
+"#,
+    );
+
+    // `indexOf` translates a negative `fromIndex` into an offset from the end,
+    // clamps the start to zero, and scans forward from there.
+    assert!(
+        source.contains("if smelt_raw < 0 { (smelt_len + smelt_raw).max(0) } else { smelt_raw } as usize"),
+        "{source}"
+    );
+    assert!(source.contains(".enumerate().skip(smelt_start)"), "{source}");
+    // `lastIndexOf` clamps the inclusive end and searches backward, returning -1
+    // when the end falls fully before the start of the array.
+    assert!(
+        source.contains("if smelt_raw < 0 { smelt_len + smelt_raw } else { smelt_raw.min(smelt_len - 1) }"),
+        "{source}"
+    );
+    assert!(
+        source.contains("if smelt_end < 0 { -1.0 }"),
+        "{source}"
+    );
+    assert!(
+        source.contains(".enumerate().take(smelt_take).rev()"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_array_and_string_slice_methods() {
     let source = source_for(
         r#"

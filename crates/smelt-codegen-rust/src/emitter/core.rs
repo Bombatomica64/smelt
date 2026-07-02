@@ -4289,6 +4289,7 @@ fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         | Rvalue::StringContains {
             haystack: lhs,
             needle: rhs,
+            ..
         }
         | Rvalue::ListContains {
             list: lhs,

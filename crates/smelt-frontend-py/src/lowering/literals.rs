@@ -697,7 +697,13 @@ impl ModuleBuilder<'_> {
         let bool_ty = self.intern_type(Type::Bool);
         let contains_kind = match self.ctx.krate.types.get(haystack_ty) {
             Some(Type::String) if self.ctx.krate.types.get(needle_ty) == Some(&Type::String) => {
-                ExprKind::StringContains { haystack, needle }
+                // Python's `in` has no start position; `from_index` is a
+                // JavaScript `includes(needle, position)` affordance.
+                ExprKind::StringContains {
+                    haystack,
+                    needle,
+                    from_index: None,
+                }
             }
             Some(Type::List(item_ty)) if needle_ty == *item_ty => ExprKind::ListContains {
                 list: haystack,

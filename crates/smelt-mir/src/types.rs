@@ -883,6 +883,8 @@ pub enum Rvalue {
         haystack: Operand,
         /// Substring to search for.
         needle: Operand,
+        /// Optional JavaScript `position` argument for `String.prototype.includes`.
+        from_index: Option<Operand>,
     },
     /// Take a substring slice from a string.
     StringSlice {
@@ -990,6 +992,8 @@ pub enum Rvalue {
         list: Operand,
         /// Item to search for.
         item: Operand,
+        /// Optional JavaScript `fromIndex` argument.
+        from_index: Option<Operand>,
     },
     /// Apply a capture-free callback to a list operation.
     ListCallback {

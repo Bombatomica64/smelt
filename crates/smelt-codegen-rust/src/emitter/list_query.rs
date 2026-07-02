@@ -15,43 +15,89 @@ struct ListCallbackIterationParts {
 
 impl FunctionEmitter<'_> {
     /// Converts a list search operation to Rust text.
+    ///
+    /// Handles `Array.prototype.indexOf`/`lastIndexOf`, including the optional
+    /// JavaScript `fromIndex` argument. The emitted code searches every element
+    /// but keeps the absolute element index so that a restricting window applied
+    /// through `from_index` still reports the original position. JavaScript
+    /// truncates `fromIndex` toward zero (`as i64`), lets negative values count
+    /// back from the end, and treats it as the *first* searched index for
+    /// `indexOf` and the *highest* searched index for `lastIndexOf`.
     pub(super) fn list_search_text(
         &self,
         op: smelt_hir::ListSearchOp,
         list: &Operand,
         item: &Operand,
+        from_index: Option<&Operand>,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list search receiver must be a list"));
         };
-        let item_text = if self.operand_ty(item)? == *item_ty {
+        let element_ty = *item_ty;
+        let item_text = if self.operand_ty(item)? == element_ty {
             self.operand_text(item)?
         } else {
-            self.value_at_type_text(&self.operand_text(item)?, self.operand_ty(item)?, *item_ty)?
-        };
-        let method_name = match op {
-            smelt_hir::ListSearchOp::Find => "position",
-            smelt_hir::ListSearchOp::RFind => "rposition",
+            self.value_at_type_text(&self.operand_text(item)?, self.operand_ty(item)?, element_ty)?
         };
         let owned_list_text = self.operand_text(list)?;
         let borrowed_list_text = match list {
             Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
             Operand::Const(_) => owned_list_text,
         };
-        if self.list_item_uses_same_value_zero(*item_ty) {
-            if self.mir.types.get(*item_ty) == Some(&Type::Float) {
+        let method_name = match op {
+            smelt_hir::ListSearchOp::Find => "position",
+            smelt_hir::ListSearchOp::RFind => "rposition",
+        };
+        // Without a `fromIndex` this reduces to a direct `position`/`rposition`
+        // scan over the borrowed list. Element comparison mirrors JavaScript
+        // `indexOf`'s SameValueZero semantics (so `NaN` matches `NaN` and
+        // `+0`/`-0` are equal) for value-typed elements, and falls back to
+        // structural equality for reference-typed elements.
+        let Some(from_index_operand) = from_index else {
+            if self.list_item_uses_same_value_zero(element_ty) {
+                if self.mir.types.get(element_ty) == Some(&Type::Float) {
+                    return Ok(format!(
+                        "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) }}"
+                    ));
+                }
                 return Ok(format!(
-                    "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) }}"
+                    "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| item.same_js_key(&smelt_needle)).map_or(-1.0, |idx| idx as f64) }}"
                 ));
             }
             return Ok(format!(
-                "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| item.same_js_key(&smelt_needle)).map_or(-1.0, |idx| idx as f64) }}"
+                "{borrowed_list_text}.iter().{method_name}(|item| item == &{item_text}).map_or(-1.0, |idx| idx as f64)"
             ));
+        };
+        // The `fromIndex` form keeps absolute element indexes while restricting
+        // the searched window, so it enumerates and applies the same match
+        // predicate bound to a single `item: &T` reference. The enumerate
+        // iterator yields `(usize, &T)`, so `find` binds `item: &&T` and the
+        // predicate is applied to `*item` (`&T`).
+        let predicate = if self.list_item_uses_same_value_zero(element_ty) {
+            if self.mir.types.get(element_ty) == Some(&Type::Float) {
+                "|item: &f64| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())"
+            } else {
+                "|item: &_| item.same_js_key(&smelt_needle)"
+            }
+        } else {
+            "|item: &_| *item == smelt_needle"
+        };
+        let index_text = self.value_at_type(from_index_operand, self.type_id(Type::Float)?)?;
+        // Normalize `fromIndex`: truncate toward zero, then translate a negative
+        // value into an offset from the end. `indexOf` clamps the start into
+        // `[0, len]`; `lastIndexOf` clamps the inclusive end into `[-1, len - 1]`,
+        // where a fully-out-of-range negative end means "search nothing". The
+        // enumerate iterator yields `(usize, &T)`, so `find` binds `item: &&T`
+        // and the predicate is applied to `*item` (`&T`).
+        match op {
+            smelt_hir::ListSearchOp::Find => Ok(format!(
+                "{{ let smelt_needle = {item_text}; let smelt_predicate = {predicate}; let smelt_list = &{borrowed_list_text}; let smelt_len = smelt_list.len() as i64; let smelt_raw = {index_text} as i64; let smelt_start = if smelt_raw < 0 {{ (smelt_len + smelt_raw).max(0) }} else {{ smelt_raw }} as usize; smelt_list.iter().enumerate().skip(smelt_start).find(|(_, item)| smelt_predicate(*item)).map_or(-1.0, |(idx, _)| idx as f64) }}"
+            )),
+            smelt_hir::ListSearchOp::RFind => Ok(format!(
+                "{{ let smelt_needle = {item_text}; let smelt_predicate = {predicate}; let smelt_list = &{borrowed_list_text}; let smelt_len = smelt_list.len() as i64; let smelt_raw = {index_text} as i64; let smelt_end = if smelt_raw < 0 {{ smelt_len + smelt_raw }} else {{ smelt_raw.min(smelt_len - 1) }}; if smelt_end < 0 {{ -1.0 }} else {{ let smelt_take = (smelt_end as usize).saturating_add(1).min(smelt_list.len()); smelt_list.iter().enumerate().take(smelt_take).rev().find(|(_, item)| smelt_predicate(*item)).map_or(-1.0, |(idx, _)| idx as f64) }} }}"
+            )),
         }
-        Ok(format!(
-            "{borrowed_list_text}.iter().{method_name}(|item| item == &{item_text}).map_or(-1.0, |idx| idx as f64)"
-        ))
     }
 
     /// Converts a closure-backed callback list operation to Rust iterator text.

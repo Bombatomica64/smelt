@@ -234,6 +234,18 @@ impl ModuleBuilder<'_> {
                     )
                 })?;
             for required in &interface.fields {
+                // Method signatures are also recorded as function-typed fields
+                // so interface-typed values expose callable members. A class
+                // satisfies such a requirement with a real method, which the
+                // method loop below validates, so skip the field check here to
+                // avoid demanding a matching data field the class never stores.
+                if interface
+                    .methods
+                    .iter()
+                    .any(|method| method.name == required.name)
+                {
+                    continue;
+                }
                 let Some(actual) = class
                     .fields
                     .iter()

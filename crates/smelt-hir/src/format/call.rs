@@ -344,12 +344,17 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*index)
             )
         }
-        ExprKind::StringContains { haystack, needle } => {
-            format!(
+        ExprKind::StringContains {
+            haystack,
+            needle,
+            from_index,
+        } => {
+            let base = format!(
                 "string_contains {}, {}",
                 expr_ref(*haystack),
                 expr_ref(*needle)
-            )
+            );
+            from_index.map_or(base.clone(), |index| format!("{base}, {}", expr_ref(index)))
         }
         ExprKind::StringSlice {
             operand,
@@ -413,12 +418,18 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListConcat { left, right } => {
             format!("list_concat {}, {}", expr_ref(*left), expr_ref(*right))
         }
-        ExprKind::ListSearch { op, list, item } => {
+        ExprKind::ListSearch {
+            op,
+            list,
+            item,
+            from_index,
+        } => {
             let op_name = match op {
                 crate::expr::ListSearchOp::Find => "find",
                 crate::expr::ListSearchOp::RFind => "rfind",
             };
-            format!("list_{op_name} {}, {}", expr_ref(*list), expr_ref(*item))
+            let base = format!("list_{op_name} {}, {}", expr_ref(*list), expr_ref(*item));
+            from_index.map_or(base.clone(), |index| format!("{base}, {}", expr_ref(index)))
         }
         ExprKind::ListCallback { op, list, callback } => {
             let op_name = match op {

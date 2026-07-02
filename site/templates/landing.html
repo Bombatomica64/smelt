@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>smelt — TypeScript &amp; Python to Rust</title>
+<meta name="description" content="smelt transpiles strictly-typed TypeScript and Python into idiomatic Rust — one shared IR, one generated crate, your tests carried across.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/pygments.css">
+<link rel="stylesheet" href="assets/landing.css">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<script>document.documentElement.setAttribute("data-theme","dark");</script>
+</head>
+<body class="landing" data-mode="foundry">
+
+<header class="site-header">
+  <a class="logotype" href="index.html"><span class="spark"></span>smelt</a>
+  <nav class="site-nav">
+    <a href="docs/index.html">Docs</a>
+    <a href="specs/index.html">Specs</a>
+    <a href="devlog/index.html">Devlog</a>
+  </nav>
+  <div class="header-spacer"></div>
+  <div class="header-actions">
+    <div class="mode-switch" role="group" aria-label="Landing theme">
+      <button type="button" data-mode="foundry" aria-pressed="true">FOUNDRY</button>
+      <button type="button" data-mode="blueprint" aria-pressed="false">BLUEPRINT</button>
+    </div>
+    <a class="icon-btn" href="https://github.com/Bombatomica64/smelt" aria-label="GitHub repository" title="GitHub">
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+    </a>
+  </div>
+</header>
+
+<section class="hero2">
+  <div class="embers" aria-hidden="true"></div>
+  <div class="stamp" aria-hidden="true">DWG NO. SMELT-001<br>SCALE — TYPES:1<br>REV. PRE-ALPHA</div>
+  <p class="kicker">typescript · python → rust</p>
+  <span class="halo" aria-hidden="true"></span>
+  <h1>smelt</h1>
+  <p class="tagline">Feed it strictly-typed TypeScript or Python. It pours out an idiomatic Rust crate — with your original tests recast as native <code>#[test]</code> functions.</p>
+  <div class="cta-row">
+    <a class="cta primary" href="#install">Get started</a>
+    <a class="cta ghost" href="specs/architecture.html">Read the architecture</a>
+  </div>
+  <svg class="schematic" viewBox="0 0 680 120" aria-hidden="true">
+    <path class="draw" d="M20 40 h110 v40 h-110 z"/>
+    <path class="draw" d="M250 40 h110 v40 h-110 z M480 40 h110 v40 h-110 z"/>
+    <path class="draw" d="M130 60 h120 M360 60 h120 M75 88 v18 h240 M305 88 v0"/>
+    <text x="43" y="65">.ts / .py</text>
+    <text x="277" y="65">HIR → MIR</text>
+    <text x="505" y="65">cargo test</text>
+    <text class="note" x="150" y="52">lower</text>
+    <text class="note" x="385" y="52">emit .rs</text>
+    <text class="note" x="80" y="118">fig 1. — the smelting pipeline</text>
+  </svg>
+</section>
+
+<section class="landing-section reveal" id="demo">
+  <p class="section-kicker">see it smelt</p>
+  <div class="demo-frame">
+    <div class="demo-tabs" role="tablist">
+      <button class="tab" role="tab" data-pane="ts" aria-selected="true">input.ts</button>
+      <button class="tab" role="tab" data-pane="rust" aria-selected="false">dist-smelt/src/main.rs</button>
+      <button class="demo-run" type="button">▶ SMELT IT</button>
+    </div>
+    <div class="demo-panes">
+      <div class="demo-pane is-active" data-pane="ts">@@DEMO_TS@@</div>
+      <div class="demo-pane" data-pane="rust">@@DEMO_RS@@</div>
+    </div>
+    <div class="demo-terminal"><span class="line">$ smelt --manifest-path Smelt.toml build</span><span class="cursor">▌</span></div>
+  </div>
+</section>
+
+<section class="landing-section reveal" id="install">
+  <p class="section-kicker">how to use it</p>
+  <div class="install-grid">
+    <div class="install-step">
+      <h3>Install <span class="badge-soon">CRATES.IO SOON</span></h3>
+      <pre><code>cargo install smelt
+
+# until then, from source:
+git clone https://github.com/Bombatomica64/smelt
+cargo install --path smelt/crates/smelt-cli</code></pre>
+      <p>One binary: <code>smelt</code>. Rust 1.85+ with edition 2024.</p>
+    </div>
+    <div class="install-step">
+      <h3>Describe the project</h3>
+      <pre><code># Smelt.toml
+[project]
+name = "my-lib"
+
+[sources]
+roots   = ["src"]
+entries = ["src/index.ts"]
+
+[output]
+target     = "./dist-smelt"
+crate-name = "my_lib"</code></pre>
+      <p>Point it at your strictly-typed sources; tests are picked up as test globs.</p>
+    </div>
+    <div class="install-step">
+      <h3>Smelt &amp; test</h3>
+      <pre><code>smelt --manifest-path Smelt.toml build
+cargo test --manifest-path \
+  dist-smelt/Cargo.toml</code></pre>
+      <p>Your Vitest / pytest suites come out the other side as native Rust tests.</p>
+    </div>
+  </div>
+</section>
+
+<section class="landing-section reveal">
+  <p class="section-kicker">proof, not promises</p>
+  <div class="stat-row">
+    <div class="stat"><span class="stat-value">1,789</span><span class="stat-label">generated Rust tests passing (Remeda)</span></div>
+    <div class="stat"><span class="stat-value">@@TEST_COUNT@@</span><span class="stat-label">compiler test suite</span></div>
+    <div class="stat"><span class="stat-value">2</span><span class="stat-label">source languages, one HIR</span></div>
+    <div class="stat"><span class="stat-value">@@PAGE_COUNT@@</span><span class="stat-label">design docs on this site</span></div>
+  </div>
+</section>
+
+<section class="landing-section reveal landing-cards">
+  <p class="section-kicker">go deeper</p>
+  @@CARDS@@
+</section>
+
+<footer class="landing-footer">
+  <span>smelt — pre-alpha · built in the open</span>
+  <span><a href="https://github.com/Bombatomica64/smelt">github</a> · <a href="overview/context.html">vocabulary</a> · <a href="devlog/index.html">devlog</a></span>
+</footer>
+
+<script src="assets/landing.js"></script>
+</body>
+</html>

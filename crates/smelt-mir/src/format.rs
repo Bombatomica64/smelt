@@ -674,11 +674,19 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(index)
             )
         }
-        Rvalue::StringContains { haystack, needle } => {
-            format!(
+        Rvalue::StringContains {
+            haystack,
+            needle,
+            from_index,
+        } => {
+            let base = format!(
                 "string_contains {}, {}",
                 operand_text(haystack),
                 operand_text(needle)
+            );
+            from_index.as_ref().map_or_else(
+                || base.clone(),
+                |index| format!("{base}, {}", operand_text(index)),
             )
         }
         Rvalue::StringSlice {
@@ -767,15 +775,24 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(right)
             )
         }
-        Rvalue::ListSearch { op, list, item } => {
+        Rvalue::ListSearch {
+            op,
+            list,
+            item,
+            from_index,
+        } => {
             let op_text = match op {
                 smelt_hir::ListSearchOp::Find => "find",
                 smelt_hir::ListSearchOp::RFind => "rfind",
             };
-            format!(
+            let base = format!(
                 "list_{op_text} {}, {}",
                 operand_text(list),
                 operand_text(item)
+            );
+            from_index.as_ref().map_or_else(
+                || base.clone(),
+                |index| format!("{base}, {}", operand_text(index)),
             )
         }
         Rvalue::ListCallback { op, list, callback } => {

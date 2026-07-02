@@ -589,6 +589,34 @@ const has = word.includes("mel");
 }
 
 #[test]
+fn emits_string_includes_method_with_position() {
+    let source = source_for(
+        r#"
+export function containsFrom(haystack: string, needle: string, from: number): boolean {
+  return haystack.includes(needle, from);
+}
+"#,
+    );
+
+    // The `position` argument is truncated toward zero, clamped to `[0, len]`,
+    // then the search starts from that character offset over the remaining
+    // suffix (matching the char-based convention shared with the other string
+    // helpers). A position past the end only ever matches the empty needle.
+    assert!(
+        source.contains("let smelt_from = (") && source.contains("as i64).max(0) as usize"),
+        "{source}"
+    );
+    assert!(
+        source.contains("char_indices().nth(smelt_from)"),
+        "{source}"
+    );
+    assert!(
+        source.contains(".map_or(false, |suffix| suffix.contains(&"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_array_includes_method() {
     let source = source_for(
         r#"

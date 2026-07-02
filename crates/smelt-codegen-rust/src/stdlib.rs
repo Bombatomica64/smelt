@@ -185,10 +185,17 @@ fn rvalue_needs_reqwest(rvalue: &Rvalue) -> bool {
 /// Returns true when generated Rust needs the opaque `unknown` carrier type.
 #[must_use]
 pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
+    // `Type::Union` values are emitted as `SmeltUnknown` (see the type-text
+    // helper) and their members are erased into that carrier, so a union
+    // anywhere in the type table means the generated crate references
+    // `SmeltUnknown` even when no explicit `UnknownCast`/`UnknownIs` statement
+    // is present. A union-valued `Map`/dict literal is exactly such a case: the
+    // dict-literal emitter erases each entry inline without materializing a
+    // `Type::Unknown` in the table. Emit the carrier for unions too.
     mir.types
         .all()
         .iter()
-        .any(|ty| matches!(ty, Type::Unknown | Type::Never))
+        .any(|ty| matches!(ty, Type::Unknown | Type::Never | Type::Union(_)))
         || mir.functions.iter().any(|function| {
             function.blocks.iter().any(|block| {
                 block.statements.iter().any(|statement| {
