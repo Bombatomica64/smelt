@@ -1,25 +1,8 @@
-// Landing-page behavior: world switcher (foundry/blueprint), ember field,
-// scroll reveals, demo tabs, and the fake `smelt build` run animation.
+// Landing-page behavior: ember field, scroll reveals, demo tabs, and the
+// fake `smelt build` run animation.
 (function () {
-  var body = document.body;
 
-  // --- world switcher ----------------------------------------------------
-  var saved = null;
-  try { saved = localStorage.getItem("smelt-landing-mode"); } catch (e) { /* private mode */ }
-  setMode(saved === "blueprint" ? "blueprint" : "foundry");
-
-  function setMode(mode) {
-    body.setAttribute("data-mode", mode);
-    document.querySelectorAll(".mode-switch button").forEach(function (button) {
-      button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
-    });
-    try { localStorage.setItem("smelt-landing-mode", mode); } catch (e) { /* private mode */ }
-  }
-  document.querySelectorAll(".mode-switch button").forEach(function (button) {
-    button.addEventListener("click", function () { setMode(button.dataset.mode); });
-  });
-
-  // --- ember particle field (foundry world only; CSS hides it elsewhere) --
+  // --- ember particle field --------------------------------------
   var field = document.querySelector(".embers");
   if (field) {
     for (var i = 0; i < 26; i++) {
