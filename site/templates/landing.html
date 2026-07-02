@@ -11,7 +11,7 @@
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <script>document.documentElement.setAttribute("data-theme","dark");</script>
 </head>
-<body class="landing" data-mode="foundry">
+<body class="landing">
 
 <header class="site-header">
   <a class="logotype" href="index.html"><span class="spark"></span>smelt</a>
@@ -22,10 +22,6 @@
   </nav>
   <div class="header-spacer"></div>
   <div class="header-actions">
-    <div class="mode-switch" role="group" aria-label="Landing theme">
-      <button type="button" data-mode="foundry" aria-pressed="true">FOUNDRY</button>
-      <button type="button" data-mode="blueprint" aria-pressed="false">BLUEPRINT</button>
-    </div>
     <a class="icon-btn" href="https://github.com/Bombatomica64/smelt" aria-label="GitHub repository" title="GitHub">
       <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
     </a>
@@ -34,10 +30,9 @@
 
 <section class="hero2">
   <div class="embers" aria-hidden="true"></div>
-  <div class="stamp" aria-hidden="true">DWG NO. SMELT-001<br>SCALE — TYPES:1<br>REV. PRE-ALPHA</div>
   <p class="kicker">typescript · python → rust</p>
   <span class="halo" aria-hidden="true"></span>
-  <h1>smelt</h1>
+  <h1 aria-label="smelt"><span class="l" style="--i:0">s</span><span class="l" style="--i:1">m</span><span class="l" style="--i:2">e</span><span class="l" style="--i:3">l</span><span class="l" style="--i:4">t</span></h1>
   <p class="tagline">Feed it strictly-typed TypeScript or Python. It pours out an idiomatic Rust crate — with your original tests recast as native <code>#[test]</code> functions.</p>
   <div class="cta-row">
     <a class="cta primary" href="#install">Get started</a>
@@ -45,14 +40,14 @@
   </div>
   <svg class="schematic" viewBox="0 0 680 120" aria-hidden="true">
     <path class="draw" d="M20 40 h110 v40 h-110 z"/>
-    <path class="draw" d="M250 40 h110 v40 h-110 z M480 40 h110 v40 h-110 z"/>
-    <path class="draw" d="M130 60 h120 M360 60 h120 M75 88 v18 h240 M305 88 v0"/>
+    <path class="draw" d="M250 40 h110 v40 h-110 z M480 40 h120 v40 h-120 z"/>
+    <path class="draw" d="M130 60 h120 M360 60 h120 M75 88 v18 h240"/>
     <text x="43" y="65">.ts / .py</text>
     <text x="277" y="65">HIR → MIR</text>
     <text x="505" y="65">cargo test</text>
     <text class="note" x="150" y="52">lower</text>
     <text class="note" x="385" y="52">emit .rs</text>
-    <text class="note" x="80" y="118">fig 1. — the smelting pipeline</text>
+    <text class="note" x="80" y="118">the smelting pipeline</text>
   </svg>
 </section>
 
@@ -61,7 +56,7 @@
   <div class="demo-frame">
     <div class="demo-tabs" role="tablist">
       <button class="tab" role="tab" data-pane="ts" aria-selected="true">input.ts</button>
-      <button class="tab" role="tab" data-pane="rust" aria-selected="false">dist-smelt/src/main.rs</button>
+      <button class="tab" role="tab" data-pane="rust" aria-selected="false">output.rs</button>
       <button class="demo-run" type="button">▶ SMELT IT</button>
     </div>
     <div class="demo-panes">
@@ -69,6 +64,30 @@
       <div class="demo-pane" data-pane="rust">@@DEMO_RS@@</div>
     </div>
     <div class="demo-terminal"><span class="line">$ smelt --manifest-path Smelt.toml build</span><span class="cursor">▌</span></div>
+  </div>
+</section>
+
+<section class="landing-section reveal" id="interop">
+  <p class="section-kicker">two languages, one crate</p>
+  <div class="interop-grid">
+    <div class="interop-card ts">
+      <div class="file-label"><span class="dot"></span>src/math.ts</div>
+      @@INTEROP_TS@@
+    </div>
+    <div class="interop-join" aria-hidden="true">
+      <span class="joint-label">same HIR</span>
+      <span class="arrow-glyph">⇒</span>
+      <span class="joint-label">one crate</span>
+    </div>
+    <div class="interop-card py">
+      <div class="file-label"><span class="dot"></span>src/main.py</div>
+      @@INTEROP_PY@@
+    </div>
+  </div>
+  <div class="interop-lsp">
+    <span>Your editor stays smart across the boundary: smelt writes declaration stubs next to every module, so tsserver and Pyright resolve cross-language imports with full signatures — a Python file importing a TypeScript function type-checks natively.</span>
+    <span class="stub-chip">math.d.ts</span>
+    <span class="stub-chip">math.pyi</span>
   </div>
 </section>
 
@@ -80,7 +99,8 @@
       <pre><code>cargo install smelt
 
 # until then, from source:
-git clone https://github.com/Bombatomica64/smelt
+git clone \
+  https://github.com/Bombatomica64/smelt
 cargo install --path smelt/crates/smelt-cli</code></pre>
       <p>One binary: <code>smelt</code>. Rust 1.85+ with edition 2024.</p>
     </div>

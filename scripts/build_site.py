@@ -362,13 +362,17 @@ def build_landing(template: str, sections: list[Section], all_pages: dict[str, P
     that smelt actually emits for it), section cards, and live counts.
     """
     from pygments import highlight
-    from pygments.lexers import RustLexer, TypeScriptLexer
+    from pygments.lexers import PythonLexer, RustLexer, TypeScriptLexer
 
     demo_ts = (SITE / "demo" / "input.ts").read_text(encoding="utf-8")
     demo_rs = (SITE / "demo" / "output.rs").read_text(encoding="utf-8")
     formatter = HtmlFormatter(nowrap=False, cssclass="codehilite")
     demo_ts_html = highlight(demo_ts, TypeScriptLexer(), formatter)
     demo_rs_html = highlight(demo_rs, RustLexer(), formatter)
+    interop_ts = 'export function add(a: number, b: number): number {\n  return a + b;\n}\n'
+    interop_py = 'from math import add\n\nresult: float = add(2.0, 3.0)\nprint(result)\n'
+    interop_ts_html = highlight(interop_ts, TypeScriptLexer(), formatter)
+    interop_py_html = highlight(interop_py, PythonLexer(), formatter)
 
     counts = {section.key: len(section.pages) for section in sections}
     total_pages = sum(counts.values())
@@ -397,6 +401,8 @@ def build_landing(template: str, sections: list[Section], all_pages: dict[str, P
         landing_template,
         demo_ts=demo_ts_html,
         demo_rs=demo_rs_html,
+        interop_ts=interop_ts_html,
+        interop_py=interop_py_html,
         cards=cards,
         test_count="705+",
         page_count=str(total_pages),
