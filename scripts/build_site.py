@@ -394,6 +394,10 @@ def build_landing(template: str, sections: list[Section], all_pages: dict[str, P
     <h3>Devlog<span class="count">{counts.get('devlog', 0)}</span></h3>
     <p>Progress notes from the workshop floor.</p>
   </a>
+  <a class="card" href="docs/why-smelt.html">
+    <h3>Why smelt exists</h3>
+    <p>A prod incident, a grudge against decorative types, and the accident that made two languages one crate.</p>
+  </a>
 </div>"""
 
     landing_template = (SITE / "templates" / "landing.html").read_text(encoding="utf-8")
