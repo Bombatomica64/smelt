@@ -12,6 +12,7 @@ reproducible in CI with two pip installs.
 
 from __future__ import annotations
 
+import datetime
 import html
 import re
 import shutil
@@ -25,6 +26,7 @@ REPO = Path(__file__).resolve().parent.parent
 OUT = REPO / "_site"
 SITE = REPO / "site"
 GITHUB_BLOB = "https://github.com/Bombatomica64/smelt/blob/main/"
+GITHUB_RAW = "https://raw.githubusercontent.com/Bombatomica64/smelt/main/"
 
 MD_EXTENSIONS = [
     "extra",
@@ -47,6 +49,7 @@ class Page:
     section: str            # top-nav section key
     title: str = ""
     group: str = ""         # sidebar group label within the section
+    external: bool = False  # pre-built standalone HTML copied verbatim (not templated)
 
 
 @dataclass
@@ -59,11 +62,38 @@ class Section:
 
 
 def read_title(path: Path) -> str:
-    """Return the first `# ` heading of a markdown file, else its stem."""
-    for line in path.read_text(encoding="utf-8").splitlines():
+    """Return the first `# ` heading of a markdown file, else a readable stem.
+
+    Falls back through the first `## ` / setext-style heading before giving up
+    and prettifying the filename, so pages that open with a lower heading level
+    still get a meaningful sidebar title instead of a raw slug.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for line in lines:
         if line.startswith("# "):
             return line[2:].strip().rstrip("#").strip()
-    return path.stem.replace("-", " ").replace("_", " ")
+    for line in lines:
+        if line.startswith("## "):
+            return line[3:].strip().rstrip("#").strip()
+    return path.stem.replace("-", " ").replace("_", " ").strip().title()
+
+
+def devlog_title(stem: str) -> str:
+    """Turn a dated devlog post filename into a human title.
+
+    Devlog posts are tweet drafts with no headings; their filenames encode the
+    date (``YYYY-MM-DD`` with an optional ``-N`` suffix for multiple posts in a
+    day), e.g. ``2026-06-22-2`` -> ``June 22, 2026 (part 2)``.
+    """
+    match = re.match(r"(\d{4})-(\d{2})-(\d{2})(?:-(\d+))?$", stem)
+    if not match:
+        return stem.replace("-", " ").replace("_", " ").strip().title()
+    year, month, day, part = match.groups()
+    date = datetime.date(int(year), int(month), int(day))
+    label = date.strftime("%B %-d, %Y")
+    if part:
+        label += f" (part {part})"
+    return label
 
 
 def spec_group(name: str) -> str:
@@ -124,9 +154,30 @@ def collect_pages() -> list[Section]:
     if notes.exists():
         by_key["devlog"].pages.append(Page(notes, "devlog/notes.html", "devlog", group="Notes"))
 
+    # Pre-built standalone HTML pages that live in the repo already styled.
+    # They are copied verbatim (not run through the template) and linked from
+    # the relevant sidebar group as external-style entries.
+    architecture_review = REPO / "docs" / "architecture-review.html"
+    if architecture_review.exists():
+        by_key["docs"].pages.append(
+            Page(architecture_review, "docs/architecture-review.html", "docs",
+                 title="Architecture review", group="Design docs", external=True)
+        )
+    tracker = REPO / "devlog" / "tracker.html"
+    if tracker.exists():
+        by_key["devlog"].pages.append(
+            Page(tracker, "devlog/tracker.html", "devlog",
+                 title="Engagement tracker", group="Tracker", external=True)
+        )
+
     for section in sections:
         for page in section.pages:
-            page.title = read_title(page.source)
+            if page.external:
+                continue
+            if section.key == "devlog" and page.group == "Posts":
+                page.title = devlog_title(page.source.stem)
+            else:
+                page.title = read_title(page.source)
         if section.key == "specs":
             grouped: dict[str, list[Page]] = {}
             for page in section.pages:
@@ -141,14 +192,26 @@ def collect_pages() -> list[Section]:
 
 
 def rewrite_links(html_text: str, page: Page, all_pages: dict[str, Page]) -> str:
-    """Rewrite repo-relative .md hrefs to their rendered .html locations."""
+    """Rewrite repo-relative links in rendered markdown to working targets.
+
+    Three cases, applied to both ``href`` and ``src`` attributes:
+
+    * A repo-relative ``.md`` link that has a rendered page -> the local
+      ``.html`` output (relative to this page's depth).
+    * Any other repo-relative reference (``LICENSE``, ``coverage.svg``,
+      files under ``crates/`` or ``blocker-logs/`` that have no rendered page)
+      -> an absolute GitHub URL. Links use the ``blob`` view; embedded assets
+      (``src``) use the ``raw`` view so images still display.
+    * External URLs, in-page fragments, ``mailto:``/``data:`` and paths that
+      escape the repo are left untouched.
+    """
 
     def replace(match: re.Match) -> str:
-        href = match.group(2)
-        if href.startswith(("http://", "https://", "#", "mailto:")):
+        attr, value = match.group(1), match.group(2)
+        if value.startswith(("http://", "https://", "#", "mailto:", "data:")):
             return match.group(0)
-        target, _, fragment = href.partition("#")
-        if not target.endswith(".md"):
+        target, _, fragment = value.partition("#")
+        if not target:
             return match.group(0)
         source_dir = page.source.parent
         resolved = (source_dir / target).resolve()
@@ -156,15 +219,16 @@ def rewrite_links(html_text: str, page: Page, all_pages: dict[str, Page]) -> str
             repo_relative = resolved.relative_to(REPO)
         except ValueError:
             return match.group(0)
-        destination = all_pages.get(str(repo_relative))
-        if destination is None:
-            return match.group(0)
-        depth = page.out.count("/")
-        prefix = "../" * depth
         suffix = f"#{fragment}" if fragment else ""
-        return f'{match.group(1)}{prefix}{destination.out}{suffix}"'
+        destination = all_pages.get(str(repo_relative))
+        if destination is not None and not destination.external:
+            depth = page.out.count("/")
+            prefix = "../" * depth
+            return f'{attr}="{prefix}{destination.out}{suffix}"'
+        base = GITHUB_RAW if attr == "src" else GITHUB_BLOB
+        return f'{attr}="{base}{repo_relative}{suffix}"'
 
-    return re.sub(r'(href=")([^"]+)"', replace, html_text)
+    return re.sub(r'(href|src)="([^"]+)"', replace, html_text)
 
 
 def render_markdown(text: str) -> str:
@@ -243,6 +307,11 @@ def build() -> None:
 
     for section in sections:
         for page in section.pages:
+            if page.external:
+                destination = OUT / page.out
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(page.source, destination)
+                continue
             depth = page.out.count("/")
             root = "../" * depth
             body = render_markdown(page.source.read_text(encoding="utf-8"))
@@ -279,18 +348,30 @@ def build() -> None:
             encoding="utf-8",
         )
 
-    build_landing(template, sections)
+    build_landing(template, sections, all_pages)
     total = sum(len(section.pages) for section in sections)
     print(f"built {total} pages -> {OUT}")
 
 
-def build_landing(template: str, sections: list[Section]) -> None:
-    """Render index.html: hero, section cards, then the README body."""
-    readme = (REPO / "README.md").read_text(encoding="utf-8")
-    readme_body = re.sub(r"^# .*\n", "", readme, count=1)
-    body = render_markdown(readme_body)
+def build_landing(template: str, sections: list[Section], all_pages: dict[str, Page]) -> None:
+    """Render index.html from the dedicated landing template.
+
+    The landing has its own template (site/templates/landing.html) and its own
+    stylesheet with two switchable visual worlds; this function supplies the
+    data: pygments-highlighted demo code (the TypeScript input and the Rust
+    that smelt actually emits for it), section cards, and live counts.
+    """
+    from pygments import highlight
+    from pygments.lexers import RustLexer, TypeScriptLexer
+
+    demo_ts = (SITE / "demo" / "input.ts").read_text(encoding="utf-8")
+    demo_rs = (SITE / "demo" / "output.rs").read_text(encoding="utf-8")
+    formatter = HtmlFormatter(nowrap=False, cssclass="codehilite")
+    demo_ts_html = highlight(demo_ts, TypeScriptLexer(), formatter)
+    demo_rs_html = highlight(demo_rs, RustLexer(), formatter)
 
     counts = {section.key: len(section.pages) for section in sections}
+    total_pages = sum(counts.values())
     cards = f"""
 <div class="card-grid">
   <a class="card" href="specs/index.html">
@@ -311,41 +392,15 @@ def build_landing(template: str, sections: list[Section]) -> None:
   </a>
 </div>"""
 
-    hero = f"""
-<section class="hero">
-  <p class="kicker">typescript · python → rust</p>
-  <h1>smelt</h1>
-  <p class="tagline">Smelt your strictly-typed TypeScript and Python down to idiomatic Rust — one shared IR, one generated crate, your tests carried across.</p>
-  <div class="pipeline">
-    <span class="stage lang-ts">.ts</span>
-    <span class="stage lang-py">.py</span>
-    <span class="arrow">→</span>
-    <span class="stage">HIR</span>
-    <span class="arrow">→</span>
-    <span class="stage">MIR</span>
-    <span class="arrow">→</span>
-    <span class="stage lang-rs">.rs</span>
-  </div>
-</section>
-{cards}
-<div class="landing-body">
-{body}
-</div>"""
-
-    overview = next(section for section in sections if section.key == "overview")
+    landing_template = (SITE / "templates" / "landing.html").read_text(encoding="utf-8")
     landing = apply_template(
-        template,
-        title="smelt — TypeScript & Python to Rust",
-        description="smelt transpiles strictly-typed TypeScript and Python into idiomatic Rust.",
-        root="",
-        topnav=top_nav("overview", ""),
-        sidebar=sidebar_html(overview, None, ""),
-        breadcrumbs='<a href="index.html">smelt</a>',
-        content=hero,
-        source_note="Rendered from <code>README.md</code>",
-        source_path="README.md",
+        landing_template,
+        demo_ts=demo_ts_html,
+        demo_rs=demo_rs_html,
+        cards=cards,
+        test_count="705+",
+        page_count=str(total_pages),
     )
-    landing = landing.replace("<body>", '<body class="landing">')
     (OUT / "index.html").write_text(landing, encoding="utf-8")
 
 

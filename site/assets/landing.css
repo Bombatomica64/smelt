@@ -1,0 +1,462 @@
+/* ==========================================================================
+   Smelt landing — two complete visual worlds, switchable at runtime.
+
+   FOUNDRY   body[data-mode="foundry"]   molten metal poured in the dark:
+             ember particles, heat-shimmer logotype, glowing crucible demo.
+   BLUEPRINT body[data-mode="blueprint"] a cyanotype engineer's drawing:
+             grid paper, drawn-in schematic strokes, stamps and crosshairs.
+
+   Every section styles itself per mode; shared structure lives up top.
+   ========================================================================== */
+
+/* ---- shared structure -------------------------------------------------- */
+
+body.landing { overflow-x: hidden; }
+
+.landing-section {
+  position: relative;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 4.5rem 1.5rem;
+}
+.landing-section > .section-kicker {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin: 0 0 1.6rem;
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 600ms ease, transform 600ms ease;
+}
+.reveal.is-visible { opacity: 1; transform: none; }
+
+.mode-switch {
+  display: inline-flex;
+  border-radius: 999px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+.mode-switch button {
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0.45rem 0.95rem;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.mode-switch button[aria-pressed="true"] { opacity: 1; font-weight: 700; }
+
+/* hero */
+.hero2 {
+  position: relative;
+  min-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 5rem 1.5rem 4rem;
+  isolation: isolate;
+}
+.hero2 .kicker {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  margin: 0 0 1.2rem;
+}
+.hero2 h1 {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: clamp(3.4rem, 11vw, 7rem);
+  letter-spacing: -0.035em;
+  line-height: 1;
+  margin: 0;
+}
+.hero2 .tagline {
+  font-size: 1.15rem;
+  max-width: 36rem;
+  margin: 1.4rem auto 0;
+}
+.hero2 .cta-row {
+  display: flex;
+  gap: 0.8rem;
+  margin-top: 2.4rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cta {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 0.7rem 1.4rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.cta:hover { text-decoration: none; transform: translateY(-1px); }
+
+/* demo */
+.demo-frame {
+  border-radius: 14px;
+  overflow: hidden;
+  font-size: 0.83rem;
+}
+.demo-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.55rem 0.8rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+.demo-tabs .tab {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 0.3rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.demo-tabs .tab[aria-selected="true"] { opacity: 1; font-weight: 700; }
+.demo-tabs .demo-run {
+  margin-left: auto;
+  border: none;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 0.35rem 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.demo-panes { position: relative; }
+.demo-pane { display: none; margin: 0; padding: 1.1rem 1.3rem; overflow-x: auto; line-height: 1.6; }
+.demo-pane.is-active { display: block; }
+.demo-pane code { font-family: var(--font-mono); background: none; padding: 0; }
+.demo-terminal {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  padding: 0.7rem 1.3rem 0.9rem;
+  white-space: pre-wrap;
+  min-height: 3.4rem;
+}
+.demo-terminal .cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  vertical-align: -0.15em;
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* install steps */
+.install-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 1.1rem;
+  counter-reset: step;
+}
+.install-step { padding: 1.3rem 1.4rem; border-radius: 12px; position: relative; }
+.install-step h3 {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  margin: 0 0 0.6rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.install-step h3::before {
+  counter-increment: step;
+  content: "0" counter(step);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  opacity: 0.55;
+}
+.install-step pre {
+  margin: 0.5rem 0 0;
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+.install-step p { font-size: 0.85rem; margin: 0.4rem 0 0; }
+.badge-soon {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+/* stats */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1rem;
+  text-align: center;
+}
+.stat .stat-value {
+  font-family: var(--font-mono);
+  font-size: 2.3rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  display: block;
+}
+.stat .stat-label {
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* pipeline schematic (svg) */
+.schematic { width: 100%; max-width: 46rem; margin: 2.6rem auto 0; display: block; }
+.schematic text { font-family: var(--font-mono); font-size: 13px; }
+
+/* =========================================================================
+   FOUNDRY
+   ========================================================================= */
+
+body[data-mode="foundry"] {
+  --l-bg: #0c0d11;
+  --l-bg-2: #14161c;
+  --l-text: #ece7e1;
+  --l-muted: #9b948b;
+  --l-line: #262a33;
+  background:
+    radial-gradient(70rem 30rem at 50% -8rem, rgba(225, 80, 15, 0.18), transparent 65%),
+    var(--l-bg);
+  color: var(--l-text);
+}
+body[data-mode="foundry"] .landing-section { border-top: 1px solid var(--l-line); }
+body[data-mode="foundry"] .section-kicker { color: #ff8a4a; }
+body[data-mode="foundry"] .hero2 .kicker { color: var(--l-muted); }
+body[data-mode="foundry"] .hero2 h1 {
+  background-image: linear-gradient(100deg, #b06a3a 0%, #ffb36b 22%, #fff3e4 38%, #ff8a4a 55%, #e1500f 78%, #b06a3a 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 7s linear infinite;
+}
+body[data-mode="foundry"] .hero2 .halo {
+  position: absolute;
+  width: 34rem;
+  height: 12rem;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 122, 40, 0.22), transparent);
+  z-index: -1;
+  pointer-events: none;
+}
+@keyframes shimmer { to { background-position: -220% 0; } }
+body[data-mode="foundry"] .hero2 .tagline { color: var(--l-muted); }
+body[data-mode="foundry"] .cta.primary {
+  background: linear-gradient(120deg, #ff8a4a, #e1500f);
+  color: #180a03;
+  box-shadow: 0 4px 24px rgba(225, 80, 15, 0.35);
+}
+body[data-mode="foundry"] .cta.ghost { border-color: #3a3f4b; color: var(--l-text); }
+body[data-mode="foundry"] .mode-switch { border: 1px solid #3a3f4b; color: var(--l-text); background: rgba(20, 22, 28, 0.8); }
+body[data-mode="foundry"] .mode-switch button[aria-pressed="true"] { background: rgba(255, 138, 74, 0.15); color: #ffb36b; }
+
+/* rising embers */
+.embers { position: absolute; inset: 0; pointer-events: none; z-index: -1; overflow: hidden; }
+.ember {
+  position: absolute;
+  bottom: -4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffd9a8 0%, #ff8a4a 55%, transparent 75%);
+  opacity: 0;
+  animation: rise var(--dur, 9s) linear infinite;
+  animation-delay: var(--delay, 0s);
+  left: var(--x, 50%);
+}
+@keyframes rise {
+  0%   { transform: translateY(0) translateX(0) scale(1); opacity: 0; }
+  8%   { opacity: var(--peak, 0.8); }
+  60%  { opacity: calc(var(--peak, 0.8) * 0.5); }
+  100% { transform: translateY(-88vh) translateX(var(--drift, 2rem)) scale(0.4); opacity: 0; }
+}
+body[data-mode="blueprint"] .embers { display: none; }
+
+body[data-mode="foundry"] .demo-frame { background: var(--l-bg-2); border: 1px solid var(--l-line); box-shadow: 0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,138,74,0.08); }
+body[data-mode="foundry"] .demo-tabs { background: #0f1116; border-bottom: 1px solid var(--l-line); color: var(--l-muted); }
+body[data-mode="foundry"] .demo-tabs .tab[aria-selected="true"] { background: rgba(255,138,74,0.14); color: #ffb36b; }
+body[data-mode="foundry"] .demo-run { background: linear-gradient(120deg, #ff8a4a, #e1500f); color: #180a03; }
+body[data-mode="foundry"] .demo-terminal { border-top: 1px solid var(--l-line); color: #b7ffb0; background: #0a0b0e; }
+body[data-mode="foundry"] .install-step { background: var(--l-bg-2); border: 1px solid var(--l-line); }
+body[data-mode="foundry"] .install-step pre { background: #0f1116; border: 1px solid var(--l-line); }
+body[data-mode="foundry"] .install-step p { color: var(--l-muted); }
+body[data-mode="foundry"] .badge-soon { background: rgba(255,138,74,0.16); color: #ffb36b; }
+body[data-mode="foundry"] .stat .stat-value { color: #ffb36b; }
+body[data-mode="foundry"] .stat .stat-label { color: var(--l-muted); }
+body[data-mode="foundry"] .schematic { display: none; }
+body[data-mode="foundry"] .landing-cards .card { background: var(--l-bg-2); border-color: var(--l-line); }
+body[data-mode="foundry"] .landing-cards .card:hover { border-color: rgba(255,138,74,0.5); }
+body[data-mode="foundry"] .landing-footer { color: var(--l-muted); border-top: 1px solid var(--l-line); }
+
+/* =========================================================================
+   BLUEPRINT
+   ========================================================================= */
+
+body[data-mode="blueprint"] {
+  --l-bg: #0d3a5f;
+  --l-ink: #eaf3fb;
+  --l-faint: rgba(234, 243, 251, 0.55);
+  --l-line: rgba(234, 243, 251, 0.28);
+  --l-line-soft: rgba(234, 243, 251, 0.12);
+  background:
+    linear-gradient(rgba(234,243,251,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(234,243,251,0.05) 1px, transparent 1px),
+    linear-gradient(rgba(234,243,251,0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(234,243,251,0.09) 1px, transparent 1px),
+    var(--l-bg);
+  background-size: 16px 16px, 16px 16px, 80px 80px, 80px 80px;
+  color: var(--l-ink);
+}
+body[data-mode="blueprint"] .landing-section { border-top: 1px dashed var(--l-line); }
+body[data-mode="blueprint"] .section-kicker { color: var(--l-faint); }
+body[data-mode="blueprint"] .section-kicker::before { content: "— "; }
+body[data-mode="blueprint"] .hero2 h1 {
+  color: transparent;
+  -webkit-text-stroke: 2px var(--l-ink);
+  text-shadow: none;
+  position: relative;
+}
+body[data-mode="blueprint"] .hero2 .kicker { color: var(--l-faint); }
+body[data-mode="blueprint"] .hero2 .tagline { color: var(--l-faint); }
+body[data-mode="blueprint"] .cta.primary { background: var(--l-ink); color: var(--l-bg); }
+body[data-mode="blueprint"] .cta.ghost { border: 1px dashed var(--l-line); color: var(--l-ink); }
+body[data-mode="blueprint"] .mode-switch { border: 1px dashed var(--l-line); color: var(--l-ink); background: rgba(13, 58, 95, 0.85); }
+body[data-mode="blueprint"] .mode-switch button[aria-pressed="true"] { background: rgba(234,243,251,0.14); }
+
+/* drafting corner marks on sections */
+body[data-mode="blueprint"] .landing-section::before,
+body[data-mode="blueprint"] .landing-section::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--l-line);
+}
+body[data-mode="blueprint"] .landing-section::before { top: -7px; left: 8px; border-right: none; border-bottom: none; }
+body[data-mode="blueprint"] .landing-section::after { top: -7px; right: 8px; border-left: none; border-bottom: none; }
+
+/* title stamp */
+.stamp {
+  display: none;
+  position: absolute;
+  top: 1.4rem;
+  right: 1.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  border: 1px solid var(--l-line);
+  padding: 0.45rem 0.7rem;
+  transform: rotate(2deg);
+  color: var(--l-faint);
+  text-align: left;
+  line-height: 1.7;
+}
+body[data-mode="blueprint"] .stamp { display: block; }
+
+body[data-mode="blueprint"] .demo-frame { background: rgba(9, 44, 74, 0.9); border: 1px solid var(--l-line); }
+body[data-mode="blueprint"] .demo-tabs { border-bottom: 1px dashed var(--l-line); color: var(--l-faint); }
+body[data-mode="blueprint"] .demo-tabs .tab[aria-selected="true"] { background: rgba(234,243,251,0.12); color: var(--l-ink); }
+body[data-mode="blueprint"] .demo-run { background: var(--l-ink); color: var(--l-bg); }
+body[data-mode="blueprint"] .demo-terminal { border-top: 1px dashed var(--l-line); color: #bfe3c0; background: rgba(6, 32, 55, 0.9); }
+body[data-mode="blueprint"] .install-step { border: 1px solid var(--l-line); background: rgba(9, 44, 74, 0.65); }
+body[data-mode="blueprint"] .install-step pre { background: rgba(6, 32, 55, 0.9); border: 1px dashed var(--l-line-soft); }
+body[data-mode="blueprint"] .install-step p { color: var(--l-faint); }
+body[data-mode="blueprint"] .badge-soon { border: 1px dashed var(--l-line); color: var(--l-faint); }
+body[data-mode="blueprint"] .stat .stat-value { color: var(--l-ink); }
+body[data-mode="blueprint"] .stat .stat-label { color: var(--l-faint); }
+body[data-mode="blueprint"] .landing-cards .card { background: rgba(9, 44, 74, 0.65); border: 1px solid var(--l-line-soft); color: var(--l-ink); }
+body[data-mode="blueprint"] .landing-cards .card p { color: var(--l-faint); }
+body[data-mode="blueprint"] .landing-cards .card:hover { border-color: var(--l-line); }
+body[data-mode="blueprint"] .landing-footer { color: var(--l-faint); border-top: 1px dashed var(--l-line); }
+
+/* schematic draw-in */
+body[data-mode="blueprint"] .schematic .draw {
+  stroke: var(--l-ink);
+  stroke-width: 1.4;
+  fill: none;
+  stroke-dasharray: 620;
+  stroke-dashoffset: 620;
+  animation: draw 2.4s ease forwards;
+}
+body[data-mode="blueprint"] .schematic .draw:nth-of-type(2) { animation-delay: 0.5s; }
+body[data-mode="blueprint"] .schematic .draw:nth-of-type(3) { animation-delay: 1s; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+body[data-mode="blueprint"] .schematic text { fill: var(--l-ink); }
+body[data-mode="blueprint"] .schematic .note { fill: var(--l-faint); font-size: 11px; }
+
+/* pygments overrides so real highlighting stays legible per world */
+body[data-mode="foundry"] .demo-pane .codehilite pre,
+body[data-mode="foundry"] .demo-pane { background: transparent; border: none; }
+body[data-mode="blueprint"] .demo-pane .codehilite pre,
+body[data-mode="blueprint"] .demo-pane { background: transparent; border: none; }
+body[data-mode="blueprint"] .demo-pane .codehilite span { color: var(--l-ink) !important; }
+body[data-mode="blueprint"] .demo-pane .codehilite .k,
+body[data-mode="blueprint"] .demo-pane .codehilite .kd,
+body[data-mode="blueprint"] .demo-pane .codehilite .kt { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--l-line); }
+body[data-mode="blueprint"] .demo-pane .codehilite .s,
+body[data-mode="blueprint"] .demo-pane .codehilite .s1,
+body[data-mode="blueprint"] .demo-pane .codehilite .s2 { font-style: italic; }
+body[data-mode="blueprint"] .demo-pane .codehilite .c1,
+body[data-mode="blueprint"] .demo-pane .codehilite .cm { color: var(--l-faint) !important; }
+
+/* landing footer */
+.landing-footer {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+  font-size: 0.82rem;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-family: var(--font-mono);
+}
+.landing-footer a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
+/* motion safety */
+@media (prefers-reduced-motion: reduce) {
+  .ember, body[data-mode="foundry"] .hero2 h1, .schematic .draw { animation: none !important; }
+  body[data-mode="blueprint"] .schematic .draw { stroke-dashoffset: 0; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
+
+@media (max-width: 700px) {
+  .hero2 { min-height: 70vh; }
+  .stamp { display: none !important; }
+}
+
+/* header adopts each world */
+body[data-mode="blueprint"] .site-header {
+  background: rgba(10, 47, 78, 0.92);
+  border-bottom: 1px dashed var(--l-line);
+}
+body[data-mode="blueprint"] .site-header .logotype,
+body[data-mode="blueprint"] .site-nav a,
+body[data-mode="blueprint"] .icon-btn { color: var(--l-ink); }
+body[data-mode="blueprint"] .site-nav a:hover,
+body[data-mode="blueprint"] .icon-btn:hover { background: rgba(234, 243, 251, 0.12); }
+body[data-mode="foundry"] .site-header {
+  background: rgba(12, 13, 17, 0.88);
+}
+
+/* pygments paints its own wrapper background; each world supplies its own */
+.demo-pane .codehilite { background: transparent !important; }
