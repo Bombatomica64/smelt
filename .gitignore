@@ -36,3 +36,6 @@ blocker-logs/*.md
 !blocker-logs/.gitkeep
 # library-probes.md is CI-managed (library-probes.yml commits it)
 !blocker-logs/library-probes.md
+
+# Generated docs site output
+_site/
