@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-07-01 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-07-02 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,9 +12,9 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/array/uniq.ts` | 57 | non-working Rust (55r/2s) |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/array/uniq.ts` | 55 | non-working Rust (53r/2s) |
 | [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/typed.ts` | 19 | non-working Rust (19r/0s) |
-| [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/types/Pattern.ts` | 14 | non-working Rust (14r/0s) |
+| [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/types/Pattern.ts` | 12 | non-working Rust (12r/0s) |
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/utils/_getByteCount/_getByteCount.ts` | 61 | non-working Rust (60r/1s) |
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 8 | non-working Rust (8r/0s) |
 | [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 26 | non-working Rust (26r/0s) |
@@ -28,7 +28,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/array/uniq.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1219 · with blockers: 135
+- Files scanned: 1219 · with blockers: 128
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -40,12 +40,12 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 5 | 5 | non-working Rust | array concat requires an array receiver |
 | 4 | 4 | non-working Rust | callback conditional expression branches must have compatible lowered types |
 | 4 | 4 | non-working Rust | switch case labels must be string, number, boolean, or null literals |
-| 4 | 4 | non-working Rust | new Map entry key and value types must be homogeneous |
 | 3 | 3 | non-working Rust | array push argument must match the array element type |
 | 3 | 3 | non-working Rust | negative array/string bracket indexes are JavaScript property lookups; use .at(...) for ne |
 | 2 | 2 | non-working Rust | method calls are only lowered for class values for now |
-| 2 | 2 | non-working Rust | string includes requires exactly one argument |
-| 2 | 2 | non-working Rust | array indexOf/lastIndexOf currently require exactly one item argument |
+| 2 | 2 | non-working Rust | field access is only lowered for Record<string, T>, class, and interface values for now (r |
+| 2 | 2 | non-working Rust | timer lowering supports setTimeout(milliseconds), setTimeout(callback, milliseconds), clea |
+| 2 | 2 | non-working Rust | switch fallthrough is not lowered yet; each case must break, return, or throw |
 
 ## radash
 
@@ -85,8 +85,6 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 2 | 1 | non-working Rust | Boolean requires a primitive argument |
 | 2 | 2 | non-working Rust | array callback methods require exactly one callback argument |
 | 1 | 1 | non-working Rust | field access is only lowered for Record<string, T>, class, and interface values for now (r |
-| 1 | 1 | non-working Rust | type annotation is not lowered yet: TSConstructorType(TSConstructorType { span: Span { sta |
-| 1 | 1 | non-working Rust | exported const expression references unresolved const `X` |
 | 1 | 1 | non-working Rust | dynamic computed and this-parameter interface methods are not lowered yet |
 | 1 | 1 | non-working Rust | string prefix/suffix methods require string receiver and argument |
 | 1 | 1 | non-working Rust | tuple element type is not lowered yet: TSSymbolKeyword(TSSymbolKeyword { span: Span { star |
@@ -100,24 +98,24 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `fabian-hiller/valibot` @ `1f9b18338ad5`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/library/src/utils/_getByteCount/_getByteCount.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1083 · with blockers: 80
+- Files scanned: 1083 · with blockers: 78
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
 | 8 | 8 | non-working Rust | callback method `X` is not lowered into closure bodies yet |
 | 5 | 5 | missing-stdlib (builtin class) | unresolved class `X` |
-| 4 | 4 | non-working Rust | new Map entry key and value types must be homogeneous |
 | 2 | 2 | non-working Rust | rest parameter type must resolve to an array type |
 | 2 | 2 | non-working Rust | exported const declarations require an initializer |
+| 2 | 2 | non-working Rust | new Set(iterable) currently requires an array argument |
 | 2 | 2 | non-working Rust | expect(...).resolves/rejects actual value must be a Promise<T> |
 | 2 | 2 | non-working Rust | describe blocks only support direct it/test/describe calls for now |
 | 2 | 2 | non-working Rust | array element kind is not lowered yet: FunctionExpression(Function { span: Span { start: 2 |
+| 1 | 1 | non-working Rust | empty nested arrays require an explicit type annotation |
 | 1 | 1 | non-working Rust | expect(...).toContain(...) requires a string, array, set, or tuple actual value with a mat |
 | 1 | 1 | non-working Rust | field access is only lowered for Record<string, T>, class, and interface values for now (r |
 | 1 | 1 | non-working Rust | type assertion cannot construct a never value |
 | 1 | 1 | non-working Rust | array element kind is not lowered yet: AwaitExpression(AwaitExpression { span: Span { star |
 | 1 | 1 | non-working Rust | local closure return type does not match its annotation: actual Some(Dict(TypeId(1), TypeI |
-| 1 | 1 | non-working Rust | array element kind is not lowered yet: AwaitExpression(AwaitExpression { span: Span { star |
 
 ## neverthrow
 
@@ -128,8 +126,8 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 4 | 2 | non-working Rust | exported const member expressions support well-known Number/Math numeric constants only |
 | 3 | 2 | non-working Rust | property names must be static identifiers or string literals |
+| 3 | 1 | non-working Rust | exported const member expressions support well-known Number/Math numeric constants only |
 | 2 | 2 | non-working Rust | String.match() requires exactly one RegExp argument |
 | 2 | 2 | non-working Rust | yield* generator delegation is not lowered yet |
 | 1 | 1 | non-working Rust | method calls are only lowered for class values for now |
@@ -261,14 +259,13 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 4 (es-toolkit, neverthrow, radash, ts-pattern) | 5 | method calls are only lowered for class values for now |
 | 3 (funcy, more-itertools, toolz) | 162 | method 'X' must have an explicit return type annotation |
 | 3 (funcy, returns, toolz) | 66 | nested closure return type must be explicit |
-| 3 (es-toolkit, neverthrow, radash) | 10 | exported const member expressions support well-known Number/Math numeric constants only |
+| 3 (es-toolkit, neverthrow, radash) | 9 | exported const member expressions support well-known Number/Math numeric constants only |
 | 3 (funcy, returns, toolz) | 8 | parameter 'X' must have an explicit type annotation |
 | 2 (funcy, toolz) | 20 | nested class definitions are not yet supported |
 | 2 (result, returns) | 16 | unknown class field `X` |
 | 2 (funcy, more-itertools) | 15 | parameter 'X' in 'X' must have a type annotation |
 | 2 (more-itertools, returns) | 14 | class 'X': multiple inheritance is not supported |
 | 2 (funcy, returns) | 10 | pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals |
-| 2 (es-toolkit, valibot) | 8 | new Map entry key and value types must be homogeneous |
 | 2 (result, returns) | 6 | Callable first argument must be a list of param types, e.g. [int, str] |
 | 2 (neverthrow, ts-pattern) | 4 | property names must be static identifiers or string literals |
 | 2 (more-itertools, toolz) | 4 | class 'X': decorator 'X' is not supported |
