@@ -75,7 +75,10 @@ return_ty: string_ty,
             if !callback_ok {
                 return Err(SmeltError::unsupported(
                     self.span(replacement_arg.span().start, replacement_arg.span().end),
-                    "regex replacement callback must accept a match string and return a string",
+                    format!(
+                        "regex replacement callback must accept a match string and return a string ({:?})",
+                        self.ctx.krate.types.get(callback_ty_actual)
+                    ),
                 ));
             }
             let ty = self.ctx.krate.types.intern(Type::String);
@@ -91,6 +94,27 @@ return_ty: string_ty,
             })));
         }
         let replacement = self.argument(replacement_arg, body)?;
+        // A named function replacement (`.replace(re, escapeString)`) is a
+        // callback replacement exactly like an inline arrow; dispatch it
+        // through the same callback op when its shape fits.
+        if let Some(function_ty) = self.function_member_type(Self::expr_ty(body, replacement))
+            && let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
+            && function.required_params.unwrap_or(function.params.len()) <= 1
+            && !function.params.is_empty()
+            && self.is_string_compatible_type(function.return_ty)
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::RegexReplaceCallback {
+                    op,
+                    pattern,
+                    haystack,
+                    callback: replacement,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if !(self.is_string_compatible_type(Self::expr_ty(body, haystack))
             || self.type_contains_unknown(Self::expr_ty(body, haystack)))
             || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)

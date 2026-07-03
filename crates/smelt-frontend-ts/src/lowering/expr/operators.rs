@@ -295,11 +295,18 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if new_expr.arguments.len() > 1 {
+        if new_expr.arguments.len() > 3 {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
-                "new TypedArray(...) supports at most one length argument",
+                "new TypedArray(...) supports at most three view arguments",
             ));
+        }
+        // The `(buffer, byteOffset, length)` view form cannot share storage
+        // with Smelt's numeric-list model; the extra view arguments are
+        // lowered for their effects and dropped, and the construction follows
+        // the first argument's rules below.
+        for view_argument in new_expr.arguments.iter().skip(1) {
+            let _ = self.argument(view_argument, body)?;
         }
         if let Some(Argument::ArrayExpression(array)) = new_expr.arguments.first() {
             return self.array_expression(array, body, None);
@@ -1964,12 +1971,16 @@ impl ModuleBuilder<'_> {
                 || self.erased_or_union_surface(receiver_ty)
                 || matches!(
                     self.ctx.krate.types.get(receiver_ty),
+                    // A union of concrete members (`string | string[]` after a
+                    // typeof guard Smelt's erased locals do not re-type) is a
+                    // dynamic surface for `in` just like an erased union.
                     Some(
                         Type::TypeParam { .. }
                             | Type::Class { .. }
                             | Type::List(_)
                             | Type::Tuple(_)
                             | Type::String
+                            | Type::Union(_)
                     )
                 )
             {

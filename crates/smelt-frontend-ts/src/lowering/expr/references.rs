@@ -499,7 +499,11 @@ impl ModuleBuilder<'_> {
         if !matches!(
             name,
             "Math" | "JSON" | "Reflect" | "Atomics" | "Promise" | "Array" | "Function"
-        ) {
+        ) && !Self::is_known_defined_global_constructor(name)
+            && name != "Blob"
+            && name != "ArrayBuffer"
+            && name != "DOMException"
+        {
             return None;
         }
         let span = self.span(start, end);

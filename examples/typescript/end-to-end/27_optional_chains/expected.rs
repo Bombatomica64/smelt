@@ -910,10 +910,21 @@ impl SmeltRegExp {
         object.insert("input".to_owned(), SmeltUnknown::String(haystack.to_owned()));
         Some(SmeltUnknown::Object(SmeltObject::new(object)))
     }
-    /// Return indexed match records for JavaScript String.prototype.matchAll.
-    pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltRecord<String, f64>> {
+    /// Return full JavaScript-like match objects for String.prototype.matchAll.
+    pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltUnknown> {
         let Some(regex) = self.try_compiled() else { return Vec::new(); };
-        regex.find_iter(haystack).filter_map(Result::ok).map(|matched| SmeltRecord::from([("index".to_owned(), matched.start() as f64)])).collect::<Vec<_>>()
+        regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures| {
+            let matched = captures.get(0)?;
+            let mut object = ::std::collections::HashMap::new();
+            for index in 0..captures.len() { if let Some(value) = captures.get(index) { object.insert(index.to_string(), SmeltUnknown::String(value.as_str().to_owned())); } else { object.insert(index.to_string(), SmeltUnknown::Undefined); } }
+            let mut groups = ::std::collections::HashMap::new();
+            for name in regex.capture_names().flatten() { let value = captures.name(name).map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.as_str().to_owned())); groups.insert(name.to_owned(), value.clone()); let mut snake = String::new(); for (index, ch) in name.chars().enumerate() { if ch.is_ascii_uppercase() { if index > 0 { snake.push('_'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); } } groups.insert(snake, value); }
+            object.insert("groups".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));
+            object.insert("index".to_owned(), SmeltUnknown::Number(matched.start() as f64));
+            object.insert("input".to_owned(), SmeltUnknown::String(haystack.to_owned()));
+            Some(SmeltUnknown::Object(SmeltObject::new(object)))
+        }
+        ).collect::<Vec<_>>()
     }
     /// Test this RegExp against a string with JavaScript lastIndex updates.
     pub fn test(&self, haystack: &str) -> bool {

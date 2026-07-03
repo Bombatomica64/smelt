@@ -1846,10 +1846,21 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("object.insert(\"input\".to_owned(), SmeltUnknown::String(haystack.to_owned()));");
                 fn_writer.line("Some(SmeltUnknown::Object(SmeltObject::new(object)))");
             });
-            impl_writer.line("/// Return indexed match records for JavaScript String.prototype.matchAll.");
-            impl_writer.block("pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltRecord<String, f64>>", |fn_writer| {
+            impl_writer.line("/// Return full JavaScript-like match objects for String.prototype.matchAll.");
+            impl_writer.block("pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltUnknown>", |fn_writer| {
                 fn_writer.line("let Some(regex) = self.try_compiled() else { return Vec::new(); };");
-                fn_writer.line("regex.find_iter(haystack).filter_map(Result::ok).map(|matched| SmeltRecord::from([(\"index\".to_owned(), matched.start() as f64)])).collect::<Vec<_>>()");
+                fn_writer.block("regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures|", |map_writer| {
+                    map_writer.line("let matched = captures.get(0)?;");
+                    map_writer.line("let mut object = ::std::collections::HashMap::new();");
+                    map_writer.line("for index in 0..captures.len() { if let Some(value) = captures.get(index) { object.insert(index.to_string(), SmeltUnknown::String(value.as_str().to_owned())); } else { object.insert(index.to_string(), SmeltUnknown::Undefined); } }");
+                    map_writer.line("let mut groups = ::std::collections::HashMap::new();");
+                    map_writer.line("for name in regex.capture_names().flatten() { let value = captures.name(name).map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.as_str().to_owned())); groups.insert(name.to_owned(), value.clone()); let mut snake = String::new(); for (index, ch) in name.chars().enumerate() { if ch.is_ascii_uppercase() { if index > 0 { snake.push('_'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); } } groups.insert(snake, value); }");
+                    map_writer.line("object.insert(\"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));");
+                    map_writer.line("object.insert(\"index\".to_owned(), SmeltUnknown::Number(matched.start() as f64));");
+                    map_writer.line("object.insert(\"input\".to_owned(), SmeltUnknown::String(haystack.to_owned()));");
+                    map_writer.line("Some(SmeltUnknown::Object(SmeltObject::new(object)))");
+                });
+                fn_writer.line(").collect::<Vec<_>>()");
             });
             impl_writer.line("/// Test this RegExp against a string with JavaScript lastIndex updates.");
             impl_writer.block("pub fn test(&self, haystack: &str) -> bool", |fn_writer| {

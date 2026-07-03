@@ -156,6 +156,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "Proxy" && !self.classes.contains_key("Proxy") {
             return self.proxy_constructor_expression(new_expr, body);
         }
+        if callee.name == "Function" && !self.classes.contains_key("Function") {
+            return self.function_constructor_expression(new_expr, body);
+        }
         if callee.name == "AbortController" && !self.classes.contains_key("AbortController") {
             return self.abort_controller_constructor_expression(new_expr, body);
         }
@@ -1171,6 +1174,60 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Lower `new Function(...)` to a callable that throws when invoked.
+    ///
+    /// The `Function` constructor compiles JavaScript source at runtime —
+    /// dynamic code evaluation no ahead-of-time Rust translation can honor.
+    /// The construction itself succeeds (matching JS, where the error would
+    /// only surface when the compiled body misbehaves) and the resulting
+    /// value raises a descriptive error if it is ever actually called. The
+    /// constructor arguments are lowered for their side effects and dropped.
+    pub(super) fn function_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        for argument in &new_expr.arguments {
+            let _ = self.argument(argument, body)?;
+        }
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let mut closure_body = Body::new(None, span);
+        let message = closure_body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(
+                "dynamic code evaluation via new Function(...) is not supported".to_owned(),
+            )),
+            ty: string_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Throw(message));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: Vec::new(),
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: unknown_ty,
+            is_async: false,
+            may_throw: true,
+        }));
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: Vec::new(),
+                rest: None,
+                required_params: None,
+                return_ty: unknown_ty,
+                captures: Vec::new(),
+                body: body_id,
+                function_item: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        }))
+    }
+
     /// Lower `new Proxy(target, handler)` to its target value.
     ///
     /// JavaScript `Proxy` is transparent: `x instanceof Proxy` is a `TypeError`
@@ -1710,6 +1767,13 @@ impl ModuleBuilder<'_> {
                     || self.erased_or_union_surface(else_ty)
                     || matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(_)))
                     || matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(_)))
+                    || matches!(
+                        (
+                            self.ctx.krate.types.get(then_ty),
+                            self.ctx.krate.types.get(else_ty)
+                        ),
+                        (Some(Type::Function(_)), Some(Type::Function(_)))
+                    )
                 {
                     // One branch keeps a union/erased surface with no single
                     // concrete Rust shape (e.g. `isArrayLike(source) ? source :
@@ -2073,6 +2137,13 @@ impl ModuleBuilder<'_> {
             || self.erased_or_union_surface(else_ty)
             || matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(_)))
             || matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(_)))
+            || matches!(
+                (
+                    self.ctx.krate.types.get(then_ty),
+                    self.ctx.krate.types.get(else_ty)
+                ),
+                (Some(Type::Function(_)), Some(Type::Function(_)))
+            )
         {
             // One branch keeps a union/erased surface with no single concrete
             // Rust shape (e.g. `isArrayLike(source) ? source :

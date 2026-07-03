@@ -835,6 +835,10 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. }) => true,
+            // An optional callable (`compareKeys?: (a, b) => number` used as
+            // `keys.sort(compareKeys)`) is a callable surface too; the wrapper
+            // closure observes the nullish payload at runtime.
+            Some(Type::Optional(inner)) => self.callback_local_value_is_callable_surface(*inner),
             Some(Type::Union(items)) => items.iter().copied().any(|item| {
                 matches!(
                     self.ctx.krate.types.get(item),

@@ -12,7 +12,8 @@ use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, BinaryOperator, UnaryOperator};
 use smelt_hir::{
     AsyncOp, BinOp, Body, DictProjectionOp, Expr, ExprKind, Field, FunctionType, Interface, Item,
-    Literal, LocalDecl, MatchArm, MethodSig, ParamSig, Pattern, Stmt, Type, UnaryOp, Visibility,
+    Literal, LocalDecl, MatchArm, MethodSig, ParamSig, Pattern, SetProjectionOp, Stmt, Type,
+    UnaryOp, Visibility,
 };
 
 impl ModuleBuilder<'_> {
@@ -744,6 +745,13 @@ return_ty,
             }
             Statement::ForStatement(for_stmt) => self.c_for_statement(for_stmt, body, block),
             Statement::SwitchStatement(switch_stmt) => {
+                // A switch with real fallthrough (a case body that can reach
+                // the next case) cannot lower to a HIR `Match`; route it
+                // through the general single-iteration-loop lowering where JS
+                // `break` maps to the loop break.
+                if Self::switch_has_fallthrough(switch_stmt) {
+                    return self.switch_fallthrough_statement(switch_stmt, body, block);
+                }
                 let scrutinee = self.expression(&switch_stmt.discriminant, body)?;
                 let mut arms = Vec::new();
                 let mut default = None;
@@ -942,8 +950,114 @@ return_ty,
         };
         let mut iter = self.expression(&member.object, body)?;
         let iter_ty = Self::expr_ty(body, iter);
+        // `map.forEach((value, key) => …)` receives the *key* as its second
+        // argument, not a numeric index: iterate the `[key, value]` entries
+        // list and bind both callback parameters from each entry tuple.
+        if let Some(Type::Dict(key_ty, value_ty)) = self.ctx.krate.types.get(iter_ty).cloned()
+            && arrow.params.items.len() >= 2
+        {
+            let span = self.span(call.span.start, call.span.end);
+            let entry_ty = self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Tuple(vec![key_ty, value_ty]));
+            let entries_ty = self.ctx.krate.types.intern(Type::List(entry_ty));
+            let entries = body.push_expr(Expr {
+                kind: ExprKind::DictProjection {
+                    op: DictProjectionOp::Entries,
+                    dict: iter,
+                },
+                ty: entries_ty,
+                span,
+            });
+            let entry_symbol = self.ctx.krate.symbols.intern("__for_each_entry");
+            let entry_local = body.push_local(LocalDecl {
+                name: Some(entry_symbol),
+                ty: entry_ty,
+                mutable: false,
+                span,
+            });
+            let entry_pat = body.push_pattern(Pattern::Binding(entry_local));
+            let loop_body =
+                body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
+            let mut param_names = Vec::new();
+            for param in arrow.params.items.iter().take(2) {
+                Self::binding_pattern_names(&param.pattern, &mut param_names);
+            }
+            let saved_locals = param_names
+                .iter()
+                .map(|name| (name.clone(), self.locals.get(name).copied()))
+                .collect::<Vec<_>>();
+            for (param_index, param) in arrow.params.items.iter().take(2).enumerate() {
+                // Callback order is `(value, key)`; entries are `[key, value]`.
+                let (tuple_index, ty) = if param_index == 0 {
+                    (1_usize, value_ty)
+                } else {
+                    (0_usize, key_ty)
+                };
+                let entry_read = body.push_expr(Expr {
+                    kind: ExprKind::Local(entry_local),
+                    ty: entry_ty,
+                    span,
+                });
+                let extracted = body.push_expr(Expr {
+                    kind: ExprKind::TupleIndex {
+                        tuple: entry_read,
+                        index: tuple_index,
+                    },
+                    ty,
+                    span,
+                });
+                self.binding_declaration(
+                    &param.pattern,
+                    Some(extracted),
+                    Some(ty),
+                    false,
+                    body,
+                    loop_body,
+                )?;
+            }
+            for statement in &arrow.body.statements {
+                self.for_each_callback_statement(statement, body, loop_body)?;
+            }
+            for (name, prior) in saved_locals {
+                match prior {
+                    Some(local) => {
+                        self.locals.insert(name, local);
+                    }
+                    None => {
+                        self.locals.remove(&name);
+                    }
+                }
+            }
+            body.push_stmt_to_block(
+                block,
+                Stmt::For {
+                    pat: entry_pat,
+                    iter: entries,
+                    body: loop_body,
+                },
+            );
+            return Ok(true);
+        }
         let item_ty = match self.ctx.krate.types.get(iter_ty).cloned() {
             Some(Type::List(item_ty)) => item_ty,
+            // `set.forEach(value => …)` iterates the set's values in
+            // insertion order; project them into a list and reuse the array
+            // loop below.
+            Some(Type::Set(item_ty)) => {
+                let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                iter = body.push_expr(Expr {
+                    kind: ExprKind::SetProjection {
+                        op: SetProjectionOp::Values,
+                        set: iter,
+                    },
+                    ty: list_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                item_ty
+            }
             Some(Type::Dict(_, value_ty)) => {
                 let list_ty = self.ctx.krate.types.intern(Type::List(value_ty));
                 iter = body.push_expr(Expr {
@@ -1361,6 +1475,217 @@ return_ty,
             return false;
         };
         self.is_test_framework_callee(&call.callee)
+    }
+
+    /// Return whether a switch contains a case body that can reach the next
+    /// case (genuine fallthrough), which the strict `Match` lowering rejects.
+    pub(in crate::lowering) fn switch_has_fallthrough(
+        switch_stmt: &oxc::ast::ast::SwitchStatement<'_>,
+    ) -> bool {
+        let case_count = switch_stmt.cases.len();
+        for (case_index, case) in switch_stmt.cases.iter().enumerate() {
+            if case.consequent.is_empty() || case_index + 1 == case_count {
+                continue;
+            }
+            let has_top_level_break = case.consequent.iter().any(|statement| match statement {
+                Statement::BreakStatement(_) => true,
+                Statement::BlockStatement(block_stmt) => block_stmt
+                    .body
+                    .iter()
+                    .any(|nested| matches!(nested, Statement::BreakStatement(_))),
+                _ => false,
+            });
+            if !has_top_level_break && !case.consequent.iter().any(statement_terminates) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Lower a switch statement with genuine fallthrough.
+    ///
+    /// The switch becomes a single-iteration `while` loop: each case lowers to
+    /// `if matched || scrutinee === label { matched = true; <body> }`, a JS
+    /// `break` inside a case body maps to the loop break, and a trailing
+    /// `default` body runs whenever control reaches the end of the chain —
+    /// exactly when JavaScript reaches it (no label matched, or an earlier
+    /// case fell through without breaking). A loop-tail `break` makes the
+    /// loop run once.
+    fn switch_fallthrough_statement(
+        &mut self,
+        switch_stmt: &oxc::ast::ast::SwitchStatement<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let span = self.span(switch_stmt.span.start, switch_stmt.span.end);
+        let case_count = switch_stmt.cases.len();
+        for (case_index, case) in switch_stmt.cases.iter().enumerate() {
+            if case.test.is_none() && case_index + 1 != case_count {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "switch fallthrough lowering requires the default case to be last",
+                ));
+            }
+            // A top-level `continue` would bind to the synthetic loop instead
+            // of the enclosing one; keep the strict path's rejection.
+            let has_top_level_continue = case.consequent.iter().any(|statement| match statement {
+                Statement::ContinueStatement(_) => true,
+                Statement::BlockStatement(block_stmt) => block_stmt
+                    .body
+                    .iter()
+                    .any(|nested| matches!(nested, Statement::ContinueStatement(_))),
+                _ => false,
+            });
+            if has_top_level_continue {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "switch continue lowering is not implemented yet",
+                ));
+            }
+        }
+        let scrutinee = self.expression(&switch_stmt.discriminant, body)?;
+        let scrutinee_ty = Self::expr_ty(body, scrutinee);
+        let scrutinee_name = self.intern_source_name("__switch_value");
+        let scrutinee_local = body.push_local(LocalDecl {
+            name: Some(scrutinee_name),
+            ty: scrutinee_ty,
+            mutable: false,
+            span,
+        });
+        let scrutinee_pat = body.push_pattern(Pattern::Binding(scrutinee_local));
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: scrutinee_pat,
+                ty: scrutinee_ty,
+                value: Some(scrutinee),
+            },
+        );
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let matched_name = self.intern_source_name("__switch_matched");
+        let matched_local = body.push_local(LocalDecl {
+            name: Some(matched_name),
+            ty: bool_ty,
+            mutable: true,
+            span,
+        });
+        let matched_pat = body.push_pattern(Pattern::Binding(matched_local));
+        let false_expr = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty: bool_ty,
+            span,
+        });
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: matched_pat,
+                ty: bool_ty,
+                value: Some(false_expr),
+            },
+        );
+        let loop_block = body.push_block(span);
+        let mut pending_label_conds: Vec<smelt_hir::ExprId> = Vec::new();
+        for case in &switch_stmt.cases {
+            let Some(test) = &case.test else {
+                // Trailing default: runs whenever the chain reaches it.
+                for case_statement in &case.consequent {
+                    self.statement_in_block(case_statement, body, loop_block)?;
+                }
+                continue;
+            };
+            let label = self.literal_case_label(test)?;
+            let label_ty = self.ctx.krate.types.intern(match &label {
+                Literal::String(_) => Type::String,
+                Literal::Bool(_) => Type::Bool,
+                Literal::None => Type::None,
+                _ => Type::Float,
+            });
+            let label_expr = body.push_expr(Expr {
+                kind: ExprKind::Literal(label),
+                ty: label_ty,
+                span,
+            });
+            let scrutinee_read = body.push_expr(Expr {
+                kind: ExprKind::Local(scrutinee_local),
+                ty: scrutinee_ty,
+                span,
+            });
+            let cmp = body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::JsStrictEq,
+                    lhs: scrutinee_read,
+                    rhs: label_expr,
+                },
+                ty: bool_ty,
+                span,
+            });
+            if case.consequent.is_empty() {
+                pending_label_conds.push(cmp);
+                continue;
+            }
+            let mut cond = body.push_expr(Expr {
+                kind: ExprKind::Local(matched_local),
+                ty: bool_ty,
+                span,
+            });
+            for pending in std::mem::take(&mut pending_label_conds)
+                .into_iter()
+                .chain(std::iter::once(cmp))
+            {
+                cond = body.push_expr(Expr {
+                    kind: ExprKind::BinOp {
+                        op: BinOp::Or,
+                        lhs: cond,
+                        rhs: pending,
+                    },
+                    ty: bool_ty,
+                    span,
+                });
+            }
+            let case_block = body.push_block(span);
+            let matched_target = body.push_expr(Expr {
+                kind: ExprKind::Local(matched_local),
+                ty: bool_ty,
+                span,
+            });
+            let true_expr = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty: bool_ty,
+                span,
+            });
+            body.push_stmt_to_block(
+                case_block,
+                Stmt::Assign {
+                    target: matched_target,
+                    value: true_expr,
+                },
+            );
+            for case_statement in &case.consequent {
+                self.statement_in_block(case_statement, body, case_block)?;
+            }
+            body.push_stmt_to_block(
+                loop_block,
+                Stmt::If {
+                    cond,
+                    then_block: case_block,
+                    else_block: None,
+                },
+            );
+        }
+        body.push_stmt_to_block(loop_block, Stmt::Break);
+        let loop_cond = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        body.push_stmt_to_block(
+            block,
+            Stmt::While {
+                cond: loop_cond,
+                body: loop_block,
+            },
+        );
+        Ok(())
     }
 
     /// Return whether this is a top-level `vi.mock(...)` registration.

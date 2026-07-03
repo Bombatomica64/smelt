@@ -207,6 +207,64 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.local_callable_call(call, body)? {
             return Ok(expr);
         }
+        if let Expression::NewExpression(callee_new) = &call.callee {
+            // `new Ctor(...)(...)` — constructing a callable and invoking it
+            // immediately (e.g. the lodash-compat `new Function(...)(...)`
+            // template idiom). Lower the construction, then dispatch the call
+            // through the constructed value's function type; spread arguments
+            // beyond the callee's declared parameters are evaluated for their
+            // effects only.
+            let callee = self.new_expression_with_hint(callee_new, body, None)?;
+            let callee_ty = Self::expr_ty(body, callee);
+            if let Some(function_ty) =
+                self.function_member_type_for_arg_count(callee_ty, Some(call.arguments.len()))
+                && let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(function_ty).cloned()
+            {
+                let mut args = Vec::new();
+                for (index, argument) in call.arguments.iter().enumerate() {
+                    if let Argument::SpreadElement(spread) = argument {
+                        let _ = self.expression(&spread.argument, body)?;
+                        continue;
+                    }
+                    let lowered = self.argument(argument, body)?;
+                    if index < function.params.len() {
+                        args.push(lowered);
+                    }
+                }
+                args.truncate(function.params.len());
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty: function.return_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+            if self.erased_or_union_surface(callee_ty) {
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                if self.call_has_spread_arguments_or_source_spread(call) {
+                    let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::ClosureCallSpread { callee, args },
+                        ty: unknown_ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty: unknown_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "constructed value is not callable",
+            ));
+        }
         if let Expression::CallExpression(callee_call) = &call.callee {
             if let Some(expr) = self.slice_string_nested_call(callee_call, call, body)? {
                 return Ok(expr);
@@ -251,18 +309,54 @@ impl<'builder> ModuleBuilder<'builder> {
                     span: self.span(callee_call.span.start, callee_call.span.end),
                 })
             };
-            if call.arguments.len() < function.params.len() {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "curried call argument count does not match selected overload",
-                ));
+            // Optional and rest parameters relax the required arity:
+            // `negate(fn)()` calls a `(...args: any[]) => boolean` value with
+            // zero arguments, where the rest slot absorbs the empty tail.
+            let mut required = function.required_params.unwrap_or(function.params.len());
+            if let Some(rest_index) = function.rest {
+                required = required.min(rest_index);
             }
-            let args = call
+            if call.arguments.len() < required {
+                // JavaScript permits calling with fewer arguments than
+                // declared (missing parameters are `undefined`), and generic
+                // wrappers like `negate(fn)()` routinely under-apply their
+                // erased signatures. Dispatch through the arity-independent
+                // erased ABI instead of rejecting.
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let callee = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: callee },
+                    ty: unknown_ty,
+                    span: self.span(callee_call.span.start, callee_call.span.end),
+                });
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty: unknown_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+            let mut args = call
                 .arguments
                 .iter()
                 .take(function.params.len())
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
+            // A rest parameter receives its collected list; synthesize the
+            // empty list when no rest arguments were supplied.
+            if let Some(rest_index) = function.rest
+                && args.len() == rest_index
+                && let Some(&rest_param_ty) = function.params.get(rest_index)
+            {
+                args.push(body.push_expr(Expr {
+                    kind: ExprKind::ListLit(Vec::new()),
+                    ty: rest_param_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::ClosureCall { callee, args },
                 ty: function.return_ty,

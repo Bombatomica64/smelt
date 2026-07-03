@@ -1341,8 +1341,13 @@ impl ModuleBuilder<'_> {
                         ty: item_ty,
                     });
                 }
-                let index = self.callback_expression(&member.expression, params, body)?;
-                let receiver_ty = self.type_param_constraint_or_self(receiver.ty);
+                let mut index = self.callback_expression(&member.expression, params, body)?;
+                // A nullish-guarded receiver (`obj: T | null | undefined`)
+                // keeps its Optional wrapper through erased narrowing; the
+                // computed access itself operates on the payload type.
+                let receiver_ty = self.optional_receiver_inner_type(
+                    self.type_param_constraint_or_self(receiver.ty),
+                );
                 let index_ty = self.type_param_constraint_or_self(index.ty);
                 let numeric_index = matches!(
                     self.ctx.krate.types.get(index_ty),
@@ -1359,7 +1364,22 @@ impl ModuleBuilder<'_> {
                                 | Type::TypeParam { .. }
                         )
                     );
-                if !numeric_index && !string_key_index {
+                // An erased/union index over an array-like receiver (e.g.
+                // `args[i]` where `i` flows from a flattened `Many<number>`)
+                // is a genuine dynamic boundary: retype it `unknown` so the
+                // dynamic-index coercion handles it at runtime.
+                let erased_numeric_index = !numeric_index
+                    && !string_key_index
+                    && (self.erased_or_union_surface(index_ty)
+                        || matches!(self.ctx.krate.types.get(index_ty), Some(Type::Union(_))))
+                    && matches!(
+                        self.ctx.krate.types.get(receiver_ty),
+                        Some(Type::List(_) | Type::Tuple(_) | Type::String)
+                    );
+                if erased_numeric_index {
+                    index.ty = self.ctx.krate.types.intern(Type::Unknown);
+                }
+                if !numeric_index && !string_key_index && !erased_numeric_index {
                     return Err(SmeltError::unsupported(
                         self.span(member.expression.span().start, member.expression.span().end),
                         "callback dynamic computed access index must be numeric or a string record key",
@@ -1777,20 +1797,45 @@ impl ModuleBuilder<'_> {
                         }
                     }
                 }
+                let lhs = self.callback_expression(&logical.left, params, body)?;
+                let rhs = self.callback_expression(&logical.right, params, body)?;
+                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+                // A value-producing `a || b` (`record[k] || "'"`) selects one
+                // of its operands, not a boolean: lower it as a truthiness
+                // conditional like the Coalesce branch above. Boolean-typed
+                // operands keep the plain binary form used by predicates.
+                if logical.operator == LogicalOperator::Or
+                    && (lhs.ty != bool_ty || rhs.ty != bool_ty)
+                {
+                    let span = self.span(logical.span.start, logical.span.end);
+                    let cond = self.coerce_callback_expr_to_truthy(lhs.clone(), span)?;
+                    let (lhs, rhs, ty) = self.callback_unify_conditional_exprs(
+                        lhs,
+                        rhs,
+                        logical.span.start,
+                        logical.span.end,
+                    )?;
+                    return Ok(CallbackExpr {
+                        kind: CallbackExprKind::Conditional {
+                            cond: Box::new(cond),
+                            then_expr: Box::new(lhs),
+                            else_expr: Box::new(rhs),
+                        },
+                        ty,
+                    });
+                }
                 let op = match logical.operator {
                     LogicalOperator::And => BinOp::And,
                     LogicalOperator::Or => BinOp::Or,
                     LogicalOperator::Coalesce => BinOp::Or,
                 };
-                let lhs = self.callback_expression(&logical.left, params, body)?;
-                let rhs = self.callback_expression(&logical.right, params, body)?;
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::Binary {
                         op,
                         lhs: Box::new(lhs),
                         rhs: Box::new(rhs),
                     },
-                    ty: self.ctx.krate.types.intern(Type::Bool),
+                    ty: bool_ty,
                 })
             }
             Expression::TemplateLiteral(template) => {

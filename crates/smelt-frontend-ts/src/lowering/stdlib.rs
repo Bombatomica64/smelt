@@ -1762,7 +1762,18 @@ impl ModuleBuilder<'_> {
                 "array sort",
                 body,
             )?;
-            self.require_callback_ty(callback.return_ty, number_ty, call, "array sort")?;
+            // A named/optional comparator lowered through an erased wrapper
+            // returns `unknown`; the emitter coerces the comparison result
+            // numerically, so only reject genuinely non-numeric returns.
+            if callback.return_ty != number_ty
+                && !matches!(
+                    self.ctx.krate.types.get(callback.return_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. })
+                )
+                && !self.erased_or_union_surface(callback.return_ty)
+            {
+                self.require_callback_ty(callback.return_ty, number_ty, call, "array sort")?;
+            }
             Some(callback.expr)
         } else {
             None
