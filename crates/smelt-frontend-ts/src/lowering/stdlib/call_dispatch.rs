@@ -799,7 +799,9 @@ impl<'builder> ModuleBuilder<'builder> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         use oxc::allocator::{Allocator, Box as ArenaBox, CloneIn};
         use oxc::ast::AstBuilder;
-        use oxc::ast::ast::TSTypeParameterInstantiation;
+        use oxc::ast::ast::{
+            CallExpression, IdentifierName, StaticMemberExpression, TSTypeParameterInstantiation,
+        };
 
         if call.optional {
             return Ok(None);
@@ -834,20 +836,22 @@ impl<'builder> ModuleBuilder<'builder> {
         let no_type_args: Option<ArenaBox<'_, TSTypeParameterInstantiation<'_>>> = None;
         let callee = match stripped {
             StrippedGlobalCallee::FreeFn(name) => {
-                builder.expression_identifier(member.property.span, name)
+                Expression::new_identifier(member.property.span, name, &builder)
             }
             StrippedGlobalCallee::Namespace { namespace, method } => {
-                let object = builder.expression_identifier(member.span, namespace);
-                Expression::StaticMemberExpression(builder.alloc_static_member_expression(
+                let object = Expression::new_identifier(member.span, namespace, &builder);
+                Expression::StaticMemberExpression(StaticMemberExpression::boxed(
                     member.span,
                     object,
-                    builder.identifier_name(member.property.span, method),
+                    IdentifierName::new(member.property.span, method, &builder),
                     false,
+                    &builder,
                 ))
             }
         };
         let arguments = call.arguments.clone_in(&arena);
-        let synthetic = builder.call_expression(span, callee, no_type_args, arguments, false);
+        let synthetic =
+            CallExpression::new(span, callee, no_type_args, arguments, false, &builder);
         self.call_expression(&synthetic, body).map(Some)
     }
 

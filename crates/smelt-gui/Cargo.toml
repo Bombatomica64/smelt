@@ -8,7 +8,7 @@ name = "smelt-gui"
 path = "src/main.rs"
 
 [dependencies]
-gpui = "0.2"
+gpui = "0.2.2"
 smelt-frontend-ts = { path = "../smelt-frontend-ts" }
 smelt-frontend-py = { path = "../smelt-frontend-py" }
 smelt-hir = { path = "../smelt-hir" }

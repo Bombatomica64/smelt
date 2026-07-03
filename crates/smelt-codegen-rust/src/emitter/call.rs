@@ -1079,8 +1079,7 @@ impl FunctionEmitter<'_> {
             .flatten()
             .find(|field| {
                 self.symbol_name(field.name)
-                    .map(|name| sanitize_ident(name) == method_name)
-                    .unwrap_or(false)
+                    .is_ok_and(|name| sanitize_ident(name) == method_name)
             })
         else {
             return Ok(None);

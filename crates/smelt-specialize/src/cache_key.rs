@@ -39,7 +39,7 @@ impl SpecializationCacheKey {
     pub fn compute(input: &CacheKeyInput) -> Result<Self, serde_json::Error> {
         let bytes = serde_json::to_vec(input)?;
         let digest = Sha256::digest(bytes);
-        Ok(Self(format!("{digest:x}")))
+        Ok(Self(hex::encode(digest)))
     }
 
     /// Returns the lowercase hexadecimal digest.

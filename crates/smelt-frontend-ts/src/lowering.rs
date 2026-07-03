@@ -302,9 +302,9 @@ pub fn to_hir_with_options(
         .with_options(ParseOptions::default())
         .parse();
 
-    if !parsed.errors.is_empty() {
+    if !parsed.diagnostics.is_empty() {
         return Err(parsed
-            .errors
+            .diagnostics
             .into_iter()
             .map(|error| {
                 SmeltError::parse(
