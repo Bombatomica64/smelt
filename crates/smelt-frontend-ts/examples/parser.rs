@@ -40,8 +40,8 @@ fn main() -> Result<(), String> {
         })
         .parse();
 
-    if !ret.errors.is_empty() {
-        for parse_error in ret.errors {
+    if !ret.diagnostics.is_empty() {
+        for parse_error in ret.diagnostics {
             let rendered = parse_error.with_source_code(source_text.clone());
             writeln!(stdout, "{rendered}").map_err(|error| error.to_string())?;
         }
@@ -52,8 +52,8 @@ fn main() -> Result<(), String> {
     // Run semantic analysis — populates node_id, scope_id, symbol_id, reference_id
     let semantic_ret = SemanticBuilder::new().build(&ret.program);
 
-    if !semantic_ret.errors.is_empty() {
-        for semantic_error in semantic_ret.errors {
+    if !semantic_ret.diagnostics.is_empty() {
+        for semantic_error in semantic_ret.diagnostics {
             let rendered = semantic_error.with_source_code(source_text.clone());
             writeln!(stdout, "{rendered}").map_err(|error| error.to_string())?;
         }

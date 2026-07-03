@@ -112,7 +112,7 @@ impl ModuleBuilder<'_> {
         )
         .with_options(ParseOptions::default())
         .parse();
-        if !parsed.errors.is_empty() {
+        if !parsed.diagnostics.is_empty() {
             return Err(SmeltError::native_specialization_adapter_required(
                 self.materialized_span(&provenance.span),
                 "typescript.callable-source",

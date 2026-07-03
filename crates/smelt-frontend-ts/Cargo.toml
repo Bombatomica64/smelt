@@ -11,7 +11,7 @@ workspace = true
 smelt-hir = { path = "../smelt-hir" }
 smelt-specialize = { path = "../smelt-specialize" }
 smelt-stdlib = { path = "../smelt-stdlib" }
-oxc = { version = "0.124.0", features = ["semantic"] }
+oxc = { version = "0.138.0", features = ["semantic"] }
 
 [dev-dependencies]
 pico-args = "0.5"

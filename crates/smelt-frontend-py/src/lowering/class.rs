@@ -33,11 +33,12 @@ impl ModuleBuilder<'_> {
         let materialized = self.materialized_class_definition(class_name_str).cloned();
 
         // --- Decorator check: only @dataclass is allowed ---
-        let mut kind = self.class_kind_from_decorators(class, &materialized, span, class_name_str)?;
+        let mut kind =
+            Self::class_kind_from_decorators(class, materialized.as_ref(), span, class_name_str)?;
 
         // --- Metaclass and base classes ---
         let (is_abstract_class, type_params, base) =
-            self.resolve_class_bases(class, &materialized, span, class_name_str)?;
+            self.resolve_class_bases(class, materialized.as_ref(), span, class_name_str)?;
         if is_abstract_class {
             kind = ClassKind::Abstract;
         }
@@ -51,7 +52,7 @@ impl ModuleBuilder<'_> {
         };
         let (mut lowered, class_item_id) = self.lower_class_body(
             class,
-            &materialized,
+            materialized.as_ref(),
             &target,
             base,
             &type_params,
@@ -61,7 +62,7 @@ impl ModuleBuilder<'_> {
 
         self.finalize_class_definition(
             class,
-            &materialized,
+            materialized.as_ref(),
             &target,
             module,
             base,
@@ -76,13 +77,12 @@ impl ModuleBuilder<'_> {
     /// Determine the class kind from its decorators, validating that only
     /// `@dataclass` (or a materialized dataclass) is present.
     fn class_kind_from_decorators(
-        &mut self,
         class: &StmtClassDef,
-        materialized: &Option<smelt_specialize::ClassDefinition>,
+        materialized: Option<&smelt_specialize::ClassDefinition>,
         span: Span,
         class_name_str: &str,
     ) -> Result<ClassKind, SmeltError> {
-        let mut kind = if materialized.as_ref().is_some_and(|manifest_class| {
+        let mut kind = if materialized.is_some_and(|manifest_class| {
             manifest_class
                 .metadata
                 .iter()
@@ -130,7 +130,7 @@ impl ModuleBuilder<'_> {
     fn resolve_class_bases(
         &mut self,
         class: &StmtClassDef,
-        materialized: &Option<smelt_specialize::ClassDefinition>,
+        materialized: Option<&smelt_specialize::ClassDefinition>,
         span: Span,
         class_name_str: &str,
     ) -> Result<(bool, Vec<TypeParamDef>, Option<Symbol>), SmeltError> {
@@ -216,10 +216,14 @@ impl ModuleBuilder<'_> {
     ///
     /// `kind` may be promoted to [`ClassKind::Abstract`] when an
     /// `@abstractmethod` is encountered.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "class body lowering needs the parsed class, resolved class state, and HIR output"
+    )]
     fn lower_class_body(
         &mut self,
         class: &StmtClassDef,
-        materialized: &Option<smelt_specialize::ClassDefinition>,
+        materialized: Option<&smelt_specialize::ClassDefinition>,
         target: &MaterializedClassTarget<'_>,
         base: Option<Symbol>,
         type_params: &[TypeParamDef],
@@ -382,7 +386,7 @@ impl ModuleBuilder<'_> {
     fn finalize_class_definition(
         &mut self,
         class: &StmtClassDef,
-        materialized: &Option<smelt_specialize::ClassDefinition>,
+        materialized: Option<&smelt_specialize::ClassDefinition>,
         target: &MaterializedClassTarget<'_>,
         module: &ModModule,
         base: Option<Symbol>,

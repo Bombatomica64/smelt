@@ -728,10 +728,10 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(text, aliases, dest)
         }
         Rvalue::NumericExtrema { args, .. } => args.iter_mut().fold(false, |changed, arg| {
-            rewrite_operand_except(arg, aliases, dest) || changed
+            rewrite_operand_except(arg, aliases, dest) | changed
         }),
         Rvalue::NumericHypot { args } => args.iter_mut().fold(false, |changed, arg| {
-            rewrite_operand_except(arg, aliases, dest) || changed
+            rewrite_operand_except(arg, aliases, dest) | changed
         }),
         Rvalue::NumericPow { base, exponent } => {
             rewrite_operand_except(base, aliases, dest)
@@ -780,7 +780,7 @@ fn rewrite_rvalue(
         | Rvalue::StringPredicate { operand, .. }
         | Rvalue::Await(operand) => rewrite_operand_except(operand, aliases, dest),
         Rvalue::AsyncOp { args, .. } => args.iter_mut().fold(false, |changed, arg| {
-            rewrite_operand_except(arg, aliases, dest) || changed
+            rewrite_operand_except(arg, aliases, dest) | changed
         }),
     }
 }
