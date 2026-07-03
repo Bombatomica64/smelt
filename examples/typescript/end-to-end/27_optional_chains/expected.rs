@@ -390,6 +390,35 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     }
 }
 
+/// Extract the invocable behind an erased callable value.
+///
+/// A dynamically-typed callee is either a bare `SmeltUnknown::Function` or a
+/// callable object exposing a `__smelt_call` function member. Every erased
+/// dispatch site shares this extraction; only the not-callable fallback
+/// differs per site (timer error, `SmeltUnknown::Null`, default callback).
+fn smelt_extract_callable(value: SmeltUnknown) -> Option<::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>> {
+    match value {
+        SmeltUnknown::Function(function) => Some(function),
+        SmeltUnknown::Object(object) => match object.get("__smelt_call") {
+            Some(SmeltUnknown::Function(function)) => Some(function),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Invoke a dynamically-typed callable value with erased arguments.
+///
+/// A non-callable value yields `Ok(SmeltUnknown::Null)` (matching the
+/// dispatch behavior for erased callees) and a thrown error propagates as
+/// `Err`; call sites decide whether to panic or forward the error.
+fn smelt_call_dynamic(value: &SmeltUnknown, args: Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
+    match smelt_extract_callable(value.clone()) {
+        Some(function) => (function)(args),
+        None => Ok(SmeltUnknown::Null),
+    }
+}
+
 fn smelt_unknown_is_nullish(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) }
 fn smelt_unknown_is_undefined(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Undefined) }
 fn smelt_missing_property_value() -> SmeltUnknown { SmeltUnknown::Undefined }

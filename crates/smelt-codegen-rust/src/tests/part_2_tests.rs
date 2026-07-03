@@ -91,7 +91,7 @@ function dispatch(...args: readonly unknown[]): unknown {
     );
 
     assert!(
-        source.contains("&*({ let smelt_function = match"),
+        source.contains("&*({ if let Some(smelt_function) = smelt_extract_callable("),
         "expected borrowed predicate argument to reborrow an extracted callable: {source}"
     );
     assert!(

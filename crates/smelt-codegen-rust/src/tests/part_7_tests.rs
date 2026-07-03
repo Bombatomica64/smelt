@@ -704,7 +704,7 @@ const result = formatDate("ok");
 
     assert!(source.contains("format(\"ok\".to_owned())"), "{source}");
     assert!(
-        !source.contains("let smelt_function_value"),
+        !source.contains("smelt_call_dynamic(&"),
         "same-module function export aliases must not erase to dynamic calls:\n{source}"
     );
 }
@@ -3196,12 +3196,12 @@ function wrap<T>(
     );
 
     assert!(
-        source.contains("match closure_arg_0.get(")
+        source.contains("let smelt_src = closure_arg_0.get(")
             && source.contains("SmeltUnknown::Array(values) => values.into_iter()"),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(
-        source.contains("match closure_arg_0.get("),
+        source.contains("smelt_extract_callable(closure_arg_0.get("),
         "fixed callback spread calls should read the second fixed parameter from the rest vector: {source}"
     );
     assert!(

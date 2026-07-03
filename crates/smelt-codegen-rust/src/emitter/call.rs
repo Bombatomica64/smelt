@@ -4,6 +4,29 @@ use super::*;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
+    /// Render the invocation snippet for a timer callback bound to
+    /// `smelt_timer_callback` (shared by `setTimeout` and `setInterval`).
+    ///
+    /// A statically-typed nullary callback is invoked directly; any other shape
+    /// is an erased value dispatched through the generated
+    /// `smelt_extract_callable` prelude helper, erring when the value turns out
+    /// not to be callable at fire time. Both forms produce a
+    /// `Result<(), Box<dyn std::error::Error>>` expression.
+    fn timer_callback_call_text(&self, callback: &Operand) -> Result<String, EmitError> {
+        if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?)
+            && function.params.is_empty()
+        {
+            if function.may_throw {
+                return Ok("(smelt_timer_callback)().map(|_| ())".to_owned());
+            }
+            return Ok(
+                "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
+                    .to_owned(),
+            );
+        }
+        Ok("match smelt_extract_callable(smelt_timer_callback.clone()) { Some(smelt_function) => (smelt_function)(Vec::new()).map(|_| ()), None => Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }".to_owned())
+    }
+
     /// Converts a runtime-backed async operation to Rust.
     pub(super) fn async_op_text(
         &self,
@@ -127,19 +150,7 @@ impl FunctionEmitter<'_> {
                     ));
                 };
                 let callback_text = self.operand_text(callback)?;
-                let callback_call = if let Some(Type::Function(function)) =
-                    self.mir.types.get(self.operand_ty(callback)?)
-                    && function.params.is_empty()
-                {
-                    if function.may_throw {
-                        "(smelt_timer_callback)().map(|_| ())".to_owned()
-                    } else {
-                        "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
-                            .to_owned()
-                    }
-                } else {
-                    "{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(Vec::new()).map(|_| ()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) } }".to_owned()
-                };
+                let callback_call = self.timer_callback_call_text(callback)?;
                 Ok(format!(
                     "{{ let smelt_timer_callback = {callback_text}.clone(); {set_timeout}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
                     self.value_at_type(duration, self.type_id(Type::Float)?)?,
@@ -169,19 +180,7 @@ impl FunctionEmitter<'_> {
                     ));
                 };
                 let callback_text = self.operand_text(callback)?;
-                let callback_call = if let Some(Type::Function(function)) =
-                    self.mir.types.get(self.operand_ty(callback)?)
-                    && function.params.is_empty()
-                {
-                    if function.may_throw {
-                        "(smelt_timer_callback)().map(|_| ())".to_owned()
-                    } else {
-                        "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
-                            .to_owned()
-                    }
-                } else {
-                    "{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(Vec::new()).map(|_| ()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) } }".to_owned()
-                };
+                let callback_call = self.timer_callback_call_text(callback)?;
                 Ok(format!(
                     "{{ let smelt_timer_callback = {callback_text}.clone(); {set_interval}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
                     self.value_at_type(duration, self.type_id(Type::Float)?)?,
