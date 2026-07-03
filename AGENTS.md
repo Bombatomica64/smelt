@@ -26,6 +26,13 @@ keep Rust source emission helpers in separate modules so codegen can be refactor
 document Rust codegen helper functions carefully because unclear helpers make LLM-generated changes worse
 if a codegen feature becomes too large, prefer well-known Rust libraries that are likely familiar to LLMs over custom machinery
 
+## Emitted snippet templates
+string templates are the emission mechanism; do NOT migrate emission to quote!/proc-macro2/AST printers (evaluated and rejected: template holes are rendered strings, and the compile-corpus tier already validates output more strongly)
+when the SAME runtime snippet would be inlined at more than one emitter site, emit it ONCE as a doc-commented prelude function under its needs_* gate and have templates call it (e.g. `smelt_extract_callable`/`smelt_call_dynamic`) — never duplicate enormous format-string matches across emitter modules
+keep per-site semantic differences (not-callable fallback, error vs panic vs default) at the call site; do not merge different behaviors into one helper
+keep the generated runtime prelude as small as possible: no speculative helpers, everything gated on actual use — a big runtime defeats the optimization/compile passes
+after any codegen-affecting change run the compile tier `cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored` (plain cargo test does not compile generated Rust) and regenerate affected e2e goldens (`cargo build -p smelt-cli` first, then rebuild `examples/typescript/end-to-end/*/expected.rs`)
+
 ## Refactoring timing
 finish active feature phases before broad codebase division refactors unless a small split is clearly low-risk and directly reduces current-file growth
 put new feature code into existing focused modules where practical, then do a deliberate architecture pass after the feature phase stabilizes
