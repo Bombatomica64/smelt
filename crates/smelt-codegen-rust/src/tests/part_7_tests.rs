@@ -1017,6 +1017,35 @@ export function make(): RestCallback {
 }
 
 #[test]
+fn does_not_rewrap_equivalent_erased_rest_function_shapes() {
+    let source = source_for(
+        r#"
+type AnyRest = (...args: unknown[]) => unknown;
+type StringRest = (...args: unknown[]) => string;
+
+function read(): StringRest {
+  return (...args: unknown[]) => String(args.length);
+}
+
+const callback: AnyRest = read();
+const value = callback("x");
+"#,
+    );
+
+    assert!(
+        !source.contains("let smelt_adapted: SmeltErasedFunction = ::std::rc::Rc::new"),
+        "erased-rest callbacks with equivalent ABI should pass through unchanged\n{source}"
+    );
+    assert!(
+        source.contains("let callback: SmeltErasedFunction = read().clone();")
+            || source.contains("let callback: SmeltErasedFunction;")
+                && source.contains("callback = _smelt_tmp_")
+                && source.contains(".clone();"),
+        "erased-rest callback assignment should preserve the shared SmeltErasedFunction\n{source}"
+    );
+}
+
+#[test]
 fn emits_optional_string_match_with_some_patterns() {
     let source = source_for(
         r#"
