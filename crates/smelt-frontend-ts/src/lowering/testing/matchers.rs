@@ -947,7 +947,11 @@ impl ModuleBuilder<'_> {
             }
         } else if let Some((name, target)) = self.typeof_guard(expression, body) {
             out.insert(name, target);
-        } else if let Some((name, target)) = self.array_is_array_guard(expression) {
+        } else if let Some((name, target)) = self.array_is_array_guard(expression, body) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.in_operator_guard(expression, body) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.instanceof_local_guard(expression, body) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.null_guard(expression) {
             out.insert(name, target);
@@ -1389,6 +1393,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn array_is_array_guard(
         &mut self,
         expression: &Expression<'_>,
+        body: &Body,
     ) -> Option<(String, smelt_hir::TypeId)> {
         let Expression::CallExpression(call) = expression else {
             return None;
@@ -1405,9 +1410,141 @@ impl ModuleBuilder<'_> {
         let [Argument::Identifier(identifier)] = call.arguments.as_slice() else {
             return None;
         };
+        let name = identifier.name.as_str();
+        let local_ty = self
+            .locals
+            .get(name)
+            .and_then(|local| Self::local_ty_checked(body, *local))
+            .and_then(|ty| self.narrowed_type(name).or(Some(ty)));
+        if let Some(ty) = local_ty
+            && let Some(members) = self.filtered_union_members(ty, |union_member| {
+                matches!(union_member, Type::List(_) | Type::Tuple(_))
+            })
+        {
+            let narrowed = self.intern_filtered_union(members)?;
+            return Some((name.to_owned(), narrowed));
+        }
         let unknown = self.ctx.krate.types.intern(Type::Unknown);
-        let ty = self.ctx.krate.types.intern(Type::List(unknown));
-        Some((identifier.name.to_string(), ty))
+        Some((
+            name.to_owned(),
+            self.ctx.krate.types.intern(Type::List(unknown)),
+        ))
+    }
+
+    /// Recognize `'field' in value` and retain only union arms exposing that field.
+    pub(in crate::lowering) fn in_operator_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if binary.operator != BinaryOperator::In {
+            return None;
+        }
+        let Expression::StringLiteral(field) = &binary.left else {
+            return None;
+        };
+        let Expression::Identifier(identifier) = &binary.right else {
+            return None;
+        };
+        let name = identifier.name.as_str();
+        let local = self.locals.get(name).copied()?;
+        let ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let field_name = field.value.as_str();
+        let retained = self.filtered_union_members(ty, |member| {
+            self.type_has_known_field(member, field_name)
+        })?;
+        let narrowed = self.intern_filtered_union(retained)?;
+        Some((name.to_owned(), narrowed))
+    }
+
+    /// Recognize `value instanceof Class` and retain matching concrete class arms.
+    pub(in crate::lowering) fn instanceof_local_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if binary.operator != BinaryOperator::Instanceof {
+            return None;
+        }
+        let (Expression::Identifier(identifier), Expression::Identifier(class)) =
+            (&binary.left, &binary.right)
+        else {
+            return None;
+        };
+        let local_name = identifier.name.as_str();
+        let local = self.locals.get(local_name).copied()?;
+        let ty = self
+            .narrowed_type(local_name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let class_name = class.name.as_str();
+        let retained = self.filtered_union_members(ty, |member| {
+            matches!(
+                member,
+                Type::Class {
+                    name: class_symbol,
+                    ..
+                } if self.ctx.krate.symbols.get(*class_symbol) == Some(class_name)
+            )
+        })?;
+        let narrowed = self.intern_filtered_union(retained)?;
+        Some((local_name.to_owned(), narrowed))
+    }
+
+    /// Filter a union through a structural flow fact.
+    fn filtered_union_members(
+        &self,
+        ty: smelt_hir::TypeId,
+        mut keep: impl FnMut(&Type) -> bool,
+    ) -> Option<Vec<smelt_hir::TypeId>> {
+        let Type::Union(items) = self.ctx.krate.types.get(ty)?.clone() else {
+            return None;
+        };
+        let retained = items
+            .into_iter()
+            .filter(|item| self.ctx.krate.types.get(*item).is_some_and(&mut keep))
+            .collect::<Vec<_>>();
+        (!retained.is_empty()).then_some(retained)
+    }
+
+    /// Intern the canonical type produced by a non-empty union filter.
+    fn intern_filtered_union(
+        &mut self,
+        retained: Vec<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        match retained.as_slice() {
+            [] => None,
+            [single] => Some(*single),
+            _ => Some(self.ctx.krate.types.intern(Type::Union(retained))),
+        }
+    }
+
+    /// Return whether a concrete type has a statically modeled property.
+    fn type_has_known_field(&self, ty: &Type, field: &str) -> bool {
+        match ty {
+            Type::String | Type::List(_) | Type::Tuple(_) if field == "length" => true,
+            Type::Function(_) if matches!(field, "length" | "name" | "prototype") => true,
+            Type::Dict(_, _) => true,
+            Type::Class { name, .. } => self.ctx.krate.items.iter().any(|item| match item {
+                smelt_hir::Item::Class(class) if class.name == *name => class
+                    .fields
+                    .iter()
+                    .any(|candidate| self.ctx.krate.symbols.get(candidate.name) == Some(field)),
+                smelt_hir::Item::Interface(interface) if interface.name == *name => interface
+                    .fields
+                    .iter()
+                    .any(|candidate| self.ctx.krate.symbols.get(candidate.name) == Some(field)),
+                _ => false,
+            }),
+            _ => false,
+        }
     }
 
     /// Recognize a call to a user-defined `value is T` predicate function.

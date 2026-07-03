@@ -597,7 +597,11 @@ return_ty,
                     return Ok(());
                 }
                 let cond = self.condition_expression(&while_stmt.test, body)?;
+                let loop_narrowing = self.guard_narrowing(&while_stmt.test, body);
+                self.narrowed_locals
+                    .push(loop_narrowing.unwrap_or_default());
                 let loop_body = self.block_from_statement(&while_stmt.body, body)?;
+                self.narrowed_locals.pop();
                 body.push_stmt_to_block(
                     block,
                     Stmt::While {

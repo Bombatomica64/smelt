@@ -2013,6 +2013,13 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
     }
 
+    let union_definitions = emitter::emit_union_definitions(mir, &context)?;
+    if !union_definitions.is_empty() {
+        for line in union_definitions.lines() {
+            writer.line(line);
+        }
+    }
+
     let mut out = writer.finish();
 
     let mut has_emitted_root_function = false;

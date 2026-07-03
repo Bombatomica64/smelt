@@ -28,10 +28,19 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         target: TypeId,
     ) -> Result<String, EmitError> {
+        let source_ty = self.operand_ty(operand)?;
+        let operand_text = self.operand_text(operand)?;
+        if let Some(injected) = self.inject_union_value_text(&operand_text, source_ty, target)? {
+            return Ok(injected);
+        }
+        if let Some(projected) = self.project_union_value_text(&operand_text, source_ty, target)? {
+            return Ok(projected);
+        }
         let target_is_erased = matches!(
             self.mir.types.get(target),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(target);
+        ) && self.concrete_union_members(target).is_none()
+            || self.is_erased_class_type(target);
         if target_is_erased
             && let Operand::Copy(Place::Field { base, field })
             | Operand::Move(Place::Field { base, field }) = operand
@@ -41,7 +50,7 @@ impl FunctionEmitter<'_> {
             )
         {
             let field_text = self.string_field_text(&self.local_value_text(*base)?, *field)?;
-            let source_ty = match self.symbol_name(*field)? {
+            let field_source_ty = match self.symbol_name(*field)? {
                 "source" => self.type_id(Type::String)?,
                 "global" | "ignoreCase" | "ignore_case" | "multiline" => {
                     self.type_id(Type::Bool)?
@@ -49,9 +58,9 @@ impl FunctionEmitter<'_> {
                 "length" => self.type_id(Type::Int)?,
                 _ => self.type_id(Type::Unknown)?,
             };
-            return self.erase_value_text(&field_text, source_ty);
+            return self.erase_value_text(&field_text, field_source_ty);
         }
-        if self.operand_ty(operand)? == target
+        if source_ty == target
             && !matches!(self.mir.types.get(target), Some(Type::Function(_)))
         {
             return self.operand_text(operand);
@@ -64,7 +73,8 @@ impl FunctionEmitter<'_> {
         if matches!(
             self.mir.types.get(target),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) {
+        ) && self.concrete_union_members(target).is_none()
+        {
             return self.erase(operand);
         }
         if self.is_erased_class_type(target) {
@@ -455,6 +465,12 @@ impl FunctionEmitter<'_> {
         source: TypeId,
         target: TypeId,
     ) -> Result<String, EmitError> {
+        if let Some(injected) = self.inject_union_value_text(value_text, source, target)? {
+            return Ok(injected);
+        }
+        if let Some(projected) = self.project_union_value_text(value_text, source, target)? {
+            return Ok(projected);
+        }
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
         }
@@ -512,7 +528,8 @@ impl FunctionEmitter<'_> {
         if matches!(
             self.mir.types.get(target),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(target)
+        ) && self.concrete_union_members(target).is_none()
+            || self.is_erased_class_type(target)
         {
             return self.erase_value_text(value_text, source);
         }
@@ -894,6 +911,9 @@ impl FunctionEmitter<'_> {
                     .unwrap_or_else(|| "::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null))".to_owned());
                 Ok(format!("SmeltUnknown::Function({adapter})"))
             }
+            Some(Type::Union(_)) if self.concrete_union_members(self.operand_ty(operand)?).is_some() => {
+                Ok(format!("{text}.into_smelt_unknown()"))
+            }
             Some(Type::Union(_)) => Ok(text),
             Some(Type::Future(item)) => {
                 if let Some(bare_local) = self.future_local_identity_key(operand)? {
@@ -1232,6 +1252,9 @@ impl FunctionEmitter<'_> {
                     clone_receiver = value.parenthesized_if_needed()
                 ))
             }
+            Some(Type::Union(_)) if self.concrete_union_members(ty).is_some() => {
+                Ok(format!("{value_text}.into_smelt_unknown()"))
+            }
             Some(Type::Union(_)) => Ok(value_text.to_owned()),
             Some(Type::Future(item)) => self.promise_future_unknown_text(value_text, *item),
         }
@@ -1421,8 +1444,12 @@ impl FunctionEmitter<'_> {
         kind: smelt_hir::UnknownKind,
     ) -> Result<String, EmitError> {
         let text = self.operand_text(value)?;
+        let value_ty = self.operand_ty(value)?;
+        if let Some(check) = self.concrete_union_tag_check(&text, value_ty, kind) {
+            return Ok(check);
+        }
         if matches!(
-            self.mir.types.get(self.operand_ty(value)?),
+            self.mir.types.get(value_ty),
             Some(Type::Optional(_))
         ) {
             if kind == smelt_hir::UnknownKind::Null {
@@ -1439,9 +1466,43 @@ impl FunctionEmitter<'_> {
     /// Emits the JavaScript `typeof` string for a runtime-erased value.
     pub(super) fn typeof_value_text(&self, value: &Operand) -> Result<String, EmitError> {
         let text = self.operand_text(value)?;
+        let value_ty = self.operand_ty(value)?;
+        if let Some(members) = self.concrete_union_members(value_ty) {
+            let name = union::union_name(value_ty);
+            let arms = members
+                .iter()
+                .enumerate()
+                .map(|(index, member)| {
+                    let kind = self.typeof_static_type_text(*member);
+                    format!("{name}::M{index}(_) => {kind:?}.to_owned()")
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Ok(format!("match {text} {{ {arms} }}"));
+        }
         Ok(format!(
             "match {text}.clone() {{ SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\".to_owned() }}"
         ))
+    }
+
+    /// Return the JavaScript `typeof` spelling for one concrete union member.
+    fn typeof_static_type_text(&self, ty: TypeId) -> &'static str {
+        match self.mir.types.get(ty) {
+            Some(Type::None | Type::Optional(_)) => "undefined",
+            Some(Type::Bool) => "boolean",
+            Some(Type::Int | Type::Float) => "number",
+            Some(Type::String) => "string",
+            Some(Type::Function(_)) => "function",
+            Some(
+                Type::List(_)
+                | Type::Set(_)
+                | Type::Dict(_, _)
+                | Type::Tuple(_)
+                | Type::Class { .. }
+                | Type::Future(_),
+            ) => "object",
+            _ => "undefined",
+        }
     }
 
     /// Emits the opaque `Object.getPrototypeOf` sentinel for an erased value.

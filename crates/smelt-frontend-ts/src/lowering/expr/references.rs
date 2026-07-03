@@ -260,8 +260,11 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(start, end),
         });
-        if self.ctx.krate.types.get(base_ty) == Some(&Type::Unknown)
-            && ty != base_ty
+        if ty != base_ty
+            && matches!(
+                self.ctx.krate.types.get(base_ty),
+                Some(Type::Unknown | Type::Union(_))
+            )
         {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::UnknownCast {

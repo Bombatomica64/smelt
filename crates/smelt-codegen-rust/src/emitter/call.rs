@@ -927,6 +927,11 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let value_ty = self.operand_ty(value)?;
         let class_name = self.symbol_name(class)?;
+        if let Some(check) =
+            self.concrete_union_class_check(&self.operand_text(value)?, value_ty, class)
+        {
+            return Ok(check);
+        }
         if matches!(
             class_name,
             "Error"

@@ -636,6 +636,9 @@ impl FunctionEmitter<'_> {
                     scoped_type_params,
                 )?
             )),
+            Type::Union(_) if self.concrete_union_members(ty).is_some() => {
+                Ok(union::union_name(ty))
+            }
             Type::Union(_) => Ok("SmeltUnknown".to_owned()),
             Type::Function(function) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
@@ -741,6 +744,16 @@ impl FunctionEmitter<'_> {
             }
             Type::TypeParam { name } if self.current_function_has_type_param(*name) => {
                 Ok("Default::default()".to_owned())
+            }
+            Type::Union(items) if self.concrete_union_members(ty).is_some() => {
+                let first = *items
+                    .first()
+                    .ok_or_else(|| EmitError::new("concrete union has no members"))?;
+                Ok(format!(
+                    "{}::M0({})",
+                    union::union_name(ty),
+                    self.default_value(first)?
+                ))
             }
             Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value_text()),
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {

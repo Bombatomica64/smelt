@@ -215,6 +215,44 @@ function mixed(): Map<string, string | number> {
 "#,
         },
         Case {
+            name: "flow_narrowed_concrete_union",
+            area: "concrete_unions",
+            source: r#"
+function resolvePath(path: string | (() => string)): string {
+  if (typeof path === "string" && path.includes(".")) {
+    return path;
+  }
+  if (typeof path === "string") {
+    return path + ".ts";
+  }
+  return path();
+}
+"#,
+        },
+        Case {
+            name: "structural_guarded_concrete_unions",
+            area: "concrete_unions",
+            source: r#"
+interface Named { name: string; }
+interface LengthBearing { length: number; }
+function lengthOf(value: Named | LengthBearing): number {
+  if ("length" in value) return value.length;
+  return 0;
+}
+
+function values(source: number[] | Record<string, number>): number[] {
+  return Array.isArray(source) ? source : Object.values(source);
+}
+
+class Left { left: string = "left"; }
+class Right { right: string = "right"; }
+function read(value: Left | Right): string {
+  if (value instanceof Left) return value.left;
+  return "right";
+}
+"#,
+        },
+        Case {
             name: "set_collection",
             area: "collections",
             source: r"

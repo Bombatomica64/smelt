@@ -542,6 +542,13 @@ impl FunctionEmitter<'_> {
                 value: unknown_value,
                 target,
             } => {
+                let source = self.operand_ty(unknown_value)?;
+                let value_text = self.operand_text(unknown_value)?;
+                if let Some(projected) =
+                    self.project_union_value_text(&value_text, source, *target)?
+                {
+                    return self.value_at_type_text(&projected, *target, dest_ty);
+                }
                 let target_rust_ty = self.type_text_with_impl_trait(*target, false)?;
                 let cast_text = if target_rust_ty == "SmeltUnknown" {
                     self.erase(unknown_value)?

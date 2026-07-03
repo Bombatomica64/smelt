@@ -3,6 +3,66 @@
 use super::*;
 
 #[test]
+fn emits_concrete_union_enum_and_projects_typeof_narrowed_local() {
+    let source = source_for(
+        r#"
+function resolvePath(path: string | (() => string)): string {
+  if (typeof path === "string" && path.includes(".")) {
+    return path;
+  }
+  if (typeof path === "string") {
+    return path + ".ts";
+  }
+  return path();
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(source.contains("M0(") && source.contains("M1("), "{source}");
+    assert!(
+        source.contains("matches!(path.clone(), SmeltUnion"),
+        "{source}"
+    );
+    assert!(
+        source.contains("union guard selected an excluded member"),
+        "{source}"
+    );
+}
+
+#[test]
+fn narrows_concrete_union_locals_with_in_array_and_instanceof_guards() {
+    let source = source_for(
+        r#"
+interface Named { name: string; }
+interface LengthBearing { length: number; }
+function lengthOf(value: Named | LengthBearing): number {
+  if ("length" in value) return value.length;
+  return 0;
+}
+
+function values(source: number[] | Record<string, number>): number[] {
+  return Array.isArray(source) ? source : Object.values(source);
+}
+
+class Left { left: string = "left"; }
+class Right { right: string = "right"; }
+function read(value: Left | Right): string {
+  if (value instanceof Left) return value.left;
+  return "right";
+}
+"#,
+    );
+
+    assert!(source.matches("pub enum SmeltUnion").count() >= 3, "{source}");
+    assert!(
+        source.contains("union guard selected an excluded member"),
+        "{source}"
+    );
+    assert!(source.contains("matches!(value.clone(), SmeltUnion"), "{source}");
+}
+
+#[test]
 fn injects_url_dependency_for_url_mapping() {
     let manifest = deps::cargo_toml(
         &EmitOptions::default().crate_name,
@@ -1512,7 +1572,7 @@ function run(setter: Setter): number {
     );
 
     assert!(
-        source.contains("set: ::std::rc::Rc<dyn Fn(&mut Flags) -> SmeltUnknown>"),
+        source.contains("set: ::std::rc::Rc<dyn Fn(&mut Flags) -> SmeltUnion"),
         "{source}"
     );
     assert!(
