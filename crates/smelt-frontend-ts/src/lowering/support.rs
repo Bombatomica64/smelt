@@ -179,6 +179,22 @@ pub(super) fn statement_terminates(statement: &Statement<'_>) -> bool {
         Statement::IfStatement(if_stmt) => if_stmt.alternate.as_ref().is_some_and(|alternate| {
             statement_terminates(&if_stmt.consequent) && statement_terminates(alternate)
         }),
+        // `try { return ... } catch { return ... }` terminates when the try
+        // block terminates and any catch handler terminates too (a missing
+        // handler propagates the exception, which also leaves the enclosing
+        // statement). A terminating finalizer terminates regardless.
+        Statement::TryStatement(try_stmt) => {
+            let finalizer_terminates = try_stmt
+                .finalizer
+                .as_ref()
+                .is_some_and(|finalizer| finalizer.body.iter().any(statement_terminates));
+            let block_terminates = try_stmt.block.body.iter().any(statement_terminates);
+            let handler_terminates = try_stmt
+                .handler
+                .as_ref()
+                .is_none_or(|handler| handler.body.body.iter().any(statement_terminates));
+            finalizer_terminates || (block_terminates && handler_terminates)
+        }
         Statement::BreakStatement(_)
         | Statement::ContinueStatement(_)
         | Statement::DebuggerStatement(_)
@@ -190,7 +206,6 @@ pub(super) fn statement_terminates(statement: &Statement<'_>) -> bool {
         | Statement::ForStatement(_)
         | Statement::LabeledStatement(_)
         | Statement::SwitchStatement(_)
-        | Statement::TryStatement(_)
         | Statement::WhileStatement(_)
         | Statement::WithStatement(_)
         | Statement::VariableDeclaration(_)

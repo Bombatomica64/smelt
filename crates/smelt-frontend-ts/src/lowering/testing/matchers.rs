@@ -1727,6 +1727,20 @@ impl ModuleBuilder<'_> {
             {
                 continue;
             }
+            // `const { A: B } = await import('./mod')` re-imports statically
+            // known module members (a vitest module-reset idiom). Compiled Rust
+            // has no module registry to reset, so the fresh namespace is the
+            // same module: each destructured member binds as a compile-time
+            // alias of the statically resolved import, exactly like
+            // `import { A as B } from './mod'`.
+            if let BindingPattern::ObjectPattern(object) = &declarator.id
+                && let Some(Expression::AwaitExpression(await_expr)) = &declarator.init
+                && let Expression::ImportExpression(import_expr) = &await_expr.argument
+                && let Expression::StringLiteral(source) = &import_expr.source
+            {
+                self.dynamic_import_destructure_aliases(object, source.value.as_str())?;
+                continue;
+            }
             // `const g = globalThis;` records a local global-object alias so that
             // later `g.Object.keys(x)` / `"Map" in g` normalize and erase exactly
             // like the bare `globalThis` spelling. The alias is purely a
@@ -1853,6 +1867,39 @@ impl ModuleBuilder<'_> {
             for update in deferred_updates {
                 body.push_stmt_to_block(block, update);
             }
+        }
+        Ok(())
+    }
+
+    /// Register `const { A: B } = await import('./mod')` bindings as import aliases.
+    ///
+    /// Each destructured member re-binds a statically resolvable export of the
+    /// imported module under the local pattern name, reusing the same alias
+    /// machinery as `import { A as B } from './mod'`. Computed keys, nested
+    /// patterns, and rest elements have no static import equivalent and stay
+    /// unsupported.
+    fn dynamic_import_destructure_aliases(
+        &mut self,
+        object: &oxc::ast::ast::ObjectPattern<'_>,
+        source: &str,
+    ) -> Result<(), SmeltError> {
+        if object.rest.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(object.span.start, object.span.end),
+                "dynamic import destructuring does not support rest elements",
+            ));
+        }
+        for property in &object.properties {
+            let (Some(imported), BindingPattern::BindingIdentifier(local)) =
+                (property.key.static_name(), &property.value)
+            else {
+                return Err(SmeltError::unsupported(
+                    self.span(property.span.start, property.span.end),
+                    "dynamic import destructuring requires static keys and identifier bindings",
+                ));
+            };
+            self.alias_imported_item(source, imported.as_ref(), local.name.as_str());
+            self.value_imports.insert(local.name.as_str().to_owned());
         }
         Ok(())
     }

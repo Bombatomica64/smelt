@@ -54,6 +54,12 @@ impl ModuleBuilder<'_> {
             (Type::Never, _) | (Type::None, Type::Optional(_)) => true,
             (_, Type::Never) | (Type::Int, Type::Float) => false,
             (_, Type::Unknown) | (Type::Unknown, _) => true,
+            // An unconstrained generic parameter (constrained ones were already
+            // resolved to their constraint above) is erased by tsc before Smelt
+            // sees it: at any instantiated use site it stands for the concrete
+            // type tsc already checked, so it is assignable in both directions
+            // — including nested inside containers such as `T[]` vs `number[]`.
+            (Type::TypeParam { .. }, _) | (_, Type::TypeParam { .. }) => true,
             (Type::Union(actual_items), _) => actual_items
                 .iter()
                 .all(|item| self.type_assignable_to_inner(*item, expected, depth + 1)),
@@ -684,9 +690,13 @@ impl ModuleBuilder<'_> {
         if self.list_surface_type(haystack_ty).is_some() {
             return Ok(None);
         }
-        if self.ctx.krate.types.get(haystack_ty) == Some(&Type::Unknown)
-            || self.type_contains_unknown(haystack_ty)
-            || self.erased_or_union_surface(haystack_ty)
+        // A union of concrete members with a string arm (`string | fn` after a
+        // `typeof path === 'string'` guard Smelt's erased locals do not
+        // re-type) is also asserted down to `String`.
+        if self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
+            && (self.type_contains_unknown(haystack_ty)
+                || self.erased_or_union_surface(haystack_ty)
+                || self.is_string_compatible_type(haystack_ty))
         {
             haystack = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: haystack },

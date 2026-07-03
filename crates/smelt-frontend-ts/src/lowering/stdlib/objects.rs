@@ -1243,6 +1243,57 @@ return_ty,
         })))
     }
 
+    /// Lower direct TypeScript `ArrayBuffer.isView` calls.
+    ///
+    /// `ArrayBuffer.isView(x)` is true for typed-array views and `DataView`s.
+    /// Smelt's runtime lowers typed arrays to plain numeric lists (no view
+    /// identity survives), so the only value the check can recognize is the
+    /// marker-bearing `DataView` model: the call lowers exactly like
+    /// `x instanceof DataView`, reusing the marker-based `InstanceOf` path.
+    /// Statically concrete non-erased values fold to `false`.
+    pub(in crate::lowering) fn arraybuffer_is_view_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "ArrayBuffer"
+            || member.property.name != "isView"
+            || self.classes.contains_key("ArrayBuffer")
+        {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "ArrayBuffer.isView requires exactly one argument",
+            ));
+        };
+        let value = self.argument(argument, body)?;
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            let class = self.intern_type_name("DataView");
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::InstanceOf { value, class },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript string case methods.
     pub(in crate::lowering) fn string_case_call(
         &mut self,

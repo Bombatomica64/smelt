@@ -213,6 +213,32 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.static_member_with_absent_fallback(member, body, true)
+    }
+
+    /// Lower a static member read without the absent-list-field `undefined`
+    /// fallback.
+    ///
+    /// Call dispatch probes member expressions to decide whether a property is
+    /// a callable field; there an unmodeled list member (e.g. `iterator.next`)
+    /// must stay an error so the later modeled method paths can claim the
+    /// call, instead of being folded into an `undefined` "callable".
+    pub(in crate::lowering) fn static_member_no_absent_fallback(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.static_member_with_absent_fallback(member, body, false)
+    }
+
+    /// Shared static-member lowering; `absent_list_field_is_undefined` gates
+    /// the JS absent-property-read-yields-`undefined` rule for list receivers.
+    fn static_member_with_absent_fallback(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+        absent_list_field_is_undefined: bool,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Some(expr) = self.global_alias_member_read(member, body)? {
             return Ok(expr);
         }
@@ -325,7 +351,30 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
-        let field_ty = self.class_field_type(access_receiver_ty, field)?;
+        let field_ty = match self.class_field_type(access_receiver_ty, field) {
+            Ok(field_ty) => field_ty,
+            // Reading an absent property yields `undefined` in JavaScript. A
+            // Smelt list is a plain vector with no expando-property storage
+            // (e.g. the RegExp match-array `index`/`input` fields), so an
+            // unmodeled field read on a list receiver is truthfully
+            // `undefined` rather than a lowering error.
+            Err(error) => {
+                if absent_list_field_is_undefined
+                    && matches!(
+                        self.ctx.krate.types.get(access_receiver_ty),
+                        Some(Type::List(_))
+                    )
+                {
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(member.span.start, member.span.end),
+                    }));
+                }
+                return Err(error);
+            }
+        };
         if optional_access {
             let ty = self.optional_chain_result_type(field_ty);
             return Ok(body.push_expr(Expr {

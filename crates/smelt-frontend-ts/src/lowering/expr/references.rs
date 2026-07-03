@@ -388,7 +388,87 @@ impl ModuleBuilder<'_> {
                 span,
                 outer_body,
             ),
+            // Collection constructors used as first-class constructor values
+            // (`memoize.Cache = Map`, `new (memoize.Cache || Map)()`). The
+            // synthesized closure constructs the default empty collection and
+            // erases it at the dynamic boundary; dynamic `new` lowers to a
+            // closure call, so the value composes with the erased-new path.
+            "Map" | "Set" => {
+                self.builtin_collection_constructor_closure_expression(name, span, outer_body)
+            }
             _ => return None,
+        })
+    }
+
+    /// Build a first-class constructor closure for a bare `Map`/`Set` value.
+    ///
+    /// The closure takes no parameters (dynamic dispatch tolerates extra
+    /// arguments) and returns the empty collection erased to `unknown`, the
+    /// same value `new Map()` / `new Set()` would produce before erasure.
+    fn builtin_collection_constructor_closure_expression(
+        &mut self,
+        name: &str,
+        span: Span,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let mut closure_body = Body::new(None, span);
+        let constructed = if name == "Set" {
+            let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let set_ty = self.ctx.krate.types.intern(Type::Set(item_ty));
+            let empty_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+            let list = closure_body.push_expr(Expr {
+                kind: ExprKind::ListLit(Vec::new()),
+                ty: empty_list_ty,
+                span,
+            });
+            closure_body.push_expr(Expr {
+                kind: ExprKind::ListToSet { list },
+                ty: set_ty,
+                span,
+            })
+        } else {
+            let key_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+            closure_body.push_expr(Expr {
+                kind: ExprKind::DictLit(Vec::new()),
+                ty: dict_ty,
+                span,
+            })
+        };
+        let erased = closure_body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: constructed,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Return(Some(erased)));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: Vec::new(),
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: unknown_ty,
+            is_async: false,
+            may_throw: false,
+        }));
+        outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: Vec::new(),
+                rest: None,
+                required_params: None,
+                return_ty: unknown_ty,
+                captures: Vec::new(),
+                body: body_id,
+                function_item: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
         })
     }
 

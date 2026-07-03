@@ -1861,14 +1861,7 @@ impl ModuleBuilder<'_> {
                     || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)
                     || self.type_contains_unknown(item_ty)
                     || self.type_contains_unknown(element_ty)
-                    || self.numeric_type_compatible(element_ty, item_ty)
-                    || matches!(
-                        (
-                            self.ctx.krate.types.get(element_ty),
-                            self.ctx.krate.types.get(item_ty)
-                        ),
-                        (Some(Type::TypeParam { .. }), _) | (_, Some(Type::TypeParam { .. }))
-                    );
+                    || self.numeric_type_compatible(element_ty, item_ty);
                 if !compatible {
                     if self.erased_or_union_surface(item_ty)
                         || self.erased_or_union_surface(element_ty)
@@ -2231,19 +2224,16 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 let index_ty = self.ctx.krate.types.intern(Type::Float);
-                let callback = self.callback_argument(
+                // findLast/findLastIndex are truthiness predicates like
+                // find/filter: a named callback returning an erased/`any`
+                // value is coerced to bool by the truthy wrapper instead of
+                // being rejected for not returning `boolean` literally.
+                let callback = self.truthy_callback_argument_with_body_fallback(
                     callback_arg,
                     &[element_ty, index_ty, list_ty],
                     "array findLast/findLastIndex",
                     body,
                 )?;
-                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-                let context = if method == "findLast" {
-                    "array findLast"
-                } else {
-                    "array findLastIndex"
-                };
-                self.require_callback_ty(callback.return_ty, bool_ty, call, context)?;
                 let op = if method == "findLast" {
                     ListCallbackOp::FindLast
                 } else {

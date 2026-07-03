@@ -291,7 +291,10 @@ impl ModuleBuilder<'_> {
                 } else {
                     Err(SmeltError::unsupported(
                         self.span(argument.span().start, argument.span().end),
-                        format!("{context} callback returns an unsupported type"),
+                        format!(
+                            "{context} callback returns an unsupported type ({:?})",
+                            self.ctx.krate.types.get(callback.return_ty)
+                        ),
                     ))
                 }
             }

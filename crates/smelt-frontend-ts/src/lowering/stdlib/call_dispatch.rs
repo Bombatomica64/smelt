@@ -554,12 +554,30 @@ impl<'builder> ModuleBuilder<'builder> {
                     item_ty: *item_ty,
                 });
             }
-            let selected_overload = self.selected_overload_signature(
+            let selected_overload = match self.selected_overload_signature(
                 callee_ident.name.as_str(),
                 &call.arguments,
                 call.span,
                 body,
-            )?;
+            ) {
+                Ok(selected) => selected,
+                // A sibling in the same library may call the *implementation*
+                // signature directly (e.g. es-toolkit's `sortedLastIndexBy`
+                // passing the private `retHighest` flag that no public
+                // overload declares). When the implementation's own arity
+                // accepts the call, lower against the implementation types
+                // instead of aborting on the overload table.
+                Err(error) => {
+                    let required = item_required_params.unwrap_or(params.len());
+                    let arity_fits = call.arguments.len() >= required
+                        && (item_rest.is_some() || call.arguments.len() <= params.len());
+                    if arity_fits {
+                        None
+                    } else {
+                        return Err(error);
+                    }
+                }
+            };
             if rest.is_none()
                 && let Some(signature) = &selected_overload
                 && let Some(index) = signature.rest
@@ -637,6 +655,27 @@ impl<'builder> ModuleBuilder<'builder> {
                     }));
                 }
                 args
+            };
+            // A single-signature generic function (`function shuffle<T>(arr:
+            // readonly T[]): T[]`) has no overload entry, so its declared
+            // return still carries the raw `TypeParam`. Instantiate it from
+            // the lowered argument types the same way overload selection
+            // does, so `shuffle([1, 2]).sort()` sees `number[]`, not `T[]`.
+            let return_ty = if selected_overload.is_none()
+                && self.overload_constraint_contains_unresolved_type_param(return_ty)
+            {
+                let mut substitutions = HashMap::new();
+                for (param, arg) in params.iter().zip(&args) {
+                    let arg_ty = Self::expr_ty(body, *arg);
+                    let _ = self.infer_overload_type(*param, arg_ty, &mut substitutions);
+                }
+                if substitutions.is_empty() {
+                    return_ty
+                } else {
+                    self.substitute_type_params(return_ty, &substitutions)
+                }
+            } else {
+                return_ty
             };
             let callee = body.push_expr(Expr {
                 kind: ExprKind::Item(item),
@@ -1124,7 +1163,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 })));
             }
         }
-        let Ok(callee) = self.static_member(member, body) else {
+        let Ok(callee) = self.static_member_no_absent_fallback(member, body) else {
             return Ok(None);
         };
         if self.static_member_is_concrete_class_method(callee, member, body) {
@@ -2184,6 +2223,9 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.array_is_array_call(call, body)? {
             return Ok(Some(expr));
         }
+        if let Some(expr) = self.arraybuffer_is_view_call(call, body)? {
+            return Ok(Some(expr));
+        }
         self.array_from_call(call, body)
     }
 
@@ -2661,6 +2703,13 @@ impl<'builder> ModuleBuilder<'builder> {
             (Some(Type::Optional(inner)), _) => {
                 self.infer_overload_type(inner, actual, substitutions)
             }
+            // The actual argument may keep an `Optional` wrapper that
+            // source-level narrowing (a `typeof` switch or truthiness guard)
+            // already peeled — Smelt's erased locals are not re-typed across
+            // narrowing. tsc validated the call, so match the payload type.
+            (_, Some(Type::Optional(actual_inner))) => {
+                self.infer_overload_type(expected, actual_inner, substitutions)
+            }
             (Some(Type::List(expected_item)), Some(Type::List(actual_item)))
             | (Some(Type::Set(expected_item)), Some(Type::Set(actual_item)))
             | (Some(Type::Future(expected_item)), Some(Type::Future(actual_item))) => {
@@ -2762,8 +2811,20 @@ impl<'builder> ModuleBuilder<'builder> {
         actual: &FunctionType,
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
+        // An `async` callback and a sync-spelled `(...) => Promise<U>` slot are
+        // the same TypeScript type; the async bit only differs in spelling. The
+        // mismatch is bridged when the sync-spelled side's return is
+        // Promise-shaped (or erased), and the return comparison below aligns
+        // the Future wrapping.
         if expected.is_async != actual.is_async {
-            return false;
+            let sync_return = if expected.is_async {
+                actual.return_ty
+            } else {
+                expected.return_ty
+            };
+            if !self.future_shaped_return(sync_return) {
+                return false;
+            }
         }
         if actual.params.len() > expected.params.len()
             && (actual.rest != actual.params.len().checked_sub(1)
@@ -2783,7 +2844,52 @@ impl<'builder> ModuleBuilder<'builder> {
             }
         }
         let actual_return_ty = self.substitute_type_params(actual.return_ty, &actual_substitutions);
-        self.infer_overload_type(expected.return_ty, actual_return_ty, substitutions)
+        if self.infer_overload_type(expected.return_ty, actual_return_ty, substitutions) {
+            return true;
+        }
+        // Async-vs-sync spelling can leave exactly one return Future-wrapped
+        // (`Promise<U>` vs the async body's bare `U`); compare the unwrapped
+        // payloads in that case.
+        if expected.is_async != actual.is_async {
+            match (
+                self.future_payload_type(expected.return_ty),
+                self.future_payload_type(actual_return_ty),
+            ) {
+                (Some(expected_inner), None) => {
+                    return self.infer_overload_type(expected_inner, actual_return_ty, substitutions);
+                }
+                (None, Some(actual_inner)) => {
+                    return self.infer_overload_type(expected.return_ty, actual_inner, substitutions);
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Return whether a sync-spelled callback return type is Promise-shaped
+    /// (or erased enough to stand in for one) for async-spelling bridging.
+    fn future_shaped_return(&self, return_ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx
+                .krate
+                .types
+                .get(self.type_param_constraint_or_self(return_ty)),
+            Some(Type::Future(_) | Type::Unknown | Type::TypeParam { .. })
+        )
+    }
+
+    /// Return the payload type of a `Future`-shaped type, if it is one.
+    fn future_payload_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::Future(inner)) => Some(*inner),
+            _ => None,
+        }
     }
 
     /// Check that an actual callback can accept the input required by an overload parameter.
@@ -3383,17 +3489,29 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.span.start, call.span.end);
+        self.packed_spread_arguments(item_ty, &call.arguments, span, body)
+    }
+
+    /// Pack an argument slice (call or `new` expression) into one variadic list.
+    pub(in crate::lowering) fn packed_spread_arguments(
+        &mut self,
+        item_ty: smelt_hir::TypeId,
+        arguments: &[Argument<'_>],
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
         let mut current_items = Vec::new();
         let mut packed = None;
-        for arg in &call.arguments {
+        for arg in arguments {
             match arg {
                 Argument::SpreadElement(spread) => {
                     if !current_items.is_empty() {
                         let left = body.push_expr(Expr {
                             kind: ExprKind::ListLit(std::mem::take(&mut current_items)),
                             ty: list_ty,
-                            span: self.span(call.span.start, call.span.end),
+                            span,
                         });
                         packed = Some(packed.map_or(left, |existing| {
                             body.push_expr(Expr {
@@ -3402,7 +3520,7 @@ impl<'builder> ModuleBuilder<'builder> {
                                     right: left,
                                 },
                                 ty: list_ty,
-                                span: self.span(call.span.start, call.span.end),
+                                span,
                             })
                         }));
                     }
@@ -3414,7 +3532,7 @@ impl<'builder> ModuleBuilder<'builder> {
                                 right: spread_expr,
                             },
                             ty: list_ty,
-                            span: self.span(call.span.start, call.span.end),
+                            span,
                         })
                     }));
                 }
@@ -3425,7 +3543,7 @@ impl<'builder> ModuleBuilder<'builder> {
             let right = body.push_expr(Expr {
                 kind: ExprKind::ListLit(current_items),
                 ty: list_ty,
-                span: self.span(call.span.start, call.span.end),
+                span,
             });
             packed = Some(packed.map_or(right, |existing| {
                 body.push_expr(Expr {
@@ -3434,13 +3552,13 @@ impl<'builder> ModuleBuilder<'builder> {
                         right,
                     },
                     ty: list_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    span,
                 })
             }));
         }
         packed.ok_or_else(|| {
             SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
+                span,
                 "spread call requires at least one argument",
             )
         })

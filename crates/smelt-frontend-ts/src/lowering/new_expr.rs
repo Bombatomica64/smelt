@@ -57,6 +57,48 @@ impl ModuleBuilder<'_> {
                     span: self.span(new_expr.span.start, new_expr.span.end),
                 }));
             }
+            // `new <expr>(...)` over a dynamic callee (`new object[key](...
+            // args)` in lodash-compat `bindKey`). Classes are not first-class
+            // values in Smelt, so a computed callee can only hold a function
+            // value: the construction lowers as a dynamic closure call through
+            // the erased ABI, a genuine dynamic boundary returning `unknown`.
+            let callee_value = self.expression(&new_expr.callee, body)?;
+            let callee_ty = Self::expr_ty(body, callee_value);
+            if self.erased_or_union_surface(callee_ty)
+                || self.function_member_type(callee_ty).is_some()
+            {
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let span = self.span(new_expr.span.start, new_expr.span.end);
+                if new_expr.arguments.iter().any(Argument::is_spread) {
+                    let args = self.packed_spread_arguments(
+                        unknown_ty,
+                        &new_expr.arguments,
+                        span,
+                        body,
+                    )?;
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::ClosureCallSpread {
+                            callee: callee_value,
+                            args,
+                        },
+                        ty: unknown_ty,
+                        span,
+                    }));
+                }
+                let args = new_expr
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall {
+                        callee: callee_value,
+                        args,
+                    },
+                    ty: unknown_ty,
+                    span,
+                }));
+            }
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
                 "new expressions require a direct class name",
@@ -96,7 +138,20 @@ impl ModuleBuilder<'_> {
             return self.blob_constructor_expression(new_expr, body);
         }
         if callee.name == "Number" && !self.classes.contains_key("Number") {
-            return self.boxed_number_constructor_expression(new_expr, body);
+            return self.boxed_primitive_constructor_expression(
+                new_expr,
+                body,
+                "__smelt_number",
+                Literal::Float(0.0),
+            );
+        }
+        if callee.name == "Boolean" && !self.classes.contains_key("Boolean") {
+            return self.boxed_primitive_constructor_expression(
+                new_expr,
+                body,
+                "__smelt_boolean",
+                Literal::Bool(false),
+            );
         }
         if callee.name == "Proxy" && !self.classes.contains_key("Proxy") {
             return self.proxy_constructor_expression(new_expr, body);
@@ -275,6 +330,34 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let local_ty = Self::local_ty(body, local);
+        // A local constructor value without a concrete function type (`const
+        // CacheConstructor = memoize.Cache || Map; new CacheConstructor()`)
+        // dispatches through the dynamic closure-call ABI, mirroring the
+        // computed-callee `new` fallback: classes are not first-class values
+        // in Smelt, so the binding can only hold a function value, and the
+        // construction is a genuine dynamic boundary returning `unknown`.
+        if !matches!(self.ctx.krate.types.get(local_ty), Some(Type::Function(_))) {
+            let callee_expr = self.identifier_expression(
+                callee.name.as_str(),
+                callee.span.start,
+                callee.span.end,
+                body,
+            )?;
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let args = new_expr
+                .arguments
+                .iter()
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall {
+                    callee: callee_expr,
+                    args,
+                },
+                ty: unknown_ty,
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            })));
+        }
         let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() else {
             return Ok(None);
         };
@@ -1015,44 +1098,51 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Lower the boxed-object form `new Number(value)` to a marker-bearing record.
+    /// Lower a boxed primitive wrapper (`new Number(v)`, `new Boolean(v)`) to a
+    /// marker-bearing record.
     ///
-    /// This is the boxed `Number` **object**, distinct from the `Number(x)`
-    /// coercion call (which already lowers to a numeric value elsewhere). The
-    /// boxed object has `typeof === "object"`, so es-toolkit's `isNumber`
-    /// (`typeof x === "number"`) must report `false` for it: modeling it as a
-    /// record erased to `SmeltUnknown::Object` makes the runtime `typeof`
-    /// narrowing (`SmeltUnknown::Number(_)`) correctly miss. The wrapped value
-    /// is retained alongside a dedicated `__smelt_number` marker so a later
-    /// dynamic `instanceof Number` resolves through the marker, mirroring the
-    /// `ArrayBuffer` model.
-    pub(super) fn boxed_number_constructor_expression(
+    /// This is the boxed wrapper **object**, distinct from the `Number(x)` /
+    /// `Boolean(x)` coercion calls (which already lower to primitive values
+    /// elsewhere). The boxed object has `typeof === "object"`, so es-toolkit's
+    /// `isNumber`/`isBoolean` (`typeof x === "number"`) must report `false` for
+    /// it: modeling it as a record erased to `SmeltUnknown::Object` makes the
+    /// runtime `typeof` narrowing correctly miss. The wrapped value is retained
+    /// alongside the wrapper's dedicated marker so a later dynamic
+    /// `instanceof Number`/`instanceof Boolean` resolves through the marker,
+    /// mirroring the `ArrayBuffer` model.
+    pub(super) fn boxed_primitive_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
+        marker: &str,
+        default_value: Literal,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if new_expr.arguments.len() > 1 {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
-                "new Number(...) supports at most one value argument",
+                "boxed primitive constructors support at most one value argument",
             ));
         }
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let number_ty = self.ctx.krate.types.intern(Type::Float);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
-        let value = match new_expr.arguments.first() {
-            Some(argument) => self.argument(argument, body)?,
-            None => body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Float(0.0)),
-                ty: number_ty,
+        let value = if let Some(argument) = new_expr.arguments.first() {
+            self.argument(argument, body)?
+        } else {
+            let default_ty = self.ctx.krate.types.intern(match &default_value {
+                Literal::Bool(_) => Type::Bool,
+                _ => Type::Float,
+            });
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(default_value),
+                ty: default_ty,
                 span,
-            }),
+            })
         };
         let marker_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("__smelt_number".to_owned())),
+            kind: ExprKind::Literal(Literal::String(marker.to_owned())),
             ty: string_ty,
             span,
         });
@@ -1616,6 +1706,17 @@ impl ModuleBuilder<'_> {
                     && !self.concrete_type_requires_never_value(hint)
                 {
                     hint
+                } else if self.erased_or_union_surface(then_ty)
+                    || self.erased_or_union_surface(else_ty)
+                    || matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(_)))
+                    || matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(_)))
+                {
+                    // One branch keeps a union/erased surface with no single
+                    // concrete Rust shape (e.g. `isArrayLike(source) ? source :
+                    // Object.values(source)` where `source` stays `ArrayLike<T>
+                    // | Record<string, T>`): the merged value is a genuine
+                    // dynamic boundary and widens to `unknown`.
+                    self.ctx.krate.types.intern(Type::Unknown)
                 } else {
                     return Err(SmeltError::unsupported(
                         self.span(conditional.span.start, conditional.span.end),
@@ -1968,6 +2069,17 @@ impl ModuleBuilder<'_> {
             && !self.concrete_type_requires_never_value(hint)
         {
             Ok(hint)
+        } else if self.erased_or_union_surface(then_ty)
+            || self.erased_or_union_surface(else_ty)
+            || matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(_)))
+            || matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(_)))
+        {
+            // One branch keeps a union/erased surface with no single concrete
+            // Rust shape (e.g. `isArrayLike(source) ? source :
+            // Object.values(source)` where `source` stays `ArrayLike<T> |
+            // Record<string, T>`): the merged value is a genuine dynamic
+            // boundary and widens to `unknown`.
+            Ok(self.ctx.krate.types.intern(Type::Unknown))
         } else {
             Err(SmeltError::unsupported(
                 self.span(start, end),
