@@ -469,7 +469,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!(
                 "list_reduce {}, {}, {}",
                 expr_ref(*list),
-                initial.map(expr_ref).unwrap_or_else(|| "_".to_owned()),
+                initial.map_or_else(|| "_".to_owned(), expr_ref),
                 expr_ref(*callback)
             )
         }

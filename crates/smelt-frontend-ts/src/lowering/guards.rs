@@ -1651,25 +1651,71 @@ impl ModuleBuilder<'_> {
             }
             // `setTimeout(callback, ms, ...args)` / `setInterval(callback, ms,
             // ...args)` forward the extra arguments to the callback when the
-            // timer fires. The extras (including source spreads) pack into one
-            // erased list operand; the emitter passes it through the dynamic
-            // callback ABI.
+            // timer fires.
+            //
+            // When the callback is a statically typed function and every extra is
+            // a concretely typed positional argument (no source spread), the
+            // extras are captured by a synthesized zero-argument wrapper closure
+            // that calls the callback directly — no erased `Vec<SmeltUnknown>` is
+            // produced. A source spread or an untyped extra is a genuine dynamic
+            // boundary, so those keep the erased-list path where the extras pack
+            // into one operand dispatched through the dynamic callback ABI.
             "setTimeout" | "setInterval" if call.arguments.len() >= 3 => {
                 let callback = self.argument(&call.arguments[0], body)?;
                 let duration = self.argument(&call.arguments[1], body)?;
                 let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let span = self.span(call.span.start, call.span.end);
+                let op = if callee.name == "setTimeout" {
+                    AsyncOp::SetTimeout
+                } else {
+                    AsyncOp::SetInterval
+                };
+
+                let has_spread = call.arguments[2..]
+                    .iter()
+                    .any(|arg| matches!(arg, Argument::SpreadElement(_)));
+                if !has_spread {
+                    // Lower each extra exactly once. Either the typed wrapper
+                    // consumes them, or they pack into the erased list below —
+                    // never both, so source side effects run once.
+                    let extras = call.arguments[2..]
+                        .iter()
+                        .map(|arg| self.argument(arg, body))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if let Some(wrapper) =
+                        self.timer_typed_wrapper_closure(callback, &extras, span, body)
+                    {
+                        return Ok(Some(body.push_expr(Expr {
+                            kind: ExprKind::AsyncOp {
+                                op,
+                                args: vec![wrapper, duration],
+                            },
+                            ty: unknown_ty,
+                            span,
+                        })));
+                    }
+                    let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+                    let extra = body.push_expr(Expr {
+                        kind: ExprKind::ListLit(extras),
+                        ty: list_ty,
+                        span,
+                    });
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::AsyncOp {
+                            op,
+                            args: vec![callback, duration, extra],
+                        },
+                        ty: unknown_ty,
+                        span,
+                    })));
+                }
+
                 let extra = self.packed_spread_arguments(
                     unknown_ty,
                     &call.arguments[2..],
                     span,
                     body,
                 )?;
-                let op = if callee.name == "setTimeout" {
-                    AsyncOp::SetTimeout
-                } else {
-                    AsyncOp::SetInterval
-                };
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::AsyncOp {
                         op,
