@@ -7,6 +7,7 @@ struct Secret {
     count: f64,
 }
 
+// @smelt:prelude-end — generated program below
 
 fn main() {
     let mut secret: Secret;

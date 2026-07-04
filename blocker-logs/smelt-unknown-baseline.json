@@ -1,0 +1,1178 @@
+{
+  "files_scanned": 27,
+  "total": 372,
+  "category_totals": {
+    "runtime-prelude": 372
+  },
+  "shapes": [
+    {
+      "category": "runtime-prelude",
+      "shape": "fn js_strict_eq(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Null, SmeltUnknown::Null) => true, (SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true, (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right, (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => false } }",
+      "occurrences": 20,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:229"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let signal = smelt_abort_signal_object(&object); match method.as_str() { \"S\" | \"S\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal); } Ok(if method == \"S\" { SmeltUnknown::Bool(true) } else { SmeltUnknown::Undefined }) } \"S\" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.clone(), _ => String::new() }; if event_type == \"S\" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(N).cloned() { let mut listeners = match signal.get(\"S\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert(\"S\".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } \"S\" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(N).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get(\"S\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect(); signal.insert(\"S\".to_owned(), SmeltUnknown::Array(listeners.into())); } } Ok(SmeltUnknown::Undefined) } _ => Ok(SmeltUnknown::Undefined) } })) }",
+      "occurrences": 16,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:349"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn into_smelt_unknown(self) -> SmeltUnknown {",
+      "occurrences": 14,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:658"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"S\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"S\".to_owned(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))",
+      "occurrences": 11,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:814"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"S\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"S\".to_owned(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))",
+      "occurrences": 11,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:820"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::Object(map) if map.contains_key(\"S\") => SmeltUnknown::String(\"S\".to_owned()), _ => SmeltUnknown::String(\"S\".to_owned()) } }",
+      "occurrences": 11,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:268"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "match value { SmeltUnknown::Number(value) => value as iN, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value as iN, _ => N_iN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN) as iN, SmeltUnknown::Bool(value) => if value { N_iN } else { N_iN }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => N_iN }",
+      "occurrences": 11,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:719"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }",
+      "occurrences": 11,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:713"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => self == other } }",
+      "occurrences": 10,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:217"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "match value { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }",
+      "occurrences": 10,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:707"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }",
+      "occurrences": 10,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:725"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(N).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(N.N)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(N.N), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, _ => N.N }; if ordering < N.N { ::std::cmp::Ordering::Less } else if ordering > N.N { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }",
+      "occurrences": 9,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:342"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_abort_signal_fire(signal: &SmeltObject) { if matches!(signal.get(\"S\"), Some(SmeltUnknown::Bool(true))) { return; } signal.insert(\"S\".to_owned(), SmeltUnknown::Bool(true)); let listeners = match signal.get(\"S\") { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() }; signal.insert(\"S\".to_owned(), SmeltUnknown::Array(Vec::new().into())); for listener in listeners { if let SmeltUnknown::Function(callback) = listener { let event = SmeltObject::new(::std::collections::HashMap::from([(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned()))])); let _ = callback(vec![SmeltUnknown::Object(event)]); } } }",
+      "occurrences": 7,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:347"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_from_unknown(value: SmeltUnknown) -> Self {",
+      "occurrences": 5,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:700"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl<T: IntoSmeltUnknown> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id, self.values.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }",
+      "occurrences": 5,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:693"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "for index in N..captures.len() { if let Some(value) = captures.get(index) { object.insert(index.to_string(), SmeltUnknown::String(value.as_str().to_owned())); } else { object.insert(index.to_string(), SmeltUnknown::Undefined); } }",
+      "occurrences": 4,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:905"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "for name in regex.capture_names().flatten() { let value = captures.name(name).map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.as_str().to_owned())); groups.insert(name.to_owned(), value.clone()); let mut snake = String::new(); for (index, ch) in name.chars().enumerate() { if ch.is_ascii_uppercase() { if index > N { snake.push('C'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); } } groups.insert(snake, value); }",
+      "occurrences": 4,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:907"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_unknown_is_nullish(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) }",
+      "occurrences": 3,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:393"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {",
+      "occurrences": 3,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:806"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown {",
+      "occurrences": 3,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:812"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone, T: IntoSmeltUnknown + Clone {",
+      "occurrences": 3,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:818"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(\"S\".to_owned(), SmeltUnknown::Array(self.scores.into_iter().map(|value| SmeltUnknown::Number(value as fN)).collect())),",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:961"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.len() == right.len() && left.iter().zip(right.iter()).all(|(left, right)| smelt_unknown_structural_eq(left, right, seen)),",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:406"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right,",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:402"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right),",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:408"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(SmeltUnknown::Null, SmeltUnknown::Null) => true,",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:400"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right || (left.is_nan() && right.is_nan()),",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:403"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => smelt_object_structural_eq(left, right, seen),",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:407"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id,",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:409"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right,",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:404"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right,",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:405"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true,",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:401"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "Function(::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>),",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:360"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Array(self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:756"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Object(object) => match object.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN },",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:633"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "Some(SmeltUnknown::Object(SmeltObject::new(object)))",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:911"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "async fn smelt_await_flatten(value: SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:333"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn concat(mut self, other: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:788"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn concat(self, other: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:783"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn eq(&self, other: &SmeltUnknown) -> bool {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:597"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn insert(&self, key: String, value: SmeltUnknown) -> Option<SmeltUnknown> { if !self.values.borrow().contains_key(&key) { self.order.borrow_mut().push(key.clone()); } self.values.borrow_mut().insert(key, value) }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:251"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn partial_cmp(&self, other: &SmeltUnknown) -> Option<::std::cmp::Ordering> {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:614"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> usize {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:98"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_missing_index_value() -> SmeltUnknown { SmeltUnknown::Undefined }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:396"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_missing_property_value() -> SmeltUnknown { SmeltUnknown::Undefined }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:395"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_register_function_origin<T: Clone + 'C'",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:103"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_restore_function_origin<T: Clone + 'C'",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:108"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_unknown_is_undefined(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Undefined) }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:394"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:398"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "if left.contains_key(\"S\") || right.contains_key(\"S\") { let left_date = smelt_unknown_date_value(&SmeltUnknown::Object(left.clone())); let right_date = smelt_unknown_date_value(&SmeltUnknown::Object(right.clone())); return left_date == right_date || (left_date.is_nan() && right_date.is_nan()); }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:415"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl ::std::iter::FromIterator<SmeltUnknown> for SmeltArray { fn from_iter<T: IntoIterator<Item = SmeltUnknown>>(iter: T) -> Self { Self::new(iter.into_iter().collect()) } }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:291"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values) } }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:295"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:290"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoIterator for SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.values.into_iter() } }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:293"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoIterator for SmeltObject { type Item = (String, SmeltUnknown); type IntoIter = ::std::vec::IntoIter<(String, SmeltUnknown)>; fn into_iter(self) -> Self::IntoIter { self.iter() } }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:273"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for SmeltUnknown {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:657"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl PartialEq<SmeltUnknown> for Option<SmeltUnknown> {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:619"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl PartialOrd<SmeltUnknown> for Option<SmeltUnknown> {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:625"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl SmeltUnknownArrayExt for Vec<SmeltUnknown> {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:786"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl<T: IntoSmeltUnknown + Eq + ::std::hash::Hash> IntoSmeltUnknown for ::std::collections::HashSet<T> {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:760"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Option<T> {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:748"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Vec<T> {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:754"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "object.insert(\"S\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:908"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "object.insert(\"S\".to_owned(), SmeltUnknown::String(haystack.to_owned()));",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:910"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "self.iter().position(|value| value == &needle).map_or(SmeltUnknown::Number(-N.N), |index| SmeltUnknown::Number(index as fN))",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:777"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "self.map_or(SmeltUnknown::Undefined, IntoSmeltUnknown::into_smelt_unknown)",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:750"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(\"S\".to_owned(), SmeltUnknown::Bool(true)),",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:940"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(\"S\".to_owned(), SmeltUnknown::String(self.flags)),",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:939"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(\"S\".to_owned(), SmeltUnknown::String(self.name)),",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:960"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "(\"S\".to_owned(), SmeltUnknown::String(self.source)),",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:938"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Array(_) => N,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:646"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Array(values) => { N_uN.hash(state); values.len().hash(state); for value in values.iter() { smelt_unknown_structural_hash(value, state, seen); } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:433"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Array(values.into())",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:765"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Array(vec![self.N.into_smelt_unknown(), self.N.into_smelt_unknown()].into())",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:808"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Bool(_) => N,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:642"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Bool(self)",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:665"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Bool(value) => { N_uN.hash(state); value.hash(state); }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:429"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Function(_) => N,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:648"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Function(function) => { N_uN.hash(state); ::std::rc::Rc::as_ptr(function).hash(state); }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:435"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Null",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:689"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Null => N,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:640"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Null => N_uN.hash(state),",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:427"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Number(_) => N,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:643"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Number(self as fN)",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:677"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Number(self)",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:671"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Number(value) => value,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:742"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Number(value) => { N_uN.hash(state); if value.is_nan() { fN::NAN.to_bits().hash(state); } else { value.to_bits().hash(state); } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:430"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:959"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Object(SmeltObject::with_id(self.id, ::std::collections::HashMap::from([",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:937"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Object(_) => N,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:647"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Object(getter) if getter.contains_key(\"S\") => match getter.get(\"S\") {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:385"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Object(values) => { N_uN.hash(state); smelt_object_structural_hash(values, state, seen); }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:434"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Promise(_) => N,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:649"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Promise(promise) => { N_uN.hash(state); promise.id.hash(state); }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:436"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::String(_) => N,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:644"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::String(self)",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:683"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::String(value) => { N_uN.hash(state); value.hash(state); }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:431"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Symbol(_) => N,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:645"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Symbol(value) => { N_uN.hash(state); value.hash(state); }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:432"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Undefined => N,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:641"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Undefined => N_uN.hash(state),",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:428"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"S\", error)),",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:386"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "_ => SmeltUnknown::Null,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:387"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:315"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn from_unknown_record(record: SmeltRecord<String, SmeltUnknown>) -> Self { Self { id: record.id, values: record.values, order: record.order } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:247"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn get(&self, key: &str) -> Option<SmeltUnknown> { self.values.borrow().get(key).cloned() }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:250"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:776"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq;",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:771"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn into_smelt_unknown(self) -> SmeltUnknown;",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:654"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn into_vec(self) -> Vec<SmeltUnknown> { self.values }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:288"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn iter(&self) -> ::std::vec::IntoIter<(String, SmeltUnknown)> { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).map(|value| (key.clone(), value.clone()))).collect::<Vec<_>>().into_iter() }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:253"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn new(values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { let mut order = values.keys().cloned().collect::<Vec<_>>(); order.sort(); Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:245"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:284"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn remove(&self, key: &str) -> Option<SmeltUnknown> { let removed = self.values.borrow_mut().remove(key); if removed.is_some() { self.order.borrow_mut().retain(|existing| existing != key); } removed }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:252"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:311"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_abort_signal_object(object: &SmeltObject) -> Option<SmeltObject> { if object.contains_key(\"S\") { return Some(object.clone()); } match object.get(\"S\") { Some(SmeltUnknown::Object(signal)) if signal.contains_key(\"S\") => Some(signal), _ => None } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:345"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_from_unknown(value: SmeltUnknown) -> Self;",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:696"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:381"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_unknown_date_value(value: &SmeltUnknown) -> fN {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:631"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_unknown_rank(value: &SmeltUnknown) -> uN {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:638"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_unknown_stable_hash_key(value: &SmeltUnknown) -> uN {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:440"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_unknown_structural_hash<H: ::std::hash::Hasher>(value: &SmeltUnknown, state: &mut H, seen: &mut ::std::collections::HashSet<usize>) {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:425"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn values(&self) -> Vec<SmeltUnknown> { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).cloned()).collect() }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:255"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn with_id(id: usize, values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { let mut order = values.keys().cloned().collect::<Vec<_>>(); order.sort(); Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:246"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:286"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl ::std::fmt::Debug for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:455"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl ::std::fmt::Display for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:552"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl ::std::hash::Hash for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:570"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl ::std::ops::Deref for SmeltArray { type Target = [SmeltUnknown]; fn deref(&self) -> &Self::Target { &self.values } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:292"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl Clone for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:364"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl Default for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:479"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl Eq for SmeltUnknown {}",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:568"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for () {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:687"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for SmeltRegExp {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:935"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for String {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:681"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for User {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:957"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for bool {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:663"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for fN {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:669"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for iN {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:675"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl PartialEq for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:472"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl PartialEq<SmeltUnknown> for fN {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:596"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl PartialEq<fN> for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:590"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl PartialOrd for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:577"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl PartialOrd<SmeltUnknown> for fN {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:613"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl PartialOrd<fN> for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:602"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl SmeltFromUnknown for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:699"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl SmeltIntoFN for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:739"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl SmeltJsKeyEq for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:216"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl SmeltJsStrictEq for SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:228"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:485"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:536"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "let mut values = self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>();",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:763"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "match map.get(field).unwrap_or(SmeltUnknown::Undefined) {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:384"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "object.insert(\"S\".to_owned(), SmeltUnknown::Number((start + matched.start()) as fN));",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:909"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "object.insert(\"S\".to_owned(), SmeltUnknown::Number(matched.start() as fN));",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:923"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "pub enum SmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:351"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "pub fn exec(&self, haystack: &str) -> Option<SmeltUnknown> {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:896"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "pub fn includes<T: IntoSmeltUnknown>(&self, needle: T) -> bool {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:526"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltUnknown> {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:914"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "pub fn test<T: IntoSmeltUnknown>(&self, haystack: T) -> bool {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:535"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "pub trait IntoSmeltUnknown {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:653"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, String>>>>,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:301"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "trait SmeltUnknownArrayExt {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:781"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:296"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "values: ::std::rc::Rc<::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>>>,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:239"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "values: Vec<SmeltUnknown>,",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:278"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "while let SmeltUnknown::Promise(promise) = current {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:335"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ struct Counter {
     value: f64,
 }
 
+// @smelt:prelude-end — generated program below
 
 fn main() {
     let mut counter: Counter;

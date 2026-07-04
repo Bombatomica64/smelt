@@ -963,6 +963,7 @@ impl IntoSmeltUnknown for User {
     }
 }
 
+// @smelt:prelude-end — generated program below
 
 fn main() {
     let present: Option<User>;
