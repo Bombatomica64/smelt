@@ -907,6 +907,18 @@ return_ty: target_function.return_ty,
     /// global numeric members (`export const MAX_INTEGER = Number.MAX_VALUE`).
     /// These are compile-time constants, so they fold to the same `Float`
     /// literals that the runtime `Number.<constant>` reader produces.
+    ///
+    /// This folder only recognizes the well-known Number/Math numeric constants
+    /// because they are the only member expressions with a stable primitive
+    /// literal value. Other statically resolvable member expressions — an
+    /// object-const field, a namespace member, or a builtin member such as
+    /// `Array.prototype` / `Array.prototype.slice` — are routed through general
+    /// expression lowering at the declaration site (see
+    /// `const_item_declarations`) rather than folded here, so they resolve to
+    /// their concrete or erased-`Unknown` value instead of erroring. The error
+    /// returned here is therefore only reached when a member expression appears
+    /// nested inside another foldable const expression (a binary operand or a
+    /// switch-case label), where a primitive literal is required.
     pub(in crate::lowering) fn member_literal_const_expression(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,

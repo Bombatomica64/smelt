@@ -546,6 +546,75 @@ export const PI_VALUE = Math.PI;
     Ok(())
 }
 
+/// Issue #73: an exported const initialized from a member expression on a
+/// builtin/global root that is not a well-known Number/Math numeric constant
+/// (`Array.prototype`, `Array.prototype.slice`, `Object.prototype`, ...) is a
+/// genuine dynamic boundary. It must route through general expression lowering
+/// into an `Unknown`-typed const instead of being rejected by the numeric
+/// member folder.
+#[test]
+fn exported_const_builtin_member_lowers_to_unknown() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const arrayProto = Array.prototype;
+export const slice = Array.prototype.slice;
+export const objectProto = Object.prototype;
+export const stringProto = String.prototype;
+export const numberProto = Number.prototype;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    for name in ["arrayProto", "slice", "objectProto", "stringProto", "numberProto"] {
+        let const_item = named_const_item(&ctx, module, name)?;
+        ensure!(
+            matches!(ctx.krate.types.get(const_item.ty), Some(Type::Unknown)),
+            "expected builtin member const `{name}` to lower to an Unknown-typed const"
+        );
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Issue #73: a builtin `.prototype` member and a well-known numeric constant
+/// can coexist in the same module — the numeric alias keeps folding to its
+/// literal const while the prototype member routes to the general path — so the
+/// numeric folder is not disturbed by the new member routing.
+#[test]
+fn exported_const_mixed_builtin_member_and_numeric_constant() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const MAX_INTEGER = Number.MAX_VALUE;
+export const slice = Array.prototype.slice;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+
+    let max_integer = named_const_item(&ctx, module, "MAX_INTEGER")?;
+    let max_body = ctx
+        .krate
+        .bodies
+        .get(max_integer.body.0 as usize)
+        .ok_or("missing MAX_INTEGER body")?;
+    ensure!(
+        max_body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == f64::MAX)
+        ),
+        "expected MAX_INTEGER to keep folding to its numeric literal"
+    );
+
+    let slice = named_const_item(&ctx, module, "slice")?;
+    ensure!(
+        matches!(ctx.krate.types.get(slice.ty), Some(Type::Unknown)),
+        "expected the builtin member const `slice` to lower to an Unknown-typed const"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 /// An exported const-from-const array is visible to later modules that import
 /// it, mirroring how exported foldable numeric constants travel across files.
 #[test]
@@ -583,8 +652,13 @@ export function firstSeparator(): string {
     Ok(())
 }
 
-/// Member expressions on names Smelt has not lowered still fail with the
-/// well-known-constants unsupported message rather than lowering incorrectly.
+/// A member expression whose root is genuinely undefined still fails rather
+/// than lowering incorrectly.
+///
+/// Issue #73 routes non-foldable member expressions through general expression
+/// lowering, so an undefined root now surfaces the precise `unresolved
+/// identifier` diagnostic instead of the misleading "well-known Number/Math"
+/// message. The important invariant is that it still errors.
 #[test]
 fn exported_const_unresolved_member_still_errors() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -596,8 +670,8 @@ export const MYSTERY = missingNamespace.someMember;
     )?;
     ensure!(
         errors.iter().any(|error| format!("{error:?}")
-            .contains("exported const member expressions support well-known Number/Math")),
-        "expected the well-known-constants unsupported error, got: {errors:?}"
+            .contains("unresolved identifier `missingNamespace`")),
+        "expected an unresolved-identifier error, got: {errors:?}"
     );
     Ok(())
 }
