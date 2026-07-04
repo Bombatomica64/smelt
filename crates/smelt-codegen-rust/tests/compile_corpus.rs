@@ -420,12 +420,18 @@ export const UPPER_LIMIT = limits.upper;
         },
         Case {
             // Issue #84: class string index signatures `[key: string]: T`. A
-            // class that is purely an index signature (`StringBag`) exposes a
-            // keyed store whose statically known value type drives dynamic
-            // reads/writes; a mixed class (`MixedBag`) keeps its declared named
-            // field concretely typed alongside the index signature. Keyed reads
-            // return the honest `Option<T>` (missing key -> undefined) and named
-            // access stays concrete. The emitted Rust must compile.
+            // class that is purely an index signature (`StringBag`) carries a
+            // real runtime keyed store whose statically known value type drives
+            // dynamic reads AND writes; a mixed class (`MixedBag`) keeps its
+            // declared named field concretely typed alongside the index
+            // signature. Keyed reads return the honest `Option<T>` (missing key
+            // -> undefined), keyed writes insert into the store, and named access
+            // stays concrete. The emitted Rust must compile. (The runtime
+            // round-trip is asserted end-to-end by the CLI test
+            // `build_round_trips_class_index_signature_keyed_store`.) Value types
+            // here are concrete (`string`/`number`); a union index value type is
+            // subject to the pre-existing union-field `Debug`/`Default` derive
+            // gap that also affects plain union class fields.
             name: "class_index_signature",
             area: "classes",
             source: r#"
@@ -435,15 +441,23 @@ class StringBag {
 
 class MixedBag {
   size: number = 0;
-  [key: string]: string | number;
+  [key: string]: number;
 }
 
 export function readBag(bag: StringBag, key: string): string | undefined {
   return bag[key];
 }
 
+export function writeBag(bag: StringBag, key: string, value: string): void {
+  bag[key] = value;
+}
+
 export function mixedSize(bag: MixedBag): number {
   return bag.size;
+}
+
+export function readMixed(bag: MixedBag, key: string): number | undefined {
+  return bag[key];
 }
 "#,
         },

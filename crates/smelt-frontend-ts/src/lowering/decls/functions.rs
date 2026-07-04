@@ -18,7 +18,7 @@ use oxc::ast::ast::{
 };
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, Class, Expr, ExprKind,
+    Body, CLASS_INDEX_STORE_FIELD, Class, Expr, ExprKind,
     Field, Function, FunctionOwner, FunctionType, Item, LocalDecl, MethodSig, Param,
     ParamSig, Pattern, Span, Stmt, Type, Visibility,
 };
@@ -1013,6 +1013,40 @@ impl ModuleBuilder<'_> {
         let virtual_method_fields =
             self.virtual_method_field_names(&class.body.body, class.r#abstract);
         self.add_virtual_class_method_fields(&mut fields, &method_sigs, &virtual_method_fields);
+        // Runtime keyed store for a class index signature (issue #84 / #18).
+        //
+        // A class declaring `[key: string]: T` (or `[key: number]: T`) needs a
+        // real backing store so dynamic keyed writes round-trip at runtime:
+        // `x[k] = v; x[k]` must return `v`, and a missing key must read as
+        // `undefined`. The store is a synthesized private `Record<string, T>`
+        // field that sits ALONGSIDE the declared named fields (which stay
+        // concrete). It is added to the class field list here, so it flows
+        // through MIR, struct emission, the `Default`/`Clone` derives, and the
+        // constructor's default struct literal automatically; codegen only has
+        // to route keyed access to it. The field is `Private` so it is excluded
+        // from erased object projection. Number-keyed signatures still use a
+        // string-keyed store because JavaScript object property keys are strings.
+        //
+        // Value type `T` stays concrete (`string`, `number`, a class, ...). A
+        // union index value type (`[key: string]: string | number`) is subject
+        // to the SAME pre-existing limitation as a plain union-typed class field:
+        // the generated union enum lacks `Debug`/`Default`, so a struct storing
+        // it does not derive them. That is an orthogonal codegen gap tracked
+        // separately, not specific to the index store.
+        if let Some(value_ty) = class_index_value_ty {
+            let store_name = self.intern_source_name(CLASS_INDEX_STORE_FIELD);
+            let key_ty = self.ctx.krate.types.intern(Type::String);
+            let store_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+            if !fields.iter().any(|field| field.name == store_name) {
+                fields.push(Field {
+                    name: store_name,
+                    ty: store_ty,
+                    visibility: Visibility::Private,
+                    optional: false,
+                    span: class_span,
+                });
+            }
+        }
         self.class_fields
             .insert(class_text.to_owned(), fields.clone());
         self.class_methods
@@ -1022,16 +1056,13 @@ impl ModuleBuilder<'_> {
         // class's own method bodies are still being lowered, and so later
         // modules see it too. Named fields resolve first; this is the fallback.
         //
-        // Scope note (issue #84): this lowers the index signature at the *type*
-        // level. The statically known value type `T` drives keyed/member access
-        // resolution — keyed reads type as `Optional<T>` (missing key ->
-        // undefined) and undeclared member reads type as `T` — while declared
-        // named fields keep their concrete types. A full runtime dynamic keyed
-        // *store* on the emitted class struct (so a pure-index class round-trips
-        // written keys, and mixed classes carry a store alongside named fields)
-        // is the broader object-model work tracked in issue #18; until then a
-        // concrete class instance simply has no dynamically stored keys, which
-        // is a defined value (`undefined`) rather than an erased `SmeltUnknown`.
+        // This drives the *type* level of the index signature (issue #84): the
+        // statically known value type `T` types keyed reads as `Optional<T>`
+        // (missing key -> undefined) and undeclared member reads as `T`, while
+        // declared named fields keep their concrete types. The matching runtime
+        // keyed *store* — the synthesized `__smelt_index_store` field added above
+        // — makes dynamic writes round-trip: codegen routes `x[k] = v` to
+        // `x.__smelt_index_store.insert(k, v)` and `x[k]` to a store lookup.
         if let Some(value_ty) = class_index_value_ty {
             self.class_index_values.insert(class_name, value_ty);
             self.ctx.class_index_values.insert(class_name, value_ty);

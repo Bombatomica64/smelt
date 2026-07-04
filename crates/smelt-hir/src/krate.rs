@@ -14,6 +14,13 @@ pub const CONSOLE_LOG_SYMBOL: &str = "console_log";
 pub const CONSOLE_WRITE_SYMBOL: &str = "console_write";
 /// Internal exact stderr write builtin used for specialization replay.
 pub const CONSOLE_ERROR_WRITE_SYMBOL: &str = "console_error_write";
+/// Synthesized private field name backing a class/interface index signature.
+///
+/// A class declaring `[key: string]: T` (issue #84) carries a real runtime
+/// keyed store under this field so dynamic keyed writes round-trip. The
+/// frontend synthesizes the field and codegen routes keyed access to it; the
+/// name is shared here so both agree on the single store field identifier.
+pub const CLASS_INDEX_STORE_FIELD: &str = "__smelt_index_store";
 
 /// A crate containing all HIR data structures.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
