@@ -576,6 +576,32 @@ export function unionMethod(value: string | number): number {
 }
 "#,
         },
+        // --- array literals with function / this / class elements ------------
+        Case {
+            name: "array_literal_expr_elements",
+            area: "array_elements",
+            // Array literal elements that are function expressions, `this`, and
+            // class expressions (named and anonymous) route through the shared
+            // expression lowering path. Function expressions become closure
+            // values, `this` resolves to the method receiver, and class
+            // expressions register a class and yield a class value.
+            source: r"
+export function funcElements(): unknown[] {
+  return [function () { return 1; }, function () { return 2; }];
+}
+
+export function classElements(): unknown[] {
+  return [class Named { value: number = 0; }, class { flag: boolean = false; }];
+}
+
+class Registry {
+  id: number = 0;
+  entries(): unknown[] {
+    return [function () { return 0; }, this, class Entry { key: number = 0; }];
+  }
+}
+",
+        },
     ]
 }
 
@@ -648,7 +674,16 @@ fn corpus_emitted_rust_compiles() {
 
     let mut failures: Vec<CorpusFailure> = Vec::new();
 
+    // Optional single-case filter for local verification of one corpus entry
+    // without checking the whole corpus. Unset in CI, which runs everything.
+    let only = std::env::var("SMELT_CORPUS_ONLY").ok();
+
     for case in corpus() {
+        if let Some(only_name) = &only
+            && case.name != only_name
+        {
+            continue;
+        }
         if KNOWN_COMPILE_FAILURES.contains(&case.name) {
             continue;
         }
