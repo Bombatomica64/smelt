@@ -387,6 +387,13 @@ struct ModuleBuilder<'ctx> {
     interface_extends: HashMap<smelt_hir::Symbol, Vec<InterfaceHeritageRef>>,
     /// Value types declared by interface string index signatures.
     interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    /// Value types declared by class string index signatures (`[k: string]: T`).
+    ///
+    /// Mirrors `interface_index_values` for classes: keyed by class name symbol,
+    /// this records the value type of a class's `[key: string]: T` index
+    /// signature so member and computed access can fall back to it when no
+    /// declared named field or method matches.
+    class_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     /// Interface call signatures for callable interface types.
     interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Interface construct signatures (`new (): T`) for constructor-slot types.

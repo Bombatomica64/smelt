@@ -1,7 +1,7 @@
 //! Call Runtime emission helpers.
 
 use super::*;
-use smelt_hir::FunctionType;
+use smelt_hir::{CLASS_INDEX_STORE_FIELD, FunctionType};
 
 impl FunctionEmitter<'_> {
     /// Render array-literal elements by value without consuming local operands.
@@ -2941,6 +2941,37 @@ impl FunctionEmitter<'_> {
         Ok(format!("{receiver_text}.group_owned({index_text} as usize)"))
     }
 
+    /// Emits an `Option<T>`-returning keyed read against a `Dict`-typed store.
+    ///
+    /// Shared by optional dict index reads and by class index-signature store
+    /// reads (issue #84): both read a value by key from a `Dict(key, value)` and
+    /// yield `Option<value>` where a missing key is `None` (JavaScript
+    /// `undefined`). String keys coerce the index through
+    /// `property_key_to_string_text`; a `SmeltRecord`/`SmeltJsMap` store already
+    /// returns an owned `Option`, while a plain `HashMap` needs `.cloned()`.
+    pub(super) fn dict_index_optional_read_text(
+        &self,
+        store_text: &str,
+        key_ty: TypeId,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
+        let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
+            let index_ty = self.operand_ty(index)?;
+            if index_ty == key_ty {
+                self.value_at_type(index, key_ty)?
+            } else {
+                self.property_key_to_string_text(&self.operand_text(index)?, index_ty)?
+            }
+        } else {
+            self.value_at_type(index, key_ty)?
+        };
+        if self.dict_uses_smelt_record(key_ty) || self.dict_uses_js_key_map(key_ty) {
+            Ok(format!("{store_text}.get(&{key_text})"))
+        } else {
+            Ok(format!("{store_text}.get(&{key_text}).cloned()"))
+        }
+    }
+
     /// Emits a JavaScript optional-chain index read against an in-scope receiver value.
     ///
     /// `value?.[index]` short-circuits only when the receiver is nullish, but a
@@ -2962,6 +2993,14 @@ impl FunctionEmitter<'_> {
         {
             return self.match_index_text(receiver_text, index);
         }
+        // A class with an index signature backs keyed reads with a real store
+        // field (issue #84). A dynamic `bag[key]` read returns the store value
+        // for the key or `None` (missing key -> `undefined`), giving the honest
+        // `Option<T>` round-trip result rather than a stub.
+        if let Some((key_ty, _value_ty)) = self.class_index_store_types(receiver_ty) {
+            let store_text = format!("{receiver_text}.{CLASS_INDEX_STORE_FIELD}");
+            return self.dict_index_optional_read_text(&store_text, key_ty, index);
+        }
         match self.mir.types.get(receiver_ty) {
             Some(Type::List(item_ty)) => {
                 let index_text =
@@ -2979,21 +3018,7 @@ impl FunctionEmitter<'_> {
                 }
             }
             Some(Type::Dict(key_ty, _)) => {
-                let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                    let index_ty = self.operand_ty(index)?;
-                    if index_ty == *key_ty {
-                        self.value_at_type(index, *key_ty)?
-                    } else {
-                        self.property_key_to_string_text(&self.operand_text(index)?, index_ty)?
-                    }
-                } else {
-                    self.value_at_type(index, *key_ty)?
-                };
-                if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
-                    Ok(format!("{receiver_text}.get(&{key_text})"))
-                } else {
-                    Ok(format!("{receiver_text}.get(&{key_text}).cloned()"))
-                }
+                self.dict_index_optional_read_text(receiver_text, *key_ty, index)
             }
             Some(Type::String) => {
                 let index_text = self.optional_normalized_index_text(

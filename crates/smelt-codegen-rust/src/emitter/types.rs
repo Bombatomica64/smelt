@@ -384,7 +384,13 @@ impl FunctionEmitter<'_> {
                         };
                         match field_ty {
                             Some(ty) => Ok(ty),
-                            None => self.type_id(Type::Unknown),
+                            // An undeclared member on an index-signature class is
+                            // a keyed store read; its type is the store's value
+                            // type `T` (issue #84), not an erased `Unknown`.
+                            None => match self.class_index_store_types(base_ty) {
+                                Some((_key_ty, value_ty)) => Ok(value_ty),
+                                None => self.type_id(Type::Unknown),
+                            },
                         }
                     }
                     _ => self.type_id(Type::Unknown),

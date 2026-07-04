@@ -194,6 +194,29 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(self.null_value_text());
                 }
+                // A dotted read of an UNDECLARED member on an index-signature
+                // class (`bag.name` where `name` is not a struct field) is a
+                // keyed lookup into the runtime store (issue #84). Declared
+                // fields keep their concrete struct access via the fallback
+                // below; only names with no matching field route to the store.
+                if let Some((_key_ty, value_ty)) = self.class_index_store_types(base_ty)
+                    && !self.class_has_named_field(base_ty, *field)
+                {
+                    let base_text = self.local_value_text(*base)?;
+                    let key = self.symbol_source_name(*field)?;
+                    let store_text =
+                        format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD);
+                    let default_value = self.default_value(value_ty)?;
+                    let string_key_ty = self.type_id(Type::String)?;
+                    let getter = if self.dict_uses_smelt_record(string_key_ty)
+                        || self.dict_uses_js_key_map(string_key_ty)
+                    {
+                        format!("{store_text}.get(&{key:?}.to_owned())")
+                    } else {
+                        format!("{store_text}.get(&{key:?}.to_owned()).cloned()")
+                    };
+                    return Ok(format!("{getter}.unwrap_or({default_value})"));
+                }
                 Ok(format!(
                     "{}.{}",
                     self.local_value_text(*base)?,
@@ -300,6 +323,24 @@ impl FunctionEmitter<'_> {
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
                         Ok(format!("{}.{tuple_index}", self.local_value_text(*base)?))
+                    }
+                    // A class with an index signature backs keyed reads with a
+                    // real store field (issue #84). A non-optional keyed read
+                    // (declared value type has no `undefined`) reads the store by
+                    // key, defaulting a missing key to the value type's default.
+                    Some(Type::Class { .. })
+                        if self.class_index_store_types(base_ty).is_some() =>
+                    {
+                        let (key_ty, value_ty) = self
+                            .class_index_store_types(base_ty)
+                            .ok_or_else(|| EmitError::new("class index store types missing"))?;
+                        let base_text = self.local_value_text(*base)?;
+                        let store_text =
+                            format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD);
+                        let optional_read =
+                            self.dict_index_optional_read_text(&store_text, key_ty, index)?;
+                        let default_value = self.default_value(value_ty)?;
+                        Ok(format!("{optional_read}.unwrap_or({default_value})"))
                     }
                     _ => Ok(self.null_value_text()),
                 }

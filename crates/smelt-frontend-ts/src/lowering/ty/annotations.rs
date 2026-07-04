@@ -2019,12 +2019,20 @@ return_ty: function.return_ty,
                         .map(|item| (item.ty, item.optional));
                     field_data.map(|(ty, optional)| self.field_type_with_optional(ty, optional))
                 };
+                // A class string/number index signature contributes a keyed
+                // store whose value type is statically known. When no declared
+                // named field or method matches, resolve the access through the
+                // index signature's value type instead of erasing it. Named
+                // members are tried first (above) so declared fields keep their
+                // concrete types; this is only the dynamic-keyed fallback.
+                let class_index_field = self.class_index_values.get(&name).copied();
                 if let Some(ty) = class_field
                     .or(sidecar_field)
                     .or(sidecar_method)
                     .or(interface_field)
                     .or(interface_method)
                     .or(alias_field)
+                    .or(class_index_field)
                 {
                     return Ok(ty);
                 }
@@ -2538,6 +2546,22 @@ return_ty: function.return_ty,
             Some(Type::Class { name, .. }) if self.match_stdlib_class(*name).is_some() => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 Ok(self.ctx.krate.types.intern(Type::Optional(string_ty)))
+            }
+            // A class with a declared string/number index signature keeps a keyed
+            // store whose value type `T` is statically known. A dynamic keyed read
+            // `instance[key]` may name a missing key, so — following JavaScript's
+            // missing-key-is-`undefined` semantics — the honest element type is
+            // `Optional<T>` rather than the erased `Unknown` boundary. Classes with
+            // no index signature still fall through to `Unknown` below.
+            Some(Type::Class { name, .. })
+                if self.class_index_values.contains_key(name) =>
+            {
+                let value_ty = self
+                    .class_index_values
+                    .get(name)
+                    .copied()
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                Ok(self.optional_chain_result_type(value_ty))
             }
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))

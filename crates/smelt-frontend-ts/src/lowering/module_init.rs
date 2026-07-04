@@ -47,6 +47,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let type_alias_fields = ctx.type_alias_fields.clone();
         let interface_extends = ctx.interface_extends.clone();
         let interface_index_values = ctx.interface_index_values.clone();
+        let class_index_values = ctx.class_index_values.clone();
         let interface_call_signatures = ctx.interface_call_signatures.clone();
         let interface_construct_signatures = ctx.interface_construct_signatures.clone();
         let callable_fields = ctx.callable_fields.clone();
@@ -70,6 +71,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             type_alias_fields,
             interface_extends,
             interface_index_values,
+            class_index_values,
             interface_call_signatures,
             interface_construct_signatures,
             callable_fields,

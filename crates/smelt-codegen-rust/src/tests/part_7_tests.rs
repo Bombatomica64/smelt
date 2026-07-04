@@ -62,6 +62,73 @@ function read(value: Left | Right): string {
     assert!(source.contains("matches!(value.clone(), SmeltUnion"), "{source}");
 }
 
+/// Issue #84: a class string index signature `[key: string]: T` emits Rust that
+/// compiles and carries a real runtime keyed store. A pure-index class
+/// (`StringBag`) exposes keyed access whose value type drives an honest
+/// `Option<T>` read; a mixed class (`MixedBag`) keeps its declared named field
+/// concretely typed (`size: f64`) alongside the index signature. The index
+/// signature's value type stays concrete, never erased to `SmeltUnknown`.
+///
+/// The backing store is a synthesized private `__smelt_index_store` field: a
+/// keyed write inserts into it and a keyed read looks it up, so `x[k] = v; x[k]`
+/// round-trips at runtime (asserted end-to-end by the CLI integration test
+/// `build_round_trips_class_index_signature_keyed_store`).
+#[test]
+fn emits_class_index_signature_named_fields_and_keyed_store() {
+    let source = source_for(
+        r#"
+class StringBag {
+  [key: string]: string;
+}
+
+class MixedBag {
+  size: number = 0;
+  [key: string]: number;
+}
+
+export function readBag(bag: StringBag, key: string): string | undefined {
+  return bag[key];
+}
+
+export function writeBag(bag: StringBag, key: string, value: string): void {
+  bag[key] = value;
+}
+
+export function mixedSize(bag: MixedBag): number {
+  return bag.size;
+}
+"#,
+    );
+
+    // Both classes emit concrete Rust structs.
+    assert!(source.contains("struct StringBag"), "{source}");
+    assert!(source.contains("struct MixedBag"), "{source}");
+    // The mixed class keeps its named field concretely typed.
+    assert!(source.contains("size: f64"), "{source}");
+    // Each index-signature class carries the synthesized backing store field.
+    assert!(source.contains("__smelt_index_store"), "{source}");
+    // The keyed read is the honest `Option<String>`, not an erased value.
+    assert!(
+        source.contains("fn read_bag") && source.contains("-> Option<String>"),
+        "{source}"
+    );
+    // The keyed read routes to the store lookup.
+    assert!(
+        source.contains(".__smelt_index_store.get(&"),
+        "{source}"
+    );
+    // The keyed write routes to a store insert so it round-trips.
+    assert!(
+        source.contains(".__smelt_index_store.insert("),
+        "{source}"
+    );
+    // Named-field access on the mixed class stays a concrete `f64` field read.
+    assert!(
+        source.contains("fn mixed_size") && source.contains("-> f64"),
+        "{source}"
+    );
+}
+
 #[test]
 fn injects_url_dependency_for_url_mapping() {
     let manifest = deps::cargo_toml(
