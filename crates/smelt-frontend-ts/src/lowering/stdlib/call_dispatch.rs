@@ -317,32 +317,33 @@ impl<'builder> ModuleBuilder<'builder> {
                 required = required.min(rest_index);
             }
             if call.arguments.len() < required {
-                // The call omits at least one *required* parameter. A rest slot
-                // can still absorb the tail (leaving only optional/rest gaps),
-                // so only a signature with no rest slot has a genuinely missing
-                // required argument. Such a call is rejected by `tsc` before
-                // Smelt runs, but generic erased wrappers (`negate(fn)()`) still
-                // reach here with unknown arity; dispatch those through the
+                // The call omits at least one *required* parameter. `required`
+                // already excludes the rest slot (it is clamped to `rest_index`
+                // above), and a rest parameter only absorbs the surplus tail
+                // *after* the required prefix — it can never satisfy a missing
+                // required argument before the rest index. So a shortfall here is
+                // a genuinely missing required argument regardless of whether a
+                // rest slot exists. Such a call is rejected by `tsc` before Smelt
+                // runs, but generic erased wrappers (`negate(fn)()`) still reach
+                // here with unknown arity; dispatch those through the
                 // arity-independent erased ABI rather than synthesizing a typed
                 // `None` for a non-optional parameter.
-                if function.rest.is_none() {
-                    let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-                    let callee = body.push_expr(Expr {
-                        kind: ExprKind::TypeAssert { value: callee },
-                        ty: unknown_ty,
-                        span: self.span(callee_call.span.start, callee_call.span.end),
-                    });
-                    let args = call
-                        .arguments
-                        .iter()
-                        .map(|arg| self.argument(arg, body))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::ClosureCall { callee, args },
-                        ty: unknown_ty,
-                        span: self.span(call.span.start, call.span.end),
-                    }));
-                }
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let callee = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: callee },
+                    ty: unknown_ty,
+                    span: self.span(callee_call.span.start, callee_call.span.end),
+                });
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty: unknown_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
             }
             // Statically typed under-application: every omitted parameter is
             // optional or absorbed by the rest slot, so the call keeps its typed

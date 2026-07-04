@@ -3665,6 +3665,50 @@ function run(make: Curried): number {
 }
 
 #[test]
+fn missing_required_param_before_rest_slot_erases_under_application() -> Result<(), String> {
+    // Regression for the review of issue #53: a rest slot only absorbs the
+    // surplus tail *after* the required prefix, so it can never satisfy a
+    // missing required argument. `make(1)()` under-applies a returned
+    // `(first: number, ...rest: string[]) => number` with zero arguments —
+    // `first` is required, so this is not statically typed under-application and
+    // must route through the erased arity-independent ABI (result `Unknown`),
+    // never synthesize a typed `None` for the non-optional `first`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Factory {
+  (seed: number): Handler;
+}
+
+interface Handler {
+  (first: number, ...rest: string[]): number;
+}
+
+function run(make: Factory): number {
+  return make(1)();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    // The under-applied `make(1)()` call is erased: its result type is `Unknown`
+    // rather than the declared `number` return, and no typed `None` is packed.
+    let erased_under_applied = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| {
+            matches!(expr.kind, ExprKind::ClosureCall { .. })
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Unknown))
+        })
+        .count();
+    ensure_eq!(erased_under_applied, 1);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_unhinted_function_expression_object_property_as_unknown_callable() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
