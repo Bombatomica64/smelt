@@ -1487,6 +1487,19 @@ return_ty: function.return_ty,
                         &lowered_args,
                         self.span(reference.span.start, reference.span.end),
                     )?;
+                    // A constructor-only interface such as `interface
+                    // MapCacheConstructor { new (): MapCache }` is a typed
+                    // constructor slot, not a data record: it carries only a
+                    // construct signature. Lower it to that constructor's
+                    // `Type::Function` so a value of the interface type flows
+                    // through the closure / `new value()` machinery and the
+                    // construction keeps the concrete constructed type instead of
+                    // erasing to `unknown` (issue #54).
+                    if let Some(function_ty) =
+                        self.interface_construct_slot_type(symbol, &substitutions)
+                    {
+                        return Ok(function_ty);
+                    }
                     let instantiated_args = interface
                         .type_params
                         .iter()
@@ -1565,6 +1578,60 @@ return_ty: function.return_ty,
                 }))
             }
         }
+    }
+
+    /// Lower a constructor-only interface to its typed constructor slot.
+    ///
+    /// A constructor-only interface (`interface MapCacheConstructor { new ():
+    /// MapCache }`) carries a construct signature and no data fields or call
+    /// signatures. At runtime it is an ordinary callable value that `new
+    /// value()` invokes to produce the constructed type, so the honest lowering
+    /// is the constructor's [`Type::Function`] — exactly the shape a `new (args)
+    /// => T` constructor-type annotation lowers to (see `constructor_type_to_hir`).
+    /// Type arguments already resolved for the reference are substituted into the
+    /// signature so generic constructor slots keep their instantiated parameter
+    /// and constructed types.
+    ///
+    /// Returns `None` when the interface is not a pure constructor slot (it has
+    /// data fields, method fields, or call signatures), so a mixed
+    /// callable-object interface still lowers as a class record and its member
+    /// lookups are unaffected.
+    pub(in crate::lowering) fn interface_construct_slot_type(
+        &mut self,
+        name: smelt_hir::Symbol,
+        substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        let signatures = self.interface_construct_signatures.get(&name).cloned()?;
+        let signature = signatures.first()?;
+        // Only a *pure* constructor slot lowers to a callable: an interface that
+        // also carries data/method fields or a call signature is a mixed
+        // callable-object surface, which stays a class record here.
+        let has_other_members = self
+            .find_interface(name)
+            .is_some_and(|interface| !interface.fields.is_empty())
+            || self
+                .interface_call_signatures
+                .get(&name)
+                .is_some_and(|call_sigs| !call_sigs.is_empty());
+        if has_other_members {
+            return None;
+        }
+        let params = signature
+            .params
+            .iter()
+            .map(|param| self.substitute_type_params(*param, substitutions))
+            .collect::<Vec<_>>();
+        let return_ty = self.substitute_type_params(signature.return_ty, substitutions);
+        let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
+        Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params,
+            rest: signature.rest,
+            required_params: signature.required_params,
+            mutable_params,
+            return_ty,
+            is_async: false,
+            may_throw: false,
+        })))
     }
 
     /// Return the full source path for a qualified type name.

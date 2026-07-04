@@ -47,6 +47,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let interface_extends = ctx.interface_extends.clone();
         let interface_index_values = ctx.interface_index_values.clone();
         let interface_call_signatures = ctx.interface_call_signatures.clone();
+        let interface_construct_signatures = ctx.interface_construct_signatures.clone();
         let callable_fields = ctx.callable_fields.clone();
         let callable_object_aliases = ctx.callable_object_aliases.clone();
         let allow_unknown_index_access = Self::is_declaration_type_test_path(&path);
@@ -69,6 +70,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             interface_extends,
             interface_index_values,
             interface_call_signatures,
+            interface_construct_signatures,
             callable_fields,
             callable_object_aliases,
             type_namespace_prefix: Vec::new(),

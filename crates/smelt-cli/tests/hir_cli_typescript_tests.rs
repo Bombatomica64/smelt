@@ -1070,3 +1070,59 @@ clone-strategy = "aggressive"
 
     Ok(())
 }
+
+#[test]
+fn build_runs_construct_signature_slot_construction() -> TestResult {
+    // A constructor-only interface (`interface CounterConstructor { new ():
+    // Counter }`) is a typed constructor slot. A class value passed where the
+    // slot is expected is adapted into a constructor closure, and `new ctor()`
+    // constructs the concrete `Counter` — the generated Rust must compile and
+    // run, keeping the concrete constructed type end to end (issue #54).
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "construct-slot"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "construct_slot"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r#"class Counter {
+  value: number = 7;
+}
+
+interface CounterConstructor {
+  new (): Counter;
+}
+
+function make(ctor: CounterConstructor): Counter {
+  return new ctor();
+}
+
+const counter = make(Counter);
+console.log(counter.value);
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"7\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
