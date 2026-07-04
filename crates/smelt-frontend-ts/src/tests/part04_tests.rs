@@ -7957,3 +7957,133 @@ export function tally(values: number[]): number {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+#[test]
+fn lowers_erased_iterator_next_done_value_loop() -> Result<(), String> {
+    // Driving an erased `Iterable<unknown>` through the manual iterator protocol
+    // — `data[Symbol.iterator]().next()` then `while (!step.done)` reading
+    // `step.value` — is the es-toolkit `fp/pipe.ts` shape. The iterator element
+    // type is never statically resolved, so `.next()` yields the dynamic
+    // boundary and the `.done`/`.value` reads must route through the erased
+    // object-field path instead of hitting the "field access is only lowered
+    // for Record/class/interface" gate on a unit-typed value.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function drive(data: Iterable<unknown>): unknown[] {
+  const result: unknown[] = [];
+  const iterator = data[Symbol.iterator]();
+  let step = iterator.next();
+  while (!step.done) {
+    result.push(step.value);
+    step = iterator.next();
+  }
+  return result;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let drive = named_function_item(&ctx, module, "drive")?;
+    let body = function_body(&ctx, drive)?;
+    // The erased iterator loop variable must carry the dynamic-boundary
+    // `Unknown` type, not `None`, so the `.done`/`.value` reads lower against a
+    // real `SmeltUnknown` object.
+    let has_unknown_step = body.locals.iter().any(|local| {
+        local
+            .name
+            .is_some_and(|name| ctx.krate.symbols.get(name) == Some("step"))
+            && matches!(ctx.krate.types.get(local.ty), Some(Type::Unknown))
+    });
+    ensure!(
+        has_unknown_step,
+        "erased iterator `step` should lower to the Unknown dynamic boundary"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_erased_iterator_field_reads() -> Result<(), String> {
+    // The `.done`/`.value` reads on an erased iterator result are plain dynamic
+    // object-field accesses; confirm they lower to `Field` reads (rather than
+    // hard-erroring) so codegen can emit the erased `smelt_get_object_field`
+    // path.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function firstValue(data: Iterable<unknown>): unknown {
+  const step = data[Symbol.iterator]().next();
+  if (step.done) {
+    return undefined;
+  }
+  return step.value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let has_field_read = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            matches!(&expr.kind, ExprKind::Field { field, .. }
+                if matches!(ctx.krate.symbols.get(*field), Some("done" | "value")))
+        })
+    });
+    ensure!(
+        has_field_read,
+        "erased iterator `.done`/`.value` should lower to dynamic Field reads"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn erased_receiver_next_is_not_swallowed_by_sinon_helper() -> Result<(), String> {
+    // The Sinon fake-timers helper claims method names like `next`/`reset` on a
+    // clock value. It must only fire for an actual `SinonFakeTimers` receiver:
+    // matching any erased `unknown` receiver used to force ordinary same-named
+    // methods to a unit `None`, breaking downstream field access. Here
+    // `iterator.next()` on an erased iterator must survive as a dynamic value so
+    // `.value` still reads.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function head(data: Iterable<unknown>): unknown {
+  const iterator = data[Symbol.iterator]();
+  return iterator.next().value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let head = named_function_item(&ctx, module, "head")?;
+    ensure!(
+        matches!(ctx.krate.types.get(head.return_ty), Some(Type::Unknown)),
+        "erased iterator `.next().value` should return the Unknown dynamic boundary"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn sinon_fake_timers_clock_methods_still_lower() -> Result<(), String> {
+    // Regression guard for the Sinon receiver restriction: methods invoked on an
+    // actual `sinon.SinonFakeTimers` clock (read directly or through an optional
+    // `clock?`) must still lower through the fake-timers helper.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function useClock(): void {
+  let clock: sinon.SinonFakeTimers | undefined;
+  clock = sinon.useFakeTimers(0);
+  clock.tick(10);
+  clock?.next();
+  clock?.restore();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

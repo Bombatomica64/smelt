@@ -559,6 +559,29 @@ export function unionMethod(value: string | number): number {
 }
 "#,
         },
+        Case {
+            // Issue #83: field access beyond Record/class/interface. Driving an
+            // erased `Iterable<unknown>` through the manual iterator protocol
+            // reads `.done`/`.value` off the dynamic iterator result
+            // (`iterator.next()`), whose element type is never statically
+            // resolved. These reads route through the erased object-field
+            // boundary rather than the field-access gate, and the emitted Rust
+            // must compile (es-toolkit `fp/pipe.ts` shape).
+            name: "erased_iterator_field_access",
+            area: "field_access",
+            source: r"
+export function drive(data: Iterable<unknown>): unknown[] {
+  const result: unknown[] = [];
+  const iterator = data[Symbol.iterator]();
+  let step = iterator.next();
+  while (!step.done) {
+    result.push(step.value);
+    step = iterator.next();
+  }
+  return result;
+}
+",
+        },
     ]
 }
 

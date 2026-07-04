@@ -950,10 +950,14 @@ impl ModuleBuilder<'_> {
         }
         let receiver = self.expression(&member.object, body)?;
         let receiver_ty = self.optional_receiver_inner_type(Self::expr_ty(body, receiver));
-        if !matches!(
-            self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Class { .. } | Type::Unknown)
-        ) {
+        // Only claim these method names on an actual Sinon fake-timers clock
+        // (`sinon.useFakeTimers()` yields a `SinonFakeTimers` class value, read
+        // directly or through an `Optional` `clock?`). Matching any class or —
+        // more dangerously — any `Unknown` receiver used to mis-claim ordinary
+        // JavaScript methods that share a name, most notably the iterator
+        // protocol's `iterator.next()` on an erased `Iterable`, forcing its
+        // result to `None` and rejecting the subsequent `.done`/`.value` reads.
+        if !self.is_sinon_fake_timers_class(receiver_ty) {
             return Ok(None);
         }
         for argument in &call.arguments {
@@ -965,6 +969,25 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return whether `receiver_ty` is the synthetic `SinonFakeTimers` clock
+    /// class emitted by [`Self::sinon_fake_timers_call`] for
+    /// `sinon.useFakeTimers()`.
+    ///
+    /// The comparison resolves the class symbol back to its source spelling so
+    /// the check does not depend on interning identity, which can differ between
+    /// the declaration site and later member reads.
+    fn is_sinon_fake_timers_class(&self, receiver_ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
+            return false;
+        };
+        self.ctx
+            .krate
+            .names
+            .get(*name)
+            .or_else(|| self.ctx.krate.symbols.get(*name))
+            == Some("SinonFakeTimers")
     }
 
     /// Lower TypeScript `JSON.stringify(value)` calls for JSON-compatible values.
