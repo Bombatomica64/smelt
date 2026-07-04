@@ -3666,6 +3666,41 @@ for (const { index } of matches) {
 
     assert!(source.contains(".match_all_indices(&"));
     assert!(source.contains("pub fn match_all_indices(&self"));
+    // matchAll builds concrete `SmeltMatch` values, erased explicitly at the
+    // dynamic boundary rather than as inline `SmeltUnknown` bags.
+    assert!(source.contains("pub struct SmeltMatch"));
+    assert!(source.contains(".map(SmeltMatch::into_smelt_unknown)"));
+    assert!(
+        source.contains("-> Vec<SmeltMatch>"),
+        "match_all_indices should return concrete SmeltMatch values: {source}"
+    );
+}
+
+#[test]
+fn emits_regex_exec_as_concrete_smelt_match() {
+    let source = source_for(
+        r#"
+const re = /(?<year>\d{4})-(\d{2})/;
+const m = re.exec("2024-07");
+console.log(m === null);
+"#,
+    );
+
+    // exec returns a concrete `Option<SmeltMatch>`; the typed match dataflow
+    // does not build a `SmeltUnknown` property bag. The single erasure to the
+    // dynamic consumer boundary is the explicit `into_smelt_unknown` adapter.
+    assert!(
+        source.contains("pub fn exec(&self, haystack: &str) -> Option<SmeltMatch>"),
+        "exec should return a concrete SmeltMatch option: {source}"
+    );
+    assert!(source.contains("pub struct SmeltMatch"));
+    assert!(source.contains("impl IntoSmeltUnknown for SmeltMatch"));
+    assert!(source.contains(".exec(&\"2024-07\".to_owned()).map(SmeltMatch::into_smelt_unknown)"));
+    // The numbered-group / named-group / index / input shape is modeled with
+    // concrete fields, not assembled as an untyped object during exec.
+    assert!(source.contains("groups: Vec<Option<String>>"));
+    assert!(source.contains("named: ::std::collections::HashMap<String, Option<String>>"));
+    assert!(source.contains("fn from_captures(regex: &fancy_regex::Regex"));
 }
 
 #[test]

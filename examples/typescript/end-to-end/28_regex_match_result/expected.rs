@@ -1017,61 +1017,63 @@ impl IntoSmeltUnknown for SmeltMatch {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-struct User {
-    name: String,
-    scores: SmeltList<f64>,
-}
-impl IntoSmeltUnknown for User {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([
-        ("name".to_owned(), SmeltUnknown::String(self.name)),
-        ("scores".to_owned(), SmeltUnknown::Array(self.scores.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect())),
-        ])))
-    }
-}
-
-
 fn main() {
-    let present: Option<User>;
-    let missing: Option<User>;
-    let name: Option<String>;
-    let absent_name: Option<String>;
-    let score: Option<f64>;
-    let label: Option<String>;
-    let _smelt_tmp_8: Option<String>;
-    let _smelt_tmp_9: Option<String>;
-    let _smelt_tmp_10: Option<SmeltList<f64>>;
-    let _smelt_tmp_11: Option<f64>;
-    let _smelt_tmp_12: Option<String>;
-    let _smelt_tmp_6: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0]; smelt_list_items }));
-    let mut _smelt_tmp_7: User = User::new("Ada".to_owned(), _smelt_tmp_6);
-    present = Some(_smelt_tmp_7);
-    missing = None::<User>;
-    _smelt_tmp_8 = present.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
-    name = _smelt_tmp_8;
-    _smelt_tmp_9 = missing.as_ref().map(|_smelt_value| _smelt_value.name.clone());
-    absent_name = _smelt_tmp_9;
-    _smelt_tmp_10 = present.clone().as_ref().map(|_smelt_value| _smelt_value.scores.clone());
-    _smelt_tmp_11 = _smelt_tmp_10.as_ref().and_then(|_smelt_value| ({ let len = _smelt_value.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).ok() }).and_then(|index| _smelt_value.get(index).cloned()));
-    score = _smelt_tmp_11;
-    _smelt_tmp_12 = present.as_ref().map(|_smelt_value| _smelt_value.label());
-    label = _smelt_tmp_12;
-    let _ = { println!("{:?}", name); };
-    let _ = { println!("{:?}", absent_name); };
-    let _ = { println!("{:?}", score); };
-    let _ = { println!("{:?}", label); };
+    let mut found: SmeltUnknown;
+    let mut whole: SmeltUnknown;
+    let mut letter: SmeltUnknown;
+    let mut digit: SmeltUnknown;
+    let mut _smelt_tmp_9: f64;
+    let mut _smelt_tmp_10: bool;
+    let mut _smelt_tmp_11: SmeltUnknown;
+    let mut _smelt_tmp_6: SmeltRegExp = SmeltRegExp::new("(?P<letter>[a-z])(\\d)?".to_owned(), "g".to_owned());
+    let mut pattern: SmeltRegExp = _smelt_tmp_6;
+    let _smelt_tmp_7: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(pattern.match_all_indices(&"a1 b c3".to_owned()).into_iter().map(SmeltMatch::into_smelt_unknown).collect::<Vec<_>>());
+    let matches: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(_smelt_tmp_7);
+    let mut _smelt_tmp_8: f64 = 0.0;
+    loop {
+    _smelt_tmp_9 = matches.len() as f64;
+    _smelt_tmp_10 = _smelt_tmp_8.clone() < _smelt_tmp_9;
+    if !(_smelt_tmp_10) { break; }
+    found = matches.get({ let len = matches.len() as i64; let index = _smelt_tmp_8.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone();
+    whole = match found.clone() {
+                    SmeltUnknown::String(value) => {
+                        let len = value.chars().count() as i64;
+                        let index = 0.0 as i64;
+                        let normalized = if index < 0 { len + index } else { index };
+                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Null)
+                    }
+                    SmeltUnknown::Array(values) => {
+                        let len = values.len() as i64;
+                        let index = 0.0 as i64;
+                        let normalized = if index < 0 { len + index } else { index };
+                        usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
+                    }
+                SmeltUnknown::Object(values) => values.get(&0.0.to_string()).unwrap_or(SmeltUnknown::Null),
+                _ => SmeltUnknown::Null,
+            }.clone();
+    _smelt_tmp_11 = match found.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, "groups"), _ => SmeltUnknown::Undefined }.clone();
+    letter = match _smelt_tmp_11.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, "letter"), _ => SmeltUnknown::Undefined }.clone();
+    digit = match found.clone() {
+                    SmeltUnknown::String(value) => {
+                        let len = value.chars().count() as i64;
+                        let index = 2.0 as i64;
+                        let normalized = if index < 0 { len + index } else { index };
+                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Null)
+                    }
+                    SmeltUnknown::Array(values) => {
+                        let len = values.len() as i64;
+                        let index = 2.0 as i64;
+                        let normalized = if index < 0 { len + index } else { index };
+                        usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
+                    }
+                SmeltUnknown::Object(values) => values.get(&2.0.to_string()).unwrap_or(SmeltUnknown::Null),
+                _ => SmeltUnknown::Null,
+            }.clone();
+    let _ = { println!("{}", whole); };
+    let _ = { println!("{}", letter); };
+    let _ = { println!("{}", digit); };
+    let _ = { println!("{}", match found.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, "index"), _ => SmeltUnknown::Undefined }.clone()); };
+    _smelt_tmp_8 = _smelt_tmp_8.clone() + 1.0;
+    }
     return;
-}
-
-impl User {
-    fn new(name: String, scores: SmeltList<f64>) -> Self {
-    let mut this: Self = User { name: String::new(), scores: SmeltList::new(Vec::new()) };
-    this.name = name.clone();
-    this.scores = Into::<SmeltList<_>>::into(scores.clone());
-    return this;
-    }
-    fn label(&self) -> String {
-    return "user".to_owned();
-    }
 }

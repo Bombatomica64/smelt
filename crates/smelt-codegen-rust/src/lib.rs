@@ -1828,8 +1828,13 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("    haystack.to_owned()");
                 fn_writer.line("}");
             });
-            impl_writer.line("/// Execute this RegExp and return a JavaScript-like match object.");
-            impl_writer.block("pub fn exec(&self, haystack: &str) -> Option<SmeltUnknown>", |fn_writer| {
+            impl_writer.line("/// Execute this RegExp and return a concrete `SmeltMatch` result.");
+            impl_writer.line("///");
+            impl_writer.line("/// The match result is a typed `SmeltMatch` value (numbered groups,");
+            impl_writer.line("/// named groups, `index`, `input`) instead of an erased `SmeltUnknown`");
+            impl_writer.line("/// property bag; callers erase it explicitly at a dynamic boundary via");
+            impl_writer.line("/// `SmeltMatch::into_smelt_unknown` when required.");
+            impl_writer.block("pub fn exec(&self, haystack: &str) -> Option<SmeltMatch>", |fn_writer| {
                 fn_writer.line("let regex = self.compiled();");
                 fn_writer.line("let start = if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow() } else { 0 };");
                 fn_writer.line("let suffix = haystack.get(start..).unwrap_or(\"\");");
@@ -1837,28 +1842,14 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("let matched = captures.get(0)?;");
                 fn_writer.line("if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }");
                 fn_writer.line("if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }");
-                fn_writer.line("let mut object = ::std::collections::HashMap::new();");
-                fn_writer.line("for index in 0..captures.len() { if let Some(value) = captures.get(index) { object.insert(index.to_string(), SmeltUnknown::String(value.as_str().to_owned())); } else { object.insert(index.to_string(), SmeltUnknown::Undefined); } }");
-                fn_writer.line("let mut groups = ::std::collections::HashMap::new();");
-                fn_writer.line("for name in regex.capture_names().flatten() { let value = captures.name(name).map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.as_str().to_owned())); groups.insert(name.to_owned(), value.clone()); let mut snake = String::new(); for (index, ch) in name.chars().enumerate() { if ch.is_ascii_uppercase() { if index > 0 { snake.push('_'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); } } groups.insert(snake, value); }");
-                fn_writer.line("object.insert(\"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));");
-                fn_writer.line("object.insert(\"index\".to_owned(), SmeltUnknown::Number((start + matched.start()) as f64));");
-                fn_writer.line("object.insert(\"input\".to_owned(), SmeltUnknown::String(haystack.to_owned()));");
-                fn_writer.line("Some(SmeltUnknown::Object(SmeltObject::new(object)))");
+                fn_writer.line("Some(SmeltMatch::from_captures(&regex, &captures, start + matched.start(), haystack))");
             });
-            impl_writer.line("/// Return full JavaScript-like match objects for String.prototype.matchAll.");
-            impl_writer.block("pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltUnknown>", |fn_writer| {
+            impl_writer.line("/// Return concrete `SmeltMatch` results for String.prototype.matchAll.");
+            impl_writer.block("pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltMatch>", |fn_writer| {
                 fn_writer.line("let Some(regex) = self.try_compiled() else { return Vec::new(); };");
                 fn_writer.block("regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures|", |map_writer| {
                     map_writer.line("let matched = captures.get(0)?;");
-                    map_writer.line("let mut object = ::std::collections::HashMap::new();");
-                    map_writer.line("for index in 0..captures.len() { if let Some(value) = captures.get(index) { object.insert(index.to_string(), SmeltUnknown::String(value.as_str().to_owned())); } else { object.insert(index.to_string(), SmeltUnknown::Undefined); } }");
-                    map_writer.line("let mut groups = ::std::collections::HashMap::new();");
-                    map_writer.line("for name in regex.capture_names().flatten() { let value = captures.name(name).map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.as_str().to_owned())); groups.insert(name.to_owned(), value.clone()); let mut snake = String::new(); for (index, ch) in name.chars().enumerate() { if ch.is_ascii_uppercase() { if index > 0 { snake.push('_'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); } } groups.insert(snake, value); }");
-                    map_writer.line("object.insert(\"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));");
-                    map_writer.line("object.insert(\"index\".to_owned(), SmeltUnknown::Number(matched.start() as f64));");
-                    map_writer.line("object.insert(\"input\".to_owned(), SmeltUnknown::String(haystack.to_owned()));");
-                    map_writer.line("Some(SmeltUnknown::Object(SmeltObject::new(object)))");
+                    map_writer.line("Some(SmeltMatch::from_captures(&regex, &captures, matched.start(), haystack))");
                 });
                 fn_writer.line(").collect::<Vec<_>>()");
             });
@@ -1885,6 +1876,7 @@ fn emit_source_with_free_function_router(
             });
         });
         writer.blank_line();
+        emit_smelt_match(&mut writer);
     }
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
@@ -2297,6 +2289,111 @@ fn insert_after_crate_header(mut root: String, text: &str) -> String {
     }
     root.insert_str(0, text);
     root
+}
+
+/// Emit the concrete `SmeltMatch` runtime type for RegExp match results.
+///
+/// `RegExp.prototype.exec` and `String.prototype.matchAll` return a JavaScript
+/// match result: an array-like value whose numbered entries are the capture
+/// groups (entry `0` is the whole match) plus the `index`, `input`, and
+/// `groups` properties. Historically Smelt built this shape inline as a
+/// `SmeltUnknown::Object` property bag, which erased its statically known
+/// structure. `SmeltMatch` models that structure with concrete Rust fields:
+///
+/// * `groups` — numbered capture groups as `Vec<Option<String>>` (an absent
+///   optional group is `None`, matching JavaScript `undefined`).
+/// * `named` — named capture groups keyed by their original name (and a
+///   snake_case alias so generated snake_cased field reads still resolve).
+/// * `match_index` — the zero-based match offset (`.index`).
+/// * `input` — the full searched string (`.input`).
+///
+/// Typed accessors (`group`, `named_group`, `index`, `input`, `len`) let
+/// callers read the shape without any dynamic tagging. When a match value has
+/// to cross a genuinely dynamic boundary (the erased `unknown` result type the
+/// frontend still assigns for `exec`/`matchAll` consumers), it is converted
+/// with the explicit [`IntoSmeltUnknown`] adapter — the single place where the
+/// concrete match is intentionally erased.
+fn emit_smelt_match(writer: &mut CodeWriter) {
+    writer.line("/// A concrete JavaScript RegExp match result (numbered groups, named");
+    writer.line("/// groups, `index`, and `input`).");
+    writer.line("#[derive(Clone, Debug, PartialEq)]");
+    writer.block("pub struct SmeltMatch", |struct_writer| {
+        struct_writer.line("id: usize,");
+        struct_writer.line("/// Numbered capture groups; entry 0 is the whole match. An absent");
+        struct_writer.line("/// optional group is `None` (JavaScript `undefined`).");
+        struct_writer.line("groups: Vec<Option<String>>,");
+        struct_writer.line("/// Named capture groups keyed by name (plus a snake_case alias).");
+        struct_writer.line("named: ::std::collections::HashMap<String, Option<String>>,");
+        struct_writer.line("/// Zero-based offset of the match within `input` (`.index`).");
+        struct_writer.line("match_index: usize,");
+        struct_writer.line("/// The full string that was searched (`.input`).");
+        struct_writer.line("input: String,");
+    });
+    writer.blank_line();
+    writer.line("#[allow(dead_code)]");
+    writer.block("impl SmeltMatch", |impl_writer| {
+        impl_writer.line("/// Build a `SmeltMatch` from a compiled regex and its captures.");
+        impl_writer.block(
+            "fn from_captures(regex: &fancy_regex::Regex, captures: &fancy_regex::Captures<'_>, match_index: usize, input: &str) -> Self",
+            |fn_writer| {
+                fn_writer.line("let groups = (0..captures.len()).map(|index| captures.get(index).map(|value| value.as_str().to_owned())).collect::<Vec<_>>();");
+                fn_writer.line("let mut named = ::std::collections::HashMap::new();");
+                fn_writer.block("for name in regex.capture_names().flatten()", |for_writer| {
+                    for_writer.line("let value = captures.name(name).map(|value| value.as_str().to_owned());");
+                    for_writer.line("named.insert(name.to_owned(), value.clone());");
+                    for_writer.line("let mut snake = String::new();");
+                    for_writer.block("for (index, ch) in name.chars().enumerate()", |snake_writer| {
+                        snake_writer.line("if ch.is_ascii_uppercase() { if index > 0 { snake.push('_'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); }");
+                    });
+                    for_writer.line("named.insert(snake, value);");
+                });
+                fn_writer.line("Self { id: smelt_next_object_id(), groups, named, match_index, input: input.to_owned() }");
+            },
+        );
+        impl_writer.line("/// Read a numbered capture group (`match[n]`).");
+        impl_writer.block("fn group(&self, index: usize) -> Option<&str>", |fn_writer| {
+            fn_writer.line("self.groups.get(index).and_then(|value| value.as_deref())");
+        });
+        impl_writer.line("/// Read a named capture group (`match.groups.name`).");
+        impl_writer.block("fn named_group(&self, name: &str) -> Option<&str>", |fn_writer| {
+            fn_writer.line("self.named.get(name).and_then(|value| value.as_deref())");
+        });
+        impl_writer.line("/// The zero-based match offset (`match.index`).");
+        impl_writer.block("fn index(&self) -> f64", |fn_writer| {
+            fn_writer.line("self.match_index as f64");
+        });
+        impl_writer.line("/// The full searched string (`match.input`).");
+        impl_writer.block("fn input(&self) -> &str", |fn_writer| {
+            fn_writer.line("&self.input");
+        });
+        impl_writer.line("/// Number of numbered capture groups, including the whole match.");
+        impl_writer.block("fn len(&self) -> usize", |fn_writer| {
+            fn_writer.line("self.groups.len()");
+        });
+        impl_writer.line("/// Whether there are no numbered groups (never true for a real match).");
+        impl_writer.block("fn is_empty(&self) -> bool", |fn_writer| {
+            fn_writer.line("self.groups.is_empty()");
+        });
+    });
+    writer.blank_line();
+    writer.line("/// Erase a concrete match into a `SmeltUnknown` at a dynamic boundary.");
+    writer.line("///");
+    writer.line("/// This reproduces the JavaScript match-array-with-properties shape:");
+    writer.line("/// numbered string keys for the groups plus `groups`, `index`, and");
+    writer.line("/// `input`. It is the single explicit adapter used when a typed");
+    writer.line("/// `SmeltMatch` must flow into erased `unknown` consumer dataflow.");
+    writer.block("impl IntoSmeltUnknown for SmeltMatch", |impl_writer| {
+        impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            fn_writer.line("let mut object = ::std::collections::HashMap::new();");
+            fn_writer.line("for (index, value) in self.groups.iter().enumerate() { object.insert(index.to_string(), value.clone().map_or(SmeltUnknown::Undefined, SmeltUnknown::String)); }");
+            fn_writer.line("let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, SmeltUnknown::String))).collect::<::std::collections::HashMap<_, _>>();");
+            fn_writer.line("object.insert(\"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));");
+            fn_writer.line("object.insert(\"index\".to_owned(), SmeltUnknown::Number(self.match_index as f64));");
+            fn_writer.line("object.insert(\"input\".to_owned(), SmeltUnknown::String(self.input));");
+            fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, object))");
+        });
+    });
+    writer.blank_line();
 }
 
 /// Emit natural JSON serde support for `SmeltUnknown`.

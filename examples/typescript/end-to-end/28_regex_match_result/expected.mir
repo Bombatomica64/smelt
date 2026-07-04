@@ -1,0 +1,50 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user pattern: RegExp
+    %1 user matches: List<Unknown>
+    %2 user found: Unknown
+    %3 user whole: Unknown
+    %4 user letter: Unknown
+    %5 user digit: Unknown
+    %6 temp: RegExp
+    %7 temp: List<Unknown>
+    %8 temp: Float
+    %9 temp: Float
+    %10 temp: Bool
+    %11 temp: Unknown
+    %12 temp: None
+    %13 temp: None
+    %14 temp: None
+    %15 temp: None
+  bb0:
+    %6 = external_new0("(?P<letter>[a-z])(\d)?", "g")
+    %0 = move %6
+    %7 = regex_match_all move %0, "a1 b c3"
+    %1 = move %7
+    %8 = 0.0
+    goto bb1
+  bb1:
+    %9 = len copy %1
+    %10 = copy %8 < move %9
+    switch move %10 ? bb2 : bb4
+  bb2:
+    %2 = copy %1[copy %8]
+    %3 = copy %2[0.0]
+    %11 = copy %2.field5
+    %4 = copy %11.field6
+    %5 = copy %2[2.0]
+    %12 = call @console_log(move %3) -> bb5
+  bb3:
+    %8 = copy %8 + 1.0
+    goto bb1
+  bb4:
+    return none
+  bb5:
+    %13 = call @console_log(move %4) -> bb6
+  bb6:
+    %14 = call @console_log(move %5) -> bb7
+  bb7:
+    %15 = call @console_log(copy %2.field9) -> bb8
+  bb8:
+    goto bb3
+
