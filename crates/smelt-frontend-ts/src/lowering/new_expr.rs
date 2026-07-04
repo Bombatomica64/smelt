@@ -2060,6 +2060,7 @@ impl ModuleBuilder<'_> {
                 function.span,
                 body,
             ),
+            Expression::ClassExpression(class) => self.class_expression_value(class, body),
             Expression::ChainExpression(chain) => self.chain_expression(chain, body),
             Expression::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
