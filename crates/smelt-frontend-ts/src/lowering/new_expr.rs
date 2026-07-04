@@ -146,6 +146,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "ArrayBuffer" && !self.classes.contains_key("ArrayBuffer") {
             return self.arraybuffer_constructor_expression(new_expr, body);
         }
+        if callee.name == "Buffer" && !self.classes.contains_key("Buffer") {
+            return self.buffer_constructor_expression(new_expr, body);
+        }
         if callee.name == "Blob" && !self.classes.contains_key("Blob") {
             return self.blob_constructor_expression(new_expr, body);
         }
@@ -1076,6 +1079,54 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span,
         }))
+    }
+
+    /// Lower `new Buffer(arg)` to the concrete modeled `Buffer` byte-buffer
+    /// record.
+    ///
+    /// The `new Buffer(...)` form is deprecated in Node in favor of
+    /// `Buffer.from`/`Buffer.alloc`, but es-toolkit specs still probe
+    /// `value instanceof Buffer`, which needs the constructed value to carry the
+    /// `__smelt_buffer` identity. A numeric-array argument becomes the buffer's
+    /// bytes; a numeric `new Buffer(size)` allocates a zero-filled length-backed
+    /// list; every other argument is evaluated for its effects and backed by an
+    /// empty byte list, mirroring the `Buffer.from`/`Buffer.concat` static
+    /// lowerings (see `buffer_record_from_bytes`).
+    pub(super) fn buffer_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        // `ListFromLength` fills with `list[unknown]`, so its destination type
+        // must be `List<Unknown>` for the zero-filled `new Buffer(size)` case.
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+        let bytes = match new_expr.arguments.first() {
+            None => self.buffer_empty_bytes(span, body),
+            Some(argument) => {
+                let value = self.argument(argument, body)?;
+                let value_ty = Self::expr_ty(body, value);
+                match self.ctx.krate.types.get(value_ty) {
+                    // `new Buffer([1, 2, 3])` reuses the numeric source list.
+                    Some(Type::List(_)) => value,
+                    // `new Buffer(size)` allocates `size` zero-filled bytes.
+                    Some(Type::Int | Type::Float) => body.push_expr(Expr {
+                        kind: ExprKind::ListFromLength { length: value },
+                        ty: list_ty,
+                        span,
+                    }),
+                    // Strings / opaque sources: retain identity, empty bytes.
+                    _ => self.buffer_empty_bytes(span, body),
+                }
+            }
+        };
+        // Discard any trailing constructor arguments (e.g. an encoding) after
+        // evaluating them for their effects, matching the static-call handlers.
+        for argument in new_expr.arguments.iter().skip(1) {
+            let _ = self.argument(argument, body)?;
+        }
+        Ok(self.buffer_record_from_bytes(bytes, span, body))
     }
 
     /// Lower `new Blob(parts?, options?)` to a concrete marker-bearing record.

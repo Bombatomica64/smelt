@@ -106,6 +106,98 @@ export function isWeakMap(value: unknown): boolean {
     Ok(())
 }
 
+/// `Buffer.from([...])` / `Buffer.alloc(n)` / `Buffer.concat([...])` / `new
+/// Buffer(...)` lower to concrete marker-bearing byte-buffer records carrying the
+/// `__smelt_buffer` identity marker, so `Buffer.isBuffer` / `instanceof Buffer`
+/// resolve through that key instead of erasing the value to a shapeless dynamic.
+#[test]
+fn buffer_constructors_lower_to_concrete_marker_records() -> Result<(), String> {
+    for source in [
+        "const b = Buffer.from([1, 2, 3]);",
+        "const b = Buffer.alloc(4);",
+        "const b = Buffer.concat([Buffer.from([1]), Buffer.from([2])]);",
+        "const b = new Buffer([9, 8]);",
+    ] {
+        let mut ctx = HirCtx::new();
+        let module_id = lower_ok(source, &mut ctx)?;
+        let module = module(&ctx, module_id)?;
+        let body = module_body(&ctx, module)?;
+        ensure!(
+            body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::Literal(Literal::String(text)) if text == "__smelt_buffer"
+            )),
+            "expected `{source}` to carry the `__smelt_buffer` marker key",
+        );
+        ensure!(
+            body.exprs.iter().any(|expr| matches!(
+                (&expr.kind, ctx.krate.types.get(expr.ty)),
+                (ExprKind::DictLit(_), Some(Type::Dict(_, _)))
+            )),
+            "expected `{source}` to lower to a concrete record (DictLit + Dict type)",
+        );
+    }
+    Ok(())
+}
+
+/// `Buffer.isBuffer(x)` over an erased value lowers to a `Buffer` marker
+/// `InstanceOf` predicate (the same identity check as `x instanceof Buffer`), so
+/// es-toolkit's `isBuffer` returns `true` for real buffers instead of folding to
+/// a constant `false`.
+#[test]
+fn buffer_is_buffer_lowers_to_instanceof_predicate() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function isBuf(value: unknown): boolean {
+  return Buffer.isBuffer(value);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(
+                &expr.kind,
+                ExprKind::InstanceOf { class, .. }
+                    if ctx.krate.symbols.get(*class) == Some("Buffer")
+            )),
+        "expected `Buffer.isBuffer(value)` to lower to a Buffer InstanceOf predicate",
+    );
+    Ok(())
+}
+
+/// `value instanceof Buffer` over an erased `unknown` lowers to a `Buffer` marker
+/// `InstanceOf` predicate rather than failing to resolve the target class.
+#[test]
+fn instanceof_buffer_lowers() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function isBuf(value: unknown): boolean {
+  return value instanceof Buffer;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(
+                &expr.kind,
+                ExprKind::InstanceOf { class, .. }
+                    if ctx.krate.symbols.get(*class) == Some("Buffer")
+            )),
+        "expected `value instanceof Buffer` to lower to a Buffer InstanceOf predicate",
+    );
+    Ok(())
+}
+
 /// `value instanceof Boolean` / `String` / `Symbol` over an erased `any` lowers
 /// to a boxed-wrapper marker `InstanceOf` predicate rather than failing to
 /// resolve the target class, so the `isBoolean`/`isString`/`isSymbol` compat
@@ -300,12 +392,13 @@ fn ordinary_or_fallback_is_not_folded_to_global() -> Result<(), String> {
     Ok(())
 }
 
-/// `typeof globalThis.Buffer !== 'undefined'` folds to a constant `false`: the
-/// default deterministic non-Node profile models `Buffer` as absent, so the
-/// `isBuffer` support guard short-circuits instead of resolving `Buffer` to a
-/// fabricated value.
+/// `typeof Buffer !== 'undefined'` folds to a constant `true`: `Buffer` is now a
+/// modeled host object (concrete byte-buffer record with a working `instanceof`
+/// / `Buffer.isBuffer` identity), so it is reported *present*. es-toolkit's
+/// `isBuffer` support guard then proceeds to the real identity check instead of
+/// short-circuiting to a constant `false`.
 #[test]
-fn typeof_absent_buffer_global_folds_false() -> Result<(), String> {
+fn typeof_present_buffer_global_folds_true() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
@@ -322,9 +415,9 @@ export function bufferPresent(): boolean {
             .flat_map(|body| body.exprs.iter())
             .any(|expr| matches!(
                 &expr.kind,
-                ExprKind::Literal(Literal::Bool(false))
+                ExprKind::Literal(Literal::Bool(true))
             )),
-        "expected `typeof Buffer !== 'undefined'` to fold to a constant false (absent global)",
+        "expected `typeof Buffer !== 'undefined'` to fold to a constant true (present modeled host object)",
     );
     Ok(())
 }
