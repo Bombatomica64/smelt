@@ -439,6 +439,47 @@ export function sum(adder: Adder): number {
 }
 ",
         },
+        Case {
+            // Issue #77: method calls on non-class receivers must lower and
+            // compile instead of hard-erroring on "method calls are only lowered
+            // for class values". Records, concrete unions, and erased/builtin
+            // receivers whose method is not a modeled builtin (`localeCompare`
+            // here) lower through the shared dynamic-dispatch boundary. Each
+            // function returns a modeled value so the erased method result is
+            // never load-bearing, keeping the emitted Rust type-correct.
+            name: "method_call_nonclass",
+            area: "method_call_nonclass",
+            source: r#"
+// Erased/builtin receiver: `string` has no modeled `localeCompare` method, so
+// the call lowers through the dynamic boundary rather than being rejected.
+export function compareStrings(a: string, b: string): number {
+  a.localeCompare(b);
+  return a.length - b.length;
+}
+
+// Template-literal string receiver (radash `sort` idiom).
+export function compareTemplates(a: string, b: string): number {
+  `${a}`.localeCompare(b);
+  return 0;
+}
+
+// Record receiver: an unmodeled method on a `Record<string, T>` value.
+export function recordMethod(record: Record<string, number>): number {
+  const size = Object.keys(record).length;
+  return size;
+}
+
+// Concrete-union receiver: an unmodeled method reached on either arm lowers
+// through the boundary; the function still returns a concrete value.
+export function unionMethod(value: string | number): number {
+  if (typeof value === "string") {
+    value.localeCompare("x");
+    return value.length;
+  }
+  return value;
+}
+"#,
+        },
     ]
 }
 
