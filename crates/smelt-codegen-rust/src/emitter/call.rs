@@ -779,7 +779,11 @@ impl FunctionEmitter<'_> {
             HirOrigin::ClassConstructor { class, .. } | HirOrigin::ClassMethod { class, .. } => {
                 class
             }
-            HirOrigin::Body(_) => return HashSet::new(),
+            // Static methods are emitted as receiver-free associated functions and
+            // do not participate in the receiver's generic instantiation (static
+            // members on generic classes are deferred, see #98), so they carry no
+            // class type parameters relevant to argument pass-through here.
+            HirOrigin::Body(_) | HirOrigin::ClassStaticMethod { .. } => return HashSet::new(),
         };
         self.mir
             .classes

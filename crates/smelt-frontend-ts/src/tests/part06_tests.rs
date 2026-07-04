@@ -55,20 +55,12 @@ class User implements Entity {
     Ok(())
 }
 
-#[test]
-fn rejects_dynamic_computed_property_names() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
-        ts!("const key = \"id\";
-class User {
-  [key]: string;
-  constructor() {}
-}
-"),
-        &mut ctx,
-    )?;
-    assert_unsupported_ts(&errors, "dynamic computed property")
-}
+// NOTE: the former `rejects_dynamic_computed_property_names` test asserted that a
+// `const`-keyed computed class field (`const key = "id"; [key]: string`) was
+// rejected. Issue #96 intentionally made statically-resolvable computed keys fold
+// to named members, so that case now lowers. Coverage moved to
+// `class_module_tests`: `lowers_const_keyed_computed_class_field` (resolution) and
+// `rejects_dynamic_computed_class_property_name` (`[Math.random()]`, still rejected).
 
 #[test]
 fn optional_interface_fields_may_be_absent() -> Result<(), String> {
