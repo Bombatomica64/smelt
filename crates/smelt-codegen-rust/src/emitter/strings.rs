@@ -396,7 +396,13 @@ impl FunctionEmitter<'_> {
         Ok(format!("{pattern_text}.match_string(&{haystack_text})"))
     }
 
-    /// Converts JavaScript `RegExp.prototype.exec` to a stateful match object.
+    /// Converts JavaScript `RegExp.prototype.exec` to a concrete match result.
+    ///
+    /// The runtime `exec` returns a typed `Option<SmeltMatch>`; the HIR result
+    /// type is still the erased `Optional(Unknown)` boundary consumers read
+    /// dynamically, so the concrete match is erased *explicitly* at that
+    /// boundary with `SmeltMatch::into_smelt_unknown`. The erasure is a single,
+    /// visible adapter rather than an inline `SmeltUnknown` property-bag build.
     pub(super) fn regex_exec_text(
         &self,
         regex: &Operand,
@@ -404,10 +410,17 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let regex_text = self.regexp_operand_text(regex)?;
         let haystack_text = self.string_like_operand_text(haystack, "regex exec")?;
-        Ok(format!("{regex_text}.exec(&{haystack_text})"))
+        Ok(format!(
+            "{regex_text}.exec(&{haystack_text}).map(SmeltMatch::into_smelt_unknown)"
+        ))
     }
 
-    /// Converts JavaScript `String.prototype.matchAll` to indexed match records.
+    /// Converts JavaScript `String.prototype.matchAll` to concrete match results.
+    ///
+    /// Mirrors [`Self::regex_exec_text`]: `match_all_indices` yields typed
+    /// `SmeltMatch` values, each erased with the explicit
+    /// `SmeltMatch::into_smelt_unknown` boundary adapter for the erased
+    /// `List(Unknown)` result the frontend assigns.
     pub(super) fn regex_match_all_text(
         &self,
         regex: &Operand,
@@ -415,7 +428,9 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let regex_text = self.regexp_operand_text(regex)?;
         let haystack_text = self.string_like_operand_text(haystack, "regex matchAll")?;
-        Ok(format!("{regex_text}.match_all_indices(&{haystack_text})"))
+        Ok(format!(
+            "{regex_text}.match_all_indices(&{haystack_text}).into_iter().map(SmeltMatch::into_smelt_unknown).collect::<Vec<_>>()"
+        ))
     }
 
     /// Render a value as a `SmeltRegExp`.

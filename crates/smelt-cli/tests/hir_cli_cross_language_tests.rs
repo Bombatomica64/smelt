@@ -321,6 +321,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "25_private_protected_metadata",
         "26_interface_inheritance_optional_computed",
         "27_optional_chains",
+        "28_regex_match_result",
     ] {
         verify_end_to_end_example(name)?;
     }
