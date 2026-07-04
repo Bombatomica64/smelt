@@ -3666,10 +3666,31 @@ for (const { index } of matches) {
 
     assert!(source.contains(".match_all_indices(&"));
     assert!(source.contains("pub fn match_all_indices(&self"));
-    // matchAll builds concrete `SmeltMatch` values, erased explicitly at the
-    // dynamic boundary rather than as inline `SmeltUnknown` bags.
+    // matchAll yields concrete `SmeltMatch` values whose consumer reads stay
+    // typed: the destructured `.index` read is a typed `.index()` accessor, and
+    // the list keeps its concrete `SmeltMatch` element type. The value never
+    // crosses the erased `SmeltUnknown` boundary, so no `into_smelt_unknown`
+    // adapter is emitted for this program.
     assert!(source.contains("pub struct SmeltMatch"));
-    assert!(source.contains(".map(SmeltMatch::into_smelt_unknown)"));
+    assert!(
+        source.contains("SmeltList<SmeltMatch>"),
+        "matchAll result should keep its concrete SmeltMatch element type: {source}"
+    );
+    assert!(
+        source.contains(".index()"),
+        "destructured `.index` read should use the typed accessor: {source}"
+    );
+    // No erasure adapter is applied at the matchAll site, and the adapter impl
+    // is not emitted for this program (the only textual mention of
+    // `SmeltMatch::into_smelt_unknown` is the type's docstring).
+    assert!(
+        !source.contains(".map(SmeltMatch::into_smelt_unknown)"),
+        "matchAll must not erase its concrete result: {source}"
+    );
+    assert!(
+        !source.contains("impl IntoSmeltUnknown for SmeltMatch"),
+        "typed match reads must not require the SmeltUnknown erasure adapter: {source}"
+    );
     assert!(
         source.contains("-> Vec<SmeltMatch>"),
         "match_all_indices should return concrete SmeltMatch values: {source}"
@@ -3686,21 +3707,132 @@ console.log(m === null);
 "#,
     );
 
-    // exec returns a concrete `Option<SmeltMatch>`; the typed match dataflow
-    // does not build a `SmeltUnknown` property bag. The single erasure to the
-    // dynamic consumer boundary is the explicit `into_smelt_unknown` adapter.
+    // exec returns a concrete `Option<SmeltMatch>` and the result stays typed:
+    // the `m === null` check is a plain `.is_none()` on the concrete option, so
+    // the match never crosses the erased `SmeltUnknown` boundary and no
+    // `into_smelt_unknown` adapter is emitted for this program.
     assert!(
         source.contains("pub fn exec(&self, haystack: &str) -> Option<SmeltMatch>"),
         "exec should return a concrete SmeltMatch option: {source}"
     );
     assert!(source.contains("pub struct SmeltMatch"));
-    assert!(source.contains("impl IntoSmeltUnknown for SmeltMatch"));
-    assert!(source.contains(".exec(&\"2024-07\".to_owned()).map(SmeltMatch::into_smelt_unknown)"));
+    assert!(
+        source.contains(".exec(&\"2024-07\".to_owned())")
+            && !source.contains(".map(SmeltMatch::into_smelt_unknown)"),
+        "typed exec result must not erase to SmeltUnknown: {source}"
+    );
+    assert!(
+        !source.contains("impl IntoSmeltUnknown for SmeltMatch"),
+        "typed exec result must not require the SmeltUnknown erasure adapter: {source}"
+    );
+    assert!(
+        source.contains(".is_none()"),
+        "`m === null` should lower to a typed `.is_none()` check: {source}"
+    );
     // The numbered-group / named-group / index / input shape is modeled with
     // concrete fields, not assembled as an untyped object during exec.
     assert!(source.contains("groups: Vec<Option<String>>"));
     assert!(source.contains("named: ::std::collections::HashMap<String, Option<String>>"));
     assert!(source.contains("fn from_captures(regex: &fancy_regex::Regex"));
+}
+
+#[test]
+fn types_regex_match_consumer_reads_against_smelt_match() {
+    // The consumer-side reads of a match value are typed against the concrete
+    // `SmeltMatch` type: numbered groups (`m[0]`, `m[2]`) read `group_owned`,
+    // named groups (`m.groups.letter`) read `named_group_owned`, `m.index` and
+    // `m.input` read their typed accessors, and array destructuring binds the
+    // numbered groups. None of these cross the erased `SmeltUnknown` boundary.
+    let source = source_for(
+        r#"
+const pattern = /(?<letter>[a-z])(\d)?/g;
+const matches = "a1 b".matchAll(pattern);
+for (const found of matches) {
+  const whole = found[0];
+  const letter = found.groups.letter;
+  const digit = found[2];
+  const [full, first] = found;
+  console.log(whole);
+  console.log(letter);
+  console.log(digit);
+  console.log(full);
+  console.log(first);
+  console.log(found.index);
+  console.log(found.input);
+}
+"#,
+    );
+
+    // Numbered group reads (including the destructured bindings) route through
+    // the typed `group_owned` accessor; the whole match is index 0.
+    assert!(
+        source.contains(".group_owned(0.0 as usize)"),
+        "numbered group read should use group_owned: {source}"
+    );
+    assert!(
+        source.contains(".group_owned(2.0 as usize)"),
+        "optional numbered group read should use group_owned: {source}"
+    );
+    // Named group reads route through `named_group_owned`.
+    assert!(
+        source.contains(".named_group_owned(\"letter\")"),
+        "named group read should use named_group_owned: {source}"
+    );
+    // `.index` / `.input` read the typed accessors.
+    assert!(
+        source.contains(".index()"),
+        "match index read should use the typed accessor: {source}"
+    );
+    assert!(
+        source.contains(".input_owned()"),
+        "match input read should use the typed accessor: {source}"
+    );
+    // The match list keeps its concrete element type and the reads never erase
+    // to `SmeltUnknown`.
+    assert!(
+        source.contains("SmeltList<SmeltMatch>"),
+        "matchAll result should keep its concrete SmeltMatch element type: {source}"
+    );
+    assert!(
+        !source.contains(".map(SmeltMatch::into_smelt_unknown)"),
+        "typed match reads must not erase the matchAll result: {source}"
+    );
+    assert!(
+        !source.contains("impl IntoSmeltUnknown for SmeltMatch"),
+        "typed match reads must not require the SmeltUnknown erasure adapter: {source}"
+    );
+}
+
+#[test]
+fn erases_regex_match_value_only_at_a_dynamic_boundary() {
+    // A match value that genuinely flows into `unknown` is erased through the
+    // single explicit `into_smelt_unknown` adapter, while the sibling typed
+    // reads stay concrete.
+    let source = source_for(
+        r#"
+const re = /(?<letter>[a-z])/;
+const m = re.exec("a");
+if (m !== null) {
+  const letter = m.groups.letter;
+  const boxed: unknown = m;
+  console.log(letter);
+  console.log(boxed);
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".named_group_owned(\"letter\")"),
+        "typed named group read should stay concrete: {source}"
+    );
+    assert!(
+        source.contains(".clone().into_smelt_unknown()"),
+        "a match value flowing into unknown should use the explicit erasure adapter: {source}"
+    );
+    assert!(
+        source.contains("impl IntoSmeltUnknown for SmeltMatch"),
+        "the match erasure adapter should be emitted when the boundary is used: {source}"
+    );
 }
 
 #[test]

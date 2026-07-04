@@ -398,39 +398,75 @@ impl FunctionEmitter<'_> {
 
     /// Converts JavaScript `RegExp.prototype.exec` to a concrete match result.
     ///
-    /// The runtime `exec` returns a typed `Option<SmeltMatch>`; the HIR result
-    /// type is still the erased `Optional(Unknown)` boundary consumers read
-    /// dynamically, so the concrete match is erased *explicitly* at that
-    /// boundary with `SmeltMatch::into_smelt_unknown`. The erasure is a single,
-    /// visible adapter rather than an inline `SmeltUnknown` property-bag build.
+    /// The runtime `exec` returns a typed `Option<SmeltMatch>`. The frontend now
+    /// types the result as `Optional(SmeltMatch)`, so consumer reads (`m[0]`,
+    /// `m.index`, `m.input`, `m.groups.name`) stay typed against the concrete
+    /// match value. The optional-erasing seam is only taken when the *result
+    /// slot itself* is an erased boundary (`Optional(Unknown)`), e.g. the throwaway
+    /// null-check `exec` behind `RegExp.prototype.test`, where a single explicit
+    /// `SmeltMatch::into_smelt_unknown` adapter erases the match.
     pub(super) fn regex_exec_text(
         &self,
         regex: &Operand,
         haystack: &Operand,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let regex_text = self.regexp_operand_text(regex)?;
         let haystack_text = self.string_like_operand_text(haystack, "regex exec")?;
-        Ok(format!(
-            "{regex_text}.exec(&{haystack_text}).map(SmeltMatch::into_smelt_unknown)"
-        ))
+        let call = format!("{regex_text}.exec(&{haystack_text})");
+        if self.optional_inner_is_erased_boundary(dest_ty) {
+            return Ok(format!("{call}.map(SmeltMatch::into_smelt_unknown)"));
+        }
+        Ok(call)
     }
 
     /// Converts JavaScript `String.prototype.matchAll` to concrete match results.
     ///
     /// Mirrors [`Self::regex_exec_text`]: `match_all_indices` yields typed
-    /// `SmeltMatch` values, each erased with the explicit
-    /// `SmeltMatch::into_smelt_unknown` boundary adapter for the erased
-    /// `List(Unknown)` result the frontend assigns.
+    /// `SmeltMatch` values. The frontend types the result as
+    /// `List(SmeltMatch)`, so the concrete values flow to consumer reads
+    /// untouched; the explicit `SmeltMatch::into_smelt_unknown` adapter is only
+    /// applied when the list element slot is the erased `List(Unknown)`
+    /// boundary.
     pub(super) fn regex_match_all_text(
         &self,
         regex: &Operand,
         haystack: &Operand,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let regex_text = self.regexp_operand_text(regex)?;
         let haystack_text = self.string_like_operand_text(haystack, "regex matchAll")?;
-        Ok(format!(
-            "{regex_text}.match_all_indices(&{haystack_text}).into_iter().map(SmeltMatch::into_smelt_unknown).collect::<Vec<_>>()"
-        ))
+        let call = format!("{regex_text}.match_all_indices(&{haystack_text})");
+        if self.list_item_is_erased_boundary(dest_ty) {
+            return Ok(format!(
+                "{call}.into_iter().map(SmeltMatch::into_smelt_unknown).collect::<Vec<_>>()"
+            ));
+        }
+        Ok(call)
+    }
+
+    /// Returns whether an `Optional(T)` destination erases `T` to `SmeltUnknown`.
+    fn optional_inner_is_erased_boundary(&self, dest_ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(dest_ty),
+            Some(Type::Optional(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                )
+        )
+    }
+
+    /// Returns whether a `List(T)` destination erases `T` to `SmeltUnknown`.
+    fn list_item_is_erased_boundary(&self, dest_ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(dest_ty),
+            Some(Type::List(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                )
+        )
     }
 
     /// Render a value as a `SmeltRegExp`.

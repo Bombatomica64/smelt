@@ -1305,8 +1305,12 @@ impl ModuleBuilder<'_> {
                 "RegExp.exec() requires a string haystack",
             ));
         };
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
+        // The result is a concrete match value (or `null`); consumer reads
+        // (`m[0]`, `m.index`, `m.input`, `m.groups.name`) resolve to typed
+        // accessors on the generated `SmeltMatch` type instead of the erased
+        // `SmeltUnknown` boundary.
+        let match_ty = self.match_result_type();
+        let ty = self.ctx.krate.types.intern(Type::Optional(match_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::RegexExec { regex, haystack },
             ty,

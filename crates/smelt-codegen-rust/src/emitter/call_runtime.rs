@@ -700,8 +700,12 @@ impl FunctionEmitter<'_> {
                 let source_ty = self.type_id(Type::Optional(list_ty))?;
                 self.value_at_type_text(&text, source_ty, dest_ty)
             }
-            Rvalue::RegexExec { regex, haystack } => self.regex_exec_text(regex, haystack),
-            Rvalue::RegexMatchAll { regex, haystack } => self.regex_match_all_text(regex, haystack),
+            Rvalue::RegexExec { regex, haystack } => {
+                self.regex_exec_text(regex, haystack, dest_ty)
+            }
+            Rvalue::RegexMatchAll { regex, haystack } => {
+                self.regex_match_all_text(regex, haystack, dest_ty)
+            }
             Rvalue::StringCharAt { operand, index } => self.string_char_at_text(operand, index),
             Rvalue::StringCharCodeAt { operand, index } => {
                 self.string_char_code_at_text(operand, index)
@@ -2873,6 +2877,63 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// Emits a typed field read against a concrete `SmeltMatch` receiver.
+    ///
+    /// `kind` distinguishes the match value itself (`__SmeltMatch`) from its
+    /// named-group accessor (`__SmeltMatchGroups`), which is the same underlying
+    /// `SmeltMatch` value obtained through a `.groups` read:
+    ///
+    /// * On the match value: `index` -> `f64`, `length` -> `f64`, `input` ->
+    ///   `String`, and `groups` yields the receiver itself (the named-group
+    ///   accessor shares the `SmeltMatch` representation).
+    /// * On the named-group accessor: every field is a named capture group,
+    ///   read as `Option<String>` (JavaScript `undefined` when absent).
+    ///
+    /// These reads never build a `SmeltUnknown` property bag; the match value
+    /// stays statically typed all the way to the primitive result.
+    pub(super) fn match_field_text(
+        &self,
+        receiver_text: &str,
+        kind: smelt_stdlib::StdlibClass,
+        field: Symbol,
+    ) -> Result<String, EmitError> {
+        let field_name = self.symbol_source_name(field)?;
+        match kind {
+            smelt_stdlib::StdlibClass::MatchGroups => Ok(format!(
+                "{receiver_text}.named_group_owned({field_name:?})"
+            )),
+            _ => Ok(match field_name {
+                "index" => format!("{receiver_text}.index()"),
+                "length" => format!("{receiver_text}.length()"),
+                "input" => format!("{receiver_text}.input_owned()"),
+                // `match.groups` is the same underlying `SmeltMatch` value; a
+                // subsequent named-group read resolves through the
+                // `MatchGroups` branch above.
+                "groups" => format!("{receiver_text}.clone()"),
+                _ => "SmeltUnknown::Null".to_owned(),
+            }),
+        }
+    }
+
+    /// Emits a numbered capture-group read against a concrete `SmeltMatch`.
+    ///
+    /// `match[n]` reads the n-th numbered group (entry 0 is the whole match) as
+    /// an owned `Option<String>` — `None` for a group that did not participate,
+    /// matching JavaScript `undefined`.
+    pub(super) fn match_index_text(
+        &self,
+        receiver_text: &str,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
+        let index_ty = self.operand_ty(index)?;
+        let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
+            self.operand_text(index)?
+        } else {
+            self.value_at_type(index, self.type_id(Type::Float)?)?
+        };
+        Ok(format!("{receiver_text}.group_owned({index_text} as usize)"))
+    }
+
     /// Emits a JavaScript optional-chain index read against an in-scope receiver value.
     ///
     /// `value?.[index]` short-circuits only when the receiver is nullish, but a
@@ -2886,6 +2947,14 @@ impl FunctionEmitter<'_> {
         index: &Operand,
         result_ty: TypeId,
     ) -> Result<String, EmitError> {
+        // A numbered group read (`match[n]`) has an `Optional(String)` result, so
+        // MIR routes it through `OptionalIndex`; `group_owned` already yields the
+        // `Option<String>` this path expects.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
+            && self.is_match_class_symbol(*name)?
+        {
+            return self.match_index_text(receiver_text, index);
+        }
         match self.mir.types.get(receiver_ty) {
             Some(Type::List(item_ty)) => {
                 let index_text =

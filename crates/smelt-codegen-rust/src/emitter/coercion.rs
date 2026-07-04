@@ -843,6 +843,11 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
                 Ok(format!("({text}).clone().into_smelt_unknown()"))
             }
+            // A concrete match value crossing into `unknown` is erased through the
+            // single explicit `IntoSmeltUnknown` adapter.
+            Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => {
+                Ok(format!("({text}).clone().into_smelt_unknown()"))
+            }
             Some(Type::Class { name, .. })
                 if self.is_erased_class_type(self.operand_ty(operand)?)
                     && self.symbol_name(*name)? == "Date" =>
@@ -1184,6 +1189,12 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
+                Ok(format!("({value_text}).clone().into_smelt_unknown()"))
+            }
+            // A concrete match value crossing into a dynamic `unknown` boundary
+            // is erased through the single explicit `IntoSmeltUnknown` adapter,
+            // reproducing the JavaScript match-array-with-properties shape.
+            Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => {
                 Ok(format!("({value_text}).clone().into_smelt_unknown()"))
             }
             Some(Type::Class { name, .. })

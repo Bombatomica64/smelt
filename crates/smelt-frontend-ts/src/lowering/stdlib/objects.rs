@@ -1613,9 +1613,11 @@ return_ty,
             }
         }
         let regex = self.argument(pattern_argument, body)?;
-        // Each match is a full JavaScript match object (numbered groups,
-        // `groups`, `index`, `input`) built as an erased runtime value.
-        let match_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // Each match is a concrete JavaScript match value (numbered groups,
+        // `groups`, `index`, `input`). Typing the list element as the synthetic
+        // match class lets consumer reads resolve to typed `SmeltMatch`
+        // accessors instead of the erased `SmeltUnknown` boundary.
+        let match_ty = self.match_result_type();
         let ty = self.ctx.krate.types.intern(Type::List(match_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::RegexMatchAll { regex, haystack },

@@ -135,6 +135,11 @@ impl FunctionEmitter<'_> {
                 {
                     return self.regexp_field_text(&self.local_value_text(*base)?, *field);
                 }
+                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+                    && let Some(kind) = self.match_class_kind(*name)?
+                {
+                    return self.match_field_text(&self.local_value_text(*base)?, kind, *field);
+                }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && let Some(fields) = self.structural_record_fields(*inner)
                     && let Some(field_ty) = fields
@@ -197,6 +202,11 @@ impl FunctionEmitter<'_> {
             }
             Place::Index { base, index } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+                    && self.is_match_class_symbol(*name)?
+                {
+                    return self.match_index_text(&self.local_value_text(*base)?, index);
+                }
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(item_ty)) => {
                         let base_text = self.local_mut_value_text(*base)?;
