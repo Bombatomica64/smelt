@@ -317,46 +317,38 @@ impl<'builder> ModuleBuilder<'builder> {
                 required = required.min(rest_index);
             }
             if call.arguments.len() < required {
-                // JavaScript permits calling with fewer arguments than
-                // declared (missing parameters are `undefined`), and generic
-                // wrappers like `negate(fn)()` routinely under-apply their
-                // erased signatures. Dispatch through the arity-independent
-                // erased ABI instead of rejecting.
-                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-                let callee = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: callee },
-                    ty: unknown_ty,
-                    span: self.span(callee_call.span.start, callee_call.span.end),
-                });
-                let args = call
-                    .arguments
-                    .iter()
-                    .map(|arg| self.argument(arg, body))
-                    .collect::<Result<Vec<_>, _>>()?;
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::ClosureCall { callee, args },
-                    ty: unknown_ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
+                // The call omits at least one *required* parameter. A rest slot
+                // can still absorb the tail (leaving only optional/rest gaps),
+                // so only a signature with no rest slot has a genuinely missing
+                // required argument. Such a call is rejected by `tsc` before
+                // Smelt runs, but generic erased wrappers (`negate(fn)()`) still
+                // reach here with unknown arity; dispatch those through the
+                // arity-independent erased ABI rather than synthesizing a typed
+                // `None` for a non-optional parameter.
+                if function.rest.is_none() {
+                    let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let callee = body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: callee },
+                        ty: unknown_ty,
+                        span: self.span(callee_call.span.start, callee_call.span.end),
+                    });
+                    let args = call
+                        .arguments
+                        .iter()
+                        .map(|arg| self.argument(arg, body))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::ClosureCall { callee, args },
+                        ty: unknown_ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
             }
-            let mut args = call
-                .arguments
-                .iter()
-                .take(function.params.len())
-                .map(|arg| self.argument(arg, body))
-                .collect::<Result<Vec<_>, _>>()?;
-            // A rest parameter receives its collected list; synthesize the
-            // empty list when no rest arguments were supplied.
-            if let Some(rest_index) = function.rest
-                && args.len() == rest_index
-                && let Some(&rest_param_ty) = function.params.get(rest_index)
-            {
-                args.push(body.push_expr(Expr {
-                    kind: ExprKind::ListLit(Vec::new()),
-                    ty: rest_param_ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
-            }
+            // Statically typed under-application: every omitted parameter is
+            // optional or absorbed by the rest slot, so the call keeps its typed
+            // ABI. Missing optional parameters become typed `None` values.
+            let args =
+                self.typed_under_applied_closure_arguments(&function, &call.arguments, call.span, body)?;
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::ClosureCall { callee, args },
                 ty: function.return_ty,
@@ -3748,6 +3740,78 @@ impl<'builder> ModuleBuilder<'builder> {
             ty,
             span: self.span(call.span.start, call.span.end),
         }))
+    }
+
+    /// Lower call arguments for a statically typed, possibly under-applied
+    /// closure call, padding missing optional parameters with typed `None`.
+    ///
+    /// A curried or partially applied call site may supply fewer arguments than
+    /// the selected [`FunctionType`] declares. When the omitted parameters are
+    /// optional (`Optional<T>` ABI) or absorbed by a trailing rest slot, the
+    /// call is still statically typed: rather than erasing the callee, this
+    /// synthesizes a `None` literal for each missing fixed parameter (typed with
+    /// that parameter's declared `Optional<T>`) and an empty `List` for an
+    /// unfilled rest slot. Supplied arguments beyond the fixed parameters are
+    /// packed into the rest list, or evaluated and dropped when no rest slot
+    /// exists, matching JavaScript's excess-argument semantics.
+    fn typed_under_applied_closure_arguments(
+        &mut self,
+        function: &FunctionType,
+        arguments: &[Argument<'_>],
+        call_span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+        let span = self.span(call_span.start, call_span.end);
+        // Fixed parameters are those before a rest slot; a rest signature keeps
+        // its trailing `List` parameter out of the fixed range.
+        let fixed_param_count = function.rest.unwrap_or(function.params.len());
+        let mut args = Vec::with_capacity(function.params.len());
+        for index in 0..fixed_param_count {
+            if let Some(argument) = arguments.get(index) {
+                args.push(self.argument(argument, body)?);
+            } else {
+                // Missing optional parameter: synthesize a typed `None` carrying
+                // the parameter's declared type so the closure call stays typed.
+                let param_ty = function
+                    .params
+                    .get(index)
+                    .copied()
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                args.push(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: param_ty,
+                    span,
+                }));
+            }
+        }
+        if let Some(rest_index) = function.rest {
+            let rest_args = arguments
+                .iter()
+                .skip(rest_index)
+                .map(|argument| self.argument(argument, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let rest_param_ty = function
+                .params
+                .get(rest_index)
+                .copied()
+                .unwrap_or_else(|| {
+                    let item = self.ctx.krate.types.intern(Type::Unknown);
+                    self.ctx.krate.types.intern(Type::List(item))
+                });
+            args.push(body.push_expr(Expr {
+                kind: ExprKind::ListLit(rest_args),
+                ty: rest_param_ty,
+                span,
+            }));
+        } else {
+            // No rest slot: surplus arguments are evaluated for their side
+            // effects and discarded, exactly as JavaScript ignores extra call
+            // arguments.
+            for argument in arguments.iter().skip(fixed_param_count) {
+                let _ = self.argument(argument, body)?;
+            }
+        }
+        Ok(args)
     }
 
     /// Fold Remeda partial-bind nested calls into direct closure calls.
