@@ -11,6 +11,24 @@ use crate::lowering::{
 };
 use oxc::span::GetSpan;
 
+/// The body form of a callback lowered through a real HIR closure body.
+///
+/// Selects how [`ModuleBuilder::closure_body_expr_from_parts`] lowers the
+/// callback body: an arrow expression body (`x => x + 1`) whose single
+/// expression becomes the closure's return, or a statement block (`{ ... }`)
+/// shared by block-bodied arrows and `function` expression callbacks.
+///
+/// The variants hold only borrowed AST references, so the enum is `Copy` and is
+/// passed by value.
+#[derive(Clone, Copy)]
+enum ClosureBodyKind<'a, 'src> {
+    /// An expression-bodied arrow; its return expression is lowered with a
+    /// contextual type hint and may drive return-type inference.
+    ArrowExpression(&'a oxc::ast::ast::ArrowFunctionExpression<'src>),
+    /// A statement block, used by block-bodied arrows and function expressions.
+    Statements(&'a [Statement<'src>]),
+}
+
 impl ModuleBuilder<'_> {
     /// Lower a terminating block-bodied callback into a nested callback expression.
     pub(in crate::lowering) fn callback_block_expression<'a>(
@@ -913,6 +931,10 @@ impl ModuleBuilder<'_> {
     /// closure body is lowered with `current_async` enabled, receives the
     /// contextual return type for return-expression hints, and records async
     /// state metadata after await expressions have been collected.
+    ///
+    /// This is a thin wrapper over [`Self::closure_body_expr_from_parts`], which
+    /// carries the shared parameter-binding, capture-collection and closure-
+    /// emission logic used by both arrow and `function` expression callbacks.
     pub(in crate::lowering) fn arrow_closure_body_expr(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
@@ -921,12 +943,92 @@ impl ModuleBuilder<'_> {
         outer_body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(arrow.span.start, arrow.span.end);
+        let body_kind = if arrow.expression {
+            ClosureBodyKind::ArrowExpression(arrow)
+        } else {
+            ClosureBodyKind::Statements(&arrow.body.statements)
+        };
+        self.closure_body_expr_from_parts(
+            &arrow.params,
+            body_kind,
+            arrow.r#async,
+            span,
+            param_tys,
+            return_ty,
+            outer_body,
+        )
+    }
+
+    /// Lower a `function (...) { ... }` expression callback through a real HIR
+    /// closure body.
+    ///
+    /// Function expressions are the non-arrow sibling of the callback surface
+    /// accepted by array methods. They always have a block body (never an
+    /// expression body) and reuse the same shared closure-body machinery as
+    /// arrow callbacks, so a `function`-form callback whose body needs full
+    /// closure lowering (e.g. a method call the compact callback IR cannot
+    /// model) is lowered identically to the equivalent arrow. The callback's
+    /// own `arguments` binding is not modeled here; array-method callbacks that
+    /// reference `arguments` are rejected by the general body lowering as usual.
+    pub(in crate::lowering) fn function_closure_body_expr(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        param_tys: &[smelt_hir::TypeId],
+        return_ty: smelt_hir::TypeId,
+        outer_body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(function.span.start, function.span.end);
+        let Some(function_body) = &function.body else {
+            return Err(SmeltError::unsupported(
+                span,
+                "function expression callbacks must have a body",
+            ));
+        };
+        self.closure_body_expr_from_parts(
+            &function.params,
+            ClosureBodyKind::Statements(&function_body.statements),
+            function.r#async,
+            span,
+            param_tys,
+            return_ty,
+            outer_body,
+        )
+    }
+
+    /// Lower a callback closure body from its constituent parts.
+    ///
+    /// Shared implementation behind [`Self::arrow_closure_body_expr`] and
+    /// [`Self::function_closure_body_expr`]. It binds the formal parameters into
+    /// closure locals, collects the captured outer locals referenced by the
+    /// body, lowers the body (an arrow expression body or a statement block) and
+    /// emits the closure expression with the inferred/annotated return type.
+    ///
+    /// `body_kind` selects the body form: [`ClosureBodyKind::ArrowExpression`]
+    /// lowers the single expression through the return-expression hint path (and
+    /// may infer the return type when it is left `Unknown`), while
+    /// [`ClosureBodyKind::Statements`] lowers a statement block — the form used
+    /// by block-bodied arrows and by `function` expression callbacks.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "shared closure-body lowering threads the params, body form, async flag, span and both contextual types through one call"
+    )]
+    fn closure_body_expr_from_parts(
+        &mut self,
+        params: &oxc::ast::ast::FormalParameters<'_>,
+        body_kind: ClosureBodyKind<'_, '_>,
+        is_async: bool,
+        span: Span,
+        param_tys: &[smelt_hir::TypeId],
+        return_ty: smelt_hir::TypeId,
+        outer_body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let is_expression_body = matches!(body_kind, ClosureBodyKind::ArrowExpression(_));
         let mut closure_body = Body::new(None, span);
         let mut closure_params = Vec::new();
         let mut param_names = HashSet::new();
         let mut saved_locals = Vec::new();
 
-        for (index, param) in arrow.params.items.iter().enumerate() {
+        for (index, param) in params.items.iter().enumerate() {
             let ty = param_tys.get(index).copied().ok_or_else(|| {
                 SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
@@ -989,7 +1091,7 @@ impl ModuleBuilder<'_> {
             }
         }
 
-        if let Some(rest) = &arrow.params.rest {
+        if let Some(rest) = &params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -1024,16 +1126,23 @@ impl ModuleBuilder<'_> {
         }
 
         let mut capture_names = Vec::new();
-        if arrow.expression {
-            let return_expression = self.arrow_return_expression(arrow)?;
-            self.collect_expression_capture_names(
-                return_expression,
-                &param_names,
-                &mut capture_names,
-            );
-        } else {
-            for statement in &arrow.body.statements {
-                self.collect_statement_capture_names(statement, &param_names, &mut capture_names);
+        match body_kind {
+            ClosureBodyKind::ArrowExpression(arrow) => {
+                let return_expression = self.arrow_return_expression(arrow)?;
+                self.collect_expression_capture_names(
+                    return_expression,
+                    &param_names,
+                    &mut capture_names,
+                );
+            }
+            ClosureBodyKind::Statements(statements) => {
+                for statement in statements {
+                    self.collect_statement_capture_names(
+                        statement,
+                        &param_names,
+                        &mut capture_names,
+                    );
+                }
             }
         }
         capture_names.sort();
@@ -1076,46 +1185,51 @@ impl ModuleBuilder<'_> {
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
-        let infer_expression_return =
-            arrow.expression && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
-        self.current_async = arrow.r#async;
+        let infer_expression_return = is_expression_body
+            && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
+        self.current_async = is_async;
         self.current_return_ty = Some(return_ty);
         let mut actual_return_ty = return_ty;
-        let predeclare_result = if arrow.expression {
-            Ok(())
-        } else {
-            self.predeclare_local_function_declarations(&arrow.body.statements, &mut closure_body)
+        let predeclare_result = match body_kind {
+            ClosureBodyKind::ArrowExpression(_) => Ok(()),
+            ClosureBodyKind::Statements(statements) => self
+                .predeclare_local_function_declarations(statements, &mut closure_body)
                 .and_then(|()| {
-                    self.predeclare_local_arrow_callbacks(&arrow.body.statements, &mut closure_body)
-                })
+                    self.predeclare_local_arrow_callbacks(statements, &mut closure_body)
+                }),
         };
         let lowering_result = if let Err(error) = predeclare_result {
             Err(error)
-        } else if arrow.expression {
-            match self.arrow_return_expression(arrow) {
-                Ok(return_expression) => {
-                    let hint = (!infer_expression_return).then_some(return_ty);
-                    self.expression_with_hint(return_expression, &mut closure_body, hint)
-                        .map(|value| {
-                            if infer_expression_return {
-                                actual_return_ty = Self::expr_ty(&closure_body, value);
-                            }
-                            closure_body.push_stmt(Stmt::Return(Some(value)));
-                        })
-                }
-                Err(error) => Err(error),
-            }
         } else {
-            let mut result = Ok(());
-            for statement in &arrow.body.statements {
-                if let Err(error) = self.statement(statement, &mut closure_body) {
-                    result = Err(error);
-                    break;
+            match body_kind {
+                ClosureBodyKind::ArrowExpression(arrow) => {
+                    match self.arrow_return_expression(arrow) {
+                        Ok(return_expression) => {
+                            let hint = (!infer_expression_return).then_some(return_ty);
+                            self.expression_with_hint(return_expression, &mut closure_body, hint)
+                                .map(|value| {
+                                    if infer_expression_return {
+                                        actual_return_ty = Self::expr_ty(&closure_body, value);
+                                    }
+                                    closure_body.push_stmt(Stmt::Return(Some(value)));
+                                })
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+                ClosureBodyKind::Statements(statements) => {
+                    let mut result = Ok(());
+                    for statement in statements {
+                        if let Err(error) = self.statement(statement, &mut closure_body) {
+                            result = Err(error);
+                            break;
+                        }
+                    }
+                    result
                 }
             }
-            result
         };
-        if arrow.r#async {
+        if is_async {
             closure_body.build_async_state_machine();
         }
         self.current_async = saved_async;
@@ -1131,19 +1245,20 @@ impl ModuleBuilder<'_> {
         lowering_result?;
         let may_throw = Self::body_contains_uncaught_throw(&closure_body);
         let body_id = self.ctx.krate.push_body(closure_body);
+        let rest_index = params.rest.as_ref().map(|_| params.items.len());
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: param_tys.to_vec(),
-            rest: arrow.params.rest.as_ref().map(|_| arrow.params.items.len()),
+            rest: rest_index,
             required_params: None,
             mutable_params: Vec::new(),
             return_ty: actual_return_ty,
-            is_async: arrow.r#async,
+            is_async,
             may_throw,
         }));
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: closure_params,
-                rest: arrow.params.rest.as_ref().map(|_| arrow.params.items.len()),
+                rest: rest_index,
                 required_params: None,
                 return_ty: actual_return_ty,
                 captures,

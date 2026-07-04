@@ -219,6 +219,49 @@ function normalize(values: number[]): number[][] {
 }
 "#,
         },
+        Case {
+            name: "non_arrow_array_callbacks",
+            area: "closures",
+            // Array methods must accept non-arrow callback forms (issue #86):
+            // a `function` expression callback (`mapped`), a `function`
+            // expression whose body needs full closure-body lowering because it
+            // uses a statement form the compact callback IR cannot model
+            // (`fallback`, a `try/catch`), a named function-item reference
+            // (`byRef` calling `square`), and a local function-typed variable
+            // handed to the method (`byLocal`). Each must lower into the callback
+            // closure with its typed signature preserved, and the emitted Rust
+            // must compile.
+            source: r#"
+function square(value: number): number {
+  return value * 2;
+}
+
+function mapped(values: number[]): number[] {
+  return values.map(function (value) {
+    return value + 1;
+  });
+}
+
+function fallback(values: string[]): Array<string | undefined> {
+  return values.map(function (value) {
+    try {
+      return value;
+    } catch (error) {
+      return undefined;
+    }
+  });
+}
+
+function byRef(values: number[]): number[] {
+  return values.map(square);
+}
+
+function byLocal(values: number[]): number[] {
+  const transform = (value: number): number => value * 3;
+  return values.map(transform);
+}
+"#,
+        },
         // --- string / list operations ----------------------------------------
         Case {
             name: "list_collection",
@@ -358,6 +401,23 @@ export function containsFrom(haystack: string, needle: string, from: number): bo
 }
 export function containsWhole(haystack: string, needle: string): boolean {
   return haystack.includes(needle);
+}
+",
+        },
+        Case {
+            // Issue #87: `.at(index)` accepts statically numeric-compatible index
+            // types beyond an exact `number`. An optional-numeric index
+            // (`number | undefined`) is coerced to the runtime `Float` the
+            // optional-index path expects, and the emitted normalized-index
+            // arithmetic must compile for both array and string receivers.
+            name: "at_index_coercion",
+            area: "collections",
+            source: r"
+export function pickOptional(values: number[], index: number | undefined): number | undefined {
+  return values.at(index);
+}
+export function pickChar(text: string, index: number | undefined): string | undefined {
+  return text.at(index);
 }
 ",
         },
@@ -582,6 +642,32 @@ export function drive(data: Iterable<unknown>): unknown[] {
 }
 ",
         },
+        // --- array literals with function / this / class elements ------------
+        Case {
+            name: "array_literal_expr_elements",
+            area: "array_elements",
+            // Array literal elements that are function expressions, `this`, and
+            // class expressions (named and anonymous) route through the shared
+            // expression lowering path. Function expressions become closure
+            // values, `this` resolves to the method receiver, and class
+            // expressions register a class and yield a class value.
+            source: r"
+export function funcElements(): unknown[] {
+  return [function () { return 1; }, function () { return 2; }];
+}
+
+export function classElements(): unknown[] {
+  return [class Named { value: number = 0; }, class { flag: boolean = false; }];
+}
+
+class Registry {
+  id: number = 0;
+  entries(): unknown[] {
+    return [function () { return 0; }, this, class Entry { key: number = 0; }];
+  }
+}
+",
+        },
     ]
 }
 
@@ -654,7 +740,16 @@ fn corpus_emitted_rust_compiles() {
 
     let mut failures: Vec<CorpusFailure> = Vec::new();
 
+    // Optional single-case filter for local verification of one corpus entry
+    // without checking the whole corpus. Unset in CI, which runs everything.
+    let only = std::env::var("SMELT_CORPUS_ONLY").ok();
+
     for case in corpus() {
+        if let Some(only_name) = &only
+            && case.name != only_name
+        {
+            continue;
+        }
         if KNOWN_COMPILE_FAILURES.contains(&case.name) {
             continue;
         }

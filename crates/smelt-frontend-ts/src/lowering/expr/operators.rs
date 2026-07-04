@@ -1099,10 +1099,20 @@ impl ModuleBuilder<'_> {
             ArrayExpressionElement::ArrowFunctionExpression(arrow) => {
                 self.arrow_function_expression(arrow, body)
             }
-            _ => Err(SmeltError::unsupported(
-                self.span(element.span().start, element.span().end),
-                format!("array element kind is not lowered yet: {element:?}"),
-            )),
+            // `ArrayExpressionElement` inherits every `Expression` variant, so any
+            // element we do not special-case above (function expressions, `this`,
+            // class expressions, etc.) is lowered through the shared expression
+            // path. `as_expression` returns `Some` for exactly the inherited
+            // variants; only `SpreadElement`/`Elision` fall through to the error.
+            other => {
+                if let Some(expression) = other.as_expression() {
+                    return self.expression(expression, body);
+                }
+                Err(SmeltError::unsupported(
+                    self.span(element.span().start, element.span().end),
+                    format!("array element kind is not lowered yet: {element:?}"),
+                ))
+            }
         }
     }
 
