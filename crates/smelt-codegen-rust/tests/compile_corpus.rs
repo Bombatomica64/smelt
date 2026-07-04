@@ -522,6 +522,40 @@ export function readMixed(bag: MixedBag, key: string): number | undefined {
 "#,
         },
         Case {
+            // Issue #97 / #18: optional class/data fields lower to `Option<T>`
+            // with explicit construction. The optional field (`y?: number`)
+            // becomes an `Option<f64>` struct slot; construction that supplies
+            // the field passes `Some(..)` and construction that omits it passes
+            // `None`, while the required field (`x`) stays concrete. Reading the
+            // optional field through `??` consumes the `Option` directly. The
+            // emitted Rust must compile. (The runtime round-trip is asserted
+            // end-to-end by the CLI test `build_round_trips_optional_class_field`
+            // and by the frontend/codegen regression tests.)
+            name: "optional_class_field",
+            area: "classes",
+            source: r"
+class Point {
+  x: number;
+  y?: number;
+  constructor(x: number, y?: number) {
+    this.x = x;
+    this.y = y;
+  }
+  readY(): number {
+    return this.y ?? -1;
+  }
+}
+
+export function makePresent(): number {
+  return new Point(1, 2).readY();
+}
+
+export function makeAbsent(): number {
+  return new Point(3).readY();
+}
+",
+        },
+        Case {
             name: "interface_method_call",
             area: "interfaces",
             source: r"

@@ -218,6 +218,75 @@ console.log(counters.total);
 }
 
 #[test]
+fn build_round_trips_optional_class_field() -> TestResult {
+    // Issue #97 / #18: an optional class field (`y?: number`) lowers to a real
+    // `Option<T>` slot with explicit construction. Constructing with the field
+    // present stores `Some(value)`; omitting it stores `None`. Reading the field
+    // back through `??` observes the stored value or the fallback. The required
+    // field stays concrete. This program builds and RUNS the emitted crate,
+    // asserting the runtime values rather than only that the code compiles.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-optional-class-field"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_optional_class_field"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r#"class Point {
+  x: number;
+  y?: number;
+  constructor(x: number, y?: number) {
+    this.x = x;
+    this.y = y;
+  }
+  readY(): number {
+    return this.y ?? -1;
+  }
+}
+
+const present = new Point(1, 2);
+const absent = new Point(3);
+console.log(present.x);
+console.log(present.readY());
+console.log(absent.x);
+console.log(absent.readY());
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    // 1. required field stays concrete: present.x === 1
+    // 2. present optional field round-trips: present.y ?? -1 === 2
+    // 3. required field on the field-omitting instance: absent.x === 3
+    // 4. absent optional field reads as the `??` fallback: absent.y ?? -1 === -1
+    ensure_eq(
+        &actual_stdout,
+        &"1\n2\n3\n-1\n".to_owned(),
+        "optional class field did not round-trip at runtime",
+    )?;
+
+    Ok(())
+}
+
+#[test]
 fn build_resolves_typescript_index_module_imports() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

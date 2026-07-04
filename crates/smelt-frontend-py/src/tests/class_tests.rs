@@ -443,6 +443,95 @@ class Immutable:
 }
 
 #[test]
+fn optional_dataclass_field_lowers_as_optional() -> TestResult {
+    // A dataclass field annotated `Optional[int]` (or `int | None`) must record
+    // `optional: true` and intern its type as `Type::Optional`, while a plain
+    // required field stays non-optional. This mirrors how TypeScript class fields
+    // carry the `?` spelling and lets Rust codegen emit `Option<T>` for the
+    // optional slot only.
+    let source = py!(r#"
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class Point:
+    x: int
+    y: Optional[int] = None
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let class_item_id = module
+        .items
+        .last()
+        .copied()
+        .ok_or_else(|| "expected class item".to_owned())?;
+    if let Item::Class(c) = item(&ctx, class_item_id)? {
+        ensure_eq(&c.fields.len(), &2, "field count")?;
+        let x = c
+            .fields
+            .iter()
+            .find(|field| symbol(&ctx, field.name) == Ok("x"))
+            .ok_or_else(|| "missing field x".to_owned())?;
+        let y = c
+            .fields
+            .iter()
+            .find(|field| symbol(&ctx, field.name) == Ok("y"))
+            .ok_or_else(|| "missing field y".to_owned())?;
+        ensure(!x.optional, "required field x must stay non-optional")?;
+        ensure(
+            !matches!(ctx.krate.types.get(x.ty), Some(Type::Optional(_))),
+            "required field x must not be Type::Optional",
+        )?;
+        ensure(y.optional, "field y must be marked optional")?;
+        ensure(
+            matches!(ctx.krate.types.get(y.ty), Some(Type::Optional(_))),
+            "field y must intern as Type::Optional",
+        )?;
+    } else {
+        return Err("expected Class item".to_owned());
+    }
+    Ok(())
+}
+
+#[test]
+fn pep604_optional_dataclass_field_lowers_as_optional() -> TestResult {
+    // The PEP 604 `int | None` spelling must lower the same way as
+    // `Optional[int]`: the field is optional and its type is `Type::Optional`.
+    let source = py!(r#"
+from dataclasses import dataclass
+
+@dataclass
+class Config:
+    name: str
+    retries: int | None = None
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let class_item_id = module
+        .items
+        .last()
+        .copied()
+        .ok_or_else(|| "expected class item".to_owned())?;
+    if let Item::Class(c) = item(&ctx, class_item_id)? {
+        let retries = c
+            .fields
+            .iter()
+            .find(|field| symbol(&ctx, field.name) == Ok("retries"))
+            .ok_or_else(|| "missing field retries".to_owned())?;
+        ensure(retries.optional, "field retries must be marked optional")?;
+        ensure(
+            matches!(ctx.krate.types.get(retries.ty), Some(Type::Optional(_))),
+            "field retries must intern as Type::Optional",
+        )?;
+    } else {
+        return Err("expected Class item".to_owned());
+    }
+    Ok(())
+}
+
+#[test]
 fn int_enum_members_lower_as_integer_constants() -> TestResult {
     let source = py!(r#"
 from enum import IntEnum

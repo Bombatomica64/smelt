@@ -271,11 +271,22 @@ impl ModuleBuilder<'_> {
                     let field_name_str = target_name.id.as_str();
                     let field_ty = self.annotation_to_hir(&ann.annotation)?;
                     let field_sym = self.intern_name(field_name_str);
+                    // A Python data field is optional when its annotation lowers to
+                    // `Optional[T]` / `T | None`. Those spellings already intern a
+                    // `Type::Optional`, which is what Rust codegen turns into
+                    // `Option<T>`; recording the flag here keeps the HIR field
+                    // metadata honest so downstream shape checks (interface
+                    // satisfaction, dynamic-field wrapping) see the same optionality
+                    // TypeScript class fields carry for the `?` spelling.
+                    let field_optional = matches!(
+                        self.ctx.krate.types.get(field_ty),
+                        Some(Type::Optional(_))
+                    );
                     let field = Field {
                         name: field_sym,
                         ty: field_ty,
                         visibility: Visibility::Public,
-                        optional: false,
+                        optional: field_optional,
                         span: self.span(ann.range),
                     };
                     self.class_fields

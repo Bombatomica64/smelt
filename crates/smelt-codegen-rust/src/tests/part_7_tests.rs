@@ -6046,3 +6046,77 @@ function squares(values: number[]): number[] {
     assert!(source.contains(".map("), "{source}");
     assert!(source.contains("square"), "{source}");
 }
+
+#[test]
+fn lowers_optional_class_field_to_option_with_explicit_construction() {
+    // An optional TypeScript class field (`y?: number`) must lower to a concrete
+    // `Option<f64>` struct slot. Construction that supplies the field passes
+    // `Some(..)`; construction that omits it passes `None::<f64>`, mirroring how
+    // optional interface fields already lower. The named non-optional field
+    // (`x: number`) stays concrete `f64` with no `Option` wrapper.
+    let source = source_for(
+        r#"
+class Point {
+  x: number;
+  y?: number;
+  constructor(x: number, y?: number) {
+    this.x = x;
+    this.y = y;
+  }
+  total(): number {
+    return this.x + (this.y ?? 0);
+  }
+}
+
+function make(): number {
+  const a = new Point(1, 2);
+  const b = new Point(3);
+  return a.total() + b.total();
+}
+"#,
+    );
+
+    assert!(source.contains("struct Point"), "{source}");
+    assert!(source.contains("x: f64,"), "{source}");
+    assert!(source.contains("y: Option<f64>,"), "{source}");
+    // Construction with the field present wraps the value in `Some(..)`.
+    assert!(source.contains("Point::new(1.0, Some(2.0))"), "{source}");
+    // Construction that omits the trailing optional field supplies a typed `None`.
+    assert!(source.contains("Point::new(3.0, None::<f64>)"), "{source}");
+    // Reading the field through `??` consumes the `Option<f64>` directly.
+    assert!(source.contains("unwrap_or(0.0)"), "{source}");
+}
+
+#[test]
+fn lowers_optional_dataclass_field_to_option_with_explicit_construction() {
+    // A Python dataclass field annotated `Optional[int]` (with a `None` default)
+    // must lower to a concrete `Option<i64>` struct slot, and construction that
+    // omits the field must synthesize the typed `None` default while a present
+    // argument is wrapped as `Some(..)`. The required `int` field stays concrete.
+    let source = source_for_py(
+        r#"
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class Point:
+    x: int
+    y: Optional[int] = None
+
+
+def make() -> Optional[int]:
+    a = Point(1, 2)
+    b = Point(3)
+    return a.y
+"#,
+    );
+
+    assert!(source.contains("struct Point"), "{source}");
+    assert!(source.contains("x: i64,"), "{source}");
+    assert!(source.contains("y: Option<i64>,"), "{source}");
+    assert!(source.contains("Point::new(1, Some(2))"), "{source}");
+    assert!(source.contains("Point::new(3, None::<i64>)"), "{source}");
+    // Reading the optional field yields the `Option<i64>` value unchanged.
+    assert!(source.contains("a.y.clone()"), "{source}");
+}
