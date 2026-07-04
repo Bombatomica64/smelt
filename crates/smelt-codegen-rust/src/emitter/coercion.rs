@@ -1708,9 +1708,19 @@ impl FunctionEmitter<'_> {
                 if self.record_conversion_stack.borrow().contains(&target) {
                     return Ok("Default::default()".to_owned());
                 }
+                // The string-dict record adapter needs the prelude `String` and
+                // `SmeltUnknown` types interned in this program's type table. A
+                // program that never uses them (e.g. a concrete class union whose
+                // generated `from_smelt_unknown` reconstruction reaches this class
+                // member) has neither interned, so fall back to the same default
+                // the no-adapter arm below produces rather than failing emission.
+                let (Some(string_ty), Some(unknown_ty)) = (
+                    self.find_type_id(&Type::String),
+                    self.find_type_id(&Type::Unknown),
+                ) else {
+                    return Ok("Default::default()".to_owned());
+                };
                 self.record_conversion_stack.borrow_mut().push(target);
-                let string_ty = self.type_id(Type::String)?;
-                let unknown_ty = self.type_id(Type::Unknown)?;
                 let adapter_result = self.string_dict_record_adapter_text(
                     "smelt_record_map",
                     string_ty,
