@@ -3284,6 +3284,55 @@ const selected = pick(1, "a");
 }
 
 #[test]
+fn infers_generic_param_from_array_arm_of_union_callback_return() -> Result<(), String> {
+    // remeda `flatMap<T, U>(data, cb: (…) => readonly U[] | U): U[]` maps then
+    // flattens one level. When the callback returns `number[]`, tsc infers
+    // `U = number` (structural inference from the `U[]` arm wins over binding
+    // the naked `U` arm to the whole array), so the result is a flat `number[]`.
+    // Union members are interned in canonical (sorted) order, so overload
+    // inference must prefer the structural arm regardless of spelling order and
+    // never greedily bind the bare type-parameter arm to `number[]` (which would
+    // make the result a nested `number[][]`). Regression for the remeda flatMap
+    // gate.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function flatMap<T, U>(
+  data: readonly T[],
+  callbackfn: (value: T, index: number, data: readonly T[]) => readonly U[] | U,
+): U[];
+function flatMap(...args: readonly unknown[]): unknown {
+  return args[0];
+}
+
+const result = flatMap([1, 2], (x) => [x * 2, x * 3]);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let result_ty = body
+        .locals
+        .iter()
+        .find(|local| local.name.and_then(|name| ctx.krate.names.get(name)) == Some("result"))
+        .map(|local| local.ty)
+        .ok_or_else(|| "expected `result` binding to lower".to_owned())?;
+    let Some(Type::List(item)) = ctx.krate.types.get(result_ty) else {
+        return Err(format!(
+            "expected flatMap result to be a list, got {:?}",
+            ctx.krate.types.get(result_ty)
+        ));
+    };
+    ensure!(
+        matches!(ctx.krate.types.get(*item), Some(Type::Float)),
+        "expected flatMap result to be a FLAT list of numbers (U = number), not a nested list: {:?}",
+        ctx.krate.types.get(*item)
+    );
+    Ok(())
+}
+
+#[test]
 fn extracts_structural_fields_from_referenced_generic_interfaces_and_pick() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

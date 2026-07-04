@@ -744,7 +744,7 @@ impl FunctionEmitter<'_> {
                     let limit_scrutinee = if self.concrete_union_members(*inner).is_some() {
                         format!("{limit_text}.map(|value| value.into_smelt_unknown())")
                     } else {
-                        limit_text.clone()
+                        limit_text
                     };
                     Ok(format!(
                         "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_scrutinee} {{ Some(SmeltUnknown::Number(value)) => Some(value), Some(SmeltUnknown::Null) | None => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"

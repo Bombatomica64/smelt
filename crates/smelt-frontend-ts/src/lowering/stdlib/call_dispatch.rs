@@ -2901,13 +2901,25 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Infer against the first compatible expected union member and keep its substitutions.
+    ///
+    /// Structural members are tried before a naked type-parameter arm. For a
+    /// signature like `readonly U[] | U` (remeda's `flatMap` callback return),
+    /// inferring from a `number[]` argument must destructure the `U[]` arm to
+    /// bind `U = number`, not greedily bind the bare `U` arm to the whole
+    /// `number[]`. This mirrors tsc, where inference from a naked type parameter
+    /// has lower priority than structural inference, and it is order-independent:
+    /// union members are interned in a canonical (sorted) order, so relying on
+    /// source spelling order here would be unstable.
     pub(in crate::lowering) fn infer_overload_union_branch(
         &mut self,
         expected_items: Vec<smelt_hir::TypeId>,
         actual: smelt_hir::TypeId,
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
-        for item in expected_items {
+        let (bare_params, structural): (Vec<_>, Vec<_>) = expected_items
+            .into_iter()
+            .partition(|item| matches!(self.ctx.krate.types.get(*item), Some(Type::TypeParam { .. })));
+        for item in structural.into_iter().chain(bare_params) {
             let mut branch_substitutions = substitutions.clone();
             if self.infer_overload_type(item, actual, &mut branch_substitutions) {
                 *substitutions = branch_substitutions;

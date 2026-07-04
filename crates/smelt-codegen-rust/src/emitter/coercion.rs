@@ -1867,7 +1867,21 @@ impl FunctionEmitter<'_> {
 
     /// Return whether `Option<T>` stores erased values that can carry explicit
     /// JavaScript singleton tags.
+    ///
+    /// This is only true when the `Option`'s payload is still stored as an erased
+    /// `SmeltUnknown` (a bare `unknown`, an unscoped type parameter, or an erased
+    /// host union), because such a payload can itself hold a `SmeltUnknown::Null`
+    /// / `SmeltUnknown::Undefined` singleton without collapsing the `Option`. A
+    /// *concrete* union inner (`Optional(string | RegExp)` lowered to
+    /// `Option<SmeltUnion…>`) does **not** qualify: the tagged enum has no arm for
+    /// `undefined`, so wrapping an erased `undefined` in `Some(from_smelt_unknown(…))`
+    /// would fabricate a bogus member and lose the `undefined`. Those must fall
+    /// through to the nullish-guarded extraction so `null`/`undefined` become
+    /// `None` (fixes remeda `truncate`'s `separator?: string | RegExp` default).
     pub(super) fn optional_inner_preserves_erased_singletons(&self, inner: TypeId) -> bool {
+        if self.concrete_union_members(inner).is_some() {
+            return false;
+        }
         matches!(
             self.mir.types.get(inner),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
