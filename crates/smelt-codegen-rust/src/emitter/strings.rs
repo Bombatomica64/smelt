@@ -424,9 +424,12 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(self.operand_ty(operand)?) {
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => Ok(text),
             Some(Type::String) => Ok(format!("SmeltRegExp::new({text}, String::new())")),
-            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => Ok(format!(
-                "match {text} {{ SmeltUnknown::String(value) => SmeltRegExp::new(value, String::new()), SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}), _ => SmeltRegExp::new(String::new(), String::new()) }}"
-            )),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
+                let scrutinee = self.erase_concrete_union_text(&text, self.operand_ty(operand)?);
+                Ok(format!(
+                    "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltRegExp::new(value, String::new()), SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}), _ => SmeltRegExp::new(String::new(), String::new()) }}"
+                ))
+            }
             _ => Ok(format!(
                 "SmeltRegExp::new({text}.to_string(), String::new())"
             )),
@@ -474,7 +477,8 @@ impl FunctionEmitter<'_> {
                 Ok(format!("{}.to_string()", self.operand_text(operand)?))
             }
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
-                let text = self.operand_text(operand)?;
+                let text = self
+                    .erase_concrete_union_text(&self.operand_text(operand)?, self.operand_ty(operand)?);
                 Ok(format!(
                     "match {text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
                 ))
@@ -496,8 +500,12 @@ impl FunctionEmitter<'_> {
                 ) || self.is_erased_class_type(*inner) =>
             {
                 let text = self.operand_text(operand)?;
+                // A concrete-union `Option` payload stores a tagged enum, so each
+                // present value projects back to `SmeltUnknown` before the erased
+                // string-coercion match.
+                let scrutinee = self.erase_concrete_union_text("value", *inner);
                 Ok(format!(
-                    "{text}.map_or_else(String::new, |value| match value {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
+                    "{text}.map_or_else(String::new, |value| match {scrutinee} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
                 ))
             }
             Some(Type::Tuple(_) | Type::Optional(_) | Type::Future(_)) => {
@@ -684,7 +692,8 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(self.operand_ty(separator)?),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
         ) {
-            let separator_unknown = self.operand_text(separator)?;
+            let separator_unknown = self
+                .erase_concrete_union_text(&self.operand_text(separator)?, self.operand_ty(separator)?);
             format!(
                 "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}"
             )
@@ -714,13 +723,25 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) =>
                 {
+                    // A concrete-union `Option` payload stores a tagged enum, so
+                    // project each present value back to `SmeltUnknown` before
+                    // matching the erased number arm.
+                    let limit_scrutinee = if self.concrete_union_members(*inner).is_some() {
+                        format!("{limit_text}.map(|value| value.into_smelt_unknown())")
+                    } else {
+                        limit_text.clone()
+                    };
                     Ok(format!(
-                        "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_text} {{ Some(SmeltUnknown::Number(value)) => Some(value), Some(SmeltUnknown::Null) | None => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"
+                        "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_scrutinee} {{ Some(SmeltUnknown::Number(value)) => Some(value), Some(SmeltUnknown::Null) | None => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"
                     ))
                 }
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(format!(
-                    "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_text} {{ SmeltUnknown::Number(value) => Some(value), SmeltUnknown::Null | SmeltUnknown::Undefined => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"
-                )),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                    let limit_scrutinee = self
+                        .erase_concrete_union_text(&limit_text, self.operand_ty(limit_operand)?);
+                    Ok(format!(
+                        "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_scrutinee} {{ SmeltUnknown::Number(value) => Some(value), SmeltUnknown::Null | SmeltUnknown::Undefined => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"
+                    ))
+                }
                 _ => Err(EmitError::new(
                     "string split limit must be numeric or optional numeric",
                 )),

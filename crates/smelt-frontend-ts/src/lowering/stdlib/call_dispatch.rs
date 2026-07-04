@@ -766,7 +766,20 @@ impl<'builder> ModuleBuilder<'builder> {
                 if substitutions.is_empty() {
                     return_ty
                 } else {
-                    self.substitute_type_params(return_ty, &substitutions)
+                    let substituted = self.substitute_type_params(return_ty, &substitutions);
+                    // A returned function with erased-unknown-rest parameters
+                    // (`(...args: unknown[]) => T`, e.g. `constant`) lowers to
+                    // the fully-erased `SmeltErasedFunction`, whose calls yield
+                    // `unknown` regardless of the declared payload. Concretizing
+                    // its return from the argument types would desync the value's
+                    // runtime shape (`SmeltErasedFunction::call -> unknown`) from
+                    // the concrete type its call sites would then expect, so keep
+                    // the erased signature for such curried generics.
+                    if self.renders_as_erased_function(substituted) {
+                        return_ty
+                    } else {
+                        substituted
+                    }
                 }
             } else {
                 return_ty
@@ -2675,6 +2688,36 @@ impl<'builder> ModuleBuilder<'builder> {
             )
             | None => false,
         }
+    }
+
+    /// Return whether `ty` is a function that Rust codegen renders as the
+    /// fully-erased `SmeltErasedFunction`.
+    ///
+    /// Mirrors the codegen predicate: a non-async, non-throwing function whose
+    /// single parameter is a rest list of erased items (`(...args: unknown[])
+    /// => …`). Such a value carries no static parameter or return shape at the
+    /// Rust ABI — every call returns `unknown` — so its declared return type
+    /// must stay erased to match the runtime representation.
+    fn renders_as_erased_function(&self, ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        if function.is_async || function.may_throw || function.rest != Some(0) {
+            return false;
+        }
+        if matches!(self.ctx.krate.types.get(function.return_ty), Some(Type::Future(_))) {
+            return false;
+        }
+        let [param] = function.params.as_slice() else {
+            return false;
+        };
+        let Some(Type::List(item)) = self.ctx.krate.types.get(*param) else {
+            return false;
+        };
+        matches!(
+            self.ctx.krate.types.get(*item),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
+        )
     }
 
     /// Return whether an inferred overload argument satisfies its `extends` surface.

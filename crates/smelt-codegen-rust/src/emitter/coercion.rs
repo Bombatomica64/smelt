@@ -1448,14 +1448,17 @@ impl FunctionEmitter<'_> {
         if let Some(check) = self.concrete_union_tag_check(&text, value_ty, kind) {
             return Ok(check);
         }
-        if matches!(
-            self.mir.types.get(value_ty),
-            Some(Type::Optional(_))
-        ) {
+        if let Some(&Type::Optional(inner)) = self.mir.types.get(value_ty) {
             if kind == smelt_hir::UnknownKind::Null {
                 return Ok(format!("{text}.is_none()"));
             }
-            let check = self.tag_check_raw("smelt_value", kind)?;
+            // A concrete-union `Option` payload is a tagged enum, so the present
+            // value is narrowed against its `SmeltUnion…` variants rather than
+            // erased `SmeltUnknown` tags.
+            let check = match self.concrete_union_tag_check("smelt_value", inner, kind) {
+                Some(check) => check,
+                None => self.tag_check_raw("smelt_value", kind)?,
+            };
             return Ok(format!(
                 "{text}.as_ref().is_some_and(|smelt_value| {check})"
             ));

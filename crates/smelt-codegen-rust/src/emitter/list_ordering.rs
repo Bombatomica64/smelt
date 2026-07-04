@@ -458,17 +458,30 @@ impl FunctionEmitter<'_> {
         default_text: &str,
     ) -> Result<String, EmitError> {
         let bound_text = self.operand_text(bound)?;
-        let index_text = match self.mir.types.get(self.operand_ty(bound)?) {
-            Some(Type::Optional(item)) => match self.mir.types.get(*item) {
+        let bound_ty = self.operand_ty(bound)?;
+        let index_text = match self.mir.types.get(bound_ty) {
+            Some(&Type::Optional(item)) => match self.mir.types.get(item) {
                 Some(Type::Int | Type::Float) => format!("{bound_text}.unwrap_or({default_text})"),
-                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => format!(
-                    "match {bound_text}.unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Number(value) => value, _ => {default_text} }}"
-                ),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
+                    // A concrete-union `Option` payload projects each present
+                    // value back to `SmeltUnknown` before the erased number match.
+                    let unwrapped = if self.concrete_union_members(item).is_some() {
+                        format!("{bound_text}.map(|value| value.into_smelt_unknown()).unwrap_or(SmeltUnknown::Null)")
+                    } else {
+                        format!("{bound_text}.unwrap_or(SmeltUnknown::Null)")
+                    };
+                    format!(
+                        "match {unwrapped} {{ SmeltUnknown::Number(value) => value, _ => {default_text} }}"
+                    )
+                }
                 _ => bound_text,
             },
-            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => format!(
-                "match {bound_text} {{ SmeltUnknown::Number(value) => value, _ => {default_text} }}"
-            ),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
+                let scrutinee = self.erase_concrete_union_text(&bound_text, bound_ty);
+                format!(
+                    "match {scrutinee} {{ SmeltUnknown::Number(value) => value, _ => {default_text} }}"
+                )
+            }
             _ => bound_text,
         };
         Ok(format!(

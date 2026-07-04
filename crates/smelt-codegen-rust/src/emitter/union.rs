@@ -55,6 +55,22 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Erase `value_text` to `SmeltUnknown` when its type is a concrete union.
+    ///
+    /// A concrete union stores a tagged `SmeltUnion…` enum, but JavaScript value
+    /// operations (string coercion, structural `match`/`matches!`, `typeof`,
+    /// property-key stringification) are emitted against `SmeltUnknown`. The
+    /// generated `into_smelt_unknown()` conversion projects the tagged enum back
+    /// to the erased value those operations expect. `value_text` must be an
+    /// owned expression (the conversion consumes `self`).
+    pub(super) fn erase_concrete_union_text(&self, value_text: &str, ty: TypeId) -> String {
+        if self.concrete_union_members(ty).is_some() {
+            format!("{value_text}.into_smelt_unknown()")
+        } else {
+            value_text.to_owned()
+        }
+    }
+
     /// Wrap a concrete value in the matching variant of a target union.
     pub(super) fn inject_union_value_text(
         &self,
@@ -65,13 +81,23 @@ impl FunctionEmitter<'_> {
         let Some(members) = self.concrete_union_members(target) else {
             return Ok(None);
         };
-        let Some(index) = members.iter().position(|member| *member == source) else {
-            return Ok(None);
-        };
-        Ok(Some(format!(
-            "{}::M{index}({value_text})",
-            union_name(target)
-        )))
+        if let Some(index) = members.iter().position(|member| *member == source) {
+            return Ok(Some(format!("{}::M{index}({value_text})", union_name(target))));
+        }
+        // An erased source (object-field read, erased return, nullish default)
+        // carries a `SmeltUnknown`; reconstruct the concrete union by routing the
+        // runtime value to its matching variant. `value_text` must be an owned
+        // `SmeltUnknown` expression (the reconstruction consumes it).
+        if matches!(
+            self.mir.types.get(source),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        ) {
+            return Ok(Some(format!(
+                "{}::from_smelt_unknown({value_text})",
+                union_name(target)
+            )));
+        }
+        Ok(None)
     }
 
     /// Project a guarded union value into a concrete member or narrower union.
@@ -172,6 +198,52 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// Return the `SmeltUnknown` variant pattern a concrete member reconstructs from.
+    ///
+    /// Reconstruction (`from_smelt_unknown`) routes an erased value to the union
+    /// arm whose runtime JavaScript category matches, so each member maps to the
+    /// `SmeltUnknown` discriminant its values carry at runtime.
+    fn union_member_unknown_pattern(&self, member: TypeId) -> &'static str {
+        match self.mir.types.get(member) {
+            Some(Type::Bool) => "SmeltUnknown::Bool(_)",
+            Some(Type::Int | Type::Float) => "SmeltUnknown::Number(_)",
+            Some(Type::String) => "SmeltUnknown::String(_)",
+            Some(Type::Function(_)) => "SmeltUnknown::Function(_)",
+            Some(Type::List(_) | Type::Tuple(_)) => "SmeltUnknown::Array(_)",
+            Some(Type::Future(_)) => "SmeltUnknown::Promise(_)",
+            Some(Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => "SmeltUnknown::Object(_)",
+            _ => "SmeltUnknown::Null | SmeltUnknown::Undefined",
+        }
+    }
+
+    /// Build the body of a union's `from_smelt_unknown` reconstruction.
+    ///
+    /// Erased values (object-field reads, erased returns, nullish-coalescing
+    /// defaults) reach a concrete-union destination and must be projected back
+    /// into the matching tagged variant. Each present value is routed by its
+    /// runtime discriminant to the member sharing that JavaScript category, then
+    /// extracted into the member's concrete Rust storage. The final member is the
+    /// total fallback so the reconstruction is exhaustive (tsc has already proven
+    /// the value inhabits the union).
+    pub(super) fn union_from_smelt_unknown_body(
+        &self,
+        members: &[TypeId],
+    ) -> Result<String, EmitError> {
+        let mut body = String::new();
+        for (index, member) in members.iter().enumerate() {
+            let extracted = self.extract_value_text("value", *member)?;
+            if index + 1 == members.len() {
+                body.push_str(&format!("        Self::M{index}({extracted})\n"));
+            } else {
+                let pattern = self.union_member_unknown_pattern(*member);
+                body.push_str(&format!(
+                    "        if matches!(value, {pattern}) {{ return Self::M{index}({extracted}); }}\n"
+                ));
+            }
+        }
+        Ok(body)
+    }
+
     /// Map a concrete HIR type to the JavaScript runtime category used by guards.
     fn union_member_matches_kind(&self, ty: TypeId, kind: smelt_hir::UnknownKind) -> bool {
         matches!(
@@ -240,6 +312,10 @@ pub(crate) fn emit_union_definitions(
             ));
         }
         output.push_str("        }\n    }\n}\n");
+        output.push_str(&format!("impl {name} {{\n"));
+        output.push_str("    fn from_smelt_unknown(value: SmeltUnknown) -> Self {\n");
+        output.push_str(&emitter.union_from_smelt_unknown_body(members)?);
+        output.push_str("    }\n}\n");
         output.push_str(&format!("impl PartialEq for {name} {{\n"));
         output.push_str("    fn eq(&self, other: &Self) -> bool {\n");
         output.push_str(

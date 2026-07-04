@@ -56,14 +56,18 @@ impl FunctionEmitter<'_> {
                     let field_name = self.symbol_source_name(*field)?;
                     let field_rule = smelt_stdlib::typescript_field_rule(field_name);
                     let base_text = self.local_value_text(*base)?;
+                    // A concrete-union receiver stores a tagged enum; project it
+                    // back to `SmeltUnknown` before the erased-object field match.
+                    let scrutinee =
+                        self.erase_concrete_union_text(&format!("{base_text}.clone()"), base_ty);
                     if field_rule == Some(smelt_stdlib::FieldRule::TsLength) {
                         return Ok(format!(
-                            "match {base_text}.clone() {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
+                            "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
                         ));
                     }
                     if field_rule == Some(smelt_stdlib::FieldRule::TsSort) {
                         return Ok(format!(
-                            "match {base_text}.clone() {{ SmeltUnknown::Array(value) => smelt_array_sort_method(value), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"sort\"), _ => SmeltUnknown::Null }}"
+                            "match {scrutinee} {{ SmeltUnknown::Array(value) => smelt_array_sort_method(value), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"sort\"), _ => SmeltUnknown::Null }}"
                         ));
                     }
                     // `AbortController`/`AbortSignal` methods are surfaced as
@@ -81,11 +85,11 @@ impl FunctionEmitter<'_> {
                             | "throwIfAborted"
                     ) {
                         return Ok(format!(
-                            "match {base_text}.clone() {{ SmeltUnknown::Object(map) if map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\") => smelt_abort_method(map, {field_name:?}), SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
+                            "match {scrutinee} {{ SmeltUnknown::Object(map) if map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\") => smelt_abort_method(map, {field_name:?}), SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                         ));
                     }
                     return Ok(format!(
-                        "match {base_text}.clone() {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
+                        "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                     ));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -623,8 +627,10 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) =>
             {
+                let scrutinee =
+                    self.erase_concrete_union_text(&format!("{index_text}.clone()"), index_ty);
                 format!(
-                    "match {index_text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
+                    "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
                 )
             }
             _ => "f64::NAN".to_owned(),
