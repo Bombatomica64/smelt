@@ -220,7 +220,11 @@ for (let ch: string of word) {
 }
 
 #[test]
-fn lowers_array_at_and_rejects_negative_bracket_index() -> Result<(), String> {
+fn distinguishes_array_at_from_negative_bracket_index() -> Result<(), String> {
+    // `.at(-1)` wraps to count from the end and lowers to optional indexing,
+    // whereas a negative bracket index `[-1]` is a JavaScript property lookup
+    // that yields `undefined`. The two must stay distinct: bracket access must
+    // not become `.at`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -229,25 +233,47 @@ const last = values.at(-1);
 "#),
         &mut ctx,
     )?;
-    let module = module(&ctx, module_id)?;
-    let body = module_body(&ctx, module)?;
+    let at_module = module(&ctx, module_id)?;
+    let at_body = module_body(&ctx, at_module)?;
 
     ensure!(
-        body.exprs
+        at_body
+            .exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::OptionalIndex { .. })),
         "array .at should lower to optional indexing"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
 
-    let errors = lowering_errors(
+    // A negative bracket index now lowers successfully to an optional `None`
+    // (undefined) rather than being rejected, and it does not emit an element
+    // `Index` access (i.e. it is not rewritten into `.at`).
+    let mut bracket_ctx = HirCtx::new();
+    let bracket_module_id = lower_ok(
         ts!(r#"
 const values: number[] = [1, 2, 3];
-const invalid = values[-1];
+const missing = values[-1];
 "#),
-        &mut HirCtx::new(),
+        &mut bracket_ctx,
     )?;
-    assert_unsupported_ts(&errors, "negative array/string bracket indexes")
+    let bracket_module = module(&bracket_ctx, bracket_module_id)?;
+    let bracket_body = module_body(&bracket_ctx, bracket_module)?;
+    ensure!(
+        bracket_body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::Literal(Literal::None))
+                && matches!(bracket_ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+        }),
+        "negative bracket index should lower to an optional None literal",
+    );
+    ensure!(
+        !bracket_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Index { .. })),
+        "negative bracket index must not emit an element Index access",
+    );
+    ensure!(smelt_hir::validate(&bracket_ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]

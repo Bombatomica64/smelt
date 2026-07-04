@@ -2373,6 +2373,25 @@ return_ty: function.return_ty,
     }
 
     /// Resolve a method call on a type.
+    ///
+    /// Concrete class receivers resolve to a real callable method item; the
+    /// second element of the returned tuple is that `ItemId`. Every other
+    /// receiver kind — records/dicts, interfaces, concrete unions, lists, sets,
+    /// functions, futures, and erased/builtin values such as `string` or
+    /// `number` — has no statically-resolvable class method item, so it lowers
+    /// through the shared dynamic-dispatch boundary and returns
+    /// `ItemId::MAX`.
+    ///
+    /// This boundary is intentionally uniform across non-class kinds: when a
+    /// method on such a receiver is not a modeled builtin (those are dispatched
+    /// earlier in `dispatch_builtin_call`), the call has no concrete method item
+    /// to bind and is erased to an `Unknown`-typed value stub by the caller,
+    /// exactly as unmodeled list/dict/union methods already are. Routing the
+    /// remaining primitive and structural receiver kinds through the same
+    /// boundary — rather than hard-erroring on them — keeps method-call lowering
+    /// general for every library without widening the receiver's own static
+    /// type. Only genuinely dynamic method calls end up here; concrete class
+    /// dispatch below is always preferred when the receiver is a class value.
     pub(in crate::lowering) fn resolve_method(
         &mut self,
         receiver_ty: smelt_hir::TypeId,
@@ -2380,26 +2399,12 @@ return_ty: function.return_ty,
         span: oxc::span::Span,
     ) -> Result<(smelt_hir::TypeId, smelt_hir::ItemId), SmeltError> {
         let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
-            if matches!(
-                self.ctx.krate.types.get(receiver_ty),
-                Some(
-                    Type::Unknown
-                        | Type::TypeParam { .. }
-                        | Type::Union(_)
-                        | Type::Dict(_, _)
-                        | Type::List(_)
-                        | Type::Set(_)
-                        | Type::Function(_)
-                        | Type::Future(_)
-                )
-            ) {
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
-                return Ok((ty, smelt_hir::ItemId(u32::MAX)));
-            }
-            return Err(SmeltError::unsupported(
-                self.span(span.start, span.end),
-                "method calls are only lowered for class values for now",
-            ));
+            // Non-class receiver: no concrete class method item exists. Fall to
+            // the dynamic-dispatch boundary so records, interfaces, concrete
+            // unions, and erased/builtin values (`string`, `number`, optionals,
+            // tuples, ...) all lower uniformly instead of being rejected.
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok((ty, smelt_hir::ItemId(u32::MAX)));
         };
         let Some(class) = self.class_by_symbol(name).cloned() else {
             if let Some(return_ty) =
@@ -2843,28 +2848,12 @@ return_ty: function.return_ty,
         Ok(resolved_index)
     }
 
-    /// Reject negative TypeScript bracket indexes before they reach Python-style HIR indexing.
-    pub(in crate::lowering) fn reject_negative_bracket_index(
-        &self,
-        receiver_ty: smelt_hir::TypeId,
-        index: smelt_hir::ExprId,
-        body: &Body,
-        span: oxc::span::Span,
-    ) -> Result<(), SmeltError> {
-        let uses_sequence_indexing = matches!(
-            self.ctx.krate.types.get(receiver_ty),
-            Some(Type::List(_) | Type::String | Type::Tuple(_))
-        );
-        if uses_sequence_indexing && Self::is_negative_numeric_expr(body, index) {
-            return Err(SmeltError::unsupported(
-                self.span(span.start, span.end),
-                "negative array/string bracket indexes are JavaScript property lookups; use .at(...) for negative element indexing",
-            ));
-        }
-        Ok(())
-    }
-
     /// Returns whether a lowered expression is a negative numeric literal.
+    ///
+    /// Used to recognize the JavaScript property-lookup class of bracket access
+    /// (`arr[-1]`, `arr[-(2)]`) so it can be lowered with `undefined`/no-op
+    /// semantics rather than element indexing. See the `negative_index` lowering
+    /// module for how reads and writes are lowered.
     pub(in crate::lowering) fn is_negative_numeric_expr(body: &Body, expr_id: smelt_hir::ExprId) -> bool {
         let Ok(expr_index) = usize::try_from(expr_id.0) else {
             return false;

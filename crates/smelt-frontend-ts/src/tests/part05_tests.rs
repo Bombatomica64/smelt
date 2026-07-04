@@ -559,6 +559,133 @@ const count = pair[1];
 }
 
 #[test]
+fn lowers_negative_array_bracket_read_to_undefined() -> Result<(), String> {
+    // `arr[-1]` is a JavaScript property lookup that never names an element, so
+    // it lowers to an honest optional `None` (undefined) instead of rejecting or
+    // wrapping like `.at(-1)`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const missing = values[-1];
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let none_index_read = body.exprs.iter().find(|expr| {
+        matches!(expr.kind, ExprKind::Literal(Literal::None))
+            && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+    });
+    ensure!(
+        none_index_read.is_some(),
+        "expected negative array bracket read to lower to an optional None literal",
+    );
+    // No element `Index` read should be emitted for the negative access.
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Index { .. })),
+        "negative array bracket read must not emit an element Index access",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_negative_string_bracket_read_to_undefined() -> Result<(), String> {
+    // `str[-1]` mirrors the array case: an out-of-range property lookup yields
+    // `undefined`, lowered to an optional `None`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const text = "hello";
+const missing = text[-1];
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::Literal(Literal::None))
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+        }),
+        "expected negative string bracket read to lower to an optional None literal",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_negative_tuple_bracket_read_to_undefined() -> Result<(), String> {
+    // A negative tuple bracket index is a property lookup too, so it lowers to
+    // undefined rather than a `TupleIndex` field access.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const pair: [string, number] = ["Ada", 1];
+const missing = pair[-1];
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::Literal(Literal::None))
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+        }),
+        "expected negative tuple bracket read to lower to an optional None literal",
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::TupleIndex { .. })),
+        "negative tuple bracket read must not emit a TupleIndex field access",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_negative_array_bracket_write_as_noop() -> Result<(), String> {
+    // `arr[-1] = value` sets a string-keyed property that does not change the
+    // array's elements, so the write is a no-op on the collection. The
+    // right-hand side is still evaluated (as a discarded expression statement)
+    // to preserve its side effects and no element assignment is produced.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+values[-1] = 99;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        !body.stmts.iter().any(|stmt| matches!(
+            stmt,
+            Stmt::Assign { target, .. }
+                if usize::try_from(target.0)
+                    .ok()
+                    .and_then(|index| body.exprs.get(index))
+                    .is_some_and(|expr| matches!(expr.kind, ExprKind::Index { .. }))
+        )),
+        "negative array bracket write must not emit an element assignment",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn rejects_dynamic_tuple_index() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(

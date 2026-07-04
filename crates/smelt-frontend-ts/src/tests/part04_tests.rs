@@ -2215,6 +2215,92 @@ function read(db: CallableObject): string | undefined {
 }
 
 #[test]
+fn lowers_unmodeled_method_call_on_builtin_receiver_through_dynamic_boundary()
+-> Result<(), String> {
+    // Issue #77: a method that is not a modeled builtin (`localeCompare`) on a
+    // primitive `string` receiver must lower through the shared dynamic-dispatch
+    // boundary instead of hard-erroring on "method calls are only lowered for
+    // class values". The concrete receiver keeps its `string` type; only the
+    // unresolved method result is erased, exactly as unmodeled list/dict methods
+    // already are.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function cmp(a: string, b: string): number {
+  a.localeCompare(b);
+  return a.length - b.length;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unmodeled_method_call_on_template_string_receiver() -> Result<(), String> {
+    // Issue #77 / radash `sort`: a template-literal string receiver hits the
+    // same non-class method-call path and must lower instead of aborting.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function cmp(a: string, b: string): number {
+  `${a}`.localeCompare(b);
+  return 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unmodeled_method_call_on_record_receiver() -> Result<(), String> {
+    // Issue #77: an unmodeled method reached on a `Record<string, T>` receiver
+    // lowers through the dynamic boundary rather than being rejected as a
+    // non-class value.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function touch(record: Record<string, number>): number {
+  (record as any).clearWeird();
+  return Object.keys(record).length;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unmodeled_method_call_on_concrete_union_receiver() -> Result<(), String> {
+    // Issue #77: an unmodeled method reached on a narrowed concrete-union arm
+    // lowers through the dynamic boundary; the function still returns a concrete
+    // value.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function measure(value: string | number): number {
+  if (typeof value === "string") {
+    value.localeCompare("x");
+    return value.length;
+  }
+  return value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_array_join_with_erased_instance_separator() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

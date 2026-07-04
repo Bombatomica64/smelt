@@ -89,6 +89,61 @@ console.log(Example.label);
 }
 
 #[test]
+fn build_lowers_negative_bracket_indexes_as_property_lookups() -> TestResult {
+    // Regression for issue #79: a negative (or otherwise out-of-range) bracket
+    // index is a JavaScript property lookup, not `.at(...)`. Reads yield
+    // `undefined`; a `arr[-1] = x` write sets a string-keyed property that does
+    // not change the array's elements, so it is a no-op on the collection while
+    // still evaluating its right-hand side. This program exercises array and
+    // string reads plus a negative write and asserts the runtime values.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-negative-bracket"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_negative_bracket"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "const array: number[] = [1, 2, 3];\n\
+array[-1] = 99;\n\
+const readNeg = array[-1];\n\
+const text = \"hi\";\n\
+const strNeg = text[-1];\n\
+console.log(array.length);\n\
+console.log(array[0]);\n\
+console.log(readNeg === undefined);\n\
+console.log(strNeg === undefined);\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"3\n1\ntrue\ntrue\n".to_owned(),
+        "unexpected stdout",
+    )?;
+
+    Ok(())
+}
+
+#[test]
 fn build_resolves_typescript_index_module_imports() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();
