@@ -7603,3 +7603,110 @@ function make(ctor: BoxConstructor): Box<number> {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+#[test]
+fn lowers_stdlib_method_call_inside_timer_callback_body() -> Result<(), String> {
+    // A statically-resolvable stdlib method call inside a callback body
+    // (`controller.abort()` in the `setTimeout` callback) is not modeled by the
+    // compact side-effect-free callback IR, which only lowers a bounded method
+    // table. Before issue #64 this surfaced the blocker
+    // "callback method `abort` is not lowered into closure bodies yet". The
+    // arrow-expression lowering now falls back to the full closure-body path,
+    // which routes the receiver through the general method-call lowering (the
+    // same path a non-callback `controller.abort()` uses). Mirrors es-toolkit's
+    // promise/delay.spec.ts `setTimeout(() => controller.abort(), 50)`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function abortLater(): void {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 50);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::Closure(closure) if closure_has_cfg_body(&ctx, closure)
+            ))
+        }),
+        "stdlib method call inside a callback body did not lower through a closure body"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_method_call_inside_map_callback_body() -> Result<(), String> {
+    // `date.getTime()` called inside a `.map()` callback is a statically-typed
+    // `Date` method that the compact callback IR does not model. The closure-body
+    // fallback lowers it through the general method-call path instead of
+    // surfacing "callback method `getTime` is not lowered into closure bodies
+    // yet". Mirrors es-toolkit's math/maxBy.spec.ts `date => date.getTime()`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function toTimes(dates: Date[]): number[] {
+  return dates.map((d) => d.getTime());
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::Closure(closure) if closure_has_cfg_body(&ctx, closure)
+            ))
+        }),
+        "Date method call inside a map callback did not lower through a closure body"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_captured_class_method_call_inside_map_callback_body() -> Result<(), String> {
+    // A captured class instance whose method is called inside a `.map()` callback
+    // body (`c.scaled(x)`, where `scaled` reads `this.base` through a local) must
+    // lower without the "callback method is not lowered into closure bodies yet"
+    // blocker. The receiver `c` is captured into the synthesized closure and the
+    // method is dispatched with the callback's element argument.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Counter {
+  base: number;
+  constructor(b: number) {
+    this.base = b;
+  }
+  scaled(x: number): number {
+    const factor = this.base;
+    return x * factor;
+  }
+}
+
+export function scaleAll(xs: number[]): number[] {
+  const c = new Counter(2);
+  return xs.map((x) => c.scaled(x));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::Closure(closure) if !closure.captures.is_empty()
+            ))
+        }),
+        "captured class method callback did not produce a capturing closure"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
