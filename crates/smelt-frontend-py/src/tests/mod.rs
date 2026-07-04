@@ -155,3 +155,5 @@ mod collections_reject_b_tests;
 mod packages_tests;
 mod pytest_tests;
 mod specialization_tests;
+#[cfg(feature = "ty")]
+mod ty_resolution_tests;
