@@ -296,6 +296,11 @@ impl ModuleBuilder<'_> {
         for field in materialized.fields.iter().filter(|field| !field.is_static) {
             let name = self.intern_name(&field.name);
             let ty = self.materialized_static_type(&field.ty);
+            // Keep the optional flag in sync with the interned type: a
+            // materialized field whose type is `Type::Optional` is an optional
+            // data field, matching how the ordinary `AnnAssign` path records
+            // `Optional[T]` / `T | None` fields.
+            let optional = matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)));
             let lowered = Field {
                 name,
                 ty,
@@ -304,7 +309,7 @@ impl ModuleBuilder<'_> {
                 } else {
                     Visibility::Public
                 },
-                optional: false,
+                optional,
                 span,
             };
             if let Some(existing) = fields.iter_mut().find(|existing| existing.name == name) {

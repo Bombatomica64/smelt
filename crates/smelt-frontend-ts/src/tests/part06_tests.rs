@@ -103,15 +103,51 @@ class User implements Named {
 
 #[test]
 fn lowers_optional_class_fields() -> Result<(), String> {
+    // An optional class field (`name?: string`) records `optional: true` and
+    // interns its type as `Type::Optional`, while a required field stays
+    // concrete. Rust codegen relies on the `Type::Optional` wrapper to emit
+    // `Option<T>` for the optional slot only.
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!("class User {
+  id: string;
   name?: string;
-  constructor() {}
+  constructor(id: string) {
+    this.id = id;
+  }
 }
 "),
         &mut ctx,
     )?;
+    let class = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Class(class) => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| "missing class item".to_owned())?;
+    let id_field = class
+        .fields
+        .iter()
+        .find(|field| ctx.krate.symbols.get(field.name) == Some("id"))
+        .ok_or_else(|| "missing field id".to_owned())?;
+    let name_field = class
+        .fields
+        .iter()
+        .find(|field| ctx.krate.symbols.get(field.name) == Some("name"))
+        .ok_or_else(|| "missing field name".to_owned())?;
+    ensure!(!id_field.optional);
+    ensure!(!matches!(
+        ctx.krate.types.get(id_field.ty),
+        Some(Type::Optional(_))
+    ));
+    ensure!(name_field.optional);
+    ensure!(matches!(
+        ctx.krate.types.get(name_field.ty),
+        Some(Type::Optional(_))
+    ));
     Ok(())
 }
 
