@@ -763,15 +763,18 @@ impl ModuleBuilder<'_> {
     ///
     /// Shared by the `new X(...)` constructor dispatch (to choose the marker to
     /// stamp) and by `instanceof X` lowering (to know the target is modeled).
-    /// Keeping the mapping in one place stops the construct side and the
-    /// `instanceof` side from drifting.
+    /// The mapping lives in the shared `smelt_stdlib::host_object` registry so the
+    /// construct side, the `instanceof` side, and the runtime host-marker registry
+    /// cannot drift. "Marker-only" here means host objects with no retained
+    /// structural fields (`WeakMap`/`WeakSet`/`DataView`/`SharedArrayBuffer`/
+    /// `File`); host objects with retained fields (`ArrayBuffer`, `Blob`, boxed
+    /// primitives, `DOMException`) have their own dedicated constructors and are
+    /// excluded here even though they share the registry.
     pub(crate) fn marker_only_builtin_marker(name: &str) -> Option<&'static str> {
         match name {
-            "WeakMap" => Some("__smelt_weakmap"),
-            "WeakSet" => Some("__smelt_weakset"),
-            "DataView" => Some("__smelt_dataview"),
-            "SharedArrayBuffer" => Some("__smelt_sharedarraybuffer"),
-            "File" => Some("__smelt_file"),
+            "WeakMap" | "WeakSet" | "DataView" | "SharedArrayBuffer" | "File" => {
+                smelt_stdlib::host_object_marker(name)
+            }
             _ => None,
         }
     }

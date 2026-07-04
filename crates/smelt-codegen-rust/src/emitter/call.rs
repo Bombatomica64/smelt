@@ -1051,19 +1051,18 @@ impl FunctionEmitter<'_> {
         // / `SmeltUnknown::String` (never an `Object`), so the marker check is the
         // correct `false`, while a boxed wrapper object carrying the dedicated
         // marker resolves to `true`.
+        // AbortController/AbortSignal keep their own markers (they are runtime
+        // primitives, not host-object registry entries). Every other modeled host
+        // object and boxed primitive wrapper resolves its marker through the
+        // shared `smelt_stdlib::host_object` registry, so this `instanceof` path
+        // cannot drift from the frontend construction path or the runtime for-in
+        // filter. (`ArrayBuffer`/`Blob`/`Number` are already handled by dedicated
+        // branches above; sourcing them here too is harmless since those
+        // short-circuit first.)
         let abort_marker = match class_name {
             "AbortController" => Some("__smelt_abortcontroller"),
             "AbortSignal" => Some("__smelt_abortsignal"),
-            "WeakMap" => Some("__smelt_weakmap"),
-            "WeakSet" => Some("__smelt_weakset"),
-            "DataView" => Some("__smelt_dataview"),
-            "SharedArrayBuffer" => Some("__smelt_sharedarraybuffer"),
-            "File" => Some("__smelt_file"),
-            "DOMException" => Some("__smelt_domexception"),
-            "Boolean" => Some("__smelt_boolean"),
-            "String" => Some("__smelt_string"),
-            "Symbol" => Some("__smelt_symbol"),
-            _ => None,
+            _ => smelt_stdlib::host_object_marker(class_name),
         };
         if let Some(marker) = abort_marker {
             let value_is_dynamic = matches!(

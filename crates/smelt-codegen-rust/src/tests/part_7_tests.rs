@@ -4127,6 +4127,61 @@ fn instanceof_boxed_primitive_wrapper_emits_marker_check() {
 }
 
 #[test]
+fn runtime_host_marker_registry_hides_boxed_primitive_wrappers() {
+    // The runtime `for...in` / `Object.keys` filter (`smelt_object_has_host_marker`
+    // / `smelt_record_has_host_marker`) is generated from the shared
+    // `smelt_stdlib::host_object` registry. It must include the boxed-primitive
+    // markers (`__smelt_boolean`, `__smelt_string`, `__smelt_symbol`) so a boxed
+    // wrapper object never leaks its internal marker key as an enumerable
+    // property — a case the previously hand-maintained list omitted for
+    // `__smelt_boolean`/`__smelt_string`/`__smelt_symbol`.
+    let source = source_for("export function f(value: any): boolean { return value instanceof Boolean; }");
+    let host_marker_fn = source
+        .split("fn smelt_object_has_host_marker(")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .expect("missing smelt_object_has_host_marker helper");
+    for marker in [
+        "__smelt_arraybuffer",
+        "__smelt_weakmap",
+        "__smelt_number",
+        "__smelt_boolean",
+        "__smelt_string",
+        "__smelt_symbol",
+    ] {
+        assert!(
+            host_marker_fn.contains(&format!("\"{marker}\"")),
+            "runtime host-marker registry must include `{marker}`:\n{host_marker_fn}"
+        );
+    }
+}
+
+/// The private host-marker array builder emits every registry marker plus the
+/// runtime-owned abort/namespace markers, so the frontend construction path, the
+/// `instanceof` codegen path, and this runtime filter share one source of truth.
+#[test]
+fn host_marker_registry_array_covers_registry_and_runtime_markers() {
+    let array = host_marker_registry_array();
+    for marker in smelt_stdlib::host_object_markers() {
+        assert!(
+            array.contains(&format!("\"{marker}\"")),
+            "host-marker array missing registry marker `{marker}`: {array}"
+        );
+    }
+    for marker in [
+        "__smelt_abortcontroller",
+        "__smelt_abortsignal",
+        "__smelt_builtin_namespace",
+        "__smelt_global_object",
+    ] {
+        assert!(
+            array.contains(&format!("\"{marker}\"")),
+            "host-marker array missing runtime marker `{marker}`: {array}"
+        );
+    }
+}
+
+#[test]
 fn set_interval_registers_repeating_timer_and_clear_interval_cancels() {
     // `setInterval`/`clearInterval` must lower onto the same virtual-time timer
     // queue as `setTimeout`, with the interval re-arming itself after each fire.
