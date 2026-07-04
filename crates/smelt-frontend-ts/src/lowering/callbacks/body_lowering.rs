@@ -62,11 +62,64 @@ impl ModuleBuilder<'_> {
                 result
             }
             Statement::IfStatement(if_stmt) => {
-                if if_stmt.alternate.is_some() {
-                    return Err(SmeltError::unsupported(
+                // A callback `if/else` where both arms terminate with a value
+                // (`if (c) { return a; } else { return b; }`) is a direct
+                // conditional expression: lower each arm as a terminating
+                // statement and reconcile the two branch types the same way a
+                // ternary does. When an arm does not terminate — e.g. it mutates
+                // a captured local or the callback parameter and then falls
+                // through to shared trailing statements (`if (c) { value = x; }
+                // else if (d) { value = y; } ... return value;`) — the compact
+                // side-effect-free callback IR cannot model the assignment, so
+                // surface a fallback-eligible error that retries the whole arrow
+                // through full closure-body lowering (which makes parameters
+                // mutable locals and lowers `if/else if` chains natively).
+                if let Some(alternate) = &if_stmt.alternate {
+                    // The direct-conditional form requires both arms to be the
+                    // final statement (nothing after the `if/else`) and to
+                    // terminate with a value. Any other shape — trailing
+                    // statements after the `if/else`, or an arm that mutates a
+                    // local/parameter instead of returning — cannot be modeled by
+                    // the compact IR, so surface the fallback-eligible error
+                    // (`should_fallback_to_closure_body_for_callback`) that
+                    // retries the whole arrow through full closure-body lowering.
+                    let fallback_error = SmeltError::unsupported(
                         self.span(if_stmt.span.start, if_stmt.span.end),
                         "callback if/else blocks need direct conditional expression lowering",
-                    ));
+                    );
+                    if !rest.is_empty() {
+                        return Err(fallback_error);
+                    }
+                    let cond = self.callback_truthy_expression(&if_stmt.test, params, body)?;
+                    let mut then_params =
+                        self.callback_params_with_guard_narrowing(params, &if_stmt.test);
+                    let Ok(then_expr) = self.callback_terminating_statement(
+                        &if_stmt.consequent,
+                        &mut then_params,
+                        body,
+                    ) else {
+                        return Err(fallback_error);
+                    };
+                    let mut else_params = params.clone();
+                    let Ok(else_expr) =
+                        self.callback_terminating_statement(alternate, &mut else_params, body)
+                    else {
+                        return Err(fallback_error);
+                    };
+                    let (then_expr, else_expr, ty) = self.callback_unify_conditional_exprs(
+                        then_expr,
+                        else_expr,
+                        if_stmt.span.start,
+                        if_stmt.span.end,
+                    )?;
+                    return Ok(CallbackExpr {
+                        kind: CallbackExprKind::Conditional {
+                            cond: Box::new(cond),
+                            then_expr: Box::new(then_expr),
+                            else_expr: Box::new(else_expr),
+                        },
+                        ty,
+                    });
                 }
                 let cond = self.callback_truthy_expression(&if_stmt.test, params, body)?;
                 let then_expr =

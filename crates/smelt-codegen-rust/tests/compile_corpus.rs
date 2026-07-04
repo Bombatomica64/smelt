@@ -181,6 +181,44 @@ function collectIndices(values: number[]): number[] {
 }
 ",
         },
+        Case {
+            name: "callback_conditional_branches",
+            area: "closures",
+            // Callback bodies whose `cond ? a : b` / `if`-`else` branches lower
+            // to different concrete Rust types must reconcile to a single lowered
+            // type and compile. `classify` is a value-yielding `if/else` lowered
+            // as a direct conditional; `widen` is a ternary whose list branches
+            // have different element types; `normalize` mutates the callback
+            // parameter in an `if/else if` chain and must fall back to a full
+            // closure body. Mirrors es-toolkit `keys`/`fill`/`toFinite` mappers.
+            source: r#"
+function classify(values: number[]): string[] {
+  return values.map((value) => {
+    if (value > 0) {
+      return "pos";
+    } else {
+      return "nonpos";
+    }
+  });
+}
+
+function widen(values: (string | undefined)[]): (string | number)[][] {
+  return values.map((value) => (value === undefined ? ["a"] : [1, 2, 3]));
+}
+
+function normalize(values: number[]): number[][] {
+  return values.map((value) => {
+    if (value === 0) {
+      value = 1;
+    } else if (value !== value) {
+      value = 0;
+    }
+    const neg = value === 0 ? 0 : -value;
+    return [value, neg];
+  });
+}
+"#,
+        },
         // --- string / list operations ----------------------------------------
         Case {
             name: "list_collection",
@@ -361,6 +399,23 @@ function note(prefix: string, suffix?: string): void {
   console.log(prefix);
 }
 setTimeout(note, 10, "with-optional", "extra");
+"#,
+        },
+        Case {
+            // Issue #73: exported consts initialized from member expressions
+            // beyond well-known Number/Math constants. Builtin `.prototype`
+            // members and bound builtin methods are erased boundaries that lower
+            // to `SmeltUnknown`; a numeric alias and an object-const field keep
+            // their concrete value. All must emit Rust that compiles.
+            name: "exported_const_member_expressions",
+            area: "exported_consts",
+            source: r#"
+export const MAX_INTEGER = Number.MAX_VALUE;
+export const arrayProto = Array.prototype;
+export const slice = Array.prototype.slice;
+export const objectProto = Object.prototype;
+const limits = { lower: 1, upper: 640 } as const;
+export const UPPER_LIMIT = limits.upper;
 "#,
         },
         Case {

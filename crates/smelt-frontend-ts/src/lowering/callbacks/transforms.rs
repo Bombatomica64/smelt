@@ -244,6 +244,24 @@ impl ModuleBuilder<'_> {
     }
 
     /// Compute the result type of a callback conditional expression.
+    ///
+    /// Callback ternaries/`if`-`else` reconcile their two branch types with the
+    /// exact same rules as an ordinary (non-callback) conditional expression:
+    /// this delegates to [`Self::conditional_branch_type`] so both paths share a
+    /// single reconciliation policy (numeric widening, `List<A>`/`List<B>`
+    /// element unification into a concrete `List<A | B>`, union-contains-branch,
+    /// nullish/`Optional` folding, function-branch merging, and only widening to
+    /// `unknown` when a branch is genuinely erased). A few callback-only branch
+    /// pairs are handled first because their compact-IR types encode facts the
+    /// general path does not need to special-case:
+    ///
+    /// - `Never` (a throwing branch) collapses to the other branch's type.
+    /// - non-nullish narrowing (`opt !== undefined ? opt : fallback`) where the
+    ///   narrowed branch equals the non-optional peer keeps the optional type.
+    ///
+    /// It then forwards to the shared reconciler with no contextual type hint,
+    /// so a callback branch mismatch that the general path cannot merge surfaces
+    /// there instead of through a callback-specific error.
     pub(in crate::lowering) fn callback_conditional_type(
         &mut self,
         then_ty: smelt_hir::TypeId,
@@ -260,15 +278,6 @@ impl ModuleBuilder<'_> {
         if self.ctx.krate.types.get(else_ty) == Some(&Type::Never) {
             return Ok(then_ty);
         }
-        if self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
-            || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
-            || self.type_contains_unknown(then_ty)
-            || self.type_contains_unknown(else_ty)
-            || self.erased_or_union_surface(then_ty)
-            || self.erased_or_union_surface(else_ty)
-        {
-            return Ok(self.ctx.krate.types.intern(Type::Unknown));
-        }
         if let Some(inner) = self.non_nullish_type(then_ty)
             && inner == else_ty
         {
@@ -279,16 +288,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(else_ty);
         }
-        if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
-            return Ok(self.ctx.krate.types.intern(Type::Optional(then_ty)));
-        }
-        if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
-            return Ok(self.ctx.krate.types.intern(Type::Optional(else_ty)));
-        }
-        Err(SmeltError::unsupported(
-            self.span(start, end),
-            "callback conditional expression branches must have compatible lowered types",
-        ))
+        self.conditional_branch_type(then_ty, else_ty, None, start, end)
     }
 
     /// Lower `value === undefined/null` checks inside callback expressions.
