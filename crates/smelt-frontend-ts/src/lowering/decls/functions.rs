@@ -789,18 +789,35 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Build a deterministic synthetic name for an anonymous class expression.
+    ///
+    /// Anonymous classes have no source identifier, but the rest of the class
+    /// lowering pipeline keys every class on a name (`self.classes`, the interned
+    /// `Type::Class` symbol, field/method metadata). The class span start offset
+    /// is unique within a module, so `__smelt_anon_class_<offset>` gives a stable,
+    /// collision-free name without threading a mutable counter through lowering.
+    fn anonymous_class_name(class: &oxc::ast::ast::Class<'_>) -> String {
+        format!("__smelt_anon_class_{}", class.span.start)
+    }
+
     /// Lower a class declaration to HIR.
+    ///
+    /// Anonymous classes (`class {}` in an expression position) are named with a
+    /// deterministic synthetic identifier so they register like a declared class
+    /// and can be referenced as a class value; see [`Self::anonymous_class_name`].
     pub(in crate::lowering) fn class_declaration(
         &mut self,
         class: &oxc::ast::ast::Class<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let id = class.id.as_ref().ok_or_else(|| {
-            SmeltError::unsupported(
-                self.span(class.span.start, class.span.end),
-                "anonymous classes are not lowered yet",
-            )
-        })?;
-        let class_text = id.name.as_str();
+        // Named classes use their source identifier; anonymous class expressions
+        // fall back to a synthetic name so the class still registers and can be
+        // referenced as a value. The name is owned here and borrowed as
+        // `class_text` for the rest of lowering.
+        let class_name_owned = class.id.as_ref().map_or_else(
+            || Self::anonymous_class_name(class),
+            |id| id.name.to_string(),
+        );
+        let class_text = class_name_owned.as_str();
         let class_span = self.span(class.span.start, class.span.end);
         let materialized = self.materialized_class(class_text).cloned();
         if !class.decorators.is_empty() && materialized.is_none() {
@@ -1330,6 +1347,40 @@ impl ModuleBuilder<'_> {
         self.classes.insert(class_text.to_owned(), item);
         self.validate_implements(item)?;
         Ok(item)
+    }
+
+    /// Lower a class *expression* used in value position into a class value.
+    ///
+    /// A class expression (`class Foo {}` or anonymous `class {}` used as an
+    /// operand, e.g. an array element `[class {}]`) evaluates to the class
+    /// constructor. We lower it through the same [`Self::class_declaration`]
+    /// pipeline so the class is registered (fields, methods, constructor, and a
+    /// `Type::Class` symbol) exactly like a declared class, then materialize the
+    /// class value the same way a bare class-name identifier does in
+    /// `identifier_expression`: a `Literal::None` placeholder typed as the class
+    /// so downstream code carries the class identity through the type.
+    pub(in crate::lowering) fn class_expression_value(
+        &mut self,
+        class: &oxc::ast::ast::Class<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let item = self.class_declaration(class)?;
+        let Item::Class(lowered) = self.item_ref(item) else {
+            return Err(SmeltError::unsupported(
+                self.span(class.span.start, class.span.end),
+                "class expression did not lower to a class item",
+            ));
+        };
+        let name = lowered.name;
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            ty,
+            span: self.span(class.span.start, class.span.end),
+        }))
     }
 
     /// Collect class method signatures before lowering method bodies.

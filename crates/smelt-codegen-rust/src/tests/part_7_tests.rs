@@ -5942,3 +5942,107 @@ function opt(record: Record<string, unknown>): boolean | number {
         "an erased value flowing into a concrete-union sink must be reconstructed: {source}"
     );
 }
+
+#[test]
+fn lowers_function_expression_array_callback() {
+    // A `function (...) { ... }` expression callback (issue #86) must lower into
+    // the array method's callback closure just like the equivalent arrow, rather
+    // than being rejected with "array callback methods currently require arrow
+    // function callbacks". `source_for` panics on any blocker, so reaching
+    // codegen proves the non-arrow form was accepted.
+    let source = source_for(
+        r#"
+function increment(values: number[]): number[] {
+  return values.map(function (value) {
+    return value + 1;
+  });
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+}
+
+#[test]
+fn falls_back_to_closure_body_for_function_expression_callback() {
+    // A `function`-expression callback whose body uses a statement form the
+    // compact callback IR cannot represent (here `try`/`catch`) must retry
+    // through full closure-body lowering, exactly as the arrow form does. Before
+    // issue #86 the closure-body fallback was gated on the argument being an
+    // arrow, so this rejected the file.
+    let source = source_for(
+        r#"
+function run(values: string[]): Array<string | undefined> {
+  return values.map(function (value) {
+    try {
+      return value;
+    } catch (error) {
+      return undefined;
+    }
+  });
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+}
+
+#[test]
+fn lowers_named_function_item_array_callback() {
+    // A bare identifier naming a module-level function item (`values.map(square)`)
+    // must lower into the callback closure by calling the function by name, with
+    // its typed signature preserved (issue #86).
+    let source = source_for(
+        r#"
+function square(value: number): number {
+  return value * value;
+}
+
+function squares(values: number[]): number[] {
+  return values.map(square);
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+    assert!(source.contains("square"), "{source}");
+}
+
+#[test]
+fn lowers_local_function_variable_array_callback() {
+    // A local/parameter binding whose static type is a `Type::Function`, handed
+    // to an array method by name (`values.map(transform)`), must lower into the
+    // callback closure by calling the captured local (issue #86).
+    let source = source_for(
+        r#"
+function scale(values: number[]): number[] {
+  const transform = (value: number): number => value * 3;
+  return values.map(transform);
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+}
+
+#[test]
+fn lowers_asserted_identifier_array_callback() {
+    // A named callback wrapped in an erased TypeScript assertion
+    // (`values.map(square as (value: number) => number)`) must resolve through
+    // the same named-reference path as the unwrapped form, so the assertion is
+    // transparent instead of hitting the arrow-only gate (issue #86).
+    let source = source_for(
+        r#"
+function square(value: number): number {
+  return value * value;
+}
+
+function squares(values: number[]): number[] {
+  return values.map(square as (value: number) => number);
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+    assert!(source.contains("square"), "{source}");
+}
