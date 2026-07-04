@@ -6,6 +6,13 @@ edition.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Forward the Python frontend's `ty` feature so the compile corpus can exercise
+# annotation-free Python that lowers via `ty`-resolved types (issue #93). OFF by
+# default so the default build stays lean; CI runs the corpus with `--features
+# ty` alongside `--ignored`.
+ty = ["smelt-frontend-py/ty"]
+
 [dependencies]
 smelt-mir = { path = "../smelt-mir" }
 smelt-hir = { path = "../smelt-hir" }

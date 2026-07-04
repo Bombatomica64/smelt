@@ -6,6 +6,13 @@ edition.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Resolve Python types via Astral's `ty` instead of requiring explicit
+# annotations (issue #93). OFF by default so `cargo build`/`cargo install`
+# stay lean; build the CLI with `--features ty` to enable ty-backed Python
+# type resolution end to end.
+ty = ["smelt-frontend-py/ty"]
+
 [[bin]]
 name = "smelt"
 path = "src/main.rs"

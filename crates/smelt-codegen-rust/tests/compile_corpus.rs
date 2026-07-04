@@ -51,6 +51,11 @@ use smelt_codegen_rust::{CrateKind, EmitOptions, emit_crate};
 use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::FileId;
 
+// The Python corpus is only built with the `ty` feature, where annotation-free
+// Python resolves its types via `ty` (issue #93).
+#[cfg(feature = "ty")]
+use smelt_frontend_py::{HirCtx as PyHirCtx, to_hir_with_path as py_to_hir_with_path};
+
 /// A recorded corpus failure: `(area, case name, captured error text)`.
 type CorpusFailure = (String, String, String);
 
@@ -898,6 +903,55 @@ fn emit_case_crate(case: &Case, crate_dir: &Path) -> Result<(), String> {
     emit_crate(&mir, crate_dir, &options).map_err(|err| format!("crate emission failed: {err}"))
 }
 
+/// Python corpus: annotation-free source that only lowers because `ty`
+/// resolves the return types (issue #93).
+///
+/// Each function omits its `-> T` return annotation; without the `ty` feature
+/// the Python frontend would reject these with "must have an explicit return
+/// type annotation". With `ty`, the return type is inferred from the body and
+/// the program lowers and compiles.
+#[cfg(feature = "ty")]
+fn python_corpus() -> Vec<Case> {
+    vec![Case {
+        name: "py_inferred_returns",
+        area: "py_ty_return_inference",
+        // No function carries a `-> T`; `ty` infers int/str/bool from the
+        // bodies. Parameters keep annotations (unannotated params stay an
+        // explicit boundary — a documented deferral).
+        source: r"
+def inc(x: int):
+    return x + 1
+
+def label(name: str):
+    return 'hi ' + name
+
+def at_least_ten(n: int):
+    return n >= 10
+
+def total(values: list[int]):
+    result = 0
+    for value in values:
+        result = result + value
+    return result
+",
+    }]
+}
+
+/// Lowers a Python corpus `case` through the real Python pipeline (with `ty`
+/// type resolution) and emits a full program crate into `crate_dir`.
+#[cfg(feature = "ty")]
+fn emit_python_case_crate(case: &Case, crate_dir: &Path) -> Result<(), String> {
+    let mut ctx = PyHirCtx::new();
+    py_to_hir_with_path(case.source, FileId(0), "corpus/main.py", &mut ctx)
+        .map_err(|err| format!("Python HIR lowering failed: {err:?}"))?;
+    let mut mir =
+        smelt_mir::lower_hir(&ctx.krate).map_err(|err| format!("MIR lowering failed: {err:?}"))?;
+    smelt_mir::opt::optimize(&mut mir);
+    let options = EmitOptions::new(format!("smelt_corpus_{}", case.name))
+        .with_crate_kind(CrateKind::Program);
+    emit_crate(&mir, crate_dir, &options).map_err(|err| format!("crate emission failed: {err}"))
+}
+
 /// Runs `cargo check` on the emitted crate at `crate_dir`, sharing the given
 /// `target_dir` so corpus crates reuse compiled dependencies.
 ///
@@ -965,6 +1019,25 @@ fn corpus_emitted_rust_compiles() {
         }
         let crate_dir = crates_dir.join(case.name);
         if let Err(err) = emit_case_crate(&case, &crate_dir) {
+            failures.push((case.area.to_owned(), case.name.to_owned(), err));
+            continue;
+        }
+        if let Err(err) = cargo_check(&crate_dir, &target_dir) {
+            failures.push((case.area.to_owned(), case.name.to_owned(), err));
+        }
+    }
+
+    // Python corpus (only when built with `--features ty`): annotation-free
+    // Python whose return types are resolved by `ty` (issue #93).
+    #[cfg(feature = "ty")]
+    for case in python_corpus() {
+        if let Some(only_name) = &only
+            && case.name != only_name
+        {
+            continue;
+        }
+        let crate_dir = crates_dir.join(case.name);
+        if let Err(err) = emit_python_case_crate(&case, &crate_dir) {
             failures.push((case.area.to_owned(), case.name.to_owned(), err));
             continue;
         }

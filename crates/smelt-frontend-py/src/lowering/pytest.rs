@@ -126,15 +126,23 @@ impl ModuleBuilder<'_> {
         let name = self.intern_name(name_str);
 
         // Return type — required except for pytest test functions, where an
-        // omitted annotation is treated as `-> None`.
-        let annotated_return_ty = match func.returns.as_deref() {
-            Some(annotation) => self.annotation_to_hir(annotation)?,
-            None if self.is_pytest_test_function(func) => self.intern_type(Type::None),
-            None => {
-                return Err(SmeltError::type_constraint(
-                    self.span(func.range),
-                    format!("function '{name_str}' must have an explicit return type annotation"),
-                ));
+        // omitted annotation is treated as `-> None`. `resolve_return_ty`
+        // reconciles any declared annotation with `ty`'s inferred *actual*
+        // returned type (issue #93), preferring the accurate type. Only a
+        // genuinely unresolved, unannotated case falls through to the error.
+        let annotated_return_ty = if self.is_pytest_test_function(func) && func.returns.is_none() {
+            self.intern_type(Type::None)
+        } else {
+            match self.resolve_return_ty(func, func.returns.as_deref()) {
+                Some(ty) => ty,
+                None => {
+                    return Err(SmeltError::type_constraint(
+                        self.span(func.range),
+                        format!(
+                            "function '{name_str}' must have an explicit return type annotation"
+                        ),
+                    ));
+                }
             }
         };
         let return_ty = if func.is_async {
@@ -210,18 +218,17 @@ impl ModuleBuilder<'_> {
                 continue;
             }
 
-            let param_ty = p
-                .annotation
-                .as_deref()
-                .ok_or_else(|| {
+            let param_ty = match p.annotation.as_deref() {
+                Some(ann) => self.annotation_to_hir(ann)?,
+                None => self.resolved_param_ty(p).ok_or_else(|| {
                     SmeltError::type_constraint(
                         self.span(p.range),
                         format!(
                             "parameter '{param_name_str}' must have an explicit type annotation"
                         ),
                     )
-                })
-                .and_then(|ann| self.annotation_to_hir(ann))?;
+                })?,
+            };
 
             let param_name = self.intern_name(param_name_str);
             let local = fn_body.push_local(LocalDecl {

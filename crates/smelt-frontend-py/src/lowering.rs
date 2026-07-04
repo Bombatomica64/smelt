@@ -84,6 +84,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     function_variadics: HashMap<String, FunctionVariadics>,
     /// Materialized final bindings for this source module.
     specialization: Option<SpecializationData>,
+    /// `ty`-resolved types for this module (empty unless the `ty` feature is on).
+    resolved_types: crate::ty_resolve::ResolvedTypes,
 }
 
 /// A local Python lambda value that can be consumed by callback APIs without escaping.
@@ -231,7 +233,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             local_callbacks: HashMap::new(),
             function_variadics: HashMap::new(),
             specialization,
+            resolved_types: crate::ty_resolve::ResolvedTypes::disabled(),
         }
+    }
+
+    /// Install the `ty`-resolved module types used to fill in missing
+    /// annotations. Called once, immediately after construction.
+    pub(crate) fn set_resolved_types(&mut self, resolved: crate::ty_resolve::ResolvedTypes) {
+        self.resolved_types = resolved;
     }
 
     // -----------------------------------------------------------------------

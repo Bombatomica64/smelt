@@ -1,7 +1,12 @@
 # Spike: using Astral's `ty` as Smelt's Python type source
 
-**Status:** feasibility spike (branch `claude/python-ty-spike`, crate
-`crates/smelt-py-ty-spike`). Not wired into the real frontend yet.
+**Status:** productionized for **function/method return-type resolution**
+(issue #93). The spike below proved feasibility; the working integration now
+lives in `crates/smelt-py-types` and is consumed by `smelt-frontend-py` behind
+its optional `ty` feature. See "Productionization (issue #93)" at the end.
+
+The original spike crate `crates/smelt-py-ty-spike` is retained as the minimal
+feasibility harness.
 
 ## Motivation
 
@@ -216,3 +221,62 @@ Two things jump out:
 - The earlier "only return-type mismatches, promising!" was an artifact of
   testing one tiny dependency-free library; full apps need deps resolved before
   any conclusion about ty's accuracy holds.
+
+## Productionization (issue #93)
+
+The spike is now productionized as a focused, opt-in increment: **`ty`-backed
+return-type resolution** for functions and methods.
+
+### Crates & wiring
+
+- **`crates/smelt-py-types`** — owns the heavy `ty` dependency tree (salsa +
+  vendored typeshed) and exposes one small, stable API:
+  `resolve_module_types(source, stem) -> ResolvedModuleTypes`. It runs `ty` over
+  the source (materialized into a temp dir + `OsSystem`, exactly as the spike
+  proved works) and returns, keyed by **AST byte offset**, canonical Python
+  type *spellings* (`"int"`, `"list[int]"`, `"str | None"`). It deliberately
+  does **not** leak `ty`'s internal `Type` lattice (almost all `pub(crate)` and
+  unstable) — it hands the frontend strings, which the frontend's existing
+  `annotation_to_hir` already parses. Kept **out of `default-members`** so lean
+  builds never pay for `ty`.
+- **`smelt-frontend-py`** — new optional `ty` feature (`dep:smelt-py-types`).
+  The `ty_resolve` module is a `#[cfg]` seam presenting the same API with or
+  without the feature (a zero-cost stub when off). At each former
+  "must have an explicit ... annotation" site, lowering now consults the
+  resolver; only genuinely unresolved cases fall through to the (unchanged)
+  error. `smelt-codegen-rust` and `smelt-cli` forward the feature.
+
+### What it resolves — and the actual-vs-declared rule
+
+- **Return types** (the dominant blocker: ~389 function + ~162 method
+  annotations): derived from `ty`'s inferred types of the body's own
+  `return <expr>` statements (unioned; `None` for a valueless function). This is
+  the *actual returned* type. When a declared `-> T` annotation is present but
+  diverges from `ty`'s inferred return, lowering **prefers `ty`'s inferred
+  type**, per issue #93 (the annotation may be stale/wider/narrower).
+- Literal narrowings are widened to primitives (`Literal[3]` → `int`), matching
+  the frontend's HIR. Dynamic/`Unknown`/`Never`/`@Todo`/special-form spellings
+  are dropped so the case stays an **explicit boundary** — never a blanket
+  `SmeltUnknown`.
+
+### Deferred (documented follow-ups)
+
+- **Parameter inference.** `ty` reports an *unannotated* parameter as
+  dynamic/`Unknown` (it does not infer a param's type from a default value or
+  from call sites), so an unannotated parameter still requires a source
+  annotation. The plumbing to consume a resolved param type exists
+  (`resolved_param_ty`), so annotated/derivable params benefit, but the raw
+  "parameter must have an explicit type annotation" blocker (~8-15 occ) is not
+  removed by inference here.
+- **Nested closure** return/param resolution (`statement.rs`) is unchanged.
+- **Cross-module / third-party dep resolution.** As the spike notes, `ty` needs
+  the project's own modules + installed deps to resolve non-stdlib types;
+  isolated single-file resolution (what the frontend does today) leaves those as
+  boundaries. This mirrors the existing "probe lowers files in isolation"
+  caveat.
+
+### Build note
+
+The `ty` tree is large (first build ~3 min in this environment; cached
+afterwards). It is only compiled when a crate is built with `--features ty`
+(CI probes, the compile corpus's Python case, and an explicitly ty-built CLI).

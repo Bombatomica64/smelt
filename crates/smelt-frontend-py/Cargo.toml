@@ -7,11 +7,22 @@ autoexamples = false
 [lints]
 workspace = true
 
+[features]
+# Resolve Python function/method/parameter/closure types via Astral's `ty`
+# instead of requiring explicit source annotations (issue #93). OFF by default:
+# it pulls in the heavy `ty` dependency tree (salsa + vendored typeshed) through
+# `smelt-py-types`, so a lean `cargo build` never pays for it. The central
+# pipeline and CI probes enable `--features ty`.
+ty = ["dep:smelt-py-types"]
+
 [dependencies]
 smelt-asyncio = { path = "../smelt-asyncio" }
 smelt-hir = { path = "../smelt-hir" }
 smelt-specialize = { path = "../smelt-specialize" }
 smelt-stdlib = { path = "../smelt-stdlib" }
+
+# Optional `ty`-backed Python type resolution, gated behind the `ty` feature.
+smelt-py-types = { path = "../smelt-py-types", optional = true }
 
 # Python parsing via Astral's Ruff parser. Not published to crates.io, so we
 # pull it from the upstream git repo — the same approach `ty` (Astral's type

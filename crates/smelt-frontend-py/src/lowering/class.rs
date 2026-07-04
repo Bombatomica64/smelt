@@ -909,17 +909,19 @@ impl ModuleBuilder<'_> {
         } else if is_new && func.returns.is_none() {
             class_ty
         } else {
-            func.returns
-                .as_deref()
-                .ok_or_else(|| {
-                    SmeltError::type_constraint(
+            // Reconcile any declared annotation with `ty`'s inferred actual
+            // return type (issue #93); error only when neither is available.
+            match self.resolve_return_ty(func, func.returns.as_deref()) {
+                Some(ty) => ty,
+                None => {
+                    return Err(SmeltError::type_constraint(
                         span,
                         format!(
                             "method '{class_name_str}.{method_name_str}' must have an explicit return type annotation"
                         ),
-                    )
-                })
-                .and_then(|ann| self.annotation_to_hir(ann))?
+                    ));
+                }
+            }
         };
 
         let saved_locals = std::mem::take(&mut self.locals);
@@ -971,18 +973,18 @@ impl ModuleBuilder<'_> {
             }
             first = false;
 
-            let param_ty = p
-                .annotation
-                .as_deref()
-                .ok_or_else(|| {
+            let param_ty = match p.annotation.as_deref() {
+                Some(ann) => self.annotation_to_hir(ann)?,
+                // No annotation: consult `ty` (issue #93) before erroring.
+                None => self.resolved_param_ty(p).ok_or_else(|| {
                     SmeltError::type_constraint(
                         self.span(p.range),
                         format!(
                             "parameter '{param_name_str}' in '{class_name_str}.{method_name_str}' must have a type annotation"
                         ),
                     )
-                })
-                .and_then(|ann| self.annotation_to_hir(ann))?;
+                })?,
+            };
 
             let param_sym = self.intern_name(param_name_str);
             let local = fn_body.push_local(LocalDecl {

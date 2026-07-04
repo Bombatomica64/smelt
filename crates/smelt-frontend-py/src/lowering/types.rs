@@ -3,6 +3,70 @@ impl ModuleBuilder<'_> {
     // Type annotation lowering
     // -----------------------------------------------------------------------
 
+    /// Resolve a function/method return type, reconciling any source-declared
+    /// annotation with `ty`'s inferred *actual* returned type (issue #93).
+    ///
+    /// Behaviour, in order:
+    /// * No annotation → use `ty`'s inferred return type; `None` if `ty` could
+    ///   not resolve one (the caller then raises the explicit-annotation error).
+    /// * Annotation present → lower it. If `ty` also resolved a representable
+    ///   return type and it *differs* from the annotation, prefer `ty`'s: the
+    ///   annotation may be stale/wider/narrower than what the body actually
+    ///   returns, and lowering must follow the accurate type. If `ty` resolved
+    ///   nothing (or the same type), keep the annotation.
+    ///
+    /// The `func` node's start offset is the key `smelt-py-types` records return
+    /// types under.
+    fn resolve_return_ty(
+        &mut self,
+        func: &StmtFunctionDef,
+        annotation: Option<&Expr>,
+    ) -> Option<TypeId> {
+        let inferred = self
+            .resolved_types
+            .return_type_at(func.start())
+            .map(ToOwned::to_owned)
+            .and_then(|spelling| self.resolved_spelling_to_hir(&spelling));
+        match annotation {
+            None => inferred,
+            Some(ann) => {
+                let declared = self.annotation_to_hir(ann).ok()?;
+                // Prefer ty's inferred actual return type when it diverges.
+                Some(match inferred {
+                    Some(inferred_ty) if inferred_ty != declared => inferred_ty,
+                    _ => declared,
+                })
+            }
+        }
+    }
+
+    /// Return the `ty`-resolved HIR type for parameter `p`, if `ty` resolved a
+    /// representable type for it.
+    ///
+    /// Used when the source omits the parameter's annotation (issue #93). The
+    /// key is the parameter node's start offset, matching how `smelt-py-types`
+    /// records resolved parameter types.
+    fn resolved_param_ty(&mut self, p: &ruff_python_ast::Parameter) -> Option<TypeId> {
+        let spelling = self.resolved_types.param_type_at(p.start())?.to_owned();
+        self.resolved_spelling_to_hir(&spelling)
+    }
+
+    /// Lower a `ty`-resolved type *spelling* (a canonical Python type string
+    /// such as `"int"`, `"list[int]"`, or `"str | None"`) to a HIR [`TypeId`].
+    ///
+    /// The spelling is re-parsed as a Python annotation expression and routed
+    /// through the same [`Self::annotation_to_hir`] path source annotations use,
+    /// so unions, `list[T]`, custom classes, etc. all lower identically to hand-
+    /// written annotations. Returns `None` if the spelling does not parse or
+    /// lands on an annotation form the frontend cannot lower, letting the caller
+    /// fall back to its explicit-annotation requirement (an explicit boundary,
+    /// never a silent widening).
+    fn resolved_spelling_to_hir(&mut self, spelling: &str) -> Option<TypeId> {
+        let parsed = ruff_python_parser::parse_expression(spelling).ok()?;
+        let expr = parsed.syntax().body.as_ref();
+        self.annotation_to_hir(expr).ok()
+    }
+
     /// Lower a Python type annotation expression to a HIR [`TypeId`].
     fn annotation_to_hir(&mut self, annotation: &Expr) -> Result<TypeId, SmeltError> {
         if let Expr::Name(name) = annotation {
