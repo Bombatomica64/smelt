@@ -7710,3 +7710,164 @@ export function scaleAll(xs: number[]): number[] {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+#[test]
+fn lowers_callback_ternary_with_differing_list_branches() -> Result<(), String> {
+    // A `.map` callback ternary whose branches are arrays of different element
+    // types (`string[]` vs `number[]`) must reconcile to a single list type
+    // (a concrete `List<string | number>`) instead of rejecting the branches
+    // as incompatible. Mirrors es-toolkit's `fill.spec.ts`
+    // `value => (value === undefined ? ['a', 'a', 'a'] : [1, 2, 3])`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function widen(values: (string | undefined)[]): (string | number)[][] {
+  return values.map(value => (value === undefined ? ['a', 'a', 'a'] : [1, 2, 3]));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(&expr.kind, ExprKind::Conditional { .. })
+                    && matches!(ctx.krate.types.get(expr.ty), Some(Type::List(_)))
+            })
+        }),
+        "callback ternary with differing list branches did not unify to a list type"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_ternary_with_empty_list_branch() -> Result<(), String> {
+    // A `.map` callback ternary whose alternate is an empty array literal
+    // (`['0'] : []`) must reconcile the two list branches instead of aborting,
+    // since the empty-array branch has no concrete element type. Mirrors
+    // es-toolkit's `keys.spec.ts`
+    // `value => (typeof value === 'string' ? ['0'] : [])`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function keyEcho(values: unknown[]): string[][] {
+  return values.map(value => (typeof value === 'string' ? ['0'] : []));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(&expr.kind, ExprKind::Conditional { .. })
+                    && matches!(ctx.krate.types.get(expr.ty), Some(Type::List(_)))
+            })
+        }),
+        "callback ternary with empty-list branch did not unify to a list type"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_if_else_returning_values_as_conditional() -> Result<(), String> {
+    // A `.map` callback whose body is an `if/else` where both arms terminate
+    // with a value must lower as a direct conditional expression rather than
+    // being rejected with "callback if/else blocks need direct conditional
+    // expression lowering".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function classify(values: number[]): string[] {
+  return values.map(value => {
+    if (value > 0) {
+      return "pos";
+    } else {
+      return "nonpos";
+    }
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs
+                .iter()
+                .any(|expr| matches!(&expr.kind, ExprKind::Conditional { .. }))
+        }),
+        "value-yielding if/else callback did not lower to a conditional expression"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_if_else_chain_with_param_mutation_via_closure_body() -> Result<(), String> {
+    // A `.map` callback with an `if/else if` chain that mutates the callback
+    // parameter before falling through to shared trailing statements cannot be
+    // modeled by the compact side-effect-free callback IR; it must fall back to
+    // full closure-body lowering (which makes parameters mutable locals) instead
+    // of surfacing the "direct conditional expression lowering" blocker. Mirrors
+    // es-toolkit's `toFinite.spec.ts` mapper.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function normalize(values: number[]): number[][] {
+  return values.map(value => {
+    if (value === Infinity) {
+      value = 1;
+    } else if (value !== value) {
+      value = 0;
+    }
+    const neg = value === 0 ? 0 : -value;
+    return [value, neg];
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs
+                .iter()
+                .any(|expr| matches!(&expr.kind, ExprKind::Closure(_)))
+        }),
+        "param-mutating if/else callback did not fall back to a closure body"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_final_if_else_with_mutation() -> Result<(), String> {
+    // An `if/else` that is the *final* statement of a callback (no trailing
+    // statements) but whose arms mutate a captured local instead of returning a
+    // value must still lower cleanly (through the callback side-effect path or
+    // full closure-body fallback) rather than surfacing a hard "branch must
+    // terminate" error once the alternate arm is accepted.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function tally(values: number[]): number {
+  let count = 0;
+  values.forEach(value => {
+    if (value > 0) {
+      count = count + 1;
+    } else {
+      count = count - 1;
+    }
+  });
+  return count;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
