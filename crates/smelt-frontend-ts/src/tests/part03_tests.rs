@@ -1252,6 +1252,135 @@ const length = values.push(4);
 }
 
 #[test]
+fn lowers_array_concat_on_erased_value_import_receiver() -> Result<(), String> {
+    // A named value import that resolves to an erased array (`falsey` here) used
+    // as a `concat` receiver is real `Array.prototype.concat`: the member object
+    // is the array and every argument is concatenated onto it. It must not be
+    // mistaken for the lodash `ns.concat(collection, ...values)` free-function
+    // form (which only applies to namespace/utility objects), and the erased
+    // receiver must lower rather than being rejected as "not an array receiver".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { falsey } from "./falsey";
+
+export function values(): unknown[] {
+  return falsey.concat(true, 1, "a");
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .any(|body| body
+                .exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. })))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_concat_on_union_receiver() -> Result<(), String> {
+    // `number[] | string[]` receiver: the union has array members, so concat
+    // coerces it to a concrete erased list and appends the arguments instead of
+    // rejecting the non-statically-array receiver.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function widen(a: number[] | string[]): unknown[] {
+  return a.concat(1, "x");
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .any(|body| body
+                .exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. })))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_push_tuple_literal_into_tuple_element_array() -> Result<(), String> {
+    // Pushing a bare `[value, key]` literal into an `Array<[number, string]>`
+    // must adopt the element's concrete tuple shape at construction time. The
+    // literal lowers to a `(number, string)` tuple, so no re-typing of a
+    // `List<Unknown>` into the tuple destination is required.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function collect(value: number, key: string): Array<[number, string]> {
+  const result: Array<[number, string]> = [];
+  result.push([value, key]);
+  return result;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    let function_body = ctx
+        .krate
+        .bodies
+        .iter()
+        .find(|body| {
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. }))
+        })
+        .ok_or_else(|| "expected a ListPush in the lowered crate".to_owned())?;
+    ensure!(
+        function_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::TupleLit(_))),
+        "pushed array literal should lower as a tuple literal matching the element type",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_push_mixed_literals_into_union_element_array() -> Result<(), String> {
+    // Mixed-literal pushes into a `Array<number | string>` coerce each argument
+    // into the union element type instead of requiring an exact match.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function mixed(): Array<number | string> {
+  const xs: Array<number | string> = [];
+  xs.push(1);
+  xs.push("a");
+  return xs;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    let pushes = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::ListPush { .. }))
+        .count();
+    ensure_eq!(pushes, 2);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_array_unshift_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

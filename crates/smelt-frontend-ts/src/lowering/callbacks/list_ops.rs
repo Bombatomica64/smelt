@@ -10,6 +10,19 @@ use oxc::span::GetSpan;
 
 impl ModuleBuilder<'_> {
     /// Lower direct TypeScript `Array.prototype.concat` for one same-typed array argument.
+    ///
+    /// Two shapes reach this rule. `ns.concat(collection, ...values)` on a utility
+    /// *namespace* object (a `import * as _` star import or a registered object
+    /// namespace) is the lodash free-function form: its first argument is the base
+    /// array and the rest are appended, so the receiver identifier is not a value
+    /// itself. Everything else — including an ordinary named value import that
+    /// resolves to an erased array, e.g. `import { falsey } from './falsey'` used
+    /// as `falsey.concat(true, 1)` — is real `Array.prototype.concat`, where the
+    /// member object is the receiver array and every argument is concatenated onto
+    /// it. Only genuine namespace/utility objects take the free-function path;
+    /// plain value imports flow through the erased-receiver arms of
+    /// [`Self::finish_list_concat_call`], which already coerce an `Unknown`/union
+    /// receiver into a concrete list instead of rejecting it.
     pub(in crate::lowering) fn list_concat_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -21,10 +34,7 @@ impl ModuleBuilder<'_> {
         if member.property.name != "concat" {
             return Ok(None);
         }
-        if let Expression::Identifier(object) = &member.object
-            && (self.namespace_imports.contains(object.name.as_str())
-                || self.value_imports.contains(object.name.as_str()))
-        {
+        if self.imported_utility_object(&member.object) {
             let Some((left_argument, right_arguments)) = call.arguments.split_first() else {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
@@ -160,17 +170,38 @@ impl ModuleBuilder<'_> {
         let right_ty = Self::expr_ty(body, right);
         let right = if right_ty == ty {
             right
-        } else if let Some(Type::List(right_item_ty)) = self.ctx.krate.types.get(right_ty)
-            && (*right_item_ty == item_ty
-                || self.erased_or_union_surface(*right_item_ty)
-                || self.erased_or_union_surface(item_ty))
+        } else if let Some(Type::List(right_item_ty)) = self.ctx.krate.types.get(right_ty).cloned()
+            && (right_item_ty == item_ty
+                || self.erased_or_union_surface(right_item_ty)
+                || self.erased_or_union_surface(item_ty)
+                || self.type_assignable_to(right_item_ty, item_ty))
         {
+            // An array argument whose element type is (or is assignable to) the
+            // receiver's element type — including a concrete-union element such
+            // as `number | string` — is spread into the result. The re-type is a
+            // no-op at runtime; the emitter injects each value into the element
+            // type at use as needed.
             body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: right },
                 ty,
                 span: self.span(right_argument.span().start, right_argument.span().end),
             })
         } else if right_ty == item_ty {
+            body.push_expr(Expr {
+                kind: ExprKind::ListLit(vec![right]),
+                ty,
+                span: self.span(right_argument.span().start, right_argument.span().end),
+            })
+        } else if self.type_assignable_to(right_ty, item_ty) {
+            // A scalar argument that is a member of the receiver's element type —
+            // e.g. concatenating a `number` onto a `Array<number | string>`.
+            // Coerce it into the element type (the emitter injects the concrete
+            // union member) and wrap it in a singleton list to append.
+            right = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: right },
+                ty: item_ty,
+                span: self.span(right_argument.span().start, right_argument.span().end),
+            });
             body.push_expr(Expr {
                 kind: ExprKind::ListLit(vec![right]),
                 ty,
