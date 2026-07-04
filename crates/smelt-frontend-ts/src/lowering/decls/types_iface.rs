@@ -628,6 +628,9 @@ impl ModuleBuilder<'_> {
                     {
                         return Ok(());
                     }
+                    if self.try_lower_negative_bracket_write_statement(assign, body, block)? {
+                        return Ok(());
+                    }
                     if self.array_destructuring_assignment_statement(assign, body, block)? {
                         return Ok(());
                     }
@@ -1420,6 +1423,9 @@ impl ModuleBuilder<'_> {
         let result = match statement {
             Statement::ExpressionStatement(expr_stmt) => {
                 if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
+                    if self.try_lower_negative_bracket_write_statement(assign, body, block)? {
+                        return Ok(());
+                    }
                     if self.array_destructuring_assignment_statement(assign, body, block)? {
                         return Ok(());
                     }

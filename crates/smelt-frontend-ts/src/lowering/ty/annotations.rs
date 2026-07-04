@@ -2843,28 +2843,12 @@ return_ty: function.return_ty,
         Ok(resolved_index)
     }
 
-    /// Reject negative TypeScript bracket indexes before they reach Python-style HIR indexing.
-    pub(in crate::lowering) fn reject_negative_bracket_index(
-        &self,
-        receiver_ty: smelt_hir::TypeId,
-        index: smelt_hir::ExprId,
-        body: &Body,
-        span: oxc::span::Span,
-    ) -> Result<(), SmeltError> {
-        let uses_sequence_indexing = matches!(
-            self.ctx.krate.types.get(receiver_ty),
-            Some(Type::List(_) | Type::String | Type::Tuple(_))
-        );
-        if uses_sequence_indexing && Self::is_negative_numeric_expr(body, index) {
-            return Err(SmeltError::unsupported(
-                self.span(span.start, span.end),
-                "negative array/string bracket indexes are JavaScript property lookups; use .at(...) for negative element indexing",
-            ));
-        }
-        Ok(())
-    }
-
     /// Returns whether a lowered expression is a negative numeric literal.
+    ///
+    /// Used to recognize the JavaScript property-lookup class of bracket access
+    /// (`arr[-1]`, `arr[-(2)]`) so it can be lowered with `undefined`/no-op
+    /// semantics rather than element indexing. See the `negative_index` lowering
+    /// module for how reads and writes are lowered.
     pub(in crate::lowering) fn is_negative_numeric_expr(body: &Body, expr_id: smelt_hir::ExprId) -> bool {
         let Ok(expr_index) = usize::try_from(expr_id.0) else {
             return false;

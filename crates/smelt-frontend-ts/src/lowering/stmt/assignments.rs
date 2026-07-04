@@ -955,6 +955,14 @@ impl ModuleBuilder<'_> {
                 Some(Type::Optional(_))
             );
         let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
+        // A statically-negative bracket index on an array, string, or tuple is a
+        // JavaScript property lookup that never names an element, so the read is
+        // `undefined` regardless of whether the receiver is optional. Lower it to
+        // an honest optional `None` instead of rejecting or wrapping like `.at`.
+        // (Write targets are intercepted earlier as property-store no-ops.)
+        if self.is_negative_sequence_bracket_index(access_receiver_ty, index, body) {
+            return self.lower_negative_sequence_bracket_read(access_receiver_ty, member.span, body);
+        }
         if optional_access {
             let value_ty = self.index_type(access_receiver_ty)?;
             let ty = self.optional_chain_result_type(value_ty);
@@ -1030,7 +1038,6 @@ impl ModuleBuilder<'_> {
                 }));
             }
         }
-        self.reject_negative_bracket_index(access_receiver_ty, index, body, member.span)?;
         if self.can_lower_acknowledged_unknown_index(access_receiver_ty, member.span.start) {
             let ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(body.push_expr(Expr {
