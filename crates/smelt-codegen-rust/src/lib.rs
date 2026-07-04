@@ -431,6 +431,24 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
     }
+    // `smelt_next_object_id` mints fresh JavaScript object reference ids. It is
+    // emitted in the `needs_smelt_list` block below (a list mints ids), but a
+    // regex/match program without any list still needs it for
+    // `SmeltMatch::from_captures` (a match carries an id so it keeps a stable
+    // identity when later erased to `SmeltUnknown`). Emit it standalone only in
+    // that regex-without-list case so list-using programs keep byte-identical
+    // output. `needs_smelt_list` already subsumes `needs_unknown`.
+    if needs_regex && !needs_smelt_list {
+        writer.line("thread_local! {");
+        writer.line("    static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("#[allow(dead_code)]");
+        writer.line("fn smelt_next_object_id() -> usize {");
+        writer.line("    SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })");
+        writer.line("}");
+        writer.blank_line();
+    }
     if needs_smelt_list {
         // Identity-bearing statically-typed list — `Type::List` lowers to this.
         // `Deref`s to its backing `Vec<T>`; `Clone` shares the JS reference id
@@ -1897,16 +1915,23 @@ fn emit_source_with_free_function_router(
             });
         });
         writer.blank_line();
-        writer.block("impl IntoSmeltUnknown for SmeltRegExp", |impl_writer| {
-            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, ::std::collections::HashMap::from([");
-                fn_writer.line("(\"source\".to_owned(), SmeltUnknown::String(self.source)),");
-                fn_writer.line("(\"flags\".to_owned(), SmeltUnknown::String(self.flags)),");
-                fn_writer.line("(\"__smelt_regexp\".to_owned(), SmeltUnknown::Bool(true)),");
-                fn_writer.line("])))");
+        // The `IntoSmeltUnknown` erasure adapters reference the `SmeltUnknown`
+        // carrier, which is only emitted when the crate genuinely crosses a
+        // dynamic boundary. A regex/match program that keeps every value
+        // statically typed does not emit `SmeltUnknown`, so the adapters are
+        // gated on that need rather than on regex presence alone.
+        if needs_unknown {
+            writer.block("impl IntoSmeltUnknown for SmeltRegExp", |impl_writer| {
+                impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                    fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, ::std::collections::HashMap::from([");
+                    fn_writer.line("(\"source\".to_owned(), SmeltUnknown::String(self.source)),");
+                    fn_writer.line("(\"flags\".to_owned(), SmeltUnknown::String(self.flags)),");
+                    fn_writer.line("(\"__smelt_regexp\".to_owned(), SmeltUnknown::Bool(true)),");
+                    fn_writer.line("])))");
+                });
             });
-        });
-        writer.blank_line();
+            writer.blank_line();
+        }
         writer.block("impl Default for SmeltRegExp", |impl_writer| {
             impl_writer.line("/// Construct a RegExp that matches the empty string.");
             impl_writer.block("fn default() -> Self", |fn_writer| {
@@ -1914,7 +1939,7 @@ fn emit_source_with_free_function_router(
             });
         });
         writer.blank_line();
-        emit_smelt_match(&mut writer);
+        emit_smelt_match(&mut writer, needs_unknown);
     }
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
@@ -2366,10 +2391,10 @@ fn insert_after_crate_header(mut root: String, text: &str) -> String {
 /// frontend still assigns for `exec`/`matchAll` consumers), it is converted
 /// with the explicit [`IntoSmeltUnknown`] adapter — the single place where the
 /// concrete match is intentionally erased.
-fn emit_smelt_match(writer: &mut CodeWriter) {
+fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// A concrete JavaScript RegExp match result (numbered groups, named");
     writer.line("/// groups, `index`, and `input`).");
-    writer.line("#[derive(Clone, Debug, PartialEq)]");
+    writer.line("#[derive(Clone, Debug, Default, PartialEq)]");
     writer.block("pub struct SmeltMatch", |struct_writer| {
         struct_writer.line("id: usize,");
         struct_writer.line("/// Numbered capture groups; entry 0 is the whole match. An absent");
@@ -2407,21 +2432,44 @@ fn emit_smelt_match(writer: &mut CodeWriter) {
         impl_writer.block("fn group(&self, index: usize) -> Option<&str>", |fn_writer| {
             fn_writer.line("self.groups.get(index).and_then(|value| value.as_deref())");
         });
+        impl_writer.line("/// Read a numbered capture group as an owned optional string.");
+        impl_writer.line("///");
+        impl_writer.line("/// Consumer index reads (`match[n]`) are typed `Optional(String)`; a");
+        impl_writer.line("/// group that did not participate in the match is `None` (JavaScript");
+        impl_writer.line("/// `undefined`).");
+        impl_writer.block("pub fn group_owned(&self, index: usize) -> Option<String>", |fn_writer| {
+            fn_writer.line("self.groups.get(index).cloned().flatten()");
+        });
         impl_writer.line("/// Read a named capture group (`match.groups.name`).");
         impl_writer.block("fn named_group(&self, name: &str) -> Option<&str>", |fn_writer| {
             fn_writer.line("self.named.get(name).and_then(|value| value.as_deref())");
         });
+        impl_writer.line("/// Read a named capture group as an owned optional string.");
+        impl_writer.line("///");
+        impl_writer.line("/// Consumer named-group reads (`match.groups.name`) are typed");
+        impl_writer.line("/// `Optional(String)`; a group that did not participate is `None`.");
+        impl_writer.block("pub fn named_group_owned(&self, name: &str) -> Option<String>", |fn_writer| {
+            fn_writer.line("self.named.get(name).cloned().flatten()");
+        });
         impl_writer.line("/// The zero-based match offset (`match.index`).");
-        impl_writer.block("fn index(&self) -> f64", |fn_writer| {
+        impl_writer.block("pub fn index(&self) -> f64", |fn_writer| {
             fn_writer.line("self.match_index as f64");
         });
         impl_writer.line("/// The full searched string (`match.input`).");
         impl_writer.block("fn input(&self) -> &str", |fn_writer| {
             fn_writer.line("&self.input");
         });
+        impl_writer.line("/// The full searched string as an owned value (`match.input`).");
+        impl_writer.block("pub fn input_owned(&self) -> String", |fn_writer| {
+            fn_writer.line("self.input.clone()");
+        });
         impl_writer.line("/// Number of numbered capture groups, including the whole match.");
         impl_writer.block("fn len(&self) -> usize", |fn_writer| {
             fn_writer.line("self.groups.len()");
+        });
+        impl_writer.line("/// Number of numbered capture groups as a JavaScript number (`match.length`).");
+        impl_writer.block("pub fn length(&self) -> f64", |fn_writer| {
+            fn_writer.line("self.groups.len() as f64");
         });
         impl_writer.line("/// Whether there are no numbered groups (never true for a real match).");
         impl_writer.block("fn is_empty(&self) -> bool", |fn_writer| {
@@ -2429,24 +2477,30 @@ fn emit_smelt_match(writer: &mut CodeWriter) {
         });
     });
     writer.blank_line();
-    writer.line("/// Erase a concrete match into a `SmeltUnknown` at a dynamic boundary.");
-    writer.line("///");
-    writer.line("/// This reproduces the JavaScript match-array-with-properties shape:");
-    writer.line("/// numbered string keys for the groups plus `groups`, `index`, and");
-    writer.line("/// `input`. It is the single explicit adapter used when a typed");
-    writer.line("/// `SmeltMatch` must flow into erased `unknown` consumer dataflow.");
-    writer.block("impl IntoSmeltUnknown for SmeltMatch", |impl_writer| {
-        impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-            fn_writer.line("let mut object = ::std::collections::HashMap::new();");
-            fn_writer.line("for (index, value) in self.groups.iter().enumerate() { object.insert(index.to_string(), value.clone().map_or(SmeltUnknown::Undefined, SmeltUnknown::String)); }");
-            fn_writer.line("let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, SmeltUnknown::String))).collect::<::std::collections::HashMap<_, _>>();");
-            fn_writer.line("object.insert(\"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));");
-            fn_writer.line("object.insert(\"index\".to_owned(), SmeltUnknown::Number(self.match_index as f64));");
-            fn_writer.line("object.insert(\"input\".to_owned(), SmeltUnknown::String(self.input));");
-            fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, object))");
+    // The erasure adapter references the `SmeltUnknown` carrier and is only
+    // emitted when the crate genuinely erases a match into dynamic dataflow.
+    // Programs that keep every match read statically typed never emit
+    // `SmeltUnknown`, so the adapter would otherwise fail to compile.
+    if needs_unknown {
+        writer.line("/// Erase a concrete match into a `SmeltUnknown` at a dynamic boundary.");
+        writer.line("///");
+        writer.line("/// This reproduces the JavaScript match-array-with-properties shape:");
+        writer.line("/// numbered string keys for the groups plus `groups`, `index`, and");
+        writer.line("/// `input`. It is the single explicit adapter used when a typed");
+        writer.line("/// `SmeltMatch` must flow into erased `unknown` consumer dataflow.");
+        writer.block("impl IntoSmeltUnknown for SmeltMatch", |impl_writer| {
+            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                fn_writer.line("let mut object = ::std::collections::HashMap::new();");
+                fn_writer.line("for (index, value) in self.groups.iter().enumerate() { object.insert(index.to_string(), value.clone().map_or(SmeltUnknown::Undefined, SmeltUnknown::String)); }");
+                fn_writer.line("let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, SmeltUnknown::String))).collect::<::std::collections::HashMap<_, _>>();");
+                fn_writer.line("object.insert(\"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));");
+                fn_writer.line("object.insert(\"index\".to_owned(), SmeltUnknown::Number(self.match_index as f64));");
+                fn_writer.line("object.insert(\"input\".to_owned(), SmeltUnknown::String(self.input));");
+                fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, object))");
+            });
         });
-    });
-    writer.blank_line();
+        writer.blank_line();
+    }
 }
 
 /// Emit natural JSON serde support for `SmeltUnknown`.

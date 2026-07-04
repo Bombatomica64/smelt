@@ -2315,6 +2315,30 @@ return_ty: function.return_ty,
         class: smelt_hir::Symbol,
         field: smelt_hir::Symbol,
     ) -> Option<smelt_hir::TypeId> {
+        // Synthetic RegExp match-result classes carry a concrete field shape.
+        // A `.groups` read yields the named-group accessor class; `.index`,
+        // `.input`, and `.length` map to their primitive accessor types; and any
+        // named-group read on the accessor class yields an optional string.
+        match self.match_stdlib_class(class) {
+            Some(smelt_stdlib::StdlibClass::Match) => {
+                let field_name = self.ctx.krate.symbols.get(field)?;
+                return match field_name {
+                    "index" => Some(self.ctx.krate.types.intern(Type::Float)),
+                    "length" => Some(self.ctx.krate.types.intern(Type::Float)),
+                    "input" => Some(self.ctx.krate.types.intern(Type::String)),
+                    "groups" => Some(self.match_groups_type()),
+                    _ => None,
+                };
+            }
+            Some(smelt_stdlib::StdlibClass::MatchGroups) => {
+                // Every property read on `matchResult.groups` is a named capture
+                // group, which is a string when the group participated in the
+                // match and `undefined` otherwise.
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                return Some(self.ctx.krate.types.intern(Type::Optional(string_ty)));
+            }
+            _ => {}
+        }
         let class_name = self
             .ctx
             .krate
@@ -2499,6 +2523,14 @@ return_ty: function.return_ty,
             // indexing a bare number is almost always a real source error (e.g.
             // `for (x of 1)`) that should stay an honest blocker.
             Some(Type::Bool) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            // A numbered index into a RegExp match result (`m[0]`, `m[2]`) reads a
+            // capture group: a string when the group matched and `undefined`
+            // otherwise, so the element type is `Optional(String)` rather than the
+            // erased dynamic boundary.
+            Some(Type::Class { name, .. }) if self.match_stdlib_class(*name).is_some() => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                Ok(self.ctx.krate.types.intern(Type::Optional(string_ty)))
+            }
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
@@ -2664,6 +2696,59 @@ return_ty: function.return_ty,
             name,
             args: Vec::new(),
         })
+    }
+
+    /// Return the concrete HIR type for a `RegExp` match result value.
+    ///
+    /// `RegExp.exec` and `String.matchAll` produce a JavaScript match object
+    /// with a statically known shape (numbered groups, `index`, `input`,
+    /// `groups`). Modeling it as the reserved synthetic class
+    /// [`smelt_stdlib::MATCH_CLASS_NAME`] lets consumer reads (`m[0]`,
+    /// `m.index`, `m.input`, `m.groups.name`, destructuring) resolve to typed
+    /// accessors on the generated `SmeltMatch` runtime type instead of going
+    /// through the erased `SmeltUnknown` boundary.
+    pub(in crate::lowering) fn match_result_type(&mut self) -> smelt_hir::TypeId {
+        let name = self.intern_type_name(smelt_stdlib::MATCH_CLASS_NAME);
+        self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        })
+    }
+
+    /// Return the synthetic HIR type for `matchResult.groups`.
+    ///
+    /// This is the same underlying `SmeltMatch` value; a subsequent named-group
+    /// read (`matchResult.groups.letter`) resolves to the typed named-group
+    /// accessor via [`Self::class_field_type`].
+    pub(in crate::lowering) fn match_groups_type(&mut self) -> smelt_hir::TypeId {
+        let name = self.intern_type_name(smelt_stdlib::MATCH_GROUPS_CLASS_NAME);
+        self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        })
+    }
+
+    /// Return whether a class symbol names a synthetic match-result class.
+    ///
+    /// Both `__SmeltMatch` (the match value) and `__SmeltMatchGroups` (its
+    /// named-group accessor) answer `true`; callers that need to distinguish the
+    /// two inspect the resolved [`smelt_stdlib::StdlibClass`] directly.
+    pub(in crate::lowering) fn match_stdlib_class(
+        &self,
+        name: smelt_hir::Symbol,
+    ) -> Option<smelt_stdlib::StdlibClass> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(name)
+            .or_else(|| self.ctx.krate.symbols.get(name))?;
+        match smelt_stdlib::typescript_stdlib_class(class_name) {
+            class @ Some(
+                smelt_stdlib::StdlibClass::Match | smelt_stdlib::StdlibClass::MatchGroups,
+            ) => class,
+            _ => None,
+        }
     }
 
     /// Return whether a type contains `unknown` after unwrapping simple containers.

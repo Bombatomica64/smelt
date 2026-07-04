@@ -942,7 +942,7 @@ impl Default for SmeltRegExp {
 
 /// A concrete JavaScript RegExp match result (numbered groups, named
 /// groups, `index`, and `input`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SmeltMatch {
     id: usize,
     /// Numbered capture groups; entry 0 is the whole match. An absent
@@ -977,21 +977,44 @@ impl SmeltMatch {
     fn group(&self, index: usize) -> Option<&str> {
         self.groups.get(index).and_then(|value| value.as_deref())
     }
+    /// Read a numbered capture group as an owned optional string.
+    ///
+    /// Consumer index reads (`match[n]`) are typed `Optional(String)`; a
+    /// group that did not participate in the match is `None` (JavaScript
+    /// `undefined`).
+    pub fn group_owned(&self, index: usize) -> Option<String> {
+        self.groups.get(index).cloned().flatten()
+    }
     /// Read a named capture group (`match.groups.name`).
     fn named_group(&self, name: &str) -> Option<&str> {
         self.named.get(name).and_then(|value| value.as_deref())
     }
+    /// Read a named capture group as an owned optional string.
+    ///
+    /// Consumer named-group reads (`match.groups.name`) are typed
+    /// `Optional(String)`; a group that did not participate is `None`.
+    pub fn named_group_owned(&self, name: &str) -> Option<String> {
+        self.named.get(name).cloned().flatten()
+    }
     /// The zero-based match offset (`match.index`).
-    fn index(&self) -> f64 {
+    pub fn index(&self) -> f64 {
         self.match_index as f64
     }
     /// The full searched string (`match.input`).
     fn input(&self) -> &str {
         &self.input
     }
+    /// The full searched string as an owned value (`match.input`).
+    pub fn input_owned(&self) -> String {
+        self.input.clone()
+    }
     /// Number of numbered capture groups, including the whole match.
     fn len(&self) -> usize {
         self.groups.len()
+    }
+    /// Number of numbered capture groups as a JavaScript number (`match.length`).
+    pub fn length(&self) -> f64 {
+        self.groups.len() as f64
     }
     /// Whether there are no numbered groups (never true for a real match).
     fn is_empty(&self) -> bool {

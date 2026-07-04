@@ -1,12 +1,29 @@
-a1
-a
-1
+Some("a1")
+Some("a")
+Some("1")
 0
-b
-b
-undefined
+a1 b c3
+Some("a1")
+Some("a")
+Some("1")
+Some("b")
+Some("b")
+None
 3
-c3
-c
-3
+a1 b c3
+Some("b")
+Some("b")
+None
+Some("c3")
+Some("c")
+Some("3")
 5
+a1 b c3
+Some("c3")
+Some("c")
+Some("3")
+Some("2024-07")
+Some("2024")
+Some("2024")
+Some("07")
+0

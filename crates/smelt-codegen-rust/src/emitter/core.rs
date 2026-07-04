@@ -4017,16 +4017,49 @@ impl<'mir> FunctionEmitter<'mir> {
         )
     }
 
+    /// Returns the synthetic match-result class identity named by a symbol, if any.
+    ///
+    /// Both `__SmeltMatch` (the match value) and `__SmeltMatchGroups` (its
+    /// named-group accessor) are backed by the generated concrete `SmeltMatch`
+    /// Rust type. The two share a Rust representation but differ in how field and
+    /// index reads are lowered, so callers inspect the returned identity to pick
+    /// the right accessor.
+    pub(super) fn match_class_kind(
+        &self,
+        name: Symbol,
+    ) -> Result<Option<smelt_stdlib::StdlibClass>, EmitError> {
+        Ok(
+            match smelt_stdlib::typescript_stdlib_class(self.symbol_name(name)?) {
+                class @ Some(
+                    smelt_stdlib::StdlibClass::Match | smelt_stdlib::StdlibClass::MatchGroups,
+                ) => class,
+                _ => None,
+            },
+        )
+    }
+
+    /// Returns whether a class symbol names a synthetic RegExp match-result class.
+    pub(super) fn is_match_class_symbol(&self, name: Symbol) -> Result<bool, EmitError> {
+        Ok(self.match_class_kind(name)?.is_some())
+    }
+
     /// Returns whether a class-shaped type is emitted as `SmeltUnknown`.
     pub(super) fn is_erased_class_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Class { name, .. }) => {
-                // RegExp has a dedicated Rust runtime type. Other stdlib
+                // RegExp and the synthetic match-result classes have dedicated
+                // Rust runtime types (`SmeltRegExp` / `SmeltMatch`). Other stdlib
                 // classes may still be represented by primitive or collection
                 // values and should keep the ordinary erased-class fallback.
                 if self.symbol_name(*name).is_ok_and(|type_name| {
-                    smelt_stdlib::typescript_stdlib_class(type_name)
-                        == Some(smelt_stdlib::StdlibClass::RegExp)
+                    matches!(
+                        smelt_stdlib::typescript_stdlib_class(type_name),
+                        Some(
+                            smelt_stdlib::StdlibClass::RegExp
+                                | smelt_stdlib::StdlibClass::Match
+                                | smelt_stdlib::StdlibClass::MatchGroups
+                        )
+                    )
                 }) {
                     return false;
                 }

@@ -16,7 +16,9 @@ pub mod rules;
 pub mod runtime_symbols;
 
 pub use category::DiagnosticCategory;
-pub use classes::{StdlibClass, typescript_stdlib_class};
+pub use classes::{
+    MATCH_CLASS_NAME, MATCH_GROUPS_CLASS_NAME, StdlibClass, typescript_stdlib_class,
+};
 pub use deps::BackendDependency;
 pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use fields::{FieldRule, typescript_field_rule};

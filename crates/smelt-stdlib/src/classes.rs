@@ -9,6 +9,15 @@ pub enum StdlibClass {
     Date,
     /// JavaScript `Map`, represented by dictionary HIR values.
     Map,
+    /// Synthetic `RegExp` match result (`RegExp.exec` / `String.matchAll`),
+    /// backed by the generated concrete `SmeltMatch` runtime type. Consumer
+    /// reads (`m[0]`, `m.index`, `m.input`, `m.groups.name`) resolve to typed
+    /// accessors on `SmeltMatch` instead of the erased `SmeltUnknown` path.
+    Match,
+    /// Synthetic named-capture-group accessor for `matchResult.groups`. It is
+    /// the same underlying `SmeltMatch` value; a `.name` read on it resolves to
+    /// the typed named-group accessor.
+    MatchGroups,
     /// Remeda parser helper result class synthesized during TypeScript lowering.
     MatchFnResult,
     /// JavaScript `RegExp`, backed by the generated regex runtime shim.
@@ -16,6 +25,16 @@ pub enum StdlibClass {
     /// JavaScript `Set`, represented by set HIR values.
     Set,
 }
+
+/// Reserved synthetic class name for a `RegExp` match result value.
+///
+/// The name is not writable in user TypeScript (double-underscore prefix), so
+/// it never collides with a source class; it exists only to carry the concrete
+/// match shape through the internal type system.
+pub const MATCH_CLASS_NAME: &str = "__SmeltMatch";
+
+/// Reserved synthetic class name for `matchResult.groups` named-group access.
+pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
 
 /// Return the stdlib class modeled by a TypeScript class type name.
 ///
@@ -26,6 +45,8 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
     match name {
         "Date" => Some(StdlibClass::Date),
         "Map" => Some(StdlibClass::Map),
+        MATCH_CLASS_NAME => Some(StdlibClass::Match),
+        MATCH_GROUPS_CLASS_NAME => Some(StdlibClass::MatchGroups),
         "MatchFnResult" => Some(StdlibClass::MatchFnResult),
         "RegExp" => Some(StdlibClass::RegExp),
         "Set" => Some(StdlibClass::Set),
@@ -42,6 +63,14 @@ mod tests {
     fn recognizes_stdlib_class_names() {
         assert_eq!(typescript_stdlib_class("Date"), Some(StdlibClass::Date));
         assert_eq!(typescript_stdlib_class("Map"), Some(StdlibClass::Map));
+        assert_eq!(
+            typescript_stdlib_class(MATCH_CLASS_NAME),
+            Some(StdlibClass::Match)
+        );
+        assert_eq!(
+            typescript_stdlib_class(MATCH_GROUPS_CLASS_NAME),
+            Some(StdlibClass::MatchGroups)
+        );
         assert_eq!(
             typescript_stdlib_class("MatchFnResult"),
             Some(StdlibClass::MatchFnResult)

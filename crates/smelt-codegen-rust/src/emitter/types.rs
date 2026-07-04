@@ -331,6 +331,11 @@ impl FunctionEmitter<'_> {
                 if let Some((_, descriptor)) = self.descriptor_for_field(base_ty, *field) {
                     return Ok(descriptor.read_ty);
                 }
+                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+                    && let Some(kind) = self.match_class_kind(*name)?
+                {
+                    return self.match_field_ty(kind, *field);
+                }
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(_, value)) => Ok(*value),
                     Some(Type::Optional(inner)) => {
@@ -387,6 +392,13 @@ impl FunctionEmitter<'_> {
             }
             Place::Index { base, index } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+                    && self.is_match_class_symbol(*name)?
+                {
+                    // A numbered group read is an optional string.
+                    let string_ty = self.type_id(Type::String)?;
+                    return self.type_id(Type::Optional(string_ty));
+                }
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(item)) => Ok(*item),
                     Some(Type::Optional(inner)) => {
@@ -432,6 +444,55 @@ impl FunctionEmitter<'_> {
                 caller.line()
             ))
         })
+    }
+
+    /// Find the interned `__SmeltMatchGroups` class type, if the program uses it.
+    ///
+    /// The frontend interns this synthetic class whenever it types a `.groups`
+    /// read, so it is present in the type table by the time codegen runs.
+    fn match_groups_class_ty(&self) -> Option<TypeId> {
+        self.mir
+            .types
+            .all()
+            .iter()
+            .position(|ty| {
+                matches!(
+                    ty,
+                    Type::Class { name, .. }
+                        if self.match_class_kind(*name)
+                            == Ok(Some(smelt_stdlib::StdlibClass::MatchGroups))
+                )
+            })
+            .and_then(|index| compact_index(index, "type index does not fit u32").ok())
+            .map(TypeId)
+    }
+
+    /// Resolve the result type of a field read on a synthetic match-result class.
+    ///
+    /// Mirrors the frontend `builtin_class_field_type` typing so `place_ty` and
+    /// the emitted accessor agree: a `.groups` read yields the named-group
+    /// accessor class, `.index`/`.length` are floats, `.input` is a string, and
+    /// every named-group read on the accessor class is an optional string. The
+    /// concrete types are already interned by the frontend that typed the read,
+    /// so `find_type_id` resolves them; an unmodeled field on the match value
+    /// itself falls back to the erased boundary only if the program interned it.
+    fn match_field_ty(
+        &self,
+        kind: smelt_stdlib::StdlibClass,
+        field: Symbol,
+    ) -> Result<TypeId, EmitError> {
+        let string_ty = self.type_id(Type::String)?;
+        match kind {
+            smelt_stdlib::StdlibClass::MatchGroups => self.type_id(Type::Optional(string_ty)),
+            _ => match self.symbol_source_name(field)? {
+                "index" | "length" => self.type_id(Type::Float),
+                "input" => Ok(string_ty),
+                "groups" => self.match_groups_class_ty().ok_or_else(|| {
+                    EmitError::new("match groups accessor class type is not interned")
+                }),
+                _ => self.type_id(Type::Unknown),
+            },
+        }
     }
 
     /// Finds the type ID for a type when that type is present in the MIR table.
@@ -568,6 +629,11 @@ impl FunctionEmitter<'_> {
             Type::Class { name, args } => {
                 if self.is_regexp_class_symbol(*name)? {
                     return Ok("SmeltRegExp".to_owned());
+                }
+                // Both synthetic match-result classes are backed by the same
+                // concrete `SmeltMatch` Rust type.
+                if self.is_match_class_symbol(*name)? {
+                    return Ok("SmeltMatch".to_owned());
                 }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
                     && !self
@@ -763,6 +829,9 @@ impl FunctionEmitter<'_> {
             Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value_text()),
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
                 Ok("SmeltRegExp::new(String::new(), String::new())".to_owned())
+            }
+            Type::Class { name, .. } if self.is_match_class_symbol(*name)? => {
+                Ok("SmeltMatch::default()".to_owned())
             }
             Type::Class { .. } => Ok("Default::default()".to_owned()),
             Type::Function(function) => {

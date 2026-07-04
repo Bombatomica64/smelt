@@ -41,786 +41,6 @@ impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std
 impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
 impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.values } }
 
-use ::std::hash::Hash;
-
-#[derive(Debug)]
-pub struct SmeltRecord<K, V> {
-    id: usize,
-    values: ::std::rc::Rc<::std::cell::RefCell<::std::collections::HashMap<K, V>>>,
-    order: ::std::rc::Rc<::std::cell::RefCell<Vec<K>>>,
-}
-
-thread_local! {
-    static SMELT_PROMISE_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
-/// Return a stable erased promise id for a source future local.
-fn smelt_promise_identity(source_key: usize) -> usize {
-    SMELT_PROMISE_IDENTITIES.with(|identities| {
-        let mut identities = identities.borrow_mut();
-        if let Some(id) = identities.get(&source_key) { return *id; }
-        let id = smelt_next_object_id();
-        identities.insert(source_key, id);
-        id
-    })
-}
-
-thread_local! {
-    /// Map a source list's storage address to a stable erased-array identity.
-    static SMELT_LIST_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
-/// Return a stable erased-array id for a source list keyed on its `Vec` address.
-///
-/// Erasing the SAME source list local twice must yield arrays that compare
-/// `===` equal (arrays compare by id). Keying on the live `Vec`'s storage
-/// address lets every erasure of one binding reuse a single id, while a
-/// fresh list (literal or transform result) still gets a fresh id from
-/// `SmeltArray::new`. KNOWN LIMITATION: `Vec::as_ptr` on an EMPTY `Vec`
-/// returns a shared dangling sentinel, so distinct empty list bindings can
-/// collide on one id; acceptable here because the targeted cases are
-/// non-empty.
-fn smelt_list_identity(source_key: usize) -> usize {
-    SMELT_LIST_IDENTITIES.with(|identities| {
-        let mut identities = identities.borrow_mut();
-        if let Some(id) = identities.get(&source_key) { return *id; }
-        let id = smelt_next_object_id();
-        identities.insert(source_key, id);
-        id
-    })
-}
-
-thread_local! {
-    static SMELT_FUNCTION_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
-/// Return the stable key for an erased callback wrapper.
-fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> usize {
-    ::std::rc::Rc::as_ptr(function) as *const () as usize
-}
-
-/// Retain typed callback identity while it crosses an erased ABI.
-fn smelt_register_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {
-    SMELT_FUNCTION_ORIGINS.with(|origins| { origins.borrow_mut().insert(smelt_erased_function_key(function), Box::new(origin)); });
-}
-
-/// Recover a typed callback previously passed through an erased ABI.
-fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {
-    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())
-}
-
-impl<K, V> Clone for SmeltRecord<K, V> {
-    fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), order: self.order.clone() } }
-}
-
-trait SmeltOwnedOptionCloned<T> {
-    /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
-    fn cloned(self) -> Option<T>;
-}
-
-impl<T> SmeltOwnedOptionCloned<T> for Option<T> {
-    fn cloned(self) -> Option<T> { self }
-}
-
-impl<K: Eq + ::std::hash::Hash + Clone, V> SmeltRecord<K, V> {
-    fn new() -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::new())), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
-    fn with_id(id: usize, values: ::std::collections::HashMap<K, V>) -> Self { let order = values.keys().cloned().collect::<Vec<_>>(); Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }
-    fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::new())), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) }; record.extend(iter); record }
-    fn len(&self) -> usize { self.values.borrow().len() }
-    fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized { self.values.borrow().contains_key(key) }
-    fn insert(&self, key: K, value: V) -> Option<V> { if !self.values.borrow().contains_key(&key) { self.order.borrow_mut().push(key.clone()); } self.values.borrow_mut().insert(key, value) }
-    fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized { let removed = self.values.borrow_mut().remove(key); if removed.is_some() { self.order.borrow_mut().retain(|existing| <K as ::std::borrow::Borrow<Q>>::borrow(existing) != key); } removed }
-    fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized, V: Clone { self.values.borrow().get(key).cloned() }
-    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).map(|value| (key.clone(), value.clone()))).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> ::std::vec::IntoIter<K> { self.order.borrow().clone().into_iter() }
-    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).cloned()).collect::<Vec<_>>().into_iter() }
-    fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
-}
-
-impl<K: Eq + ::std::hash::Hash + Clone, V> Default for SmeltRecord<K, V> {
-    fn default() -> Self { Self::new() }
-}
-
-impl<K: Eq + ::std::hash::Hash + Clone, V, const N: usize> From<[(K, V); N]> for SmeltRecord<K, V> {
-    fn from(values: [(K, V); N]) -> Self { values.into_iter().collect() }
-}
-
-impl<K: Eq + ::std::hash::Hash + Clone, V> ::std::iter::FromIterator<(K, V)> for SmeltRecord<K, V> {
-    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { let record = Self::new(); record.extend(iter); record }
-}
-
-impl<K: Eq + ::std::hash::Hash + Clone, V: Clone> IntoIterator for SmeltRecord<K, V> {
-    type Item = (K, V);
-    type IntoIter = ::std::vec::IntoIter<(K, V)>;
-    fn into_iter(self) -> Self::IntoIter { self.iter() }
-}
-
-impl<K: Eq + ::std::hash::Hash, V: PartialEq> PartialEq for SmeltRecord<K, V> {
-    fn eq(&self, other: &Self) -> bool { *self.values.borrow() == *other.values.borrow() }
-}
-
-impl<K: Eq + ::std::hash::Hash, V: Eq> Eq for SmeltRecord<K, V> {}
-
-impl<K, V> PartialEq<::std::collections::HashMap<K, V>> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash, V: PartialEq {
-    fn eq(&self, other: &::std::collections::HashMap<K, V>) -> bool { self.values.borrow().eq(other) }
-}
-
-#[derive(Clone)]
-pub struct SmeltJsMap<K, V> {
-    entries: Vec<(K, V)>,
-}
-
-impl<K, V> SmeltJsMap<K, V> {
-    fn new() -> Self { Self { entries: Vec::new() } }
-}
-
-impl<K: SmeltJsKeyEq + Clone, V: Clone> SmeltJsMap<K, V> {
-    fn len(&self) -> usize { self.entries.len() }
-    fn contains_key(&self, key: &K) -> bool { self.entries.iter().any(|(existing, _)| existing.same_js_key(key)) }
-    fn get(&self, key: &K) -> Option<V> { self.entries.iter().find(|(existing, _)| existing.same_js_key(key)).map(|(_, value)| value.clone()) }
-    fn insert(&mut self, key: K, value: V) -> Option<V> { if let Some((_, existing)) = self.entries.iter_mut().find(|(existing, _)| existing.same_js_key(&key)) { Some(::std::mem::replace(existing, value)) } else { self.entries.push((key, value)); None } }
-    fn remove(&mut self, key: &K) -> Option<V> { if let Some(index) = self.entries.iter().position(|(existing, _)| existing.same_js_key(key)) { Some(self.entries.remove(index).1) } else { None } }
-    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> { self.entries.clone().into_iter() }
-    fn keys(&self) -> ::std::vec::IntoIter<K> { self.entries.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>().into_iter() }
-    fn values(&self) -> ::std::vec::IntoIter<V> { self.entries.iter().map(|(_, value)| value.clone()).collect::<Vec<_>>().into_iter() }
-    fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
-}
-
-impl<K, V> Default for SmeltJsMap<K, V> {
-    fn default() -> Self { Self::new() }
-}
-
-impl<K, V, const N: usize> From<[(K, V); N]> for SmeltJsMap<K, V> {
-    fn from(entries: [(K, V); N]) -> Self { Self { entries: Vec::from(entries) } }
-}
-
-impl<K, V> ::std::iter::FromIterator<(K, V)> for SmeltJsMap<K, V> {
-    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { Self { entries: iter.into_iter().collect() } }
-}
-
-impl<K, V> IntoIterator for SmeltJsMap<K, V> {
-    type Item = (K, V);
-    type IntoIter = ::std::vec::IntoIter<(K, V)>;
-    fn into_iter(self) -> Self::IntoIter { self.entries.into_iter() }
-}
-
-impl<K: SmeltJsKeyEq + Clone, V: PartialEq + Clone> PartialEq for SmeltJsMap<K, V> {
-    fn eq(&self, other: &Self) -> bool { self.entries.len() == other.entries.len() && self.entries.iter().all(|(key, value)| other.get(key).is_some_and(|other_value| other_value == *value)) }
-}
-impl<K: SmeltJsKeyEq + Clone, V: Eq + Clone> Eq for SmeltJsMap<K, V> {}
-
-pub trait SmeltJsKeyEq {
-    fn same_js_key(&self, other: &Self) -> bool;
-}
-
-impl SmeltJsKeyEq for SmeltUnknown {
-    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => self == other } }
-}
-
-impl SmeltJsKeyEq for String { fn same_js_key(&self, other: &Self) -> bool { self == other } }
-impl SmeltJsKeyEq for bool { fn same_js_key(&self, other: &Self) -> bool { self == other } }
-impl SmeltJsKeyEq for i64 { fn same_js_key(&self, other: &Self) -> bool { self == other } }
-impl SmeltJsKeyEq for f64 { fn same_js_key(&self, other: &Self) -> bool { (self.is_nan() && other.is_nan()) || self == other } }
-
-pub trait SmeltJsStrictEq {
-    fn js_strict_eq(&self, other: &Self) -> bool;
-}
-impl SmeltJsStrictEq for SmeltUnknown {
-    fn js_strict_eq(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Null, SmeltUnknown::Null) => true, (SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true, (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right, (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => false } }
-}
-impl SmeltJsStrictEq for String { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
-impl SmeltJsStrictEq for bool { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
-impl SmeltJsStrictEq for i64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
-impl SmeltJsStrictEq for f64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
-
-#[derive(Debug)]
-pub struct SmeltObject {
-    id: usize,
-    values: ::std::rc::Rc<::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>>>,
-    order: ::std::rc::Rc<::std::cell::RefCell<Vec<String>>>,
-}
-
-impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), order: self.order.clone() } } }
-impl SmeltObject {
-    fn new(values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { let mut order = values.keys().cloned().collect::<Vec<_>>(); order.sort(); Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }
-    fn with_id(id: usize, values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { let mut order = values.keys().cloned().collect::<Vec<_>>(); order.sort(); Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }
-    fn from_unknown_record(record: SmeltRecord<String, SmeltUnknown>) -> Self { Self { id: record.id, values: record.values, order: record.order } }
-    fn len(&self) -> usize { self.values.borrow().len() }
-    fn contains_key(&self, key: &str) -> bool { self.values.borrow().contains_key(key) }
-    fn get(&self, key: &str) -> Option<SmeltUnknown> { self.values.borrow().get(key).cloned() }
-    fn insert(&self, key: String, value: SmeltUnknown) -> Option<SmeltUnknown> { if !self.values.borrow().contains_key(&key) { self.order.borrow_mut().push(key.clone()); } self.values.borrow_mut().insert(key, value) }
-    fn remove(&self, key: &str) -> Option<SmeltUnknown> { let removed = self.values.borrow_mut().remove(key); if removed.is_some() { self.order.borrow_mut().retain(|existing| existing != key); } removed }
-    fn iter(&self) -> ::std::vec::IntoIter<(String, SmeltUnknown)> { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).map(|value| (key.clone(), value.clone()))).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> Vec<String> { self.order.borrow().clone() }
-    fn values(&self) -> Vec<SmeltUnknown> { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).cloned()).collect() }
-}
-
-/// Return whether an erased object key is visible to JavaScript `for...in` iteration.
-fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_domexception", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
-fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_domexception", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.contains_key(*marker)) }
-fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(object.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(object.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
-/// Return whether a record key is visible to JavaScript `for...in` iteration.
-fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(record.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) && !(record.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message")) }
-/// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.
-/// Class instances carry a hidden `__smelt_class` marker and map to a distinct
-/// `"__smelt_proto:class"` sentinel so they are not treated as plain objects; arrays,
-/// `null`, and plain objects keep their existing sentinels.
-fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String("__smelt_proto:array".to_owned()), SmeltUnknown::Promise(_) => SmeltUnknown::String("__smelt_proto:promise".to_owned()), SmeltUnknown::Object(map) if map.contains_key("__smelt_class") => SmeltUnknown::String("__smelt_proto:class".to_owned()), _ => SmeltUnknown::String("__smelt_proto:object".to_owned()) } }
-
-impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
-impl Eq for SmeltObject {}
-impl ::std::hash::Hash for SmeltObject { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_hash(self, state, &mut smelt_seen); } }
-impl IntoIterator for SmeltObject { type Item = (String, SmeltUnknown); type IntoIter = ::std::vec::IntoIter<(String, SmeltUnknown)>; fn into_iter(self) -> Self::IntoIter { self.iter() } }
-
-#[derive(Debug)]
-pub struct SmeltArray {
-    id: usize,
-    values: Vec<SmeltUnknown>,
-}
-
-impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }
-impl SmeltArray {
-    /// Create an identity-bearing erased JavaScript array.
-    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values } }
-    /// Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.
-    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values } }
-    /// Consume an erased array when lowering back to statically typed list storage.
-    fn into_vec(self) -> Vec<SmeltUnknown> { self.values }
-}
-impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }
-impl ::std::iter::FromIterator<SmeltUnknown> for SmeltArray { fn from_iter<T: IntoIterator<Item = SmeltUnknown>>(iter: T) -> Self { Self::new(iter.into_iter().collect()) } }
-impl ::std::ops::Deref for SmeltArray { type Target = [SmeltUnknown]; fn deref(&self) -> &Self::Target { &self.values } }
-impl IntoIterator for SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.values.into_iter() } }
-
-impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values) } }
-type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;
-
-#[derive(Clone)]
-pub struct SmeltPromise {
-    id: usize,
-    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, String>>>>,
-    future: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromiseFuture>>>,
-}
-
-impl SmeltPromise {
-    /// Create a pending erased promise identity with shared settle state.
-    fn pending() -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// Create a pending promise with a preassigned identity.
-    fn pending_with_id(id: usize) -> Self { Self { id, state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// Create an already-fulfilled erased promise value.
-    fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// Store a live future behind a cloneable erased promise handle.
-    fn from_future(future: SmeltPromiseFuture) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(future))) } }
-    /// Await the stored future once and share its settled result with clones.
-    async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
-        if self.state.borrow().is_none() {
-            if let Some(future) = self.future.borrow_mut().take() {
-                let settled = future.await.map_err(|error| error.to_string());
-                *self.state.borrow_mut() = Some(settled);
-            }
-        }
-        loop {
-            if let Some(result) = self.state.borrow().clone() {
-                return result.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error).into());
-            }
-            tokio::task::yield_now().await;
-        }
-    }
-}
-impl ::std::fmt::Debug for SmeltPromise { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltPromise").field("id", &self.id).finish() } }
-
-#[allow(dead_code)]
-async fn smelt_await_flatten(value: SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
-    let mut current = value;
-    while let SmeltUnknown::Promise(promise) = current {
-        current = promise.smelt_await().await?;
-    }
-    Ok(current)
-}
-
-/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.
-fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }
-
-/// Resolve the AbortSignal record behind an abort controller or signal object.
-fn smelt_abort_signal_object(object: &SmeltObject) -> Option<SmeltObject> { if object.contains_key("__smelt_abortsignal") { return Some(object.clone()); } match object.get("signal") { Some(SmeltUnknown::Object(signal)) if signal.contains_key("__smelt_abortsignal") => Some(signal), _ => None } }
-/// Mark an AbortSignal aborted and fire (then clear) its registered `'abort'` listeners.
-fn smelt_abort_signal_fire(signal: &SmeltObject) { if matches!(signal.get("aborted"), Some(SmeltUnknown::Bool(true))) { return; } signal.insert("aborted".to_owned(), SmeltUnknown::Bool(true)); let listeners = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() }; signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(Vec::new().into())); for listener in listeners { if let SmeltUnknown::Function(callback) = listener { let event = SmeltObject::new(::std::collections::HashMap::from([("type".to_owned(), SmeltUnknown::String("abort".to_owned()))])); let _ = callback(vec![SmeltUnknown::Object(event)]); } } }
-/// Return an erased AbortController/AbortSignal method bound to its shared record.
-fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let signal = smelt_abort_signal_object(&object); match method.as_str() { "abort" | "dispatchEvent" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal); } Ok(if method == "dispatchEvent" { SmeltUnknown::Bool(true) } else { SmeltUnknown::Undefined }) } "addEventListener" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.clone(), _ => String::new() }; if event_type == "abort" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } "removeEventListener" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect(); signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(listeners.into())); } } Ok(SmeltUnknown::Undefined) } _ => Ok(SmeltUnknown::Undefined) } })) }
-
-pub enum SmeltUnknown {
-    Null,
-    Undefined,
-    Bool(bool),
-    Number(f64),
-    String(String),
-    Symbol(String),
-    Array(SmeltArray),
-    Object(SmeltObject),
-    Function(::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>),
-    Promise(SmeltPromise),
-}
-
-impl Clone for SmeltUnknown {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Null => Self::Null,
-            Self::Undefined => Self::Undefined,
-            Self::Bool(value) => Self::Bool(*value),
-            Self::Number(value) => Self::Number(*value),
-            Self::String(value) => Self::String(value.clone()),
-            Self::Symbol(value) => Self::Symbol(value.clone()),
-            Self::Array(values) => Self::Array(values.clone()),
-            Self::Object(values) => Self::Object(values.clone()),
-            Self::Function(value) => Self::Function(value.clone()),
-            Self::Promise(value) => Self::Promise(value.clone()),
-        }
-    }
-}
-
-fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
-    // A missing property reads as JS `undefined`, distinct from an
-    // explicit `null` value (`obj.missing === undefined`, `!== null`).
-    match map.get(field).unwrap_or(SmeltUnknown::Undefined) {
-        SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
-            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!("{}", error)),
-            _ => SmeltUnknown::Null,
-        },
-        value => value,
-    }
-}
-
-fn smelt_unknown_is_nullish(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) }
-fn smelt_unknown_is_undefined(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Undefined) }
-fn smelt_missing_property_value() -> SmeltUnknown { SmeltUnknown::Undefined }
-fn smelt_missing_index_value() -> SmeltUnknown { SmeltUnknown::Undefined }
-
-fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
-    match (left, right) {
-        (SmeltUnknown::Null, SmeltUnknown::Null) => true,
-        (SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true,
-        (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right,
-        (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right || (left.is_nan() && right.is_nan()),
-        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right,
-        (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right,
-        (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.len() == right.len() && left.iter().zip(right.iter()).all(|(left, right)| smelt_unknown_structural_eq(left, right, seen)),
-        (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => smelt_object_structural_eq(left, right, seen),
-        (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right),
-        (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id,
-        _ => false,
-    }
-}
-
-fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
-    if left.contains_key("__smelt_date") || right.contains_key("__smelt_date") { let left_date = smelt_unknown_date_value(&SmeltUnknown::Object(left.clone())); let right_date = smelt_unknown_date_value(&SmeltUnknown::Object(right.clone())); return left_date == right_date || (left_date.is_nan() && right_date.is_nan()); }
-    if left.id == right.id { return true; }
-    let key = (left.id, right.id);
-    if !seen.insert(key) { return true; }
-    let left_entries = left.iter().collect::<Vec<_>>();
-    let right_values = right.values.borrow();
-    if left_entries.len() != right_values.len() { return false; }
-    left_entries.into_iter().all(|(key, left_value)| right_values.get(&key).is_some_and(|right_value| smelt_unknown_structural_eq(&left_value, right_value, seen)))
-}
-
-fn smelt_unknown_structural_hash<H: ::std::hash::Hasher>(value: &SmeltUnknown, state: &mut H, seen: &mut ::std::collections::HashSet<usize>) {
-    match value {
-        SmeltUnknown::Null => 0_u8.hash(state),
-        SmeltUnknown::Undefined => 8_u8.hash(state),
-        SmeltUnknown::Bool(value) => { 1_u8.hash(state); value.hash(state); }
-        SmeltUnknown::Number(value) => { 2_u8.hash(state); if value.is_nan() { f64::NAN.to_bits().hash(state); } else { value.to_bits().hash(state); } }
-        SmeltUnknown::String(value) => { 3_u8.hash(state); value.hash(state); }
-        SmeltUnknown::Symbol(value) => { 4_u8.hash(state); value.hash(state); }
-        SmeltUnknown::Array(values) => { 5_u8.hash(state); values.len().hash(state); for value in values.iter() { smelt_unknown_structural_hash(value, state, seen); } }
-        SmeltUnknown::Object(values) => { 6_u8.hash(state); smelt_object_structural_hash(values, state, seen); }
-        SmeltUnknown::Function(function) => { 7_u8.hash(state); ::std::rc::Rc::as_ptr(function).hash(state); }
-        SmeltUnknown::Promise(promise) => { 9_u8.hash(state); promise.id.hash(state); }
-    }
-}
-
-fn smelt_unknown_stable_hash_key(value: &SmeltUnknown) -> u64 {
-    let mut hasher = ::std::collections::hash_map::DefaultHasher::new();
-    let mut seen = ::std::collections::HashSet::new();
-    smelt_unknown_structural_hash(value, &mut hasher, &mut seen);
-    ::std::hash::Hasher::finish(&hasher)
-}
-
-fn smelt_object_structural_hash<H: ::std::hash::Hasher>(object: &SmeltObject, state: &mut H, seen: &mut ::std::collections::HashSet<usize>) {
-    if !seen.insert(object.id) { 255_u8.hash(state); return; }
-    let mut entries = object.iter().collect::<Vec<_>>();
-    entries.sort_by(|left, right| left.0.cmp(&right.0));
-    entries.len().hash(state);
-    for (key, value) in entries { key.hash(state); smelt_unknown_structural_hash(&value, state, seen); }
-}
-
-impl ::std::fmt::Debug for SmeltUnknown {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::Null => formatter.write_str("Null"),
-            Self::Undefined => formatter.write_str("Undefined"),
-            Self::Bool(value) => formatter.debug_tuple("Bool").field(value).finish(),
-            Self::Number(value) => formatter.debug_tuple("Number").field(value).finish(),
-            Self::String(value) => formatter.debug_tuple("String").field(value).finish(),
-            Self::Symbol(value) => formatter.debug_tuple("Symbol").field(value).finish(),
-            Self::Array(values) => formatter.debug_tuple("Array").field(values).finish(),
-            Self::Object(values) => formatter.debug_tuple("Object").field(values).finish(),
-            Self::Function(_) => formatter.write_str("Function(<closure>)"),
-            Self::Promise(value) => formatter.debug_tuple("Promise").field(value).finish(),
-        }
-    }
-}
-
-impl PartialEq for SmeltUnknown {
-    fn eq(&self, other: &Self) -> bool {
-        let mut smelt_seen = ::std::collections::HashSet::new();
-        smelt_unknown_structural_eq(self, other, &mut smelt_seen)
-    }
-}
-
-impl Default for SmeltUnknown {
-    fn default() -> Self {
-        Self::Null
-    }
-}
-
-impl SmeltUnknown {
-    /// Returns the JavaScript-style length for unknown string, array, and object values.
-    pub fn len(&self) -> usize {
-        match self {
-            Self::String(value) => value.chars().count(),
-            Self::Array(value) => value.len(),
-            Self::Object(value) => value.len(),
-            Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => 0,
-        }
-    }
-    /// Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.
-    pub fn get_day(&self) -> f64 {
-        let timestamp_ms = match self { Self::Number(value) => *value, Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => return f64::NAN }, _ => return f64::NAN };
-        let days_since_epoch = (timestamp_ms / 86_400_000.0).floor() as i64;
-        ((days_since_epoch + 4).rem_euclid(7)) as f64
-    }
-    /// Return JavaScript Date.toISOString output for erased Date-compatible values.
-    pub fn to_iso_string(&self) -> String {
-        if let Self::Object(value) = self {
-            if let (Some(Self::Number(timestamp_ms)), Some(Self::String(timezone_name))) = (value.get("__smelt_date"), value.get("__smelt_timezone")) {
-                if let (Some(mut local), Ok(timezone)) = (chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.naive_utc()), timezone_name.parse::<chrono_tz::Tz>()) {
-                    loop {
-                        match chrono::TimeZone::from_local_datetime(&timezone, &local) {
-                            chrono::LocalResult::Single(date) => return date.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
-                            chrono::LocalResult::Ambiguous(first, _) => return first.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
-                            chrono::LocalResult::None => local += chrono::Duration::minutes(1),
-                        }
-                    }
-                }
-            }
-        }
-        let timestamp_ms = match self {
-            Self::Number(value) => *value,
-            Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => f64::NAN },
-            Self::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),
-            Self::Bool(value) => if *value { 1.0 } else { 0.0 },
-            Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Function(_) | Self::Promise(_) => f64::NAN,
-        };
-        chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| "Invalid Date".to_owned())
-    }
-    /// Return JavaScript-like `includes` membership for erased strings and arrays.
-    pub fn includes<T: IntoSmeltUnknown>(&self, needle: T) -> bool {
-        let needle = needle.into_smelt_unknown();
-        match (self, needle) {
-            (Self::String(haystack), Self::String(needle)) => haystack.contains(&needle),
-            (Self::Array(values), needle) => values.iter().any(|value| value == &needle),
-            _ => false,
-        }
-    }
-    /// Return JavaScript-like RegExp.test behavior for erased regex-like values.
-    pub fn test<T: IntoSmeltUnknown>(&self, haystack: T) -> bool {
-        let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };
-        match self {
-            Self::String(pattern) => regex::Regex::new(pattern).is_ok_and(|regex| regex.is_match(&haystack)),
-            Self::Object(map) => {
-                let Some(Self::String(source)) = map.get("source") else { return false; };
-                let flags = match map.get("flags") { Some(Self::String(flags)) => flags.clone(), _ => String::new() };
-                SmeltRegExp::new(source.clone(), flags).test(&haystack)
-            }
-            _ => false,
-        }
-    }
-    /// No-op compatibility hook for erased callable objects with a `flush` method.
-    pub fn flush(&self) {
-    }
-}
-
-impl ::std::fmt::Display for SmeltUnknown {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::Null => formatter.write_str("null"),
-            Self::Undefined => formatter.write_str("undefined"),
-            Self::Bool(value) => write!(formatter, "{value}"),
-            Self::Number(value) => write!(formatter, "{value}"),
-            Self::String(value) => formatter.write_str(value),
-            Self::Symbol(value) => formatter.write_str(value),
-            Self::Array(_) | Self::Object(_) => formatter.write_str("[object Object]"),
-            Self::Function(_) => formatter.write_str("function () { [native code] }"),
-            Self::Promise(_) => formatter.write_str("[object Promise]"),
-        }
-    }
-}
-
-impl Eq for SmeltUnknown {}
-
-impl ::std::hash::Hash for SmeltUnknown {
-    fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) {
-        let mut smelt_seen = ::std::collections::HashSet::new();
-        smelt_unknown_structural_hash(self, state, &mut smelt_seen);
-    }
-}
-
-impl PartialOrd for SmeltUnknown {
-    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-        match (self, other) {
-            (Self::Number(left), Self::Number(right)) => left.partial_cmp(right),
-            (Self::String(left), Self::String(right)) => Some(left.cmp(right)),
-            (Self::Bool(left), Self::Bool(right)) => Some(left.cmp(right)),
-            (Self::Object(left), Self::Object(right)) if left.contains_key("__smelt_date") || right.contains_key("__smelt_date") => smelt_unknown_date_value(self).partial_cmp(&smelt_unknown_date_value(other)),
-            (Self::Null, Self::Null) => Some(::std::cmp::Ordering::Equal),
-            (left, right) => Some(smelt_unknown_rank(left).cmp(&smelt_unknown_rank(right))),
-        }
-    }
-}
-
-impl PartialEq<f64> for SmeltUnknown {
-    fn eq(&self, other: &f64) -> bool {
-        matches!(self, Self::Number(value) if value == other)
-    }
-}
-
-impl PartialEq<SmeltUnknown> for f64 {
-    fn eq(&self, other: &SmeltUnknown) -> bool {
-        other == self
-    }
-}
-
-impl PartialOrd<f64> for SmeltUnknown {
-    fn partial_cmp(&self, other: &f64) -> Option<::std::cmp::Ordering> {
-        match self {
-            Self::Number(value) => value.partial_cmp(other),
-            Self::String(value) => value.parse::<f64>().ok().and_then(|number| number.partial_cmp(other)),
-            Self::Bool(value) => (if *value { 1.0 } else { 0.0 }).partial_cmp(other),
-            Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Promise(_) => None,
-        }
-    }
-}
-
-impl PartialOrd<SmeltUnknown> for f64 {
-    fn partial_cmp(&self, other: &SmeltUnknown) -> Option<::std::cmp::Ordering> {
-        other.partial_cmp(self).map(::std::cmp::Ordering::reverse)
-    }
-}
-
-impl PartialEq<SmeltUnknown> for Option<SmeltUnknown> {
-    fn eq(&self, other: &SmeltUnknown) -> bool {
-        self.as_ref().is_some_and(|value| value == other)
-    }
-}
-
-impl PartialOrd<SmeltUnknown> for Option<SmeltUnknown> {
-    fn partial_cmp(&self, other: &SmeltUnknown) -> Option<::std::cmp::Ordering> {
-        self.as_ref().and_then(|value| value.partial_cmp(other))
-    }
-}
-
-fn smelt_unknown_date_value(value: &SmeltUnknown) -> f64 {
-    match value {
-        SmeltUnknown::Object(object) => match object.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },
-        _ => f64::NAN,
-    }
-}
-
-fn smelt_unknown_rank(value: &SmeltUnknown) -> u8 {
-    match value {
-        SmeltUnknown::Null => 0,
-        SmeltUnknown::Undefined => 8,
-        SmeltUnknown::Bool(_) => 1,
-        SmeltUnknown::Number(_) => 2,
-        SmeltUnknown::String(_) => 3,
-        SmeltUnknown::Symbol(_) => 4,
-        SmeltUnknown::Array(_) => 5,
-        SmeltUnknown::Object(_) => 6,
-        SmeltUnknown::Function(_) => 7,
-        SmeltUnknown::Promise(_) => 9,
-    }
-}
-
-pub trait IntoSmeltUnknown {
-    fn into_smelt_unknown(self) -> SmeltUnknown;
-}
-
-impl IntoSmeltUnknown for SmeltUnknown {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        self
-    }
-}
-
-impl IntoSmeltUnknown for bool {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Bool(self)
-    }
-}
-
-impl IntoSmeltUnknown for f64 {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
-    }
-}
-
-impl IntoSmeltUnknown for i64 {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self as f64)
-    }
-}
-
-impl IntoSmeltUnknown for String {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::String(self)
-    }
-}
-
-impl IntoSmeltUnknown for () {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Null
-    }
-}
-
-impl<T: IntoSmeltUnknown> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id, self.values.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }
-
-pub trait SmeltFromUnknown {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self;
-}
-
-impl SmeltFromUnknown for SmeltUnknown {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        value
-    }
-}
-
-impl SmeltFromUnknown for bool {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }
-    }
-}
-
-impl SmeltFromUnknown for f64 {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }
-    }
-}
-
-impl SmeltFromUnknown for i64 {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }
-    }
-}
-
-impl SmeltFromUnknown for String {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }
-    }
-}
-
-trait SmeltIntoF64 {
-    fn smelt_into_f64(self) -> f64;
-}
-
-impl SmeltIntoF64 for f64 {
-    fn smelt_into_f64(self) -> f64 {
-        self
-    }
-}
-
-impl SmeltIntoF64 for SmeltUnknown {
-    fn smelt_into_f64(self) -> f64 {
-        match self {
-            SmeltUnknown::Number(value) => value,
-            _ => 0.0,
-        }
-    }
-}
-
-impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Option<T> {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        self.map_or(SmeltUnknown::Undefined, IntoSmeltUnknown::into_smelt_unknown)
-    }
-}
-
-impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Vec<T> {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Array(self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())
-    }
-}
-
-impl<T: IntoSmeltUnknown + Eq + ::std::hash::Hash> IntoSmeltUnknown for ::std::collections::HashSet<T> {
-    /// Erase JavaScript Set values as iterable array-like values.
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let mut values = self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>();
-        values.sort_by_key(smelt_unknown_stable_hash_key);
-        SmeltUnknown::Array(values.into())
-    }
-}
-
-trait SmeltArrayExt<T> {
-    /// Return the first JavaScript-style index of a value, or -1 when absent.
-    fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq;
-}
-
-impl<T> SmeltArrayExt<T> for Vec<T> {
-    /// Implement `Array.prototype.indexOf` for generated Rust vectors.
-    fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq {
-        self.iter().position(|value| value == &needle).map_or(SmeltUnknown::Number(-1.0), |index| SmeltUnknown::Number(index as f64))
-    }
-}
-
-trait SmeltUnknownArrayExt {
-    /// Concatenate erased array values with JavaScript-style spreading.
-    fn concat(self, other: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;
-}
-
-impl SmeltUnknownArrayExt for Vec<SmeltUnknown> {
-    /// Implement the generated rest-argument concat helper for erased arrays.
-    fn concat(mut self, other: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> {
-        self.extend(other);
-        self
-    }
-}
-
-trait SmeltUnitExt {
-    /// Return false for generated calls against unreachable unit placeholders.
-    fn includes<T>(&self, _needle: T) -> bool;
-}
-
-impl SmeltUnitExt for () {
-    /// Keep unreachable JavaScript membership calls type-checkable.
-    fn includes<T>(&self, _needle: T) -> bool {
-        false
-    }
-}
-
-impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Array(vec![self.0.into_smelt_unknown(), self.1.into_smelt_unknown()].into())
-    }
-}
-
-impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!("__smelt_symbol:{value}"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
-    }
-}
-
-impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone, T: IntoSmeltUnknown + Clone {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!("__smelt_symbol:{value}"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct SmeltRegExp {
     id: usize,
@@ -923,16 +143,6 @@ impl SmeltRegExp {
     }
 }
 
-impl IntoSmeltUnknown for SmeltRegExp {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, ::std::collections::HashMap::from([
-        ("source".to_owned(), SmeltUnknown::String(self.source)),
-        ("flags".to_owned(), SmeltUnknown::String(self.flags)),
-        ("__smelt_regexp".to_owned(), SmeltUnknown::Bool(true)),
-        ])))
-    }
-}
-
 impl Default for SmeltRegExp {
     /// Construct a RegExp that matches the empty string.
     fn default() -> Self {
@@ -942,7 +152,7 @@ impl Default for SmeltRegExp {
 
 /// A concrete JavaScript RegExp match result (numbered groups, named
 /// groups, `index`, and `input`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SmeltMatch {
     id: usize,
     /// Numbered capture groups; entry 0 is the whole match. An absent
@@ -977,21 +187,44 @@ impl SmeltMatch {
     fn group(&self, index: usize) -> Option<&str> {
         self.groups.get(index).and_then(|value| value.as_deref())
     }
+    /// Read a numbered capture group as an owned optional string.
+    ///
+    /// Consumer index reads (`match[n]`) are typed `Optional(String)`; a
+    /// group that did not participate in the match is `None` (JavaScript
+    /// `undefined`).
+    pub fn group_owned(&self, index: usize) -> Option<String> {
+        self.groups.get(index).cloned().flatten()
+    }
     /// Read a named capture group (`match.groups.name`).
     fn named_group(&self, name: &str) -> Option<&str> {
         self.named.get(name).and_then(|value| value.as_deref())
     }
+    /// Read a named capture group as an owned optional string.
+    ///
+    /// Consumer named-group reads (`match.groups.name`) are typed
+    /// `Optional(String)`; a group that did not participate is `None`.
+    pub fn named_group_owned(&self, name: &str) -> Option<String> {
+        self.named.get(name).cloned().flatten()
+    }
     /// The zero-based match offset (`match.index`).
-    fn index(&self) -> f64 {
+    pub fn index(&self) -> f64 {
         self.match_index as f64
     }
     /// The full searched string (`match.input`).
     fn input(&self) -> &str {
         &self.input
     }
+    /// The full searched string as an owned value (`match.input`).
+    pub fn input_owned(&self) -> String {
+        self.input.clone()
+    }
     /// Number of numbered capture groups, including the whole match.
     fn len(&self) -> usize {
         self.groups.len()
+    }
+    /// Number of numbered capture groups as a JavaScript number (`match.length`).
+    pub fn length(&self) -> f64 {
+        self.groups.len() as f64
     }
     /// Whether there are no numbered groups (never true for a real match).
     fn is_empty(&self) -> bool {
@@ -999,82 +232,91 @@ impl SmeltMatch {
     }
 }
 
-/// Erase a concrete match into a `SmeltUnknown` at a dynamic boundary.
-///
-/// This reproduces the JavaScript match-array-with-properties shape:
-/// numbered string keys for the groups plus `groups`, `index`, and
-/// `input`. It is the single explicit adapter used when a typed
-/// `SmeltMatch` must flow into erased `unknown` consumer dataflow.
-impl IntoSmeltUnknown for SmeltMatch {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let mut object = ::std::collections::HashMap::new();
-        for (index, value) in self.groups.iter().enumerate() { object.insert(index.to_string(), value.clone().map_or(SmeltUnknown::Undefined, SmeltUnknown::String)); }
-        let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, SmeltUnknown::String))).collect::<::std::collections::HashMap<_, _>>();
-        object.insert("groups".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));
-        object.insert("index".to_owned(), SmeltUnknown::Number(self.match_index as f64));
-        object.insert("input".to_owned(), SmeltUnknown::String(self.input));
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, object))
-    }
-}
-
 // @smelt:prelude-end — generated program below
 fn main() {
-    let mut found: SmeltUnknown;
-    let mut whole: SmeltUnknown;
-    let mut letter: SmeltUnknown;
-    let mut digit: SmeltUnknown;
-    let mut _smelt_tmp_9: f64;
-    let mut _smelt_tmp_10: bool;
-    let mut _smelt_tmp_11: SmeltUnknown;
-    let mut _smelt_tmp_6: SmeltRegExp = SmeltRegExp::new("(?P<letter>[a-z])(\\d)?".to_owned(), "g".to_owned());
-    let mut pattern: SmeltRegExp = _smelt_tmp_6;
-    let _smelt_tmp_7: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(pattern.match_all_indices(&"a1 b c3".to_owned()).into_iter().map(SmeltMatch::into_smelt_unknown).collect::<Vec<_>>());
-    let matches: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(_smelt_tmp_7);
-    let mut _smelt_tmp_8: f64 = 0.0;
+    let mut found: SmeltMatch;
+    let mut whole: Option<String>;
+    let mut letter: Option<String>;
+    let mut digit: Option<String>;
+    let mut full: Option<String>;
+    let mut first: Option<String>;
+    let mut second: Option<String>;
+    let mut single: SmeltRegExp;
+    let mut found_1: Option<SmeltMatch>;
+    let mut _smelt_tmp_14: f64;
+    let mut _smelt_tmp_15: bool;
+    let mut _smelt_tmp_16: Option<String>;
+    let mut _smelt_tmp_17: SmeltMatch;
+    let mut _smelt_tmp_18: Option<String>;
+    let mut _smelt_tmp_24: Option<String>;
+    let mut _smelt_tmp_25: Option<String>;
+    let mut _smelt_tmp_26: Option<String>;
+    let mut _smelt_tmp_30: SmeltRegExp;
+    let mut _smelt_tmp_31: Option<SmeltMatch>;
+    let mut _smelt_tmp_32: bool;
+    let mut _smelt_tmp_33: SmeltMatch;
+    let mut _smelt_tmp_34: Option<String>;
+    let mut _smelt_tmp_36: SmeltMatch;
+    let mut _smelt_tmp_37: SmeltMatch;
+    let mut _smelt_tmp_39: SmeltMatch;
+    let mut _smelt_tmp_40: Option<String>;
+    let mut _smelt_tmp_42: SmeltMatch;
+    let mut _smelt_tmp_43: Option<String>;
+    let mut _smelt_tmp_45: SmeltMatch;
+    let mut _smelt_tmp_11: SmeltRegExp = SmeltRegExp::new("(?P<letter>[a-z])(\\d)?".to_owned(), "g".to_owned());
+    let mut pattern: SmeltRegExp = _smelt_tmp_11;
+    let _smelt_tmp_12: SmeltList<SmeltMatch> = Into::<SmeltList<_>>::into(pattern.match_all_indices(&"a1 b c3".to_owned()));
+    let matches: SmeltList<SmeltMatch> = Into::<SmeltList<_>>::into(_smelt_tmp_12);
+    let mut _smelt_tmp_13: f64 = 0.0;
     loop {
-    _smelt_tmp_9 = matches.len() as f64;
-    _smelt_tmp_10 = _smelt_tmp_8.clone() < _smelt_tmp_9;
-    if !(_smelt_tmp_10) { break; }
-    found = matches.get({ let len = matches.len() as i64; let index = _smelt_tmp_8.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone();
-    whole = match found.clone() {
-                    SmeltUnknown::String(value) => {
-                        let len = value.chars().count() as i64;
-                        let index = 0.0 as i64;
-                        let normalized = if index < 0 { len + index } else { index };
-                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Null)
-                    }
-                    SmeltUnknown::Array(values) => {
-                        let len = values.len() as i64;
-                        let index = 0.0 as i64;
-                        let normalized = if index < 0 { len + index } else { index };
-                        usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
-                    }
-                SmeltUnknown::Object(values) => values.get(&0.0.to_string()).unwrap_or(SmeltUnknown::Null),
-                _ => SmeltUnknown::Null,
-            }.clone();
-    _smelt_tmp_11 = match found.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, "groups"), _ => SmeltUnknown::Undefined }.clone();
-    letter = match _smelt_tmp_11.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, "letter"), _ => SmeltUnknown::Undefined }.clone();
-    digit = match found.clone() {
-                    SmeltUnknown::String(value) => {
-                        let len = value.chars().count() as i64;
-                        let index = 2.0 as i64;
-                        let normalized = if index < 0 { len + index } else { index };
-                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Null)
-                    }
-                    SmeltUnknown::Array(values) => {
-                        let len = values.len() as i64;
-                        let index = 2.0 as i64;
-                        let normalized = if index < 0 { len + index } else { index };
-                        usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
-                    }
-                SmeltUnknown::Object(values) => values.get(&2.0.to_string()).unwrap_or(SmeltUnknown::Null),
-                _ => SmeltUnknown::Null,
-            }.clone();
-    let _ = { println!("{}", whole); };
-    let _ = { println!("{}", letter); };
-    let _ = { println!("{}", digit); };
-    let _ = { println!("{}", match found.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, "index"), _ => SmeltUnknown::Undefined }.clone()); };
-    _smelt_tmp_8 = _smelt_tmp_8.clone() + 1.0;
+    _smelt_tmp_14 = matches.len() as f64;
+    _smelt_tmp_15 = _smelt_tmp_13.clone() < _smelt_tmp_14;
+    if !(_smelt_tmp_15) { break; }
+    found = matches.get({ let len = matches.len() as i64; let index = _smelt_tmp_13.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(SmeltMatch::default()).clone();
+    _smelt_tmp_16 = found.clone().group_owned(0.0 as usize);
+    whole = _smelt_tmp_16;
+    _smelt_tmp_17 = found.clone().clone();
+    letter = _smelt_tmp_17.named_group_owned("letter").clone();
+    _smelt_tmp_18 = found.clone().group_owned(2.0 as usize);
+    digit = _smelt_tmp_18;
+    let _ = { println!("{:?}", whole); };
+    let _ = { println!("{:?}", letter); };
+    let _ = { println!("{:?}", digit); };
+    let _ = { println!("{}", found.index().clone()); };
+    let _ = { println!("{}", found.input_owned().clone()); };
+    _smelt_tmp_24 = found.clone().group_owned(0.0 as usize);
+    full = _smelt_tmp_24;
+    _smelt_tmp_25 = found.clone().group_owned(1.0 as usize);
+    first = _smelt_tmp_25;
+    _smelt_tmp_26 = found.group_owned(2.0 as usize);
+    second = _smelt_tmp_26;
+    let _ = { println!("{:?}", full); };
+    let _ = { println!("{:?}", first); };
+    let _ = { println!("{:?}", second); };
+    _smelt_tmp_13 = _smelt_tmp_13.clone() + 1.0;
     }
+    _smelt_tmp_30 = SmeltRegExp::new("(?P<year>\\d{4})-(\\d{2})".to_owned(), "".to_owned());
+    single = _smelt_tmp_30;
+    _smelt_tmp_31 = single.exec(&"2024-07".to_owned());
+    found_1 = _smelt_tmp_31;
+    _smelt_tmp_32 = !(found_1.clone().is_none());
+    if _smelt_tmp_32 {
+    _smelt_tmp_33 = found_1.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_34 = _smelt_tmp_33.group_owned(0.0 as usize);
+    let _ = { println!("{:?}", _smelt_tmp_34); };
+    _smelt_tmp_36 = found_1.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_37 = _smelt_tmp_36.clone().clone();
+    let _ = { println!("{:?}", _smelt_tmp_37.named_group_owned("year").clone()); };
+    _smelt_tmp_39 = found_1.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_40 = _smelt_tmp_39.group_owned(1.0 as usize);
+    let _ = { println!("{:?}", _smelt_tmp_40); };
+    _smelt_tmp_42 = found_1.clone().clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_43 = _smelt_tmp_42.group_owned(2.0 as usize);
+    let _ = { println!("{:?}", _smelt_tmp_43); };
+    _smelt_tmp_45 = found_1.clone().expect("optional value was absent after narrowing");
+    let _ = { println!("{}", _smelt_tmp_45.index().clone()); };
     return;
+    } else {
+    return;
+    }
 }
