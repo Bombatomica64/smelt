@@ -1943,6 +1943,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 items.push(item);
                 continue;
             }
+            // A member access that is neither a foldable numeric constant nor a
+            // module-local reference (`export const slice = Array.prototype.slice;`,
+            // `export const arrayProto = Array.prototype;`) is a statically
+            // resolvable member expression on a builtin/global root. General
+            // expression lowering already resolves such members — builtin
+            // namespace members lower to their concrete or erased-`Unknown`
+            // value, so route them through the same expression path instead of
+            // rejecting everything but well-known Number/Math constants. Genuine
+            // dynamic boundaries (a prototype object, a bound builtin method)
+            // stay explicit as the `Unknown` value the shared lowering produces.
+            if Self::is_member_access_initializer(init)
+                && self.literal_const_expression(init).is_err()
+            {
+                let item = self.push_expression_const_item(binding, init)?;
+                items.push(item);
+                continue;
+            }
             let value = match self.literal_const_expression(init) {
                 Ok(value) => value,
                 Err(error) if Self::is_known_non_importable_exported_const(init) => {
@@ -2041,6 +2058,35 @@ impl<'ctx> ModuleBuilder<'ctx> {
             || self.const_collections.contains_key(root)
             || self.const_literals.contains_key(root)
             || self.module_globals.contains_key(root)
+    }
+
+    /// Return whether an exported-const initializer is a static or computed
+    /// member access, unwrapping `as` / `satisfies` / non-null / parenthesized
+    /// wrappers.
+    ///
+    /// Used to route non-foldable member expressions on builtin/global roots
+    /// (`Array.prototype`, `Array.prototype.slice`, `Object.prototype`, ...)
+    /// through general expression lowering. Module-local member references are
+    /// handled earlier by [`Self::is_resolvable_module_reference`]; this catches
+    /// the remaining statically resolvable member expressions that the
+    /// well-known Number/Math folder would otherwise reject.
+    pub(super) fn is_member_access_initializer(init: &Expression<'_>) -> bool {
+        match init {
+            Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_) => true,
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::is_member_access_initializer(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::is_member_access_initializer(&as_expr.expression)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                Self::is_member_access_initializer(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                Self::is_member_access_initializer(&non_null.expression)
+            }
+            _ => false,
+        }
     }
 
     /// Return the root identifier name of an identifier or static-member
