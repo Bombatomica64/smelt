@@ -679,6 +679,8 @@ impl ModuleBuilder<'_> {
             && ambient_globals::global_alias_object_presence(guard_name) == Some(true)
     }
 
+    /// Build the concrete marker-record expression used for bare global-object
+    /// values such as `globalThis`, `global`, and `self`.
     pub(in crate::lowering) fn global_object_value_expression(
         &mut self,
         start: u32,

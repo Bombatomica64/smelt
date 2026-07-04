@@ -377,7 +377,12 @@ impl ModuleBuilder<'_> {
             BinaryOperator::StrictInequality => BinOp::JsStrictNotEq,
             BinaryOperator::Equality => BinOp::Eq,
             BinaryOperator::Inequality => BinOp::NotEq,
-            _ => unreachable!("callback nullish comparison operators are filtered above"),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(binary.span.start, binary.span.end),
+                    "callback nullish comparison operator is not supported",
+                ));
+            }
         };
         Ok(Some(CallbackExpr {
             kind: CallbackExprKind::Binary {

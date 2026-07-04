@@ -1145,6 +1145,7 @@ return_ty: none,
                 // an array index is exact (indices are far below 2^53). `usize` has
                 // no `TryFrom<f64>`, so a guarded `as` cast is the conversion here.
                 #[expect(
+                    clippy::as_conversions,
                     clippy::cast_possible_truncation,
                     clippy::cast_sign_loss,
                     reason = "raw is a guarded non-negative whole finite f64, so the index conversion is exact; usize has no TryFrom<f64>"

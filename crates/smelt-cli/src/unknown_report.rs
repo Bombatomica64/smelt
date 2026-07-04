@@ -225,7 +225,7 @@ fn collect_rust_files(root: &Path, out: &mut Vec<PathBuf>) -> CliResult<()> {
     // Read directory entries in a stable order so the walk is deterministic.
     let mut entries = std::fs::read_dir(root)
         .map_err(|error| format!("failed to read directory `{}`: {error}", root.display()))?
-        .map(|entry| entry.map(|entry| entry.path()))
+        .map(|dir_entry| dir_entry.map(|entry| entry.path()))
         .collect::<Result<Vec<_>, _>>()?;
     entries.sort();
     for entry in entries {
@@ -245,8 +245,8 @@ fn collect_rust_files(root: &Path, out: &mut Vec<PathBuf>) -> CliResult<()> {
 /// from the same working directory yields byte-identical `file:line` examples on
 /// any machine. Falls back to the full path when the file is not under `base`.
 fn display_path(file: &Path, base: Option<&Path>) -> String {
-    if let Some(base) = base
-        && let Ok(relative) = file.strip_prefix(base)
+    if let Some(base_path) = base
+        && let Ok(relative) = file.strip_prefix(base_path)
     {
         return relative.display().to_string();
     }
@@ -553,8 +553,8 @@ fn render_markdown(report: &UnknownReport, baseline: Option<&UnknownReport>) -> 
     }
     let _ = writeln!(out);
 
-    if let Some(baseline) = baseline {
-        render_baseline_delta(&mut out, report, baseline);
+    if let Some(baseline_report) = baseline {
+        render_baseline_delta(&mut out, report, baseline_report);
     }
 
     render_shape_table(&mut out, report);

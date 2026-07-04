@@ -922,11 +922,13 @@ return_ty: function.return_ty,
         if rest_positions.len() != 1 {
             return Ok(None);
         }
-        let rest_index = rest_positions[0];
+        let Some(rest_index) = rest_positions.first().copied() else {
+            return Ok(None);
+        };
         if rest_index == tuple.element_types.len() - 1 {
             return Ok(None); // trailing rest: handled by tuple_rest_list_type
         }
-        let TSTupleElement::TSRestType(rest) = &tuple.element_types[rest_index] else {
+        let Some(TSTupleElement::TSRestType(rest)) = tuple.element_types.get(rest_index) else {
             return Ok(None);
         };
         let rest_ty = self.ts_type_to_hir(&rest.type_annotation)?;
@@ -946,8 +948,9 @@ return_ty: function.return_ty,
                 members.push(item_ty);
             }
         }
-        let element = if members.len() == 1 {
-            members[0]
+        let element = if let Some(member) = members.first().copied().filter(|_| members.len() == 1)
+        {
+            member
         } else {
             self.ctx.krate.types.intern(Type::Union(members))
         };
