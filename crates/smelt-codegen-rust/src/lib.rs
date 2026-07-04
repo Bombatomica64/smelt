@@ -95,6 +95,18 @@ use classes::{
 use emitter::{EmitContext, FunctionEmitter};
 use rust::{CodeWriter, RustIdent};
 
+/// Sentinel comment emitted between the fixed runtime prelude and the generated
+/// program body.
+///
+/// Every emitted crate root contains this line exactly once. It is an inert Rust
+/// comment (so it never affects compilation) and the single source of truth for
+/// where the shared runtime scaffolding ends. Tooling that measures
+/// `SmeltUnknown` usage reads it to attribute occurrences above it to the
+/// prelude and occurrences below it to program code. Because it is exported,
+/// that tooling references this constant instead of hard-coding the string, so
+/// the marker and its consumers can never drift apart.
+pub const PRELUDE_END_MARKER: &str = "// @smelt:prelude-end — generated program below";
+
 /// Options for controlling code emission behavior.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -2039,6 +2051,21 @@ fn emit_source_with_free_function_router(
     }
 
     let mut out = writer.finish();
+
+    // Stable sentinel marking the end of the fixed runtime prelude and the start
+    // of program-specific code. Tooling (`smelt smelt-unknown-report`) keys on
+    // this exact comment to separate shared runtime scaffolding — the
+    // `SmeltUnknown` enum, its impls, and the `smelt_*` helpers above — from the
+    // generated program below, so `SmeltUnknown` occurrences in the prelude are
+    // never mistaken for program-level erasure. Keep the text byte-for-byte
+    // stable; changing it silently reclassifies every prelude occurrence.
+    //
+    // Normalize the trailing whitespace first so the marker always sits after
+    // exactly one blank line, regardless of how the last prelude block ended.
+    while out.ends_with('\n') {
+        out.pop();
+    }
+    out.push_str(&format!("\n\n{PRELUDE_END_MARKER}\n"));
 
     let mut has_emitted_root_function = false;
     for function in &mir.functions {

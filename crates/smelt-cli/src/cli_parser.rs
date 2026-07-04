@@ -158,6 +158,39 @@ pub enum Command {
         output: Option<String>,
     },
 
+    /// Measure and gate `SmeltUnknown` usage in generated Rust output
+    #[command(
+        name = "smelt-unknown-report",
+        long_about = "Scan generated `.rs` files and count every `SmeltUnknown` \
+        occurrence, classifying each into runtime-prelude scaffolding, a \
+        legitimate dynamic boundary (erased closures/interop, promises, boundary \
+        adapters, runtime narrowing), or avoidable internal erasure (program \
+        storage/signatures a concrete type, union, or generic could carry). The \
+        scan is textual and deterministic — grouped by occurrence shape, sorted \
+        by count — so numbers diff cleanly and can be stored as a checked-in \
+        baseline. Pass `--baseline` to surface avoidable-erasure regressions \
+        without failing the command, so intentional boundary additions never \
+        block CI."
+    )]
+    SmeltUnknownReport {
+        /// Roots to scan; each is a `.rs` file or a directory walked for `.rs`
+        /// files. Repeat to scan several corpora at once.
+        #[arg(value_name = "PATH", required = true)]
+        roots: Vec<String>,
+
+        /// Report format: `md` (default) or `json` (also the baseline format).
+        #[arg(long, default_value = "md", value_name = "FORMAT")]
+        format: String,
+
+        /// Prior JSON report to diff against for an advisory regression note.
+        #[arg(long, value_name = "PATH")]
+        baseline: Option<String>,
+
+        /// Write the report to this file instead of stdout.
+        #[arg(long, value_name = "PATH")]
+        output: Option<String>,
+    },
+
     /// Remove the output target directory
     Clean,
     /// Print the JSON Schema for Smelt.toml

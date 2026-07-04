@@ -185,3 +185,19 @@ jobs:
 
       - name: Compile and run generated Remeda tests (regression gate)
         run: cargo test --manifest-path target/compat-repos/remeda/dist-smelt/Cargo.toml --no-fail-fast
+
+      # Advisory SmeltUnknown metric: classify generated erasure and surface any
+      # rise in avoidable erasure against the committed baseline. Non-blocking on
+      # purpose (`|| true`) — intentional dynamic-boundary additions must never
+      # fail CI; the report is for review, and enforcement lives in AGENTS.md
+      # (## SmeltUnknown enforcement). The report is printed to the job log.
+      - name: SmeltUnknown usage report (advisory)
+        if: ${{ always() }}
+        run: |
+          if [ -d target/compat-repos/remeda/dist-smelt/src ]; then
+            target/debug/smelt smelt-unknown-report \
+              target/compat-repos/remeda/dist-smelt/src \
+              --baseline blocker-logs/smelt-unknown-baseline.json || true
+          else
+            echo "No generated Remeda crate to scan; skipping SmeltUnknown report."
+          fi
