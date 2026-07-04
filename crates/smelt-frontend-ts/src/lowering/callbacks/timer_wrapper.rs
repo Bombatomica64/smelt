@@ -39,10 +39,11 @@ impl ModuleBuilder<'_> {
     /// callback directly, so no erased `Vec<SmeltUnknown>` is produced.
     ///
     /// Returns `None` for any residual dynamic boundary — a non-function callback,
-    /// a rest-parameter callback, an `unknown`-typed extra, or an argument count
-    /// that does not match the callback signature exactly — so the caller keeps
-    /// the erased dynamic-dispatch path that mirrors JavaScript's
-    /// fill-`undefined`/ignore-surplus argument semantics.
+    /// a rest-parameter callback, a callback whose parameter types contain
+    /// `unknown`, an `unknown`-typed extra, or an argument count that does not
+    /// match the callback signature exactly — so the caller keeps the erased
+    /// dynamic-dispatch path that mirrors JavaScript's fill-`undefined`/
+    /// ignore-surplus argument semantics.
     ///
     /// `callback` and each entry of `extras` must already be lowered expressions
     /// in `body`; source spreads are handled by the caller and never reach here.
@@ -72,6 +73,20 @@ impl ModuleBuilder<'_> {
         // and rest cases fall back to the erased path, which mirrors JavaScript's
         // argument-forwarding semantics through the dynamic ABI.
         if callback_fn.rest.is_some() || extras.len() != callback_fn.params.len() {
+            return None;
+        }
+
+        // The callback's own parameter types must be concrete. A callback
+        // parameter typed `unknown` is a genuine dynamic boundary: calling it
+        // directly would pass a concrete extra (e.g. a `String`) into a
+        // `SmeltUnknown` parameter slot without the required boundary
+        // conversion, so such callbacks stay on the erased dynamic-dispatch
+        // path (which boxes each argument through the `SmeltUnknown` ABI).
+        if callback_fn
+            .params
+            .iter()
+            .any(|&ty| self.type_contains_unknown(ty))
+        {
             return None;
         }
 

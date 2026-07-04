@@ -5363,3 +5363,27 @@ function fire(payload: unknown): void {
         "untyped path must not synthesize per-argument typed bindings: {source}"
     );
 }
+
+#[test]
+fn timer_unknown_callback_param_keeps_erased_list_path() {
+    // A concretely typed extra whose callback parameter is `unknown` is still a
+    // dynamic boundary: forwarding the `String` directly would drop it into a
+    // `SmeltUnknown` parameter slot without the boundary conversion. The wrapper
+    // path must be declined so the erased `Vec<SmeltUnknown>` ABI (which boxes
+    // each argument) is used instead.
+    let source = source_for(
+        r#"
+function handle(value: unknown): void {}
+setTimeout(handle, 10, "x");
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_timer_args"),
+        "unknown callback parameters must keep the erased Vec<SmeltUnknown> dispatch path: {source}"
+    );
+    assert!(
+        !source.contains("smelt_timer_arg_0"),
+        "unknown callback parameter path must not synthesize typed per-argument bindings: {source}"
+    );
+}
