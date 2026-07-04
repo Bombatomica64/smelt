@@ -838,6 +838,10 @@ impl ModuleBuilder<'_> {
         let mut methods = Vec::new();
         let mut abstract_methods = Vec::new();
         let mut descriptor_accessors = Vec::new();
+        // Value type declared by a class string/number index signature, if any.
+        // Recorded from the `TSIndexSignature` element below and published to the
+        // index-value maps after the class is fully lowered.
+        let mut class_index_value_ty = None;
 
         for element in &class.body.body {
             match element {
@@ -945,6 +949,21 @@ impl ModuleBuilder<'_> {
                         span: self.span(method.span.start, method.span.end),
                     });
                 }
+                ClassElement::TSIndexSignature(sig) => {
+                    // A class string/number index signature `[key: string]: T`
+                    // (or `[key: number]: T`) declares a keyed store whose value
+                    // type is the statically known `T`. Record `T` here (in the
+                    // field-collection pass, before the index-value maps are
+                    // published below) so member and computed access can fall
+                    // back to it when no declared named field or method matches.
+                    // Declared named fields are collected separately and keep
+                    // their concrete types; the index value is only the
+                    // dynamic-keyed fallback shape, never a replacement for named
+                    // members.
+                    let value_ty =
+                        self.ts_type_to_hir(&sig.type_annotation.type_annotation)?;
+                    class_index_value_ty = Some(value_ty);
+                }
                 _ => {}
             }
         }
@@ -998,6 +1017,25 @@ impl ModuleBuilder<'_> {
             .insert(class_text.to_owned(), fields.clone());
         self.class_methods
             .insert(class_text.to_owned(), method_sigs.clone());
+        // Publish the class index-signature value type (if any) so member and
+        // computed access can resolve keyed reads/writes through it while the
+        // class's own method bodies are still being lowered, and so later
+        // modules see it too. Named fields resolve first; this is the fallback.
+        //
+        // Scope note (issue #84): this lowers the index signature at the *type*
+        // level. The statically known value type `T` drives keyed/member access
+        // resolution — keyed reads type as `Optional<T>` (missing key ->
+        // undefined) and undeclared member reads type as `T` — while declared
+        // named fields keep their concrete types. A full runtime dynamic keyed
+        // *store* on the emitted class struct (so a pure-index class round-trips
+        // written keys, and mixed classes carry a store alongside named fields)
+        // is the broader object-model work tracked in issue #18; until then a
+        // concrete class instance simply has no dynamically stored keys, which
+        // is a defined value (`undefined`) rather than an erased `SmeltUnknown`.
+        if let Some(value_ty) = class_index_value_ty {
+            self.class_index_values.insert(class_name, value_ty);
+            self.ctx.class_index_values.insert(class_name, value_ty);
+        }
         self.add_overridden_base_method_fields(base, &method_sigs);
 
         for element in &class.body.body {
@@ -1119,11 +1157,11 @@ impl ModuleBuilder<'_> {
                         "static blocks are not lowered yet",
                     ));
                 }
-                ClassElement::TSIndexSignature(sig) => {
-                    return Err(SmeltError::unsupported(
-                        self.span(sig.span.start, sig.span.end),
-                        "class index signatures are not lowered yet",
-                    ));
+                ClassElement::TSIndexSignature(_) => {
+                    // The class index signature's value type is collected in the
+                    // field-collection pass above and published to the
+                    // index-value maps; nothing further is emitted for the
+                    // signature member itself here.
                 }
             }
         }

@@ -102,6 +102,8 @@ struct FrontendLoweringState {
     ts_interface_extends: HashMap<smelt_hir::Symbol, Vec<smelt_frontend_ts::InterfaceHeritageRef>>,
     /// TypeScript interface string index signature value types visible across manifest entries.
     ts_interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    /// TypeScript class string index signature value types visible across manifest entries.
+    ts_class_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     /// TypeScript interface call signatures visible across manifest entries.
     ts_interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<smelt_hir::FunctionType>>,
     /// TypeScript interface construct signatures visible across manifest entries.
@@ -658,6 +660,7 @@ fn lower_manifest_source(
                 type_alias_fields: state.ts_type_alias_fields,
                 interface_extends: state.ts_interface_extends,
                 interface_index_values: state.ts_interface_index_values,
+                class_index_values: state.ts_class_index_values,
                 interface_call_signatures: state.ts_interface_call_signatures,
                 interface_construct_signatures: state.ts_interface_construct_signatures,
                 callable_fields: state.ts_callable_fields,
@@ -694,6 +697,7 @@ fn lower_manifest_source(
                 ts_type_alias_fields: ctx.type_alias_fields,
                 ts_interface_extends: ctx.interface_extends,
                 ts_interface_index_values: ctx.interface_index_values,
+                ts_class_index_values: ctx.class_index_values,
                 ts_interface_call_signatures: ctx.interface_call_signatures,
                 ts_interface_construct_signatures: ctx.interface_construct_signatures,
                 ts_callable_fields: ctx.callable_fields,
@@ -740,6 +744,7 @@ fn lower_manifest_source(
                 ts_type_alias_fields: state.ts_type_alias_fields,
                 ts_interface_extends: state.ts_interface_extends,
                 ts_interface_index_values: state.ts_interface_index_values,
+                ts_class_index_values: state.ts_class_index_values,
                 ts_interface_call_signatures: state.ts_interface_call_signatures,
                 ts_interface_construct_signatures: state.ts_interface_construct_signatures,
                 ts_callable_fields: state.ts_callable_fields,

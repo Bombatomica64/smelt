@@ -419,6 +419,35 @@ export const UPPER_LIMIT = limits.upper;
 "#,
         },
         Case {
+            // Issue #84: class string index signatures `[key: string]: T`. A
+            // class that is purely an index signature (`StringBag`) exposes a
+            // keyed store whose statically known value type drives dynamic
+            // reads/writes; a mixed class (`MixedBag`) keeps its declared named
+            // field concretely typed alongside the index signature. Keyed reads
+            // return the honest `Option<T>` (missing key -> undefined) and named
+            // access stays concrete. The emitted Rust must compile.
+            name: "class_index_signature",
+            area: "classes",
+            source: r#"
+class StringBag {
+  [key: string]: string;
+}
+
+class MixedBag {
+  size: number = 0;
+  [key: string]: string | number;
+}
+
+export function readBag(bag: StringBag, key: string): string | undefined {
+  return bag[key];
+}
+
+export function mixedSize(bag: MixedBag): number {
+  return bag.size;
+}
+"#,
+        },
+        Case {
             name: "interface_method_call",
             area: "interfaces",
             source: r"

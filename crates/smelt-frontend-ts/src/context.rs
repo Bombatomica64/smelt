@@ -121,6 +121,14 @@ pub struct HirCtx {
     pub interface_extends: HashMap<smelt_hir::Symbol, Vec<crate::lowering::InterfaceHeritageRef>>,
     /// Value types declared by interface string index signatures.
     pub interface_index_values: HashMap<smelt_hir::Symbol, TypeId>,
+    /// Value types declared by class string index signatures (`[k: string]: T`).
+    ///
+    /// Populated when a class declaration carries a `TSIndexSignature`, and read
+    /// during member/keyed access so `instance[dynamicKey]` and
+    /// `instance.declaredButUnnamedMember` resolve to the index signature's value
+    /// type instead of failing as an unknown class field. Declared named fields
+    /// still take precedence; the index value is only the fallback shape.
+    pub class_index_values: HashMap<smelt_hir::Symbol, TypeId>,
     /// Interface call signatures visible to later modules.
     pub interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Interface construct signatures (`new (): T`) visible to later modules.
@@ -150,6 +158,7 @@ impl HirCtx {
             type_alias_fields: HashMap::new(),
             interface_extends: HashMap::new(),
             interface_index_values: HashMap::new(),
+            class_index_values: HashMap::new(),
             interface_call_signatures: HashMap::new(),
             interface_construct_signatures: HashMap::new(),
             callable_fields: HashMap::new(),

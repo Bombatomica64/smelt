@@ -62,6 +62,52 @@ function read(value: Left | Right): string {
     assert!(source.contains("matches!(value.clone(), SmeltUnion"), "{source}");
 }
 
+/// Issue #84: a class string index signature `[key: string]: T` emits Rust that
+/// compiles. A pure-index class (`StringBag`) exposes keyed access whose value
+/// type drives an honest `Option<T>` read; a mixed class (`MixedBag`) keeps its
+/// declared named field concretely typed (`size: f64`) alongside the index
+/// signature. The index signature's value type stays concrete, never erased to
+/// `SmeltUnknown`.
+#[test]
+fn emits_class_index_signature_named_fields_and_keyed_read() {
+    let source = source_for(
+        r#"
+class StringBag {
+  [key: string]: string;
+}
+
+class MixedBag {
+  size: number = 0;
+  [key: string]: string | number;
+}
+
+export function readBag(bag: StringBag, key: string): string | undefined {
+  return bag[key];
+}
+
+export function mixedSize(bag: MixedBag): number {
+  return bag.size;
+}
+"#,
+    );
+
+    // Both classes emit concrete Rust structs.
+    assert!(source.contains("struct StringBag"), "{source}");
+    assert!(source.contains("struct MixedBag"), "{source}");
+    // The mixed class keeps its named field concretely typed.
+    assert!(source.contains("size: f64"), "{source}");
+    // The keyed read is the honest `Option<String>`, not an erased value.
+    assert!(
+        source.contains("fn read_bag") && source.contains("-> Option<String>"),
+        "{source}"
+    );
+    // Named-field access on the mixed class stays a concrete `f64` field read.
+    assert!(
+        source.contains("fn mixed_size") && source.contains("-> f64"),
+        "{source}"
+    );
+}
+
 #[test]
 fn injects_url_dependency_for_url_mapping() {
     let manifest = deps::cargo_toml(
