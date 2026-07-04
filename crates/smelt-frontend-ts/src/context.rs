@@ -116,6 +116,8 @@ pub struct HirCtx {
     pub interface_index_values: HashMap<smelt_hir::Symbol, TypeId>,
     /// Interface call signatures visible to later modules.
     pub interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
+    /// Interface construct signatures (`new (): T`) visible to later modules.
+    pub interface_construct_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Structural fields attached to callable intersection types.
     pub callable_fields: HashMap<TypeId, Vec<Field>>,
     /// Type aliases whose source surface is a callable object intersection.
@@ -141,6 +143,7 @@ impl HirCtx {
             interface_extends: HashMap::new(),
             interface_index_values: HashMap::new(),
             interface_call_signatures: HashMap::new(),
+            interface_construct_signatures: HashMap::new(),
             callable_fields: HashMap::new(),
             callable_object_aliases: HashSet::new(),
         }

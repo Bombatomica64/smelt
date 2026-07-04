@@ -71,6 +71,7 @@ impl ModuleBuilder<'_> {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         let mut call_signatures = Vec::new();
+        let mut construct_signatures = Vec::new();
         let mut index_value_ty = None;
 
         let mut heritage_refs = Vec::new();
@@ -270,7 +271,52 @@ return_ty,
                         index_value_ty =
                             Some(self.ts_type_to_hir(&index.type_annotation.type_annotation)?);
                     }
-                    TSSignature::TSConstructSignatureDeclaration(_) => {}
+                    TSSignature::TSConstructSignatureDeclaration(signature) => {
+                        // A construct signature `new (args): T` is, at runtime,
+                        // an ordinary callable value: `new value(args)` invokes
+                        // it to produce a `T`. Lower it to the same
+                        // `FunctionType` a `new (args) => T` constructor-type
+                        // annotation produces, so a reference to this interface
+                        // can resolve to a typed constructor slot (a
+                        // `Type::Function`) instead of an erased dictionary. Its
+                        // own type parameters are scoped so generic construct
+                        // signatures resolve their parameters.
+                        let _construct_type_params = self
+                            .push_type_parameter_scope(signature.type_parameters.as_deref())?;
+                        let result = (|| {
+                            let return_ty = signature
+                                .return_type
+                                .as_ref()
+                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                                .transpose()?
+                                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                            let mut params = Vec::new();
+                            for param in &signature.params.items {
+                                let ty = param
+                                    .type_annotation
+                                    .as_ref()
+                                    .map(|annotation| {
+                                        self.ts_type_to_hir(&annotation.type_annotation)
+                                    })
+                                    .transpose()?
+                                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                                params.push(ty);
+                            }
+                            Ok::<_, SmeltError>((return_ty, params))
+                        })();
+                        self.pop_type_parameter_scope();
+                        let (return_ty, params) = result?;
+                        construct_signatures.push(FunctionType {
+                            mutable_params: self
+                                .mutable_params_from_returned_tuple_state(&params, return_ty),
+                            params,
+                            rest: None,
+                            required_params: None,
+                            return_ty,
+                            is_async: false,
+                            may_throw: false,
+                        });
+                    }
                 }
             }
             Ok(())
@@ -309,6 +355,13 @@ return_ty,
         self.ctx
             .interface_call_signatures
             .insert(name, call_signatures);
+        if !construct_signatures.is_empty() {
+            self.interface_construct_signatures
+                .insert(name, construct_signatures.clone());
+            self.ctx
+                .interface_construct_signatures
+                .insert(name, construct_signatures);
+        }
         if let Some(index_value_ty) = index_value_ty {
             self.interface_index_values.insert(name, index_value_ty);
             self.ctx.interface_index_values.insert(name, index_value_ty);

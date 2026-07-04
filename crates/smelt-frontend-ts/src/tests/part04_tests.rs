@@ -7222,3 +7222,155 @@ export const boom = makeError(TypeError, "boom");
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// Return whether any expression in the crate is typed as `Type::Class` with
+/// the given class name, used to assert a construction kept a concrete result.
+fn any_expr_is_class(ctx: &HirCtx, class_name: &str) -> bool {
+    ctx.krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .any(|expr| {
+            matches!(
+                ctx.krate.types.get(expr.ty),
+                Some(Type::Class { name, .. }) if ctx.krate.symbols.get(*name) == Some(class_name)
+            )
+        })
+}
+
+#[test]
+fn lowers_construct_signature_interface_to_constructor_slot() -> Result<(), String> {
+    // A constructor-only interface (`interface C { new (): T }`) is a typed
+    // constructor slot: a value of that type lowers to a callable `Type::Function`
+    // whose return type is the constructed type, not an erased dictionary.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface MapCache {
+  size: number;
+}
+
+interface MapCacheConstructor {
+  new (): MapCache;
+}
+
+function make(ctor: MapCacheConstructor): MapCache {
+  return new ctor();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        any_expr_is_class(&ctx, "MapCache"),
+        "expected a MapCache-typed construction from a constructor-slot parameter"
+    );
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callable_object_construct_signature_field() -> Result<(), String> {
+    // The `memoize.Cache`-style shape: `memoize` is a callable interface value
+    // that also carries a `Cache` field whose type is a construct-signature
+    // interface. `new memoize.Cache()` must construct the concrete `MapCache`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface MapCache {
+  size: number;
+}
+
+interface MapCacheConstructor {
+  new (): MapCache;
+}
+
+interface Memoize {
+  <T>(func: T): T;
+  Cache: MapCacheConstructor;
+}
+
+declare const memoize: Memoize;
+
+export const cache = new memoize.Cache();
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        any_expr_is_class(&ctx, "MapCache"),
+        "expected `new memoize.Cache()` to produce a concrete MapCache"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn preserves_construct_slot_through_type_alias() -> Result<(), String> {
+    // A type alias for a constructor-only interface must preserve the
+    // constructor slot so assignments and `new` keep the constructed type.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface MapCache {
+  size: number;
+}
+
+interface MapCacheConstructor {
+  new (): MapCache;
+}
+
+type CacheCtor = MapCacheConstructor;
+
+function build(ctor: CacheCtor): MapCache {
+  const local: CacheCtor = ctor;
+  return new local();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        any_expr_is_class(&ctx, "MapCache"),
+        "expected the alias to preserve the constructor slot"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_parameterized_construct_signature_return() -> Result<(), String> {
+    // A generic construct signature keeps its constructed return type through
+    // the reference: `new (): Box<number>` constructs a concrete `Box`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Box<T> {
+  value: T;
+}
+
+interface BoxConstructor {
+  new (): Box<number>;
+}
+
+function make(ctor: BoxConstructor): Box<number> {
+  return new ctor();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        any_expr_is_class(&ctx, "Box"),
+        "expected a Box-typed construction from a generic construct signature"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

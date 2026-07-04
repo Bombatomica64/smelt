@@ -102,6 +102,8 @@ struct FrontendLoweringState {
     ts_interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     /// TypeScript interface call signatures visible across manifest entries.
     ts_interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<smelt_hir::FunctionType>>,
+    /// TypeScript interface construct signatures visible across manifest entries.
+    ts_interface_construct_signatures: HashMap<smelt_hir::Symbol, Vec<smelt_hir::FunctionType>>,
     /// TypeScript callable intersection fields visible across manifest entries.
     ts_callable_fields: HashMap<smelt_hir::TypeId, Vec<smelt_hir::Field>>,
     /// TypeScript aliases whose source surface is a callable object intersection.
@@ -654,6 +656,7 @@ fn lower_manifest_source(
                 interface_extends: state.ts_interface_extends,
                 interface_index_values: state.ts_interface_index_values,
                 interface_call_signatures: state.ts_interface_call_signatures,
+                interface_construct_signatures: state.ts_interface_construct_signatures,
                 callable_fields: state.ts_callable_fields,
                 callable_object_aliases: state.ts_callable_object_aliases,
             };
@@ -688,6 +691,7 @@ fn lower_manifest_source(
                 ts_interface_extends: ctx.interface_extends,
                 ts_interface_index_values: ctx.interface_index_values,
                 ts_interface_call_signatures: ctx.interface_call_signatures,
+                ts_interface_construct_signatures: ctx.interface_construct_signatures,
                 ts_callable_fields: ctx.callable_fields,
                 ts_callable_object_aliases: ctx.callable_object_aliases,
                 py_module_namespaces: state.py_module_namespaces,
@@ -732,6 +736,7 @@ fn lower_manifest_source(
                 ts_interface_extends: state.ts_interface_extends,
                 ts_interface_index_values: state.ts_interface_index_values,
                 ts_interface_call_signatures: state.ts_interface_call_signatures,
+                ts_interface_construct_signatures: state.ts_interface_construct_signatures,
                 ts_callable_fields: state.ts_callable_fields,
                 ts_callable_object_aliases: state.ts_callable_object_aliases,
                 py_module_namespaces: ctx.module_namespaces,

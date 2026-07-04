@@ -38,6 +38,18 @@ impl ModuleBuilder<'_> {
                 return Ok(expr);
             }
             if let Expression::StaticMemberExpression(member) = &new_expr.callee {
+                // `new memoize.Cache()` where the member resolves to a typed
+                // constructor slot (a `Type::Function` produced from a construct
+                // signature, e.g. `Cache: new () => MapCache`). The member is a
+                // callable value, so the construction is an ordinary indirect
+                // call through it, typed by the constructor's declared return
+                // type — the constructed value keeps its concrete shape instead
+                // of erasing to `unknown` (issue #54). This mirrors the
+                // identifier value-callee path in `new_through_value_expression`.
+                if let Some(expr) = self.new_through_member_constructor_slot(new_expr, member, body)?
+                {
+                    return Ok(expr);
+                }
                 let class_name = self.intern_type_name(member.property.name.as_str());
                 let args = new_expr
                     .arguments
@@ -383,6 +395,64 @@ impl ModuleBuilder<'_> {
             },
             ty: function.return_ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
+        })))
+    }
+
+    /// Lower `new receiver.member(args)` when `receiver.member` resolves to a
+    /// typed constructor slot, returning `None` so the caller falls through to
+    /// the nested-class construction path otherwise.
+    ///
+    /// A member such as `memoize.Cache` typed with a construct signature
+    /// (`Cache: new () => MapCache`) lowers to a `Type::Function` (see
+    /// `interface_construct_slot_type`). Because JavaScript classes *are*
+    /// constructor functions, `new memoize.Cache()` is just an indirect call
+    /// through that callable value: it reuses the `ExprKind::ClosureCall` path a
+    /// plain `memoize.Cache()` call takes, typed by the constructor's declared
+    /// return type. Only a concrete callable slot is intercepted; a member that
+    /// is not a `Type::Function` (a nested class name, a dynamic bag) is left to
+    /// the existing member-`new` handling so its behavior is unchanged.
+    pub(super) fn new_through_member_constructor_slot(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // Lower the receiver object once and resolve the member's field type. A
+        // constructor slot is a `Type::Function`; anything else (a nested class
+        // name, a dynamic bag) is not intercepted, so `body` still holds the
+        // lowered receiver but the caller's fallback ignores it — the receiver
+        // of `new Foo.Bar()` is a pure name read with no observable effect.
+        let receiver_value = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver_value);
+        let field_symbol = self.intern_source_name(member.property.name.as_str());
+        let Ok(member_ty) = self.class_field_type(receiver_ty, field_symbol) else {
+            return Ok(None);
+        };
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(member_ty).cloned() else {
+            return Ok(None);
+        };
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let callee_value = body.push_expr(Expr {
+            kind: ExprKind::Field {
+                receiver: receiver_value,
+                field: field_symbol,
+            },
+            ty: member_ty,
+            span,
+        });
+        let args = new_expr
+            .arguments
+            .iter()
+            .take(function.params.len())
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall {
+                callee: callee_value,
+                args,
+            },
+            ty: function.return_ty,
+            span,
         })))
     }
 
