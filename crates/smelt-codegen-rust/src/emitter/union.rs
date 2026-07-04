@@ -232,7 +232,7 @@ impl FunctionEmitter<'_> {
         let mut body = String::new();
         for (index, member) in members.iter().enumerate() {
             let extracted = self.extract_value_text("value", *member)?;
-            if index + 1 == members.len() {
+            if Some(index) == members.len().checked_sub(1) {
                 body.push_str(&format!("        Self::M{index}({extracted})\n"));
             } else {
                 let pattern = self.union_member_unknown_pattern(*member);

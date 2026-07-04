@@ -346,9 +346,12 @@ impl ModuleBuilder<'_> {
     /// plain [`Self::local_ty`] would panic. Callers performing best-effort type
     /// narrowing use this checked variant and treat a missing local as "no
     /// narrowing information available".
-    pub(in crate::lowering) fn local_ty_checked(body: &Body, local: smelt_hir::LocalId) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn local_ty_checked(
+        body: &Body,
+        local: smelt_hir::LocalId,
+    ) -> Option<smelt_hir::TypeId> {
         let index = usize::try_from(local.0).ok()?;
-        body.locals.get(index).map(|local| local.ty)
+        body.locals.get(index).map(|decl| decl.ty)
     }
 
     /// Look up a lowered item by id.

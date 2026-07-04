@@ -225,7 +225,7 @@ fn collect_rust_files(root: &Path, out: &mut Vec<PathBuf>) -> CliResult<()> {
     // Read directory entries in a stable order so the walk is deterministic.
     let mut entries = std::fs::read_dir(root)
         .map_err(|error| format!("failed to read directory `{}`: {error}", root.display()))?
-        .map(|entry| entry.map(|entry| entry.path()))
+        .map(|dir_entry| dir_entry.map(|entry| entry.path()))
         .collect::<Result<Vec<_>, _>>()?;
     entries.sort();
     for entry in entries {
@@ -245,8 +245,8 @@ fn collect_rust_files(root: &Path, out: &mut Vec<PathBuf>) -> CliResult<()> {
 /// from the same working directory yields byte-identical `file:line` examples on
 /// any machine. Falls back to the full path when the file is not under `base`.
 fn display_path(file: &Path, base: Option<&Path>) -> String {
-    if let Some(base) = base
-        && let Ok(relative) = file.strip_prefix(base)
+    if let Some(base_path) = base
+        && let Ok(relative) = file.strip_prefix(base_path)
     {
         return relative.display().to_string();
     }
@@ -505,7 +505,7 @@ fn normalize_line(line: &str) -> String {
             }
             digit if digit.is_ascii_digit() => {
                 out.push('N');
-                while chars.peek().is_some_and(|next| next.is_ascii_digit()) {
+                while chars.peek().is_some_and(char::is_ascii_digit) {
                     chars.next();
                 }
                 last_was_space = false;
@@ -553,8 +553,8 @@ fn render_markdown(report: &UnknownReport, baseline: Option<&UnknownReport>) -> 
     }
     let _ = writeln!(out);
 
-    if let Some(baseline) = baseline {
-        render_baseline_delta(&mut out, report, baseline);
+    if let Some(baseline_report) = baseline {
+        render_baseline_delta(&mut out, report, baseline_report);
     }
 
     render_shape_table(&mut out, report);
@@ -740,7 +740,7 @@ mod tests {
             "smelt-unknown-report-test-{}",
             std::process::id()
         ));
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("gen.rs");
         std::fs::write(
@@ -772,7 +772,7 @@ mod tests {
         let json_b = serde_json::to_string(&report_b).unwrap();
         assert_eq!(json_a, json_b);
 
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 
     /// When the emitter's prelude sentinel is present, everything above it is
@@ -785,7 +785,7 @@ mod tests {
             "smelt-unknown-report-marker-{}",
             std::process::id()
         ));
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("gen.rs");
         // The pre-marker `fn helper` signature looks like avoidable program
@@ -812,7 +812,7 @@ mod tests {
         assert_eq!(report.category_total(Category::AvoidableErasure), 2);
         assert_eq!(report.category_total(Category::LegitimateBoundary), 0);
 
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 
     /// Markdown rendering emits the category table and flags regressions.

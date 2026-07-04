@@ -1612,8 +1612,8 @@ impl ModuleBuilder<'_> {
                 );
             }
             Expression::SequenceExpression(sequence) => {
-                for expression in &sequence.expressions {
-                    self.collect_expression_capture_names(expression, param_names, captures);
+                for sequence_expr in &sequence.expressions {
+                    self.collect_expression_capture_names(sequence_expr, param_names, captures);
                 }
             }
             _ => {}

@@ -114,6 +114,8 @@ pub(super) fn global_alias_object_presence(name: &str) -> Option<bool> {
 }
 
 #[must_use]
+/// Fold a `typeof <global-alias> === <kind>` probe when the alias presence is
+/// known from the active ambient-global profile.
 pub(super) fn global_typeof_probe_value(
     operand_is_global_alias: bool,
     compared_kind: &str,

@@ -334,14 +334,14 @@ impl FunctionEmitter<'_> {
     /// Render the `let smelt_timer_args = ...;` prelude for forwarded timer
     /// arguments, or an empty string when the timer call has no extras.
     fn timer_extra_args_binding(&self, extra: Option<&Operand>) -> Result<String, EmitError> {
-        let Some(extra) = extra else {
+        let Some(extra_operand) = extra else {
             return Ok(String::new());
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
         let args_ty = self.type_id(Type::List(unknown_ty))?;
         Ok(format!(
             "let smelt_timer_args: Vec<SmeltUnknown> = {}.iter().cloned().collect(); ",
-            self.value_at_type(extra, args_ty)?
+            self.value_at_type(extra_operand, args_ty)?
         ))
     }
 

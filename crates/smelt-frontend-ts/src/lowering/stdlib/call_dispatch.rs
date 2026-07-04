@@ -2465,6 +2465,8 @@ impl<'builder> ModuleBuilder<'builder> {
         }
     }
 
+    /// Return whether an overload parameter carries a concrete enough type to
+    /// prefer over generic or unknown catch-all signatures.
     pub(in crate::lowering) fn overload_param_is_specific(&self, ty: smelt_hir::TypeId) -> bool {
         !matches!(
             self.ctx

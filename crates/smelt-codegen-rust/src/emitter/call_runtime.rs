@@ -119,7 +119,7 @@ impl FunctionEmitter<'_> {
         if text.starts_with("SmeltUnknown::") && self.concrete_union_members(dest_ty).is_some() {
             return Ok(format!(
                 "{}::from_smelt_unknown({text})",
-                super::union::union_name(dest_ty)
+                union::union_name(dest_ty)
             ));
         }
         // List-producing operations (concat/slice/flat/map/copy/…) emit a bare
@@ -2547,7 +2547,10 @@ impl FunctionEmitter<'_> {
         }
         // The rest parameter is the last declared parameter; everything before it
         // is a leading positional the packed list must supply by index.
-        if function.params.len() != rest_index + 1 {
+        let Some(expected_params_len) = rest_index.checked_add(1) else {
+            return Ok(None);
+        };
+        if function.params.len() != expected_params_len {
             return Ok(None);
         }
         let Some((rest_param, positional_params)) = function.params.split_last() else {
@@ -2557,7 +2560,11 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
-        let mut rendered = Vec::with_capacity(positional_params.len() + 1);
+        let rendered_capacity = positional_params
+            .len()
+            .checked_add(1)
+            .ok_or_else(|| EmitError::new("spread call argument count overflowed usize"))?;
+        let mut rendered = Vec::with_capacity(rendered_capacity);
         for (index, param) in positional_params.iter().enumerate() {
             // Each positional reads the erased element at its index (absent
             // arguments become `undefined`, matching JS) and coerces to the

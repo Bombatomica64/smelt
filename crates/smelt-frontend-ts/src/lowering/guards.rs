@@ -732,7 +732,12 @@ impl ModuleBuilder<'_> {
                 BinaryOperator::StrictInequality => BinOp::JsStrictNotEq,
                 BinaryOperator::Equality => BinOp::Eq,
                 BinaryOperator::Inequality => BinOp::NotEq,
-                _ => unreachable!("nullish comparison operators are filtered above"),
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(binary.span.start, binary.span.end),
+                        "nullish comparison operator is not supported",
+                    ));
+                }
             };
             return Ok(Some(self.comparison_expr(
                 op,
@@ -1473,7 +1478,10 @@ impl ModuleBuilder<'_> {
                 is_async: false,
                 may_throw: false,
             }));
-            let executor_expr = self.argument_with_hint(&new_expr.arguments[0], body, Some(executor_ty))?;
+            let Some(executor_arg) = new_expr.arguments.first() else {
+                return Ok(None);
+            };
+            let executor_expr = self.argument_with_hint(executor_arg, body, Some(executor_ty))?;
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::AsyncOp {
                     op: AsyncOp::Promise,
@@ -1671,8 +1679,13 @@ impl ModuleBuilder<'_> {
             // boundary, so those keep the erased-list path where the extras pack
             // into one operand dispatched through the dynamic callback ABI.
             "setTimeout" | "setInterval" if call.arguments.len() >= 3 => {
-                let callback = self.argument(&call.arguments[0], body)?;
-                let duration = self.argument(&call.arguments[1], body)?;
+                let (Some(callback_arg), Some(duration_arg)) =
+                    (call.arguments.first(), call.arguments.get(1))
+                else {
+                    return Ok(None);
+                };
+                let callback = self.argument(callback_arg, body)?;
+                let duration = self.argument(duration_arg, body)?;
                 let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let span = self.span(call.span.start, call.span.end);
                 let op = if callee.name == "setTimeout" {
@@ -1681,14 +1694,15 @@ impl ModuleBuilder<'_> {
                     AsyncOp::SetInterval
                 };
 
-                let has_spread = call.arguments[2..]
+                let extra_args = call.arguments.get(2..).unwrap_or_default();
+                let has_spread = extra_args
                     .iter()
                     .any(|arg| matches!(arg, Argument::SpreadElement(_)));
                 if !has_spread {
                     // Lower each extra exactly once. Either the typed wrapper
                     // consumes them, or they pack into the erased list below —
                     // never both, so source side effects run once.
-                    let extras = call.arguments[2..]
+                    let extras = extra_args
                         .iter()
                         .map(|arg| self.argument(arg, body))
                         .collect::<Result<Vec<_>, _>>()?;
@@ -1722,7 +1736,7 @@ impl ModuleBuilder<'_> {
 
                 let extra = self.packed_spread_arguments(
                     unknown_ty,
-                    &call.arguments[2..],
+                    extra_args,
                     span,
                     body,
                 )?;
