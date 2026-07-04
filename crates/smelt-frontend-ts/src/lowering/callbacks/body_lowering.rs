@@ -1307,7 +1307,18 @@ impl ModuleBuilder<'_> {
                             .as_ref()
                             .and_then(|function| function.rest)
                     });
-                return self.callback_expr_to_closure_with_return_ty(
+                // The callback tree classified into the compact side-effect-free
+                // expression IR, but the compact IR only lowers a bounded method
+                // table (`.map`/`.at`/`Set.has`/...). A statically-resolvable
+                // method call it does not model (`controller.abort()`,
+                // `date.getTime()`, `text.localeCompare(other)`, a captured class
+                // instance method, ...) is rejected here with a "closure body"
+                // error even though the general expression path knows how to
+                // dispatch it. When that happens, fall through to the full
+                // closure-body lowering below, which routes the arrow body through
+                // `expression`/`statement` (the same path a non-callback method
+                // call uses) instead of surfacing the blocker.
+                match self.callback_expr_to_closure_with_return_ty(
                     return_ty,
                     &callback,
                     &params,
@@ -1317,7 +1328,17 @@ impl ModuleBuilder<'_> {
                         .and_then(|function| function.required_params),
                     span,
                     body,
-                );
+                ) {
+                    Ok(expr) => return Ok(expr),
+                    Err(error) if Self::should_fallback_to_closure_body_for_callback(&error) => {
+                        // Recoverable compact-IR gap: retry through the general
+                        // closure-body path, preserving the compact path's
+                        // resolved return type so the closure keeps its typed
+                        // signature.
+                        return self.arrow_closure_body_expr(arrow, &params, return_ty, body);
+                    }
+                    Err(error) => return Err(error),
+                }
             }
             let mut return_ty = explicit_return_ty
                 .or_else(|| {
