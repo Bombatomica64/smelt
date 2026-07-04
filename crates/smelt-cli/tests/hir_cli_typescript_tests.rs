@@ -182,6 +182,64 @@ const result = quartersToMonths(2);\nconsole.log(result);\n",
 }
 
 #[test]
+fn build_runs_node_buffer_identity_and_length_program() -> TestResult {
+    // End-to-end compile + run coverage for the modeled Node `Buffer`:
+    // construction (`Buffer.from`/`Buffer.alloc`/`Buffer.concat`/`new Buffer`),
+    // `Buffer.isBuffer`, `instanceof Buffer` (buffer vs non-buffer), and the
+    // observable `.length` / `.byteLength` byte-count reads.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "node-buffer-demo"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "node_buffer_demo"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r#"const fromArray = Buffer.from([1, 2, 3]);
+const allocated = Buffer.alloc(4);
+const combined = Buffer.concat([fromArray, allocated]);
+const built = new Buffer([9, 8]);
+
+console.log(Buffer.isBuffer(fromArray));
+console.log(Buffer.isBuffer("nope"));
+console.log(Buffer.isBuffer([1, 2, 3]));
+console.log(fromArray instanceof Buffer);
+console.log(built instanceof Buffer);
+console.log(Buffer.isBuffer(combined));
+console.log(fromArray.length);
+console.log(allocated.byteLength);
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"true\nfalse\nfalse\ntrue\ntrue\ntrue\n3\n4\n".to_owned(),
+        "unexpected Buffer program stdout",
+    )?;
+
+    Ok(())
+}
+
+#[test]
 fn build_runs_date_fns_quarters_to_months_tests() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

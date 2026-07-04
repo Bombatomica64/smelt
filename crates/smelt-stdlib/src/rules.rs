@@ -140,6 +140,9 @@ pub enum RuleId {
     TsObjectStatic,
     /// TypeScript supported static `Array.*` call.
     TsArrayStatic,
+    /// TypeScript supported static `Buffer.*` call
+    /// (`Buffer.from`/`Buffer.alloc`/`Buffer.concat`/`Buffer.isBuffer`).
+    TsBufferStatic,
     /// TypeScript `Map.prototype.has`.
     TsMapHas,
     /// TypeScript `Map.prototype.get`.
@@ -211,6 +214,7 @@ impl RuleId {
             | Self::TsNumberParseInt
             | Self::TsObjectStatic
             | Self::TsArrayStatic
+            | Self::TsBufferStatic
             | Self::TsMapHas
             | Self::TsMapGet
             | Self::TsMapMutation
@@ -243,6 +247,7 @@ impl RuleId {
             Self::TsNumberParseInt => "Number.parseInt",
             Self::TsObjectStatic => "Object static method",
             Self::TsArrayStatic => "Array static method",
+            Self::TsBufferStatic => "Buffer static method",
             Self::TsMapHas => "Map.has",
             Self::TsMapGet => "Map.get",
             Self::TsMapMutation => "Map mutation method",

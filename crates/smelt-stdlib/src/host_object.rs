@@ -72,6 +72,13 @@ const fn boxed(class_name: &'static str, marker: &'static str) -> HostObject {
 pub const HOST_OBJECTS: &[HostObject] = &[
     host("ArrayBuffer", "__smelt_arraybuffer"),
     host("SharedArrayBuffer", "__smelt_sharedarraybuffer"),
+    // Node's `Buffer` byte-buffer host object. es-toolkit constructs it
+    // (`Buffer.from`/`Buffer.alloc`/`Buffer.concat`) and inspects it via
+    // `Buffer.isBuffer(x)` / `value instanceof Buffer`, both of which resolve
+    // through this marker (see `buffer_constructor_expression` and
+    // `instance_of_text`). Modeled as a concrete byte-buffer record rather than
+    // a shapeless dynamic value.
+    host("Buffer", "__smelt_buffer"),
     host("DataView", "__smelt_dataview"),
     host("WeakMap", "__smelt_weakmap"),
     host("WeakSet", "__smelt_weakset"),

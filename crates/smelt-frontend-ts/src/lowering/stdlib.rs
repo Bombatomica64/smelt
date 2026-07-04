@@ -1,5 +1,6 @@
 //! Focused TypeScript standard-library lowering helpers.
 
+mod buffer;
 mod call_dispatch;
 mod collections;
 mod numbers_math;
