@@ -297,6 +297,32 @@ async function run(): Promise<number> {
 }
 ",
         },
+        // --- timer typed extra arguments -------------------------------------
+        Case {
+            name: "timer_typed_extra_args",
+            area: "timers",
+            source: r#"
+function greet(name: string, count: number): void {
+  console.log(name);
+  console.log(count);
+}
+function tick(label: string): void {
+  console.log(label);
+}
+setTimeout(greet, 10, "hi", 3);
+setInterval(tick, 5, "tock");
+"#,
+        },
+        Case {
+            name: "timer_optional_typed_arg",
+            area: "timers",
+            source: r#"
+function note(prefix: string, suffix?: string): void {
+  console.log(prefix);
+}
+setTimeout(note, 10, "with-optional", "extra");
+"#,
+        },
         Case {
             name: "interface_method_call",
             area: "interfaces",

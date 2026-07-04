@@ -5343,3 +5343,137 @@ export function cbRepeat(xs: string[]): string[] {
         "callback body should emit the real string repeat call: {source}"
     );
 }
+
+#[test]
+fn timer_typed_extra_args_use_wrapper_closure_not_erased_list() {
+    // `setTimeout(callback, ms, ...args)` with a statically typed callback and
+    // concretely typed extras must capture the extras in a synthesized
+    // zero-argument wrapper closure and call the callback directly, producing no
+    // erased `Vec<SmeltUnknown>` argument pack.
+    let source = source_for(
+        r#"
+function greet(name: string, count: number): void {
+  console.log(name);
+  console.log(count);
+}
+setTimeout(greet, 10, "hi", 3);
+"#,
+    );
+
+    // Extras keep their concrete Rust types in per-argument bindings; the erased
+    // `smelt_timer_args: Vec<SmeltUnknown>` pack of the dynamic path is absent.
+    assert!(source.contains("smelt_timer_arg_0"), "{source}");
+    assert!(source.contains("smelt_timer_arg_1"), "{source}");
+    assert!(
+        source.contains("let smelt_timer_arg_0: String"),
+        "typed extra should be a concrete String binding: {source}"
+    );
+    assert!(
+        source.contains("let smelt_timer_arg_1: f64"),
+        "typed extra should be a concrete f64 binding: {source}"
+    );
+    assert!(
+        !source.contains("smelt_timer_args"),
+        "typed timer extras must not pack into an erased Vec<SmeltUnknown>: {source}"
+    );
+    // The wrapper captures by value (move) and invokes the callback directly.
+    assert!(source.contains("move ||"), "{source}");
+    assert!(
+        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1.clone())"),
+        "{source}"
+    );
+    assert!(source.contains("smelt_set_timeout("), "{source}");
+}
+
+#[test]
+fn set_interval_typed_extra_args_use_wrapper_closure() {
+    // `setInterval` shares the typed-wrapper path with `setTimeout`.
+    let source = source_for(
+        r#"
+function tick(label: string, n: number): void {
+  console.log(label);
+}
+setInterval(tick, 5, "tock", 2);
+"#,
+    );
+
+    assert!(
+        !source.contains("smelt_timer_args"),
+        "typed interval extras must not pack into an erased Vec<SmeltUnknown>: {source}"
+    );
+    assert!(source.contains("smelt_timer_arg_0"), "{source}");
+    assert!(source.contains("smelt_timer_arg_1"), "{source}");
+    assert!(
+        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1.clone())"),
+        "{source}"
+    );
+    assert!(source.contains("smelt_set_interval("), "{source}");
+}
+
+#[test]
+fn timer_optional_typed_extra_arg_uses_wrapper_closure() {
+    // A single concretely typed extra (matching an optional callback parameter)
+    // still routes through the typed wrapper and forwards exactly one argument.
+    let source = source_for(
+        r#"
+function note(prefix: string, suffix?: string): void {
+  console.log(prefix);
+}
+setTimeout(note, 10, "with-optional", "extra");
+"#,
+    );
+
+    assert!(
+        !source.contains("smelt_timer_args"),
+        "typed optional timer extras must not pack into an erased Vec<SmeltUnknown>: {source}"
+    );
+    assert!(source.contains("smelt_timer_arg_0"), "{source}");
+    assert!(source.contains("smelt_timer_arg_1"), "{source}");
+}
+
+#[test]
+fn timer_untyped_extra_arg_keeps_erased_list_path() {
+    // An `unknown`-typed extra is a genuine dynamic boundary, so the erased
+    // `Vec<SmeltUnknown>` dispatch path must be preserved for it.
+    let source = source_for(
+        r#"
+function handle(value: unknown): void {}
+function fire(payload: unknown): void {
+  setTimeout(handle, 10, payload);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_timer_args"),
+        "untyped timer extras must keep the erased Vec<SmeltUnknown> dispatch path: {source}"
+    );
+    assert!(
+        !source.contains("smelt_timer_arg_0"),
+        "untyped path must not synthesize per-argument typed bindings: {source}"
+    );
+}
+
+#[test]
+fn timer_unknown_callback_param_keeps_erased_list_path() {
+    // A concretely typed extra whose callback parameter is `unknown` is still a
+    // dynamic boundary: forwarding the `String` directly would drop it into a
+    // `SmeltUnknown` parameter slot without the boundary conversion. The wrapper
+    // path must be declined so the erased `Vec<SmeltUnknown>` ABI (which boxes
+    // each argument) is used instead.
+    let source = source_for(
+        r#"
+function handle(value: unknown): void {}
+setTimeout(handle, 10, "x");
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_timer_args"),
+        "unknown callback parameters must keep the erased Vec<SmeltUnknown> dispatch path: {source}"
+    );
+    assert!(
+        !source.contains("smelt_timer_arg_0"),
+        "unknown callback parameter path must not synthesize typed per-argument bindings: {source}"
+    );
+}

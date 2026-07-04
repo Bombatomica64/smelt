@@ -16,4 +16,5 @@ mod classify;
 mod closures;
 mod dispatch;
 mod list_ops;
+mod timer_wrapper;
 mod transforms;
