@@ -432,6 +432,14 @@ impl ModuleBuilder<'_> {
             // Full closure-body lowering supports these statements, so retry there.
             || error.message
                 == "callback block statements must be const declarations, if guards, return, or throw"
+            // A callback `if/else` (or `if/else if` chain) whose arms mutate a
+            // captured local / the callback parameter before falling through to
+            // shared trailing statements cannot be modeled by the compact
+            // side-effect-free callback IR. Full closure-body lowering makes
+            // parameters mutable locals and lowers the branch natively, so retry
+            // there.
+            || error.message
+                == "callback if/else blocks need direct conditional expression lowering"
             || error.message == "async callbacks need closure-body lowering"
             // A method/receiver call the compact callback dispatcher does not
             // model but the full method-call lowering does (e.g. `String.repeat`,

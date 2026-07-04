@@ -570,7 +570,7 @@ impl FunctionEmitter<'_> {
 
     /// Converts a non-escaping MIR closure into a Rust closure literal.
     pub(super) fn closure_text(&self, id: smelt_mir::ClosureId) -> Result<String, EmitError> {
-        self.closure_text_with_extra_params(id, 0, None)
+        self.closure_text_with_extra_params(id, &[], None)
     }
 
     /// Converts a MIR closure into a Rust closure literal shaped for `dest_ty`.
@@ -579,7 +579,14 @@ impl FunctionEmitter<'_> {
         id: smelt_mir::ClosureId,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let extra_params = match self.mir.types.get(dest_ty) {
+        // A JS callback often accepts fewer arguments than the contextual
+        // function type provides (e.g. `.map(value => ...)` is called with
+        // `(value, index, array)`). The emitted closure appends one ignored
+        // parameter per surplus contextual argument; capture the *types* of
+        // those surplus parameters so the emitted `_arg{i}` can be annotated
+        // (an unannotated ignored param is uninferable — E0282 — when the
+        // closure is stored behind an `Rc`/`dyn Fn` that erases its signature).
+        let extra_param_tys: Vec<TypeId> = match self.mir.types.get(dest_ty) {
             Some(Type::Function(function)) => {
                 let closure = self
                     .mir
@@ -588,9 +595,14 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| {
                         EmitError::new("closure rvalue references an unknown closure")
                     })?;
-                function.params.len().saturating_sub(closure.params.len())
+                function
+                    .params
+                    .iter()
+                    .skip(closure.params.len())
+                    .copied()
+                    .collect()
             }
-            _ => 0,
+            _ => Vec::new(),
         };
         let has_captures = !self
             .mir
@@ -628,7 +640,8 @@ impl FunctionEmitter<'_> {
             Some(Type::Function(function)) => Some(function.return_ty),
             _ => None,
         };
-        let closure = self.closure_text_with_extra_params(id, extra_params, target_return_ty)?;
+        let closure =
+            self.closure_text_with_extra_params(id, &extra_param_tys, target_return_ty)?;
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
             let adjusted_closure = if !has_captures
                 || closure.starts_with("move ")
@@ -793,10 +806,16 @@ impl FunctionEmitter<'_> {
 
     /// Emits ignored trailing parameters when a JS callback accepts fewer
     /// arguments than the contextual function type provides.
+    ///
+    /// `extra_param_tys` carries the contextual types of those surplus
+    /// parameters (e.g. the `index: number` and `array: T[]` a `.map` callback
+    /// ignores). Each is emitted as an annotated `_arg{i}: <ty>` binding so the
+    /// closure signature is fully typed even when it is stored behind an erased
+    /// `Rc`/`dyn Fn` where Rust cannot otherwise infer the ignored parameters.
     fn closure_text_with_extra_params(
         &self,
         id: smelt_mir::ClosureId,
-        extra_params: usize,
+        extra_param_tys: &[TypeId],
         return_override: Option<TypeId>,
     ) -> Result<String, EmitError> {
         let closure = self
@@ -830,7 +849,12 @@ impl FunctionEmitter<'_> {
                     ))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
-            param_decls.extend((0..extra_params).map(|index| format!("_arg{index}: SmeltUnknown")));
+            for (index, extra_ty) in extra_param_tys.iter().enumerate() {
+                param_decls.push(format!(
+                    "_arg{index}: {}",
+                    self.type_text_with_impl_trait(*extra_ty, false)?
+                ));
+            }
             return Ok(format!(
                 "|{}| -> {} {{ {} }}",
                 param_decls.join(", "),
@@ -940,7 +964,12 @@ impl FunctionEmitter<'_> {
                     ))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
-            params.extend((0..extra_params).map(|index| format!("_arg{index}")));
+            for (index, extra_ty) in extra_param_tys.iter().enumerate() {
+                params.push(format!(
+                    "_arg{index}: {}",
+                    emitter.type_text_with_impl_trait(*extra_ty, false)?
+                ));
+            }
             let params_text = params.join(", ");
             let mut body_text = String::new();
             emitter.emit_mutable_local_preludes(&mut body_text)?;

@@ -86,7 +86,7 @@ fn main() {
     _smelt_tmp_27 = value + 1.0;
     _smelt_tmp_24 = _smelt_tmp_24.clone() + 1.0;
     }
-    _smelt_tmp_29 = values.iter().enumerate().fold(0.0, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = values.clone(); { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0, _arg1| {
+    _smelt_tmp_29 = values.iter().enumerate().fold(0.0, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = values.clone(); { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: SmeltList<f64>| {
     let _smelt_tmp_2: f64 = closure_arg_0.clone() + closure_arg_1.clone();
     _smelt_tmp_2.clone()
     }); (smelt_callback)(acc, item, index, array) } });
@@ -100,7 +100,7 @@ fn main() {
     _smelt_tmp_3.clone()
     }); let smelt_array = values.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });
     indexed = Into::<SmeltList<_>>::into(_smelt_tmp_31);
-    _smelt_tmp_33 = { let mut reduce_items = values.iter().enumerate(); let (_, first) = reduce_items.next().expect("reduce of empty array with no initial value"); reduce_items.fold(first.clone(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = values; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, closure_arg_2: i64, _arg0| {
+    _smelt_tmp_33 = { let mut reduce_items = values.iter().enumerate(); let (_, first) = reduce_items.next().expect("reduce of empty array with no initial value"); reduce_items.fold(first.clone(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = values; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, closure_arg_2: i64, _arg0: SmeltList<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + closure_arg_1.clone();
     let _smelt_tmp_4: f64 = _smelt_tmp_3.clone() + (closure_arg_2.clone() as f64);
     _smelt_tmp_4.clone()
