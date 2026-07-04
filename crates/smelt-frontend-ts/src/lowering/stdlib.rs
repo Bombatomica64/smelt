@@ -1871,7 +1871,14 @@ impl ModuleBuilder<'_> {
                     span: self.span(call.span.start, call.span.end),
                 })
             } else {
-                let mut item = self.argument(item_argument, body)?;
+                // Lower the pushed value with the array's element type as a
+                // contextual hint. This lets a bare literal argument adopt the
+                // element's concrete shape at construction time instead of
+                // defaulting to an erased surface — e.g. `result.push([value,
+                // key])` into an `Array<[number, string]>` lowers `[value, key]`
+                // as a `(Float, String)` tuple literal rather than a
+                // `List<Unknown>` that could never be re-typed into the tuple.
+                let mut item = self.argument_with_hint(item_argument, body, Some(element_ty))?;
                 let item_ty = Self::expr_ty(body, item);
                 let compatible = self.array_item_type_compatible(item_ty, element_ty)
                     || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)

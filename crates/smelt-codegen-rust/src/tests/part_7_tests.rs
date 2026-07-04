@@ -3407,6 +3407,93 @@ function concatImplementation<T1, T2>(arr1: T1, arr2: T2): unknown[] {
 }
 
 #[test]
+fn emits_tuple_element_push_as_concrete_tuple_value() {
+    // Pushing a bare `[value, key]` literal into an `Array<[number, string]>`
+    // emits a real `(f64, String)` tuple value rather than widening the pushed
+    // item to a `SmeltUnknown` list that could never re-type into the tuple.
+    let source = source_for(
+        r#"
+export function collect(value: number, key: string): Array<[number, string]> {
+  const result: Array<[number, string]> = [];
+  result.push([value, key]);
+  return result;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltList<(f64, String)>"),
+        "tuple-element array should keep its concrete tuple element type: {source}"
+    );
+    assert!(
+        source.contains("(value.clone(), key.clone())"),
+        "pushed literal should be a concrete tuple value: {source}"
+    );
+    assert!(
+        source.contains("result.push("),
+        "the tuple value should be pushed onto the array: {source}"
+    );
+    assert!(
+        !source.contains("SmeltList<SmeltUnknown>"),
+        "tuple-element push must not widen the array to SmeltUnknown: {source}"
+    );
+}
+
+#[test]
+fn emits_union_element_push_as_concrete_union_injections() {
+    // Mixed-literal pushes into an `Array<number | string>` inject each argument
+    // into the concrete union enum instead of routing through SmeltUnknown.
+    let source = source_for(
+        r#"
+export function mixed(): Array<number | string> {
+  const xs: Array<number | string> = [];
+  xs.push(1);
+  xs.push("a");
+  return xs;
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(
+        source.contains(".push(SmeltUnion") && source.contains("::M0(1.0)"),
+        "numeric push should inject the concrete union member: {source}"
+    );
+    assert!(
+        source.contains("::M1(\"a\".to_owned())"),
+        "string push should inject the concrete union member: {source}"
+    );
+}
+
+#[test]
+fn emits_union_receiver_concat_by_extracting_to_unknown_list() {
+    // `concat` on an erased/union array-like receiver extracts the receiver to a
+    // concrete `SmeltList<SmeltUnknown>` and chains the appended values — a
+    // genuine dynamic boundary, not a silent widening of statically-typed data.
+    let source = source_for(
+        r#"
+export function widen(a: number[] | string[]): unknown[] {
+  return (a as unknown[]).concat(1, "x");
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltList<SmeltUnknown>"),
+        "erased concat receiver should extract to an unknown list: {source}"
+    );
+    assert!(
+        source.contains(".iter().cloned().chain("),
+        "concat should chain the appended values onto the receiver: {source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Number(1.0")
+            && source.contains("SmeltUnknown::String(\"x\".to_owned())"),
+        "appended scalars should be boxed into the unknown element type: {source}"
+    );
+}
+
+#[test]
 fn boxes_returned_function_values_even_when_mir_types_match() {
     let source = source_for(
         r#"
