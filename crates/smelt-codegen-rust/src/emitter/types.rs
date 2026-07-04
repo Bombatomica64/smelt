@@ -44,7 +44,12 @@ impl FunctionEmitter<'_> {
             .types
             .get(dest_ty)
             .ok_or_else(|| EmitError::new("primitive cast destination has unknown type"))?;
-        let operand_text = self.operand_text(operand)?;
+        // A concrete union stores a tagged `SmeltUnion…` enum, but the erased JS
+        // coercion arms below (`Type::Union(_)`) match over `SmeltUnknown`
+        // discriminants. Project a concrete-union operand back to its erased value
+        // so those arms see the `SmeltUnknown` shape they expect. Non-concrete
+        // unions are already stored erased, so this is a no-op for them.
+        let operand_text = self.erase_concrete_union_text(&self.operand_text(operand)?, operand_ty);
         match (op, dest_type, operand_type) {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Bool)
             | (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Int)

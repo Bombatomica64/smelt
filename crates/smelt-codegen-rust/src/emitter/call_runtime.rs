@@ -959,22 +959,43 @@ impl FunctionEmitter<'_> {
                 {
                     let callee_is_erased_rest =
                         self.is_erased_unknown_rest_function(function) && !function.may_throw;
-                    let call_text = match callee {
+                    // A typed callee with leading positional parameters before its
+                    // rest cannot receive the packed spread list as a single
+                    // argument; redistribute the list into `(positionals…,
+                    // rest_list)` read from an in-scope `smelt_spread_args`.
+                    let split_args = if callee_is_erased_rest {
+                        None
+                    } else {
+                        self.spread_leading_positional_call_args_text(function)?
+                    };
+                    // The argument list handed to the callee: either the split
+                    // positional+rest text (reads `smelt_spread_args`) or the
+                    // packed list verbatim.
+                    let inner_args = split_args.as_deref().unwrap_or(&args_text);
+                    let inner_call = match callee {
                         _ if callee_is_erased_rest => {
-                            format!("{callee_text}.call({args_text})")
+                            format!("{callee_text}.call({inner_args})")
                         }
                         Operand::Copy(place) | Operand::Move(place)
                             if self.is_function_parameter_place(place)? =>
                         {
-                            format!("{callee_text}({args_text})")
+                            format!("{callee_text}({inner_args})")
                         }
                         _ if self.is_function_parameter_name(&callee_text)? => {
-                            format!("{callee_text}({args_text})")
+                            format!("{callee_text}({inner_args})")
                         }
                         _ if self.is_borrowed_callback_capture_name(&callee_text) => {
-                            format!("{callee_text}({args_text})")
+                            format!("{callee_text}({inner_args})")
                         }
-                        _ => format!("({callee_text})({args_text})"),
+                        _ => format!("({callee_text})({inner_args})"),
+                    };
+                    // When the arguments were split, bind the packed list once so
+                    // the positional/rest reads above resolve; otherwise the call
+                    // stands alone.
+                    let call_text = if split_args.is_some() {
+                        format!("{{ let smelt_spread_args = {args_text}; {inner_call} }}")
+                    } else {
+                        inner_call
                     };
                     if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
                         return Ok(format!("{{ {call_text}; () }}"));
@@ -2492,6 +2513,70 @@ impl FunctionEmitter<'_> {
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         Ok(Some(vec![format!("SmeltList::from(vec![{items}])")]))
+    }
+
+    /// Render call-argument text for a spread across a leading-positional + rest
+    /// signature, binding the packed list to `smelt_spread_args`.
+    ///
+    /// A JavaScript call like `callee(data, ...extraArgs)` lowers to a
+    /// `ClosureCallSpread` whose runtime argument list is the concatenation
+    /// `[data, ...extraArgs]`. When the typed callee declares leading positional
+    /// parameters before its rest (`(data: T, ...rest: U[]) => …`, i.e. `rest`
+    /// starts after index 0), the packed list must be redistributed: the first
+    /// `rest` elements fill the positional parameters and the remainder becomes
+    /// the rest `SmeltList`. Returns `None` when the callee has no leading
+    /// positional before the rest (index-0 rest is handled by the plain spread
+    /// path) or when the shape does not match `[positionals…, rest_list]`.
+    ///
+    /// The returned string is the comma-separated argument list that reads from
+    /// an in-scope `smelt_spread_args` binding; the caller wraps the whole call
+    /// in a block that first binds `smelt_spread_args` to the packed list.
+    fn spread_leading_positional_call_args_text(
+        &self,
+        function: &FunctionType,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(rest_index) = function.rest else {
+            return Ok(None);
+        };
+        if rest_index == 0 {
+            return Ok(None);
+        }
+        // The rest parameter is the last declared parameter; everything before it
+        // is a leading positional the packed list must supply by index.
+        if function.params.len() != rest_index + 1 {
+            return Ok(None);
+        }
+        let Some((rest_param, positional_params)) = function.params.split_last() else {
+            return Ok(None);
+        };
+        let Some(Type::List(rest_item)) = self.mir.types.get(*rest_param) else {
+            return Ok(None);
+        };
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let mut rendered = Vec::with_capacity(positional_params.len() + 1);
+        for (index, param) in positional_params.iter().enumerate() {
+            // Each positional reads the erased element at its index (absent
+            // arguments become `undefined`, matching JS) and coerces to the
+            // declared parameter type.
+            let element = format!(
+                "smelt_spread_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+            );
+            rendered.push(self.value_at_type_text(&element, unknown_ty, *param)?);
+        }
+        // The rest parameter collects the remaining elements as a fresh
+        // `SmeltList`; coerce each element to the rest item type when needed.
+        let rest_text = if self.mir.types.get(*rest_item) == Some(&Type::Unknown) {
+            format!(
+                "SmeltList::from(smelt_spread_args.iter().skip({rest_index}).cloned().collect::<Vec<_>>())"
+            )
+        } else {
+            let item_text = self.value_at_type_text("value", unknown_ty, *rest_item)?;
+            format!(
+                "SmeltList::from(smelt_spread_args.iter().skip({rest_index}).cloned().map(|value| {item_text}).collect::<Vec<_>>())"
+            )
+        };
+        rendered.push(rest_text);
+        Ok(Some(rendered.join(", ")))
     }
 
     /// Emits `Object.assign` when the target is a callable JavaScript value.

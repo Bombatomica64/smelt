@@ -5572,3 +5572,56 @@ function resolve(path: string | (() => string)): string {
         "{source}"
     );
 }
+
+#[test]
+fn erases_concrete_union_operand_before_truthiness_extraction() {
+    // A destructuring default over a `boolean | number` field lowers `flag` to a
+    // concrete `SmeltUnion…` enum. Using it in a boolean position must first
+    // project the tagged enum back to its erased value (`into_smelt_unknown()`)
+    // because the truthiness `match` operates over `SmeltUnknown` discriminants.
+    // Regression for the concrete-union boundary: without the erase the emitted
+    // `match flag.clone() { SmeltUnknown::… }` would not type-check against the
+    // `SmeltUnion…` storage.
+    let source = source_for(
+        r#"
+function pick(opts: { flag?: boolean | number }): boolean {
+  const { flag = false } = opts;
+  return !flag;
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(
+        source.contains("let flag: SmeltUnion"),
+        "flag should keep its concrete-union storage: {source}"
+    );
+    assert!(
+        source.contains("match flag.into_smelt_unknown()"),
+        "a concrete-union operand must be erased before the truthiness match: {source}"
+    );
+}
+
+#[test]
+fn injects_concrete_union_at_nullish_default_sink() {
+    // An erased object-field read defaulted with `??` flows into a concrete
+    // `boolean | number` sink. The coalesced `SmeltUnknown` value must be
+    // reconstructed into the tagged union (`SmeltUnion…::from_smelt_unknown`)
+    // rather than left erased. Regression for the concrete-union boundary: the
+    // sink stores `SmeltUnion…`, so leaving the value as `SmeltUnknown` fails to
+    // type-check.
+    let source = source_for(
+        r#"
+function opt(record: Record<string, unknown>): boolean | number {
+  const value: boolean | number = (record["k"] as boolean | number) ?? false;
+  return value;
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(
+        source.contains("::from_smelt_unknown("),
+        "an erased value flowing into a concrete-union sink must be reconstructed: {source}"
+    );
+}

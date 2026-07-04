@@ -549,6 +549,16 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(source)
         {
+            // A concrete union stores a tagged `SmeltUnion…` enum, but the erased
+            // extraction below matches over `SmeltUnknown` discriminants. When the
+            // source carries a concrete union, project it back to its erased value
+            // first so the extraction sees the `SmeltUnknown` shape it expects.
+            // (A concrete-union → concrete-union coercion has already been handled
+            // above by `project_union_value_text`.)
+            if self.concrete_union_members(source).is_some() {
+                let erased = self.erase_concrete_union_text(value_text, source);
+                return self.extract_value_text(&erased, target);
+            }
             return self.extract_value_text(value_text, target);
         }
         if self.is_match_fn_result_type(source)? && !self.is_match_fn_result_class_type(target)? {
@@ -1661,6 +1671,16 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::TypeParam { .. }) => Ok(format!("({text}).into_smelt_unknown()")),
+            // A concrete union stores a tagged `SmeltUnion…` enum, so an erased
+            // `SmeltUnknown` value extracted into that destination must be
+            // reconstructed into the matching variant rather than passed through
+            // as `SmeltUnknown`. This mirrors the `from_smelt_unknown` boundary
+            // `inject_union_value_text` applies for `Unknown`/`TypeParam` sources;
+            // here the source is a wider (non-concrete) union still stored erased.
+            Some(Type::Union(_)) if self.concrete_union_members(target).is_some() => Ok(format!(
+                "{}::from_smelt_unknown(({text}).into_smelt_unknown())",
+                super::union::union_name(target)
+            )),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.extract_value_text(text, *inner)?;
