@@ -82,6 +82,52 @@ export interface RecursiveArray<T> extends Array<T | RecursiveArray<T>> {}
 }
 
 #[test]
+fn lowers_generic_class_with_type_param_methods() -> Result<(), String> {
+    // Issue #99: a generic class carries its declared type parameters into HIR,
+    // and a call to a method whose declared return type is the class parameter
+    // resolves to the receiver's concrete argument (`Container<number>::get()`
+    // is `number`), so the whole program lowers and validates.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+class Container<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  get(): T { return this.value; }
+  set(value: T): void { this.value = value; }
+}
+
+export function useContainer(): number {
+  const b = new Container<number>(3);
+  b.set(5);
+  return b.get();
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+
+    // The lowered class retains exactly one declared type parameter.
+    let container = ctx.krate.items.iter().find_map(|item| match item {
+        Item::Class(class)
+            if ctx.krate.symbols.get(class.name) == Some("Container") =>
+        {
+            Some(class)
+        }
+        _ => None,
+    });
+    let container = container.ok_or_else(|| "Container class not lowered".to_owned())?;
+    let type_param = container
+        .type_params
+        .first()
+        .ok_or_else(|| "Container has no type parameter".to_owned())?;
+    ensure_eq!(container.type_params.len(), 1);
+    ensure_eq!(ctx.krate.symbols.get(type_param.name), Some("T"));
+    Ok(())
+}
+
+#[test]
 fn lowers_numeric_property_keys() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
