@@ -172,6 +172,62 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// Emit a structural `field in value` check over concrete union arms.
+    ///
+    /// A `"field" in value` guard on a concrete union does not need to erase the
+    /// value and inspect a runtime object map: the set of arms that expose
+    /// `field` is known statically, so the check compiles to a tagged-enum
+    /// discriminant test. Returns `None` when the receiver is not a concrete
+    /// union (the caller then falls back to the erased object lookup), keeping
+    /// dynamic boundaries explicit. When no arm carries the field the check is a
+    /// constant `false`; when every arm carries it, a constant `true`.
+    pub(super) fn concrete_union_field_check(
+        &self,
+        value_text: &str,
+        union_ty: TypeId,
+        field: &str,
+    ) -> Option<String> {
+        let members = self.concrete_union_members(union_ty)?;
+        let union_enum_name = union_name(union_ty);
+        let patterns = members
+            .iter()
+            .enumerate()
+            .filter(|(_, member)| self.union_member_has_field(**member, field))
+            .map(|(index, _)| format!("{union_enum_name}::M{index}(_)"))
+            .collect::<Vec<_>>();
+        Some(if patterns.is_empty() {
+            "false".to_owned()
+        } else if patterns.len() == members.len() {
+            "true".to_owned()
+        } else {
+            format!("matches!({value_text}, {})", patterns.join(" | "))
+        })
+    }
+
+    /// Return whether a concrete union member type statically carries a field.
+    ///
+    /// Mirrors the frontend field-presence rule so the emitted discriminant
+    /// check keeps exactly the arms whose declared shape exposes `field`.
+    fn union_member_has_field(&self, ty: TypeId, field: &str) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::String | Type::List(_) | Type::Tuple(_)) => field == "length",
+            Some(Type::Dict(_, _)) => true,
+            Some(Type::Class { name, .. }) => self.mir_class_has_field(*name, field),
+            _ => false,
+        }
+    }
+
+    /// Return whether a named MIR class declares a field.
+    fn mir_class_has_field(&self, name: Symbol, field: &str) -> bool {
+        self.mir.classes.iter().any(|class| {
+            class.name == name
+                && class
+                    .fields
+                    .iter()
+                    .any(|candidate| self.symbol_name(candidate.name) == Ok(field))
+        })
+    }
+
     /// Map a concrete HIR type to the JavaScript runtime category used by guards.
     fn union_member_matches_kind(&self, ty: TypeId, kind: smelt_hir::UnknownKind) -> bool {
         matches!(

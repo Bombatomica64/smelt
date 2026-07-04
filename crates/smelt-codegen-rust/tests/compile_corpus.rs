@@ -253,6 +253,46 @@ function read(value: Left | Right): string {
 "#,
         },
         Case {
+            // Issue #55: structural `in` and discriminant-property comparison on
+            // a concrete class union must compile to tagged-enum discriminant
+            // checks and concrete arm projections, never SmeltUnknown erasure.
+            name: "discriminant_in_and_property_narrowing",
+            area: "concrete_unions",
+            source: r#"
+class Circle { radius: number = 1; }
+class Square { side: number = 2; }
+
+function area(shape: Circle | Square): number {
+  if ("radius" in shape) {
+    return shape.radius * shape.radius;
+  }
+  return 0;
+}
+
+function tagged(shape: Circle | Square): number {
+  if ("radius" in shape && shape.radius === 3) {
+    return shape.radius;
+  }
+  return 0;
+}
+"#,
+        },
+        Case {
+            // Issue #55 invalidation: a widening-compatible write to a narrowed
+            // union local re-injects the concrete arm and must still compile.
+            name: "narrowed_union_reassignment",
+            area: "concrete_unions",
+            source: r#"
+function resolvePath(path: string | (() => string)): string {
+  if (typeof path === "string") {
+    path = path + ".ts";
+    return path;
+  }
+  return path();
+}
+"#,
+        },
+        Case {
             name: "set_collection",
             area: "collections",
             source: r"

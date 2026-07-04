@@ -1556,6 +1556,23 @@ impl ModuleBuilder<'_> {
             return;
         };
         let base_ty = Self::local_ty(body, local);
+        // Writing through a narrowed local invalidates the prior flow fact: a new
+        // value may inhabit a different union arm (or leave the narrowed subset
+        // entirely), so any stale narrowing must be reconciled before later reads
+        // project it into a concrete arm. When the observed value's type is a
+        // member of the narrowed union (or matches it exactly) the fact is
+        // refined to the observed type; otherwise it is reset to the declared
+        // storage type so codegen falls back to the erased/full-union shape.
+        if let Some(current) = self.narrowed_type(name)
+            && current != observed_ty
+        {
+            if self.type_is_narrowing_of(observed_ty, current) {
+                self.apply_narrowing(name.to_owned(), observed_ty);
+            } else {
+                self.invalidate_narrowing(name, base_ty);
+            }
+            return;
+        }
         if self.ctx.krate.types.get(base_ty) != Some(&Type::Unknown) {
             return;
         }
@@ -1563,6 +1580,38 @@ impl ModuleBuilder<'_> {
             return;
         }
         self.apply_narrowing(name.to_owned(), observed_ty);
+    }
+
+    /// Return whether `candidate` is compatible with a `current` narrowed type.
+    ///
+    /// Assignment refinement only keeps a narrowing when the assigned value is
+    /// provably still inside the narrowed set: an exact type match, or a union
+    /// member of the current narrowing. Anything else is treated as escaping the
+    /// narrowed subset and triggers invalidation.
+    fn type_is_narrowing_of(
+        &self,
+        candidate: smelt_hir::TypeId,
+        current: smelt_hir::TypeId,
+    ) -> bool {
+        if candidate == current {
+            return true;
+        }
+        matches!(
+            self.ctx.krate.types.get(current),
+            Some(Type::Union(items)) if items.contains(&candidate)
+        )
+    }
+
+    /// Drop the active narrowing for `name` by pinning `base_ty` in this scope.
+    ///
+    /// The narrowing stack is a stack of branch scopes and `narrowed_type` reads
+    /// the innermost hit. Pinning the declared storage type in the *current*
+    /// scope shadows any narrowing recorded here or in an enclosing scope, so
+    /// later reads in this flow see the widened (erased/full-union) shape. The
+    /// shadow is scoped: when the branch pops, an enclosing-scope narrowing that
+    /// legitimately still holds on the other control-flow path is restored.
+    fn invalidate_narrowing(&mut self, name: &str, base_ty: smelt_hir::TypeId) {
+        self.apply_narrowing(name.to_owned(), base_ty);
     }
 
     /// Extract target and value from increment/decrement expression.

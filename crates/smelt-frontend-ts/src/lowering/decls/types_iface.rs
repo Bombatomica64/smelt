@@ -757,6 +757,14 @@ return_ty,
                     return self.switch_fallthrough_statement(switch_stmt, body, block);
                 }
                 let scrutinee = self.expression(&switch_stmt.discriminant, body)?;
+                // A switch on a discriminant property (`switch (x.kind)`) proves,
+                // inside every non-default arm, that `x` carries that property.
+                // The narrowing is only recorded for arms with a case label; the
+                // `default` arm is reached when no label matched and cannot rely
+                // on the discriminant being present. Nullish/dynamic boundaries
+                // are left untouched: the fact only projects concrete union arms.
+                let discriminant_narrowing =
+                    self.switch_discriminant_narrowing(&switch_stmt.discriminant, body);
                 let mut arms = Vec::new();
                 let mut default = None;
                 let mut pending_empty_labels = Vec::new();
@@ -769,6 +777,19 @@ return_ty,
                             continue;
                         }
                     }
+                    // Discriminant facts apply to labeled arms only; the default
+                    // arm handles the "no label matched" path and must not assume
+                    // the discriminant property is present.
+                    let narrowing_pushed = if case.test.is_some() {
+                        if let Some((name, target)) = discriminant_narrowing.clone() {
+                            self.apply_narrowing_scope(name, target);
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));
                     let mut saw_break = false;
                     for case_statement in &case.consequent {
@@ -802,6 +823,9 @@ return_ty,
                             break;
                         }
                         self.statement_in_block(case_statement, body, case_block)?;
+                    }
+                    if narrowing_pushed {
+                        self.narrowed_locals.pop();
                     }
                     let is_last_case = case_index + 1 == case_count;
                     if !saw_break

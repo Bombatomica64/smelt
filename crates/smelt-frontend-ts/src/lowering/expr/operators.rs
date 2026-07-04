@@ -1966,6 +1966,26 @@ impl ModuleBuilder<'_> {
                 span,
             }));
         }
+        // `"field" in unionLocal` over a union of concrete member shapes can be
+        // answered by a static discriminant test in codegen rather than erasing
+        // the value into a runtime object map. Keeping the receiver at its union
+        // type lets `dict_contains_key_text` emit `matches!(x, Union::Mi(_) ..)`
+        // for the arms that carry `field`. This only fires for a string-literal
+        // key; dynamic keys stay on the erased path below. Nullish/dynamic
+        // boundaries are untouched because concrete-union eligibility (checked in
+        // codegen) excludes `Optional`/`unknown` members.
+        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Union(_)))
+            && matches!(&binary.left, Expression::StringLiteral(_))
+        {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::DictContainsKey {
+                    dict: receiver,
+                    key,
+                },
+                ty: bool_ty,
+                span,
+            }));
+        }
         let Some(Type::Dict(receiver_key_ty, _)) = self.ctx.krate.types.get(receiver_ty) else {
             if self.ctx.krate.types.get(receiver_ty) == Some(&Type::Unknown)
                 || self.erased_or_union_surface(receiver_ty)
