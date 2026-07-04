@@ -59,8 +59,14 @@ enum TestMatcher {
 }
 
 /// Constant expression exported from another TypeScript module.
+///
+/// Also used to carry const-folded TypeScript `enum` member values across
+/// modules (see [`HirCtx::enum_members`]): each enum member resolves to one of
+/// these so `EnumName.Member` reads and `case EnumName.Member:` labels inline
+/// the same literal. Public so the sibling [`crate::context`] module can store
+/// the cross-module enum-member map, mirroring `ConstCollection`.
 #[derive(Debug, Clone)]
-struct ConstLiteral {
+pub struct ConstLiteral {
     /// Literal expression to inline at import use sites.
     literal: Literal,
     /// HIR type of the literal.
@@ -438,6 +444,14 @@ struct ModuleBuilder<'ctx> {
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Literal constant items visible from already-lowered modules.
     const_literals: HashMap<String, ConstLiteral>,
+    /// Const-folded TypeScript `enum` member values keyed by enum name then
+    /// member name.
+    ///
+    /// Populated from `enum` declarations in the current module and seeded from
+    /// [`HirCtx::enum_members`] for enums declared in earlier modules. Lets
+    /// `EnumName.Member` reads and `case EnumName.Member:` labels inline the
+    /// member's constant literal.
+    enum_member_literals: HashMap<String, HashMap<String, ConstLiteral>>,
     /// `RegExp` literal constants visible from nested function bodies.
     const_regexps: HashMap<String, (String, String, smelt_hir::TypeId)>,
     /// Object literal constants visible from current and already-lowered modules.

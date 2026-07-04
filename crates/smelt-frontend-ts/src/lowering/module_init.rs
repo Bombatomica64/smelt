@@ -37,6 +37,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Self {
         let (items, classes, interfaces) = Self::visible_items(ctx);
         let const_literals = Self::visible_const_literals(ctx);
+        let enum_member_literals = ctx.enum_members.clone();
         let const_objects = ctx.object_consts.clone();
         let const_object_value_collections = ctx.object_value_collections.clone();
         let const_collections = ctx.const_collections.clone();
@@ -91,6 +92,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             date_fns_timezone_factories: HashSet::new(),
             object_namespaces,
             const_literals,
+            enum_member_literals,
             const_regexps: HashMap::new(),
             const_objects,
             const_collections,
@@ -214,6 +216,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let implemented_functions = implemented_function_names(program);
         self.shadow_cross_module_overloads(&implemented_functions);
         self.predeclare_type_alias_items(program);
+        self.collect_module_enums(program);
         self.collect_module_globals(program);
         self.pending_class_names = Self::program_class_names(program);
         self.collect_overload_signatures(program, &implemented_functions);
@@ -409,6 +412,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     | Statement::TSInterfaceDeclaration(_)
                     | Statement::TSModuleDeclaration(_)
                     | Statement::TSTypeAliasDeclaration(_)
+                    // Enums are consumed during the collection phase
+                    // (`collect_module_enums`): their members are const-folded
+                    // rather than lowered into a statement, so skip them here.
+                    | Statement::TSEnumDeclaration(_)
                     | Statement::ImportDeclaration(_)
                     | Statement::ExportNamedDeclaration(_)
                     | Statement::ExportAllDeclaration(_)
@@ -504,6 +511,29 @@ impl<'ctx> ModuleBuilder<'ctx> {
     pub(super) fn shadow_cross_module_overloads(&mut self, implemented_functions: &HashSet<String>) {
         for name in implemented_functions {
             self.function_overloads.insert(name.clone(), Vec::new());
+        }
+    }
+
+    /// Const-fold every top-level `enum` declaration so member references and
+    /// `case EnumName.Member:` labels can inline the member's literal.
+    ///
+    /// Runs during the collection phase, before function bodies and switch
+    /// statements are lowered, because TypeScript hoists enum declarations: a
+    /// member may be referenced textually before the `enum` appears. Handles
+    /// both bare `enum E {}` and `export enum E {}` forms.
+    pub(super) fn collect_module_enums(&mut self, program: &Program<'_>) {
+        for statement in &program.body {
+            match statement {
+                Statement::TSEnumDeclaration(decl) => {
+                    self.collect_enum_declaration(decl);
+                }
+                Statement::ExportNamedDeclaration(export) => {
+                    if let Some(Declaration::TSEnumDeclaration(decl)) = &export.declaration {
+                        self.collect_enum_declaration(decl);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 

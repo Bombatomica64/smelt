@@ -88,6 +88,8 @@ struct FrontendLoweringState {
     ts_object_value_collections: HashMap<String, smelt_frontend_ts::ConstCollection>,
     /// TypeScript exported array/set constants visible across manifest entries.
     ts_const_collections: HashMap<String, smelt_frontend_ts::ConstCollection>,
+    /// TypeScript const-folded `enum` member values visible across manifest entries.
+    ts_enum_members: HashMap<String, HashMap<String, smelt_frontend_ts::ConstLiteral>>,
     /// TypeScript overload signatures visible across manifest entries.
     ts_overloads: HashMap<String, Vec<smelt_frontend_ts::OverloadSignature>>,
     /// TypeScript rest-parameter metadata visible across manifest entries.
@@ -649,6 +651,7 @@ fn lower_manifest_source(
                 object_consts: state.ts_object_consts,
                 object_value_collections: state.ts_object_value_collections,
                 const_collections: state.ts_const_collections,
+                enum_members: state.ts_enum_members,
                 overloads: state.ts_overloads,
                 function_rests: state.ts_function_rests,
                 date_returning_functions: state.ts_date_returning_functions,
@@ -684,6 +687,7 @@ fn lower_manifest_source(
                 ts_object_consts: ctx.object_consts,
                 ts_object_value_collections: ctx.object_value_collections,
                 ts_const_collections: ctx.const_collections,
+                ts_enum_members: ctx.enum_members,
                 ts_overloads: ctx.overloads,
                 ts_function_rests: ctx.function_rests,
                 ts_date_returning_functions: ctx.date_returning_functions,
@@ -729,6 +733,7 @@ fn lower_manifest_source(
                 ts_object_consts: state.ts_object_consts,
                 ts_object_value_collections: state.ts_object_value_collections,
                 ts_const_collections: state.ts_const_collections,
+                ts_enum_members: state.ts_enum_members,
                 ts_overloads: state.ts_overloads,
                 ts_function_rests: state.ts_function_rests,
                 ts_date_returning_functions: state.ts_date_returning_functions,

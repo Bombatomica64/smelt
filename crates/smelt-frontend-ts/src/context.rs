@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::lowering::{ConstCollection, RestParam};
+use crate::lowering::{ConstCollection, ConstLiteral, RestParam};
 use smelt_hir::{
     Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Literal, TypeId, TypeParamDef,
 };
@@ -102,6 +102,13 @@ pub struct HirCtx {
     pub object_value_collections: HashMap<String, ConstCollection>,
     /// Exported array/set constants that can be inlined by later modules.
     pub const_collections: HashMap<String, ConstCollection>,
+    /// Const-folded TypeScript `enum` member values visible to later modules.
+    ///
+    /// Keyed by enum name then member name. Populated when an `enum`
+    /// declaration is lowered, and read by later modules so an imported enum's
+    /// members still fold to their constant literal in `EnumName.Member` reads
+    /// and `case EnumName.Member:` labels.
+    pub enum_members: HashMap<String, HashMap<String, ConstLiteral>>,
     /// Function overload signatures visible to later TypeScript modules.
     pub overloads: HashMap<String, Vec<OverloadSignature>>,
     /// Rest-parameter metadata visible to later TypeScript modules.
@@ -136,6 +143,7 @@ impl HirCtx {
             object_consts: HashMap::new(),
             object_value_collections: HashMap::new(),
             const_collections: HashMap::new(),
+            enum_members: HashMap::new(),
             overloads: HashMap::new(),
             function_rests: HashMap::new(),
             date_returning_functions: HashSet::new(),

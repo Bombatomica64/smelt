@@ -242,6 +242,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.global_alias_member_read(member, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.enum_member_read(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.symbol_static_member(member, body) {
             return Ok(expr);
         }
@@ -387,6 +390,33 @@ impl ModuleBuilder<'_> {
         Ok(body.push_expr(Expr {
             kind: ExprKind::Field { receiver, field },
             ty,
+            span: self.span(member.span.start, member.span.end),
+        }))
+    }
+
+    /// Lower an `EnumName.Member` read to the member's const-folded literal.
+    ///
+    /// TypeScript enums have no distinct Smelt runtime representation; each
+    /// member is a compile-time constant collected by `collect_module_enums`.
+    /// A read of a known member therefore inlines the same numeric or string
+    /// literal a manual `const` would, so ordinary enum usage compiles without a
+    /// dedicated enum type. Returns `None` for a non-enum receiver or an
+    /// unknown member so the caller continues with the general member paths.
+    pub(in crate::lowering) fn enum_member_read(
+        &self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if member.optional {
+            return None;
+        }
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        let value = self.enum_member_literal(object.name.as_str(), member.property.name.as_str())?;
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(value.literal),
+            ty: value.ty,
             span: self.span(member.span.start, member.span.end),
         }))
     }
