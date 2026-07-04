@@ -1286,7 +1286,7 @@ impl ModuleBuilder<'_> {
             may_throw: true,
         }));
         Ok(body.push_expr(Expr {
-            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+            kind: ExprKind::Closure(ClosureExpr {
                 params: Vec::new(),
                 rest: None,
                 required_params: None,

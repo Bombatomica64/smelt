@@ -505,7 +505,7 @@ fn normalize_line(line: &str) -> String {
             }
             digit if digit.is_ascii_digit() => {
                 out.push('N');
-                while chars.peek().is_some_and(|next| next.is_ascii_digit()) {
+                while chars.peek().is_some_and(char::is_ascii_digit) {
                     chars.next();
                 }
                 last_was_space = false;
@@ -740,7 +740,7 @@ mod tests {
             "smelt-unknown-report-test-{}",
             std::process::id()
         ));
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("gen.rs");
         std::fs::write(
@@ -772,7 +772,7 @@ mod tests {
         let json_b = serde_json::to_string(&report_b).unwrap();
         assert_eq!(json_a, json_b);
 
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 
     /// When the emitter's prelude sentinel is present, everything above it is
@@ -785,7 +785,7 @@ mod tests {
             "smelt-unknown-report-marker-{}",
             std::process::id()
         ));
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("gen.rs");
         // The pre-marker `fn helper` signature looks like avoidable program
@@ -812,7 +812,7 @@ mod tests {
         assert_eq!(report.category_total(Category::AvoidableErasure), 2);
         assert_eq!(report.category_total(Category::LegitimateBoundary), 0);
 
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 
     /// Markdown rendering emits the category table and flags regressions.

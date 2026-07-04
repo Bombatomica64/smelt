@@ -119,7 +119,7 @@ impl FunctionEmitter<'_> {
         if text.starts_with("SmeltUnknown::") && self.concrete_union_members(dest_ty).is_some() {
             return Ok(format!(
                 "{}::from_smelt_unknown({text})",
-                super::union::union_name(dest_ty)
+                union::union_name(dest_ty)
             ));
         }
         // List-producing operations (concat/slice/flat/map/copy/…) emit a bare

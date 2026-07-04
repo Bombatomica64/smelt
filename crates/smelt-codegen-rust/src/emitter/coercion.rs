@@ -1679,7 +1679,7 @@ impl FunctionEmitter<'_> {
             // here the source is a wider (non-concrete) union still stored erased.
             Some(Type::Union(_)) if self.concrete_union_members(target).is_some() => Ok(format!(
                 "{}::from_smelt_unknown(({text}).into_smelt_unknown())",
-                super::union::union_name(target)
+                union::union_name(target)
             )),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(Type::Optional(inner)) => {

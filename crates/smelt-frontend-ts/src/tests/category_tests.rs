@@ -211,7 +211,7 @@ fn reflect_own_keys_lowers_like_object_keys() -> Result<(), String> {
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
             ExprKind::DictProjection {
-                op: smelt_hir::DictProjectionOp::Keys,
+                op: DictProjectionOp::Keys,
                 ..
             }
         )),
