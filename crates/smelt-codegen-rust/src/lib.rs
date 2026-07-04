@@ -193,6 +193,31 @@ fn id_index(index: u32, context: &'static str) -> Result<usize, EmitError> {
     usize::try_from(index).map_err(|_err| EmitError::new(context))
 }
 
+/// Render the Rust array literal of host-object identity markers hidden from
+/// JavaScript `for...in` / `Object.keys` enumeration.
+///
+/// The host-object identity markers (`__smelt_arraybuffer`, `__smelt_weakmap`,
+/// the boxed-primitive markers, ...) come from the shared
+/// `smelt_stdlib::host_object` registry so this runtime filter, the frontend
+/// construction path, and the `instanceof` codegen path share one source of
+/// truth. Appended to that are the markers owned by other runtime subsystems
+/// (abort controllers/signals, builtin namespaces, the global object) whose
+/// records must equally hide their internal keys but which are not part of the
+/// host-object registry proper.
+fn host_marker_registry_array() -> String {
+    let markers = smelt_stdlib::host_object_markers()
+        .chain([
+            "__smelt_abortcontroller",
+            "__smelt_abortsignal",
+            "__smelt_builtin_namespace",
+            "__smelt_global_object",
+        ])
+        .map(|marker| format!("\"{marker}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{markers}]")
+}
+
 /// Converts a `usize` into a compact MIR identifier.
 fn compact_index(index: usize, context: &'static str) -> Result<u32, EmitError> {
     u32::try_from(index).map_err(|_err| EmitError::new(context))
@@ -698,8 +723,9 @@ fn emit_source_with_free_function_router(
         writer.line(
             "/// Return whether an erased object key is visible to JavaScript `for...in` iteration.",
         );
-        writer.line("fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { [\"__smelt_weakmap\", \"__smelt_weakset\", \"__smelt_dataview\", \"__smelt_sharedarraybuffer\", \"__smelt_file\", \"__smelt_blob\", \"__smelt_arraybuffer\", \"__smelt_number\", \"__smelt_domexception\", \"__smelt_abortcontroller\", \"__smelt_abortsignal\", \"__smelt_builtin_namespace\", \"__smelt_global_object\"].iter().any(|marker| object.contains_key(marker)) }");
-        writer.line("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { [\"__smelt_weakmap\", \"__smelt_weakset\", \"__smelt_dataview\", \"__smelt_sharedarraybuffer\", \"__smelt_file\", \"__smelt_blob\", \"__smelt_arraybuffer\", \"__smelt_number\", \"__smelt_domexception\", \"__smelt_abortcontroller\", \"__smelt_abortsignal\", \"__smelt_builtin_namespace\", \"__smelt_global_object\"].iter().any(|marker| record.contains_key(*marker)) }");
+        let host_marker_array = host_marker_registry_array();
+        writer.line(format!("fn smelt_object_has_host_marker(object: &SmeltObject) -> bool {{ {host_marker_array}.iter().any(|marker| object.contains_key(marker)) }}"));
+        writer.line(format!("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool {{ {host_marker_array}.iter().any(|marker| record.contains_key(*marker)) }}"));
         writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
