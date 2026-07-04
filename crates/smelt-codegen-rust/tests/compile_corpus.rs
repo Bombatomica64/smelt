@@ -219,6 +219,49 @@ function normalize(values: number[]): number[][] {
 }
 "#,
         },
+        Case {
+            name: "non_arrow_array_callbacks",
+            area: "closures",
+            // Array methods must accept non-arrow callback forms (issue #86):
+            // a `function` expression callback (`mapped`), a `function`
+            // expression whose body needs full closure-body lowering because it
+            // uses a statement form the compact callback IR cannot model
+            // (`fallback`, a `try/catch`), a named function-item reference
+            // (`byRef` calling `square`), and a local function-typed variable
+            // handed to the method (`byLocal`). Each must lower into the callback
+            // closure with its typed signature preserved, and the emitted Rust
+            // must compile.
+            source: r#"
+function square(value: number): number {
+  return value * 2;
+}
+
+function mapped(values: number[]): number[] {
+  return values.map(function (value) {
+    return value + 1;
+  });
+}
+
+function fallback(values: string[]): Array<string | undefined> {
+  return values.map(function (value) {
+    try {
+      return value;
+    } catch (error) {
+      return undefined;
+    }
+  });
+}
+
+function byRef(values: number[]): number[] {
+  return values.map(square);
+}
+
+function byLocal(values: number[]): number[] {
+  const transform = (value: number): number => value * 3;
+  return values.map(transform);
+}
+"#,
+        },
         // --- string / list operations ----------------------------------------
         Case {
             name: "list_collection",
