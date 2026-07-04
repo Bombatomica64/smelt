@@ -47,6 +47,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let interface_extends = ctx.interface_extends.clone();
         let interface_index_values = ctx.interface_index_values.clone();
         let interface_call_signatures = ctx.interface_call_signatures.clone();
+        let interface_construct_signatures = ctx.interface_construct_signatures.clone();
         let callable_fields = ctx.callable_fields.clone();
         let callable_object_aliases = ctx.callable_object_aliases.clone();
         let allow_unknown_index_access = Self::is_declaration_type_test_path(&path);
@@ -69,6 +70,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             interface_extends,
             interface_index_values,
             interface_call_signatures,
+            interface_construct_signatures,
             callable_fields,
             callable_object_aliases,
             type_namespace_prefix: Vec::new(),
@@ -1795,6 +1797,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Peel transparent TypeScript wrappers (parens, `as`, `satisfies`, `!`)
+    /// off an expression, returning the underlying value expression.
+    pub(super) fn peel_transparent_expression<'a>(
+        expression: &'a Expression<'a>,
+    ) -> &'a Expression<'a> {
+        match expression {
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::peel_transparent_expression(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::peel_transparent_expression(&as_expr.expression)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                Self::peel_transparent_expression(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                Self::peel_transparent_expression(&non_null.expression)
+            }
+            _ => expression,
+        }
+    }
+
     /// Lower exported literal `const` declarations into importable HIR constant items.
     pub(super) fn const_item_declarations(
         &mut self,
@@ -1825,6 +1849,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
+            // `export const toolkit = ((v) => v) as Toolkit;` — peel
+            // transparent TS wrappers (parens, `as`, `satisfies`, `!`) so the
+            // arrow/function-initializer dispatch below sees the value
+            // expression, matching how the literal folder already unwraps.
+            let init = Self::peel_transparent_expression(init);
             if let Some(object) = Self::direct_object_initializer(init) {
                 if self.object_namespace_const_declaration(
                     binding.name.as_str(),

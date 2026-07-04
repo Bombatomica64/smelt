@@ -6,6 +6,7 @@ mod __smelt_module_source_main;
 pub(crate) use __smelt_module_source_main::*;
 
 
+// @smelt:prelude-end — generated program below
 fn main() {
     let value: f64 = 4.0;
     let _smelt_tmp_1: f64 = value + 1.0;

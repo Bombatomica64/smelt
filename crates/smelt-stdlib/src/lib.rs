@@ -10,6 +10,7 @@ pub mod deps;
 pub mod diagnostics;
 pub mod fields;
 pub mod globals;
+pub mod host_object;
 pub mod recognition;
 pub mod rules;
 pub mod runtime_symbols;
@@ -20,6 +21,9 @@ pub use deps::BackendDependency;
 pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use fields::{FieldRule, typescript_field_rule};
 pub use globals::{GlobalPresence, global_member_presence, is_javascript_global_builtin};
+pub use host_object::{
+    HOST_OBJECTS, HostObject, host_object_by_class, host_object_marker, host_object_markers,
+};
 pub use recognition::{
     CallRecognition, MethodRecognition, TYPESCRIPT_CALLS, TYPESCRIPT_METHODS,
     TypeScriptReceiverKind, typescript_call_rule, typescript_method_rule,

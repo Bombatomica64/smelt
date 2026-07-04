@@ -110,6 +110,18 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let text = self.rvalue_text_for_dest_inner(value, dest_ty)?;
+        // An rvalue that emits a bare `SmeltUnknown` constructor (`SmeltUnknown::
+        // Number(..)` from arithmetic, a boxed literal) but is assigned to a
+        // concrete-union destination is reconstructed into the tagged union.
+        // Guarding on the literal `SmeltUnknown::` prefix keeps values that
+        // already produced the tagged union (`SmeltUnion…::M0(..)`, a `Use` of a
+        // union local) untouched, avoiding a double wrap.
+        if text.starts_with("SmeltUnknown::") && self.concrete_union_members(dest_ty).is_some() {
+            return Ok(format!(
+                "{}::from_smelt_unknown({text})",
+                super::union::union_name(dest_ty)
+            ));
+        }
         // List-producing operations (concat/slice/flat/map/copy/…) emit a bare
         // `Vec`, but `Type::List` now lowers to the identity-bearing `SmeltList`.
         // Coerce through `Into` at this single choke point: it is a no-op when the
@@ -542,6 +554,13 @@ impl FunctionEmitter<'_> {
                 value: unknown_value,
                 target,
             } => {
+                let source = self.operand_ty(unknown_value)?;
+                let value_text = self.operand_text(unknown_value)?;
+                if let Some(projected) =
+                    self.project_union_value_text(&value_text, source, *target)?
+                {
+                    return self.value_at_type_text(&projected, *target, dest_ty);
+                }
                 let target_rust_ty = self.type_text_with_impl_trait(*target, false)?;
                 let cast_text = if target_rust_ty == "SmeltUnknown" {
                     self.erase(unknown_value)?
@@ -940,22 +959,43 @@ impl FunctionEmitter<'_> {
                 {
                     let callee_is_erased_rest =
                         self.is_erased_unknown_rest_function(function) && !function.may_throw;
-                    let call_text = match callee {
+                    // A typed callee with leading positional parameters before its
+                    // rest cannot receive the packed spread list as a single
+                    // argument; redistribute the list into `(positionals…,
+                    // rest_list)` read from an in-scope `smelt_spread_args`.
+                    let split_args = if callee_is_erased_rest {
+                        None
+                    } else {
+                        self.spread_leading_positional_call_args_text(function)?
+                    };
+                    // The argument list handed to the callee: either the split
+                    // positional+rest text (reads `smelt_spread_args`) or the
+                    // packed list verbatim.
+                    let inner_args = split_args.as_deref().unwrap_or(&args_text);
+                    let inner_call = match callee {
                         _ if callee_is_erased_rest => {
-                            format!("{callee_text}.call({args_text})")
+                            format!("{callee_text}.call({inner_args})")
                         }
                         Operand::Copy(place) | Operand::Move(place)
                             if self.is_function_parameter_place(place)? =>
                         {
-                            format!("{callee_text}({args_text})")
+                            format!("{callee_text}({inner_args})")
                         }
                         _ if self.is_function_parameter_name(&callee_text)? => {
-                            format!("{callee_text}({args_text})")
+                            format!("{callee_text}({inner_args})")
                         }
                         _ if self.is_borrowed_callback_capture_name(&callee_text) => {
-                            format!("{callee_text}({args_text})")
+                            format!("{callee_text}({inner_args})")
                         }
-                        _ => format!("({callee_text})({args_text})"),
+                        _ => format!("({callee_text})({inner_args})"),
+                    };
+                    // When the arguments were split, bind the packed list once so
+                    // the positional/rest reads above resolve; otherwise the call
+                    // stands alone.
+                    let call_text = if split_args.is_some() {
+                        format!("{{ let smelt_spread_args = {args_text}; {inner_call} }}")
+                    } else {
+                        inner_call
                     };
                     if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
                         return Ok(format!("{{ {call_text}; () }}"));
@@ -1480,7 +1520,7 @@ impl FunctionEmitter<'_> {
         {
             let lhs_text = self.operand_text(lhs)?;
             if self.optional_inner_preserves_erased_singletons(inner) {
-                self.optional_erased_singleton_equality_text(&lhs_text, rhs, strict_nullish)?
+                self.optional_erased_singleton_equality_text(&lhs_text, rhs, strict_nullish, inner)?
             } else {
                 format!("{lhs_text}.is_none()")
             }
@@ -1489,7 +1529,7 @@ impl FunctionEmitter<'_> {
         {
             let rhs_text = self.operand_text(rhs)?;
             if self.optional_inner_preserves_erased_singletons(inner) {
-                self.optional_erased_singleton_equality_text(&rhs_text, lhs, strict_nullish)?
+                self.optional_erased_singleton_equality_text(&rhs_text, lhs, strict_nullish, inner)?
             } else {
                 format!("{rhs_text}.is_none()")
             }
@@ -1522,6 +1562,7 @@ impl FunctionEmitter<'_> {
         option_text: &str,
         singleton: &Operand,
         strict_nullish: bool,
+        inner: TypeId,
     ) -> Result<String, EmitError> {
         let pattern = if strict_nullish {
             if matches!(singleton, Operand::Const(Constant::Undefined)) {
@@ -1532,15 +1573,24 @@ impl FunctionEmitter<'_> {
         } else {
             "SmeltUnknown::Null | SmeltUnknown::Undefined"
         };
+        // A concrete-union `Option` payload stores a tagged enum; project each
+        // present value to `SmeltUnknown` before the nullish tag match. A present
+        // union value never holds `null`/`undefined` (those are the `None`), so
+        // this preserves the exact loose/strict comparison semantics.
+        let scrutinee = if self.concrete_union_members(inner).is_some() {
+            "value.clone().into_smelt_unknown()"
+        } else {
+            "value"
+        };
         let missing_matches =
             !strict_nullish || matches!(singleton, Operand::Const(Constant::Undefined));
         if missing_matches {
             Ok(format!(
-                "{option_text}.as_ref().map_or(true, |value| matches!(value, {pattern}))"
+                "{option_text}.as_ref().map_or(true, |value| matches!({scrutinee}, {pattern}))"
             ))
         } else {
             Ok(format!(
-                "{option_text}.as_ref().is_some_and(|value| matches!(value, {pattern}))"
+                "{option_text}.as_ref().is_some_and(|value| matches!({scrutinee}, {pattern}))"
             ))
         }
     }
@@ -2310,8 +2360,17 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(optional_ty)
         {
-            let optional_text = self.value_at_type(optional, optional_ty)?;
-            let fallback_text = self.value_at_type(fallback, optional_ty)?;
+            // The nullish `match` operates on the erased `SmeltUnknown` form. A
+            // concrete-union operand stores a tagged enum, so both the scrutinee
+            // and the fallback are rendered erased here and the tagged union is
+            // reconstructed by the destination coercion below.
+            let scrutinee_ty = if self.concrete_union_members(optional_ty).is_some() {
+                self.type_id(Type::Unknown)?
+            } else {
+                optional_ty
+            };
+            let optional_text = self.value_at_type(optional, scrutinee_ty)?;
+            let fallback_text = self.value_at_type(fallback, scrutinee_ty)?;
             let coalesced = format!(
                 "match {optional_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => {fallback_text}, value => value }}"
             );
@@ -2324,12 +2383,19 @@ impl FunctionEmitter<'_> {
             ) {
                 return Ok(format!("Some({coalesced})"));
             }
-            if !matches!(
+            // A concrete-union destination is not an erased boundary: coerce the
+            // erased coalesced value into the tagged union (`from_smelt_unknown`)
+            // rather than leaving it as `SmeltUnknown`.
+            let dest_is_erased = (matches!(
                 self.mir.types.get(dest_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) && !self.is_erased_class_type(dest_ty)
-            {
-                return self.value_at_type_text(&coalesced, optional_ty, dest_ty);
+                Some(Type::Unknown | Type::TypeParam { .. })
+            ) || matches!(
+                self.mir.types.get(dest_ty),
+                Some(Type::Union(_))
+            ) && self.concrete_union_members(dest_ty).is_none())
+                || self.is_erased_class_type(dest_ty);
+            if !dest_is_erased {
+                return self.value_at_type_text(&coalesced, scrutinee_ty, dest_ty);
             }
             return Ok(coalesced);
         }
@@ -2447,6 +2513,70 @@ impl FunctionEmitter<'_> {
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         Ok(Some(vec![format!("SmeltList::from(vec![{items}])")]))
+    }
+
+    /// Render call-argument text for a spread across a leading-positional + rest
+    /// signature, binding the packed list to `smelt_spread_args`.
+    ///
+    /// A JavaScript call like `callee(data, ...extraArgs)` lowers to a
+    /// `ClosureCallSpread` whose runtime argument list is the concatenation
+    /// `[data, ...extraArgs]`. When the typed callee declares leading positional
+    /// parameters before its rest (`(data: T, ...rest: U[]) => …`, i.e. `rest`
+    /// starts after index 0), the packed list must be redistributed: the first
+    /// `rest` elements fill the positional parameters and the remainder becomes
+    /// the rest `SmeltList`. Returns `None` when the callee has no leading
+    /// positional before the rest (index-0 rest is handled by the plain spread
+    /// path) or when the shape does not match `[positionals…, rest_list]`.
+    ///
+    /// The returned string is the comma-separated argument list that reads from
+    /// an in-scope `smelt_spread_args` binding; the caller wraps the whole call
+    /// in a block that first binds `smelt_spread_args` to the packed list.
+    fn spread_leading_positional_call_args_text(
+        &self,
+        function: &FunctionType,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(rest_index) = function.rest else {
+            return Ok(None);
+        };
+        if rest_index == 0 {
+            return Ok(None);
+        }
+        // The rest parameter is the last declared parameter; everything before it
+        // is a leading positional the packed list must supply by index.
+        if function.params.len() != rest_index + 1 {
+            return Ok(None);
+        }
+        let Some((rest_param, positional_params)) = function.params.split_last() else {
+            return Ok(None);
+        };
+        let Some(Type::List(rest_item)) = self.mir.types.get(*rest_param) else {
+            return Ok(None);
+        };
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let mut rendered = Vec::with_capacity(positional_params.len() + 1);
+        for (index, param) in positional_params.iter().enumerate() {
+            // Each positional reads the erased element at its index (absent
+            // arguments become `undefined`, matching JS) and coerces to the
+            // declared parameter type.
+            let element = format!(
+                "smelt_spread_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+            );
+            rendered.push(self.value_at_type_text(&element, unknown_ty, *param)?);
+        }
+        // The rest parameter collects the remaining elements as a fresh
+        // `SmeltList`; coerce each element to the rest item type when needed.
+        let rest_text = if self.mir.types.get(*rest_item) == Some(&Type::Unknown) {
+            format!(
+                "SmeltList::from(smelt_spread_args.iter().skip({rest_index}).cloned().collect::<Vec<_>>())"
+            )
+        } else {
+            let item_text = self.value_at_type_text("value", unknown_ty, *rest_item)?;
+            format!(
+                "SmeltList::from(smelt_spread_args.iter().skip({rest_index}).cloned().map(|value| {item_text}).collect::<Vec<_>>())"
+            )
+        };
+        rendered.push(rest_text);
+        Ok(Some(rendered.join(", ")))
     }
 
     /// Emits `Object.assign` when the target is a callable JavaScript value.

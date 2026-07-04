@@ -3284,6 +3284,55 @@ const selected = pick(1, "a");
 }
 
 #[test]
+fn infers_generic_param_from_array_arm_of_union_callback_return() -> Result<(), String> {
+    // remeda `flatMap<T, U>(data, cb: (…) => readonly U[] | U): U[]` maps then
+    // flattens one level. When the callback returns `number[]`, tsc infers
+    // `U = number` (structural inference from the `U[]` arm wins over binding
+    // the naked `U` arm to the whole array), so the result is a flat `number[]`.
+    // Union members are interned in canonical (sorted) order, so overload
+    // inference must prefer the structural arm regardless of spelling order and
+    // never greedily bind the bare type-parameter arm to `number[]` (which would
+    // make the result a nested `number[][]`). Regression for the remeda flatMap
+    // gate.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function flatMap<T, U>(
+  data: readonly T[],
+  callbackfn: (value: T, index: number, data: readonly T[]) => readonly U[] | U,
+): U[];
+function flatMap(...args: readonly unknown[]): unknown {
+  return args[0];
+}
+
+const result = flatMap([1, 2], (x) => [x * 2, x * 3]);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let result_ty = body
+        .locals
+        .iter()
+        .find(|local| local.name.and_then(|name| ctx.krate.names.get(name)) == Some("result"))
+        .map(|local| local.ty)
+        .ok_or_else(|| "expected `result` binding to lower".to_owned())?;
+    let Some(Type::List(item)) = ctx.krate.types.get(result_ty) else {
+        return Err(format!(
+            "expected flatMap result to be a list, got {:?}",
+            ctx.krate.types.get(result_ty)
+        ));
+    };
+    ensure!(
+        matches!(ctx.krate.types.get(*item), Some(Type::Float)),
+        "expected flatMap result to be a FLAT list of numbers (U = number), not a nested list: {:?}",
+        ctx.krate.types.get(*item)
+    );
+    Ok(())
+}
+
+#[test]
 fn extracts_structural_fields_from_referenced_generic_interfaces_and_pick() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -3524,6 +3573,186 @@ function run(fn: Step2): string {
         .filter(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
         .count();
     ensure_eq!(closure_calls, 2);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Find the `Type::Function` stored in an interface field by field name.
+fn interface_field_function(
+    ctx: &HirCtx,
+    interface_name: &str,
+    field_name: &str,
+) -> Option<smelt_hir::FunctionType> {
+    ctx.krate.items.iter().find_map(|item| {
+        let Item::Interface(interface) = item else {
+            return None;
+        };
+        if ctx.krate.symbols.get(interface.name) != Some(interface_name) {
+            return None;
+        }
+        interface.fields.iter().find_map(|field| {
+            if ctx.krate.symbols.get(field.name) != Some(field_name) {
+                return None;
+            }
+            match ctx.krate.types.get(field.ty) {
+                Some(Type::Function(function)) => Some(function.clone()),
+                _ => None,
+            }
+        })
+    })
+}
+
+#[test]
+fn preserves_optional_and_rest_arity_on_interface_method_field() -> Result<(), String> {
+    // A callable interface method with a trailing optional parameter and a rest
+    // parameter must surface its source arity on the generated callable field:
+    // `required_params` stops at the first optional parameter and `rest` marks
+    // the packed tail. Regression for issue #53 where interface method fields
+    // hardcoded `rest: None, required_params: None`, masking the real arity.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Logger {
+  log(message: string, level?: string, ...extra: string[]): void;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let function = interface_field_function(&ctx, "Logger", "log")
+        .ok_or_else(|| "missing Logger.log callable field".to_owned())?;
+    // params: [message, Optional<level>, List<extra>]
+    ensure_eq!(function.params.len(), 3);
+    ensure_eq!(function.rest, Some(2));
+    ensure_eq!(function.required_params, Some(1));
+    ensure!(matches!(
+        ctx.krate.types.get(function.params[1]),
+        Some(Type::Optional(_))
+    ));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn preserves_required_arity_on_callable_type_alias() -> Result<(), String> {
+    // A callable type alias `(a, b?) => T` must record its required arity so
+    // under-application through the alias stays typed. Previously
+    // `callable_type_to_hir` set `required_params: None`, defaulting consumers
+    // to `params.len()` and rejecting or erasing legal partial calls.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Holder {
+  handler: (first: number, second?: number) => number;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let function = interface_field_function(&ctx, "Holder", "handler")
+        .ok_or_else(|| "missing Holder.handler callable field".to_owned())?;
+    ensure_eq!(function.params.len(), 2);
+    ensure_eq!(function.required_params, Some(1));
+    ensure!(matches!(
+        ctx.krate.types.get(function.params[1]),
+        Some(Type::Optional(_))
+    ));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn types_curried_under_application_through_callable_field_signature() -> Result<(), String> {
+    // A curried factory whose returned callable declares an optional trailing
+    // parameter can be under-applied with zero arguments. Because the arity is
+    // now statically known, the call lowers to a typed `ClosureCall` (with the
+    // omitted optional synthesized as a typed `None`) instead of routing through
+    // the erased arity-short fallback. The HIR must validate cleanly.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Curried {
+  (seed: number): Inner;
+}
+
+interface Inner {
+  (value?: number): number;
+}
+
+function run(make: Curried): number {
+  const inner = make(1);
+  return inner();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let closure_calls = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+        .count();
+    // `make(1)` and `inner()` both lower to typed closure calls.
+    ensure_eq!(closure_calls, 2);
+    // No expression should have been erased to `Unknown` for the under-applied
+    // `inner()` call: its result type is the declared `number` return.
+    let erased_calls = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| {
+            matches!(expr.kind, ExprKind::ClosureCall { .. })
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Unknown))
+        })
+        .count();
+    ensure_eq!(erased_calls, 0);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn missing_required_param_before_rest_slot_erases_under_application() -> Result<(), String> {
+    // Regression for the review of issue #53: a rest slot only absorbs the
+    // surplus tail *after* the required prefix, so it can never satisfy a
+    // missing required argument. `make(1)()` under-applies a returned
+    // `(first: number, ...rest: string[]) => number` with zero arguments —
+    // `first` is required, so this is not statically typed under-application and
+    // must route through the erased arity-independent ABI (result `Unknown`),
+    // never synthesize a typed `None` for the non-optional `first`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Factory {
+  (seed: number): Handler;
+}
+
+interface Handler {
+  (first: number, ...rest: string[]): number;
+}
+
+function run(make: Factory): number {
+  return make(1)();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    // The under-applied `make(1)()` call is erased: its result type is `Unknown`
+    // rather than the declared `number` return, and no typed `None` is packed.
+    let erased_under_applied = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| {
+            matches!(expr.kind, ExprKind::ClosureCall { .. })
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Unknown))
+        })
+        .count();
+    ensure_eq!(erased_under_applied, 1);
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -7219,6 +7448,158 @@ export const boom = makeError(TypeError, "boom");
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Return whether any expression in the crate is typed as `Type::Class` with
+/// the given class name, used to assert a construction kept a concrete result.
+fn any_expr_is_class(ctx: &HirCtx, class_name: &str) -> bool {
+    ctx.krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .any(|expr| {
+            matches!(
+                ctx.krate.types.get(expr.ty),
+                Some(Type::Class { name, .. }) if ctx.krate.symbols.get(*name) == Some(class_name)
+            )
+        })
+}
+
+#[test]
+fn lowers_construct_signature_interface_to_constructor_slot() -> Result<(), String> {
+    // A constructor-only interface (`interface C { new (): T }`) is a typed
+    // constructor slot: a value of that type lowers to a callable `Type::Function`
+    // whose return type is the constructed type, not an erased dictionary.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface MapCache {
+  size: number;
+}
+
+interface MapCacheConstructor {
+  new (): MapCache;
+}
+
+function make(ctor: MapCacheConstructor): MapCache {
+  return new ctor();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        any_expr_is_class(&ctx, "MapCache"),
+        "expected a MapCache-typed construction from a constructor-slot parameter"
+    );
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callable_object_construct_signature_field() -> Result<(), String> {
+    // The `memoize.Cache`-style shape: `memoize` is a callable interface value
+    // that also carries a `Cache` field whose type is a construct-signature
+    // interface. `new memoize.Cache()` must construct the concrete `MapCache`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface MapCache {
+  size: number;
+}
+
+interface MapCacheConstructor {
+  new (): MapCache;
+}
+
+interface Memoize {
+  <T>(func: T): T;
+  Cache: MapCacheConstructor;
+}
+
+declare const memoize: Memoize;
+
+export const cache = new memoize.Cache();
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        any_expr_is_class(&ctx, "MapCache"),
+        "expected `new memoize.Cache()` to produce a concrete MapCache"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn preserves_construct_slot_through_type_alias() -> Result<(), String> {
+    // A type alias for a constructor-only interface must preserve the
+    // constructor slot so assignments and `new` keep the constructed type.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface MapCache {
+  size: number;
+}
+
+interface MapCacheConstructor {
+  new (): MapCache;
+}
+
+type CacheCtor = MapCacheConstructor;
+
+function build(ctor: CacheCtor): MapCache {
+  const local: CacheCtor = ctor;
+  return new local();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        any_expr_is_class(&ctx, "MapCache"),
+        "expected the alias to preserve the constructor slot"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_parameterized_construct_signature_return() -> Result<(), String> {
+    // A generic construct signature keeps its constructed return type through
+    // the reference: `new (): Box<number>` constructs a concrete `Box`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Box<T> {
+  value: T;
+}
+
+interface BoxConstructor {
+  new (): Box<number>;
+}
+
+function make(ctor: BoxConstructor): Box<number> {
+  return new ctor();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        any_expr_is_class(&ctx, "Box"),
+        "expected a Box-typed construction from a generic construct signature"
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

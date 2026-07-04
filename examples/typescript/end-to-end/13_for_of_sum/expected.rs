@@ -41,6 +41,7 @@ impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std
 impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
 impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.values } }
 
+// @smelt:prelude-end — generated program below
 fn main() {
     let mut x: f64;
     let mut _smelt_tmp_5: f64;

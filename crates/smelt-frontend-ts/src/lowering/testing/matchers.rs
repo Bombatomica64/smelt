@@ -902,6 +902,22 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Push a fresh narrowing scope carrying a single local fact.
+    ///
+    /// Unlike [`apply_narrowing`], which mutates the current scope, this always
+    /// pushes a new scope so callers can pop exactly the fact they added. It is
+    /// used for scoped branch facts (such as switch-case discriminant narrowing)
+    /// whose lifetime must not outlive the branch body.
+    pub(in crate::lowering) fn apply_narrowing_scope(
+        &mut self,
+        name: String,
+        target: smelt_hir::TypeId,
+    ) {
+        let mut scope = HashMap::new();
+        scope.insert(name, target);
+        self.narrowed_locals.push(scope);
+    }
+
     /// Return the active narrowed type for a source local, if any.
     pub(in crate::lowering) fn narrowed_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
         self.narrowed_locals
@@ -947,7 +963,13 @@ impl ModuleBuilder<'_> {
             }
         } else if let Some((name, target)) = self.typeof_guard(expression, body) {
             out.insert(name, target);
-        } else if let Some((name, target)) = self.array_is_array_guard(expression) {
+        } else if let Some((name, target)) = self.array_is_array_guard(expression, body) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.in_operator_guard(expression, body) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.property_equality_guard(expression, body) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.instanceof_local_guard(expression, body) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.null_guard(expression) {
             out.insert(name, target);
@@ -1363,10 +1385,26 @@ impl ModuleBuilder<'_> {
         let substitutions = self
             .type_argument_substitution(&type_params, args, self.span(0, 0))
             .ok()?;
+        // Prefer an overload whose declared arity can actually accept the call.
+        // A rest parameter or optional trailing parameters relax the exact match,
+        // so the requested `arg_count` may sit anywhere in
+        // `required_params..=params.len()` (or above it when a rest slot
+        // absorbs the surplus). Fall back to an exact match, then the first
+        // signature, so callers with no argument count still resolve.
         let signature = signatures
             .iter()
-            .find(|signature| arg_count.is_some_and(|count| signature.params.len() == count))
+            .find(|signature| {
+                arg_count.is_some_and(|count| Self::signature_accepts_arg_count(signature, count))
+            })
+            .or_else(|| {
+                signatures
+                    .iter()
+                    .find(|signature| arg_count.is_some_and(|count| signature.params.len() == count))
+            })
             .or_else(|| signatures.first())?;
+        let rest = signature.rest;
+        let required_params = signature.required_params;
+        let is_async = signature.is_async;
         let params = signature
             .params
             .iter()
@@ -1376,19 +1414,41 @@ impl ModuleBuilder<'_> {
         let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
-            rest: None,
-            required_params: None,
+            rest,
+            required_params,
             mutable_params,
             return_ty,
-            is_async: signature.is_async,
+            is_async,
             may_throw: false,
         })))
+    }
+
+    /// Return whether a call-signature overload can accept `arg_count` arguments.
+    ///
+    /// The requested arity is acceptable when it supplies at least the required
+    /// parameters and does not overflow the declared parameters — unless the
+    /// signature has a rest parameter, which absorbs any surplus. This mirrors
+    /// [`Self::function_arity_assignable`] at the call site so overload
+    /// selection honours optional/rest arity instead of demanding an exact
+    /// `params.len()` match.
+    fn signature_accepts_arg_count(signature: &FunctionType, arg_count: usize) -> bool {
+        let required = signature
+            .required_params
+            .unwrap_or(signature.params.len());
+        if arg_count < required {
+            return false;
+        }
+        if signature.rest.is_some() {
+            return true;
+        }
+        arg_count <= signature.params.len()
     }
 
     /// Recognize `Array.isArray(value)` guard expressions.
     pub(in crate::lowering) fn array_is_array_guard(
         &mut self,
         expression: &Expression<'_>,
+        body: &Body,
     ) -> Option<(String, smelt_hir::TypeId)> {
         let Expression::CallExpression(call) = expression else {
             return None;
@@ -1405,9 +1465,275 @@ impl ModuleBuilder<'_> {
         let [Argument::Identifier(identifier)] = call.arguments.as_slice() else {
             return None;
         };
+        let name = identifier.name.as_str();
+        let local_ty = self
+            .locals
+            .get(name)
+            .and_then(|local| Self::local_ty_checked(body, *local))
+            .and_then(|ty| self.narrowed_type(name).or(Some(ty)));
+        if let Some(ty) = local_ty
+            && let Some(members) = self.filtered_union_members(ty, |union_member| {
+                matches!(union_member, Type::List(_) | Type::Tuple(_))
+            })
+        {
+            let narrowed = self.intern_filtered_union(members)?;
+            return Some((name.to_owned(), narrowed));
+        }
         let unknown = self.ctx.krate.types.intern(Type::Unknown);
-        let ty = self.ctx.krate.types.intern(Type::List(unknown));
-        Some((identifier.name.to_string(), ty))
+        Some((
+            name.to_owned(),
+            self.ctx.krate.types.intern(Type::List(unknown)),
+        ))
+    }
+
+    /// Recognize `'field' in value` and retain only union arms exposing that field.
+    pub(in crate::lowering) fn in_operator_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if binary.operator != BinaryOperator::In {
+            return None;
+        }
+        let Expression::StringLiteral(field) = &binary.left else {
+            return None;
+        };
+        let Expression::Identifier(identifier) = &binary.right else {
+            return None;
+        };
+        let name = identifier.name.as_str();
+        let local = self.locals.get(name).copied()?;
+        let ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let field_name = field.value.as_str();
+        let retained = self.filtered_union_members(ty, |member| {
+            self.type_has_known_field(member, field_name)
+        })?;
+        let narrowed = self.intern_filtered_union(retained)?;
+        Some((name.to_owned(), narrowed))
+    }
+
+    /// Recognize `value.field === literal` discriminant guards.
+    ///
+    /// TypeScript discriminated unions are narrowed by comparing a shared
+    /// discriminant property against a literal. Smelt erases string/number
+    /// literal *types* to `String`/`Float`, so arms cannot be told apart by the
+    /// discriminant field's value type. What Smelt can prove structurally is
+    /// which arms even *carry* the accessed field: comparing `value.field` to a
+    /// literal is only meaningful for arms that expose `field`, so the true
+    /// branch narrows the union to those arms. This mirrors [`in_operator_guard`]
+    /// but keys off a property comparison rather than an `in` test.
+    ///
+    /// The narrowing is intentionally conservative: it only fires when at least
+    /// one union arm lacks the field (so the guard actually excludes a member).
+    /// When every arm carries the field the comparison proves nothing about the
+    /// union shape and no fact is recorded.
+    pub(in crate::lowering) fn property_equality_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::Equality
+        ) {
+            return None;
+        }
+        let (name, field_name) = Self::member_literal_comparison(binary)?;
+        let local = self.locals.get(name.as_str()).copied()?;
+        let ty = self
+            .narrowed_type(&name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        // Only narrow when the comparison distinguishes union arms: some arm must
+        // carry the field and some other arm must not. `filtered_union_members`
+        // returns `None` for non-unions, so single concrete types are untouched.
+        let Type::Union(items) = self.ctx.krate.types.get(ty)?.clone() else {
+            return None;
+        };
+        let all_have_field = items.iter().all(|item| {
+            self.ctx
+                .krate
+                .types
+                .get(*item)
+                .is_some_and(|member| self.type_has_known_field(member, &field_name))
+        });
+        if all_have_field {
+            return None;
+        }
+        let retained = self.filtered_union_members(ty, |member| {
+            self.type_has_known_field(member, &field_name)
+        })?;
+        let narrowed = self.intern_filtered_union(retained)?;
+        Some((name, narrowed))
+    }
+
+    /// Return the local name and property of a `value.field <op> literal` test.
+    ///
+    /// Recognizes both operand orders (`value.field === "x"` and
+    /// `"x" === value.field`). Only static member access on a plain identifier
+    /// compared against a literal counts; anything else yields `None`.
+    fn member_literal_comparison(
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+    ) -> Option<(String, String)> {
+        let member_side = Self::static_member_of_local(&binary.left)
+            .filter(|_| Self::is_comparison_literal(&binary.right))
+            .or_else(|| {
+                Self::static_member_of_local(&binary.right)
+                    .filter(|_| Self::is_comparison_literal(&binary.left))
+            })?;
+        Some(member_side)
+    }
+
+    /// Return `(local, property)` when an expression is `local.property`.
+    fn static_member_of_local(expression: &Expression<'_>) -> Option<(String, String)> {
+        let Expression::StaticMemberExpression(member) = expression else {
+            return None;
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        Some((object.name.to_string(), member.property.name.to_string()))
+    }
+
+    /// Return whether an expression is a literal usable as a discriminant value.
+    fn is_comparison_literal(expression: &Expression<'_>) -> bool {
+        matches!(
+            expression,
+            Expression::StringLiteral(_)
+                | Expression::NumericLiteral(_)
+                | Expression::BooleanLiteral(_)
+                | Expression::NullLiteral(_)
+        )
+    }
+
+    /// Compute the fact proven by a `switch (value.field)` discriminant.
+    ///
+    /// Inside every labeled case a `switch (value.field)` proves that `value`
+    /// carries `field`, so the union narrows to arms exposing it. As with
+    /// [`property_equality_guard`], the fact is only recorded when it actually
+    /// excludes an arm (some union member lacks the field); otherwise the switch
+    /// proves nothing about the union shape. Returns `None` for non-union locals
+    /// and for discriminants that are not a plain `local.field` access.
+    pub(in crate::lowering) fn switch_discriminant_narrowing(
+        &mut self,
+        discriminant: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let (name, field_name) = Self::static_member_of_local(discriminant)?;
+        let local = self.locals.get(name.as_str()).copied()?;
+        let ty = self
+            .narrowed_type(&name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let Type::Union(items) = self.ctx.krate.types.get(ty)?.clone() else {
+            return None;
+        };
+        let all_have_field = items.iter().all(|item| {
+            self.ctx
+                .krate
+                .types
+                .get(*item)
+                .is_some_and(|member| self.type_has_known_field(member, &field_name))
+        });
+        if all_have_field {
+            return None;
+        }
+        let retained = self.filtered_union_members(ty, |member| {
+            self.type_has_known_field(member, &field_name)
+        })?;
+        let narrowed = self.intern_filtered_union(retained)?;
+        Some((name, narrowed))
+    }
+
+    /// Recognize `value instanceof Class` and retain matching concrete class arms.
+    pub(in crate::lowering) fn instanceof_local_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if binary.operator != BinaryOperator::Instanceof {
+            return None;
+        }
+        let (Expression::Identifier(identifier), Expression::Identifier(class)) =
+            (&binary.left, &binary.right)
+        else {
+            return None;
+        };
+        let local_name = identifier.name.as_str();
+        let local = self.locals.get(local_name).copied()?;
+        let ty = self
+            .narrowed_type(local_name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let class_name = class.name.as_str();
+        let retained = self.filtered_union_members(ty, |member| {
+            matches!(
+                member,
+                Type::Class {
+                    name: class_symbol,
+                    ..
+                } if self.ctx.krate.symbols.get(*class_symbol) == Some(class_name)
+            )
+        })?;
+        let narrowed = self.intern_filtered_union(retained)?;
+        Some((local_name.to_owned(), narrowed))
+    }
+
+    /// Filter a union through a structural flow fact.
+    fn filtered_union_members(
+        &self,
+        ty: smelt_hir::TypeId,
+        mut keep: impl FnMut(&Type) -> bool,
+    ) -> Option<Vec<smelt_hir::TypeId>> {
+        let Type::Union(items) = self.ctx.krate.types.get(ty)?.clone() else {
+            return None;
+        };
+        let retained = items
+            .into_iter()
+            .filter(|item| self.ctx.krate.types.get(*item).is_some_and(&mut keep))
+            .collect::<Vec<_>>();
+        (!retained.is_empty()).then_some(retained)
+    }
+
+    /// Intern the canonical type produced by a non-empty union filter.
+    fn intern_filtered_union(
+        &mut self,
+        retained: Vec<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        match retained.as_slice() {
+            [] => None,
+            [single] => Some(*single),
+            _ => Some(self.ctx.krate.types.intern(Type::Union(retained))),
+        }
+    }
+
+    /// Return whether a concrete type has a statically modeled property.
+    fn type_has_known_field(&self, ty: &Type, field: &str) -> bool {
+        match ty {
+            Type::String | Type::List(_) | Type::Tuple(_) if field == "length" => true,
+            Type::Function(_) if matches!(field, "length" | "name" | "prototype") => true,
+            Type::Dict(_, _) => true,
+            Type::Class { name, .. } => self.ctx.krate.items.iter().any(|item| match item {
+                smelt_hir::Item::Class(class) if class.name == *name => class
+                    .fields
+                    .iter()
+                    .any(|candidate| self.ctx.krate.symbols.get(candidate.name) == Some(field)),
+                smelt_hir::Item::Interface(interface) if interface.name == *name => interface
+                    .fields
+                    .iter()
+                    .any(|candidate| self.ctx.krate.symbols.get(candidate.name) == Some(field)),
+                _ => false,
+            }),
+            _ => false,
+        }
     }
 
     /// Recognize a call to a user-defined `value is T` predicate function.
@@ -1727,6 +2053,20 @@ impl ModuleBuilder<'_> {
             {
                 continue;
             }
+            // `const { A: B } = await import('./mod')` re-imports statically
+            // known module members (a vitest module-reset idiom). Compiled Rust
+            // has no module registry to reset, so the fresh namespace is the
+            // same module: each destructured member binds as a compile-time
+            // alias of the statically resolved import, exactly like
+            // `import { A as B } from './mod'`.
+            if let BindingPattern::ObjectPattern(object) = &declarator.id
+                && let Some(Expression::AwaitExpression(await_expr)) = &declarator.init
+                && let Expression::ImportExpression(import_expr) = &await_expr.argument
+                && let Expression::StringLiteral(source) = &import_expr.source
+            {
+                self.dynamic_import_destructure_aliases(object, source.value.as_str())?;
+                continue;
+            }
             // `const g = globalThis;` records a local global-object alias so that
             // later `g.Object.keys(x)` / `"Map" in g` normalize and erase exactly
             // like the bare `globalThis` spelling. The alias is purely a
@@ -1853,6 +2193,39 @@ impl ModuleBuilder<'_> {
             for update in deferred_updates {
                 body.push_stmt_to_block(block, update);
             }
+        }
+        Ok(())
+    }
+
+    /// Register `const { A: B } = await import('./mod')` bindings as import aliases.
+    ///
+    /// Each destructured member re-binds a statically resolvable export of the
+    /// imported module under the local pattern name, reusing the same alias
+    /// machinery as `import { A as B } from './mod'`. Computed keys, nested
+    /// patterns, and rest elements have no static import equivalent and stay
+    /// unsupported.
+    fn dynamic_import_destructure_aliases(
+        &mut self,
+        object: &oxc::ast::ast::ObjectPattern<'_>,
+        source: &str,
+    ) -> Result<(), SmeltError> {
+        if object.rest.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(object.span.start, object.span.end),
+                "dynamic import destructuring does not support rest elements",
+            ));
+        }
+        for property in &object.properties {
+            let (Some(imported), BindingPattern::BindingIdentifier(local)) =
+                (property.key.static_name(), &property.value)
+            else {
+                return Err(SmeltError::unsupported(
+                    self.span(property.span.start, property.span.end),
+                    "dynamic import destructuring requires static keys and identifier bindings",
+                ));
+            };
+            self.alias_imported_item(source, imported.as_ref(), local.name.as_str());
+            self.value_imports.insert(local.name.as_str().to_owned());
         }
         Ok(())
     }

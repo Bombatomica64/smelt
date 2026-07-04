@@ -36,6 +36,8 @@ blocker-logs/*.md
 !blocker-logs/.gitkeep
 # library-probes.md is CI-managed (library-probes.yml commits it)
 !blocker-logs/library-probes.md
+# smelt-unknown-report.md documents the SmeltUnknown metric methodology + baseline
+!blocker-logs/smelt-unknown-report.md
 
 # Generated docs site output
 _site/

@@ -94,6 +94,7 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     static_call("Object", "getPrototypeOf", RuleId::TsObjectStatic),
     static_call("Array", "isArray", RuleId::TsArrayStatic),
     static_call("Array", "from", RuleId::TsArrayStatic),
+    static_call("ArrayBuffer", "isView", RuleId::TsArrayStatic),
 ];
 
 /// TypeScript receiver-method spellings keyed by known receiver type.

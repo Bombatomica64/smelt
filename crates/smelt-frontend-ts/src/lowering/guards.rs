@@ -85,6 +85,28 @@ impl ModuleBuilder<'_> {
             && !self.classes.contains_key(class_text)
             && !self.value_imports.contains(class_text)
         {
+            // `this instanceof bound` against a *function* value (the JS
+            // constructor-function idiom for detecting `new`-invocation, as in
+            // lodash-compat `bind`/`curry`). Smelt's runtime never constructs
+            // closure values with `new`, so no value can be an instance of a
+            // plain function: the check is truthfully `false`.
+            // Classes are not first-class values in Smelt, so a target that
+            // resolves to a local binding or function item can only be a
+            // function value, never a constructible class.
+            let target_is_function_value = self.locals.contains_key(class_text)
+                || self.local_callbacks.contains_key(class_text)
+                || self
+                    .items
+                    .get(class_text)
+                    .is_some_and(|&item| matches!(self.item_ref(item), smelt_hir::Item::Function(_)));
+            if target_is_function_value {
+                let ty = self.ctx.krate.types.intern(Type::Bool);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Bool(false)),
+                    ty,
+                    span: self.span(binary.span.start, binary.span.end),
+                }));
+            }
             return Err(SmeltError::for_unresolved_name(
                 self.span(class_ident.span.start, class_ident.span.end),
                 class_text,
@@ -1625,6 +1647,82 @@ impl ModuleBuilder<'_> {
                     },
                     ty,
                     span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            // `setTimeout(callback, ms, ...args)` / `setInterval(callback, ms,
+            // ...args)` forward the extra arguments to the callback when the
+            // timer fires.
+            //
+            // When the callback is a statically typed function and every extra is
+            // a concretely typed positional argument (no source spread), the
+            // extras are captured by a synthesized zero-argument wrapper closure
+            // that calls the callback directly — no erased `Vec<SmeltUnknown>` is
+            // produced. A source spread or an untyped extra is a genuine dynamic
+            // boundary, so those keep the erased-list path where the extras pack
+            // into one operand dispatched through the dynamic callback ABI.
+            "setTimeout" | "setInterval" if call.arguments.len() >= 3 => {
+                let callback = self.argument(&call.arguments[0], body)?;
+                let duration = self.argument(&call.arguments[1], body)?;
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let span = self.span(call.span.start, call.span.end);
+                let op = if callee.name == "setTimeout" {
+                    AsyncOp::SetTimeout
+                } else {
+                    AsyncOp::SetInterval
+                };
+
+                let has_spread = call.arguments[2..]
+                    .iter()
+                    .any(|arg| matches!(arg, Argument::SpreadElement(_)));
+                if !has_spread {
+                    // Lower each extra exactly once. Either the typed wrapper
+                    // consumes them, or they pack into the erased list below —
+                    // never both, so source side effects run once.
+                    let extras = call.arguments[2..]
+                        .iter()
+                        .map(|arg| self.argument(arg, body))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if let Some(wrapper) =
+                        self.timer_typed_wrapper_closure(callback, &extras, span, body)
+                    {
+                        return Ok(Some(body.push_expr(Expr {
+                            kind: ExprKind::AsyncOp {
+                                op,
+                                args: vec![wrapper, duration],
+                            },
+                            ty: unknown_ty,
+                            span,
+                        })));
+                    }
+                    let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+                    let extra = body.push_expr(Expr {
+                        kind: ExprKind::ListLit(extras),
+                        ty: list_ty,
+                        span,
+                    });
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::AsyncOp {
+                            op,
+                            args: vec![callback, duration, extra],
+                        },
+                        ty: unknown_ty,
+                        span,
+                    })));
+                }
+
+                let extra = self.packed_spread_arguments(
+                    unknown_ty,
+                    &call.arguments[2..],
+                    span,
+                    body,
+                )?;
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::AsyncOp {
+                        op,
+                        args: vec![callback, duration, extra],
+                    },
+                    ty: unknown_ty,
+                    span,
                 })))
             }
             "setTimeout" | "clearTimeout" | "setInterval" | "clearInterval" => {

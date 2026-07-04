@@ -383,6 +383,15 @@ struct ModuleBuilder<'ctx> {
     interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     /// Interface call signatures for callable interface types.
     interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
+    /// Interface construct signatures (`new (): T`) for constructor-slot types.
+    ///
+    /// A constructor-interface such as `interface MapCacheConstructor { new
+    /// (): MapCache }` is, at runtime, an ordinary callable value: `new
+    /// value()` invokes it to produce the constructed type. Each construct
+    /// signature is stored as the equivalent [`FunctionType`] (its parameters
+    /// and constructed return type) so a reference to the interface can lower to
+    /// a typed constructor slot instead of an erased dictionary.
+    interface_construct_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Fields attached to callable intersection types.
     callable_fields: HashMap<smelt_hir::TypeId, Vec<Field>>,
     /// Type aliases whose source surface is a callable object intersection.

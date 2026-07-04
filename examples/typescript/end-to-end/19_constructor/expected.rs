@@ -6,6 +6,7 @@ struct Box {
     value: String,
 }
 
+// @smelt:prelude-end — generated program below
 
 fn main() {
     let mut box_: Box;

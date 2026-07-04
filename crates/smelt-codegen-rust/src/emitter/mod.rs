@@ -41,9 +41,11 @@ mod strings;
 mod strings_io;
 mod tuple;
 mod types;
+mod union;
 
 use literals::{assigned_locals, constant_text, method_mutates_this};
 use rendered_value::{Precedence, RenderedValue};
+pub(crate) use union::emit_union_definitions;
 
 /// Precomputed crate-level codegen facts shared by all function emitters.
 pub(crate) struct EmitContext {

@@ -11,6 +11,7 @@ struct User {
     name: String,
 }
 
+// @smelt:prelude-end — generated program below
 
 fn main() {
     let mut user: User;

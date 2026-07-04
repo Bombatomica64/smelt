@@ -44,7 +44,12 @@ impl FunctionEmitter<'_> {
             .types
             .get(dest_ty)
             .ok_or_else(|| EmitError::new("primitive cast destination has unknown type"))?;
-        let operand_text = self.operand_text(operand)?;
+        // A concrete union stores a tagged `SmeltUnion…` enum, but the erased JS
+        // coercion arms below (`Type::Union(_)`) match over `SmeltUnknown`
+        // discriminants. Project a concrete-union operand back to its erased value
+        // so those arms see the `SmeltUnknown` shape they expect. Non-concrete
+        // unions are already stored erased, so this is a no-op for them.
+        let operand_text = self.erase_concrete_union_text(&self.operand_text(operand)?, operand_ty);
         match (op, dest_type, operand_type) {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Bool)
             | (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Int)
@@ -636,6 +641,9 @@ impl FunctionEmitter<'_> {
                     scoped_type_params,
                 )?
             )),
+            Type::Union(_) if self.concrete_union_members(ty).is_some() => {
+                Ok(union::union_name(ty))
+            }
             Type::Union(_) => Ok("SmeltUnknown".to_owned()),
             Type::Function(function) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
@@ -741,6 +749,16 @@ impl FunctionEmitter<'_> {
             }
             Type::TypeParam { name } if self.current_function_has_type_param(*name) => {
                 Ok("Default::default()".to_owned())
+            }
+            Type::Union(items) if self.concrete_union_members(ty).is_some() => {
+                let first = *items
+                    .first()
+                    .ok_or_else(|| EmitError::new("concrete union has no members"))?;
+                Ok(format!(
+                    "{}::M0({})",
+                    union::union_name(ty),
+                    self.default_value(first)?
+                ))
             }
             Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value_text()),
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {

@@ -798,23 +798,30 @@ fn rejects_async_functions_without_promise_return_type() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_switch_fallthrough_until_it_is_modelled() -> Result<(), String> {
+fn lowers_switch_fallthrough_as_single_pass_loop() -> Result<(), String> {
+    // Genuine fallthrough (a case body reaching the next case) lowers through
+    // the single-iteration-loop chain instead of a HIR `Match`.
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let _module_id = lower_ok(
         ts!(
-            "function label(status: \"pending\" | \"approved\"): string {
+            "export function label(status: string): string {
+  let result = \"\";
   switch (status) {
     case \"pending\":
-      const waiting = \"waiting\";
+      result = \"waiting\";
     case \"approved\":
       return \"Approved\";
+    default:
+      result = \"unknown\";
   }
+  return result;
 }
 "
         ),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&errors, "switch fallthrough")
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]

@@ -295,32 +295,65 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if new_expr.arguments.len() > 1 {
+        if new_expr.arguments.len() > 3 {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
-                "new TypedArray(...) supports at most one length argument",
+                "new TypedArray(...) supports at most three view arguments",
             ));
+        }
+        // The `(buffer, byteOffset, length)` view form cannot share storage
+        // with Smelt's numeric-list model; the extra view arguments are
+        // lowered for their effects and dropped, and the construction follows
+        // the first argument's rules below.
+        for view_argument in new_expr.arguments.iter().skip(1) {
+            let _ = self.argument(view_argument, body)?;
         }
         if let Some(Argument::ArrayExpression(array)) = new_expr.arguments.first() {
             return self.array_expression(array, body, None);
         }
-        let length = if let Some(length) = new_expr.arguments.first() {
-            let length = self.argument(length, body)?;
-            if !matches!(
-                self.ctx.krate.types.get(Self::expr_ty(body, length)),
-                Some(Type::Int | Type::Float)
-            ) {
-                return Err(SmeltError::unsupported(
-                    self.span(new_expr.span.start, new_expr.span.end),
-                    "new TypedArray(...) length must be numeric",
-                ));
+        let item_ty = self.ctx.krate.types.intern(Type::Float);
+        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        let length = if let Some(argument) = new_expr.arguments.first() {
+            let value = self.argument(argument, body)?;
+            let value_ty =
+                self.type_param_constraint_or_self(Self::expr_ty(body, value));
+            match self.ctx.krate.types.get(value_ty) {
+                Some(Type::Int | Type::Float) => Some(value),
+                // `new Uint8Array(other)` over an existing array-like copies
+                // its elements. Typed arrays are numeric lists in Smelt, so a
+                // list argument is a list copy, and an erased surface (a
+                // tag-dispatched `any`, e.g. es-toolkit's ArrayBuffer/DataView
+                // equality path) is asserted to `number[]` at the dynamic
+                // boundary before copying.
+                Some(Type::List(_)) => {
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::ListCopy { list: value },
+                        ty,
+                        span: self.span(new_expr.span.start, new_expr.span.end),
+                    }));
+                }
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                    let list = body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value },
+                        ty,
+                        span: self.span(new_expr.span.start, new_expr.span.end),
+                    });
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::ListCopy { list },
+                        ty,
+                        span: self.span(new_expr.span.start, new_expr.span.end),
+                    }));
+                }
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "new TypedArray(...) requires a numeric length or array-like argument",
+                    ));
+                }
             }
-            Some(length)
         } else {
             None
         };
-        let item_ty = self.ctx.krate.types.intern(Type::Float);
-        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
         let Some(length) = length else {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::ListLit(Vec::new()),
@@ -590,13 +623,13 @@ impl ModuleBuilder<'_> {
                             "new Set([...spread]) requires an array literal argument",
                         ));
                     };
-                    let ty = if let Some(hint) = type_hint {
-                        if !matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) {
-                            return Err(SmeltError::unsupported(
-                                self.span(new_expr.span.start, new_expr.span.end),
-                                "new Set([...]) requires a Set<T> type annotation when annotated",
-                            ));
-                        }
+                    // A surrounding non-Set hint (e.g. a spread context hinting
+                    // `T[]` in `[...new Set(xs)]`) describes the outer
+                    // expression, not this constructor: fall back to the
+                    // inferred set type instead of rejecting.
+                    let ty = if let Some(hint) = type_hint
+                        && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                    {
                         hint
                     } else {
                         self.ctx.krate.types.intern(Type::Set(*item_ty))
@@ -612,13 +645,12 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .map(|element| self.array_element(element, body))
                     .collect::<Result<Vec<_>, _>>()?;
-                let ty = if let Some(hint) = type_hint {
-                    if !matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) {
-                        return Err(SmeltError::unsupported(
-                            self.span(new_expr.span.start, new_expr.span.end),
-                            "new Set([...]) requires a Set<T> type annotation when annotated",
-                        ));
-                    }
+                // Only honor the hint when it is a Set; a non-Set hint comes
+                // from the surrounding expression (spread, argument slot) and
+                // must not reject the constructor.
+                let ty = if let Some(hint) = type_hint
+                    && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                {
                     hint
                 } else if let Some(first_item) = items.first().copied() {
                     let item_ty = Self::expr_ty(body, first_item);
@@ -696,13 +728,11 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 };
-                let ty = if let Some(hint) = type_hint {
-                    if !matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) {
-                        return Err(SmeltError::unsupported(
-                            self.span(new_expr.span.start, new_expr.span.end),
-                            "new Set(iterable) requires a Set<T> type annotation when annotated",
-                        ));
-                    }
+                // Same hint rule as the literal forms: only a Set-shaped hint
+                // overrides the inferred element type.
+                let ty = if let Some(hint) = type_hint
+                    && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                {
                     hint
                 } else {
                     self.ctx.krate.types.intern(Type::Set(item_ty))
@@ -1936,17 +1966,41 @@ impl ModuleBuilder<'_> {
                 span,
             }));
         }
+        // `"field" in unionLocal` over a union of concrete member shapes can be
+        // answered by a static discriminant test in codegen rather than erasing
+        // the value into a runtime object map. Keeping the receiver at its union
+        // type lets `dict_contains_key_text` emit `matches!(x, Union::Mi(_) ..)`
+        // for the arms that carry `field`. This only fires for a string-literal
+        // key; dynamic keys stay on the erased path below. Nullish/dynamic
+        // boundaries are untouched because concrete-union eligibility (checked in
+        // codegen) excludes `Optional`/`unknown` members.
+        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Union(_)))
+            && matches!(&binary.left, Expression::StringLiteral(_))
+        {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::DictContainsKey {
+                    dict: receiver,
+                    key,
+                },
+                ty: bool_ty,
+                span,
+            }));
+        }
         let Some(Type::Dict(receiver_key_ty, _)) = self.ctx.krate.types.get(receiver_ty) else {
             if self.ctx.krate.types.get(receiver_ty) == Some(&Type::Unknown)
                 || self.erased_or_union_surface(receiver_ty)
                 || matches!(
                     self.ctx.krate.types.get(receiver_ty),
+                    // A union of concrete members (`string | string[]` after a
+                    // typeof guard Smelt's erased locals do not re-type) is a
+                    // dynamic surface for `in` just like an erased union.
                     Some(
                         Type::TypeParam { .. }
                             | Type::Class { .. }
                             | Type::List(_)
                             | Type::Tuple(_)
                             | Type::String
+                            | Type::Union(_)
                     )
                 )
             {

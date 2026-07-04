@@ -207,6 +207,64 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.local_callable_call(call, body)? {
             return Ok(expr);
         }
+        if let Expression::NewExpression(callee_new) = &call.callee {
+            // `new Ctor(...)(...)` — constructing a callable and invoking it
+            // immediately (e.g. the lodash-compat `new Function(...)(...)`
+            // template idiom). Lower the construction, then dispatch the call
+            // through the constructed value's function type; spread arguments
+            // beyond the callee's declared parameters are evaluated for their
+            // effects only.
+            let callee = self.new_expression_with_hint(callee_new, body, None)?;
+            let callee_ty = Self::expr_ty(body, callee);
+            if let Some(function_ty) =
+                self.function_member_type_for_arg_count(callee_ty, Some(call.arguments.len()))
+                && let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(function_ty).cloned()
+            {
+                let mut args = Vec::new();
+                for (index, argument) in call.arguments.iter().enumerate() {
+                    if let Argument::SpreadElement(spread) = argument {
+                        let _ = self.expression(&spread.argument, body)?;
+                        continue;
+                    }
+                    let lowered = self.argument(argument, body)?;
+                    if index < function.params.len() {
+                        args.push(lowered);
+                    }
+                }
+                args.truncate(function.params.len());
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty: function.return_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+            if self.erased_or_union_surface(callee_ty) {
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                if self.call_has_spread_arguments_or_source_spread(call) {
+                    let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::ClosureCallSpread { callee, args },
+                        ty: unknown_ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty: unknown_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "constructed value is not callable",
+            ));
+        }
         if let Expression::CallExpression(callee_call) = &call.callee {
             if let Some(expr) = self.slice_string_nested_call(callee_call, call, body)? {
                 return Ok(expr);
@@ -251,18 +309,47 @@ impl<'builder> ModuleBuilder<'builder> {
                     span: self.span(callee_call.span.start, callee_call.span.end),
                 })
             };
-            if call.arguments.len() < function.params.len() {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "curried call argument count does not match selected overload",
-                ));
+            // Optional and rest parameters relax the required arity:
+            // `negate(fn)()` calls a `(...args: any[]) => boolean` value with
+            // zero arguments, where the rest slot absorbs the empty tail.
+            let mut required = function.required_params.unwrap_or(function.params.len());
+            if let Some(rest_index) = function.rest {
+                required = required.min(rest_index);
             }
-            let args = call
-                .arguments
-                .iter()
-                .take(function.params.len())
-                .map(|arg| self.argument(arg, body))
-                .collect::<Result<Vec<_>, _>>()?;
+            if call.arguments.len() < required {
+                // The call omits at least one *required* parameter. `required`
+                // already excludes the rest slot (it is clamped to `rest_index`
+                // above), and a rest parameter only absorbs the surplus tail
+                // *after* the required prefix — it can never satisfy a missing
+                // required argument before the rest index. So a shortfall here is
+                // a genuinely missing required argument regardless of whether a
+                // rest slot exists. Such a call is rejected by `tsc` before Smelt
+                // runs, but generic erased wrappers (`negate(fn)()`) still reach
+                // here with unknown arity; dispatch those through the
+                // arity-independent erased ABI rather than synthesizing a typed
+                // `None` for a non-optional parameter.
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let callee = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: callee },
+                    ty: unknown_ty,
+                    span: self.span(callee_call.span.start, callee_call.span.end),
+                });
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty: unknown_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+            // Statically typed under-application: every omitted parameter is
+            // optional or absorbed by the rest slot, so the call keeps its typed
+            // ABI. Missing optional parameters become typed `None` values.
+            let args =
+                self.typed_under_applied_closure_arguments(&function, &call.arguments, call.span, body)?;
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::ClosureCall { callee, args },
                 ty: function.return_ty,
@@ -554,12 +641,30 @@ impl<'builder> ModuleBuilder<'builder> {
                     item_ty: *item_ty,
                 });
             }
-            let selected_overload = self.selected_overload_signature(
+            let selected_overload = match self.selected_overload_signature(
                 callee_ident.name.as_str(),
                 &call.arguments,
                 call.span,
                 body,
-            )?;
+            ) {
+                Ok(selected) => selected,
+                // A sibling in the same library may call the *implementation*
+                // signature directly (e.g. es-toolkit's `sortedLastIndexBy`
+                // passing the private `retHighest` flag that no public
+                // overload declares). When the implementation's own arity
+                // accepts the call, lower against the implementation types
+                // instead of aborting on the overload table.
+                Err(error) => {
+                    let required = item_required_params.unwrap_or(params.len());
+                    let arity_fits = call.arguments.len() >= required
+                        && (item_rest.is_some() || call.arguments.len() <= params.len());
+                    if arity_fits {
+                        None
+                    } else {
+                        return Err(error);
+                    }
+                }
+            };
             if rest.is_none()
                 && let Some(signature) = &selected_overload
                 && let Some(index) = signature.rest
@@ -637,6 +742,40 @@ impl<'builder> ModuleBuilder<'builder> {
                     }));
                 }
                 args
+            };
+            // A single-signature generic function (`function shuffle<T>(arr:
+            // readonly T[]): T[]`) has no overload entry, so its declared
+            // return still carries the raw `TypeParam`. Instantiate it from
+            // the lowered argument types the same way overload selection
+            // does, so `shuffle([1, 2]).sort()` sees `number[]`, not `T[]`.
+            let return_ty = if selected_overload.is_none()
+                && self.overload_constraint_contains_unresolved_type_param(return_ty)
+            {
+                let mut substitutions = HashMap::new();
+                for (param, arg) in params.iter().zip(&args) {
+                    let arg_ty = Self::expr_ty(body, *arg);
+                    let _ = self.infer_overload_type(*param, arg_ty, &mut substitutions);
+                }
+                if substitutions.is_empty() {
+                    return_ty
+                } else {
+                    let substituted = self.substitute_type_params(return_ty, &substitutions);
+                    // A returned function with erased-unknown-rest parameters
+                    // (`(...args: unknown[]) => T`, e.g. `constant`) lowers to
+                    // the fully-erased `SmeltErasedFunction`, whose calls yield
+                    // `unknown` regardless of the declared payload. Concretizing
+                    // its return from the argument types would desync the value's
+                    // runtime shape (`SmeltErasedFunction::call -> unknown`) from
+                    // the concrete type its call sites would then expect, so keep
+                    // the erased signature for such curried generics.
+                    if self.renders_as_erased_function(substituted) {
+                        return_ty
+                    } else {
+                        substituted
+                    }
+                }
+            } else {
+                return_ty
             };
             let callee = body.push_expr(Expr {
                 kind: ExprKind::Item(item),
@@ -1128,7 +1267,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 })));
             }
         }
-        let Ok(callee) = self.static_member(member, body) else {
+        let Ok(callee) = self.static_member_no_absent_fallback(member, body) else {
             return Ok(None);
         };
         if self.static_member_is_concrete_class_method(callee, member, body) {
@@ -2188,6 +2327,9 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.array_is_array_call(call, body)? {
             return Ok(Some(expr));
         }
+        if let Some(expr) = self.arraybuffer_is_view_call(call, body)? {
+            return Ok(Some(expr));
+        }
         self.array_from_call(call, body)
     }
 
@@ -2545,6 +2687,36 @@ impl<'builder> ModuleBuilder<'builder> {
         }
     }
 
+    /// Return whether `ty` is a function that Rust codegen renders as the
+    /// fully-erased `SmeltErasedFunction`.
+    ///
+    /// Mirrors the codegen predicate: a non-async, non-throwing function whose
+    /// single parameter is a rest list of erased items (`(...args: unknown[])
+    /// => …`). Such a value carries no static parameter or return shape at the
+    /// Rust ABI — every call returns `unknown` — so its declared return type
+    /// must stay erased to match the runtime representation.
+    fn renders_as_erased_function(&self, ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        if function.is_async || function.may_throw || function.rest != Some(0) {
+            return false;
+        }
+        if matches!(self.ctx.krate.types.get(function.return_ty), Some(Type::Future(_))) {
+            return false;
+        }
+        let [param] = function.params.as_slice() else {
+            return false;
+        };
+        let Some(Type::List(item)) = self.ctx.krate.types.get(*param) else {
+            return false;
+        };
+        matches!(
+            self.ctx.krate.types.get(*item),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
+        )
+    }
+
     /// Return whether an inferred overload argument satisfies its `extends` surface.
     ///
     /// Lowered object literals use `Dict` storage even when their TypeScript
@@ -2665,6 +2837,13 @@ impl<'builder> ModuleBuilder<'builder> {
             (Some(Type::Optional(inner)), _) => {
                 self.infer_overload_type(inner, actual, substitutions)
             }
+            // The actual argument may keep an `Optional` wrapper that
+            // source-level narrowing (a `typeof` switch or truthiness guard)
+            // already peeled — Smelt's erased locals are not re-typed across
+            // narrowing. tsc validated the call, so match the payload type.
+            (_, Some(Type::Optional(actual_inner))) => {
+                self.infer_overload_type(expected, actual_inner, substitutions)
+            }
             (Some(Type::List(expected_item)), Some(Type::List(actual_item)))
             | (Some(Type::Set(expected_item)), Some(Type::Set(actual_item)))
             | (Some(Type::Future(expected_item)), Some(Type::Future(actual_item))) => {
@@ -2726,13 +2905,25 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Infer against the first compatible expected union member and keep its substitutions.
+    ///
+    /// Structural members are tried before a naked type-parameter arm. For a
+    /// signature like `readonly U[] | U` (remeda's `flatMap` callback return),
+    /// inferring from a `number[]` argument must destructure the `U[]` arm to
+    /// bind `U = number`, not greedily bind the bare `U` arm to the whole
+    /// `number[]`. This mirrors tsc, where inference from a naked type parameter
+    /// has lower priority than structural inference, and it is order-independent:
+    /// union members are interned in a canonical (sorted) order, so relying on
+    /// source spelling order here would be unstable.
     pub(in crate::lowering) fn infer_overload_union_branch(
         &mut self,
         expected_items: Vec<smelt_hir::TypeId>,
         actual: smelt_hir::TypeId,
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
-        for item in expected_items {
+        let (bare_params, structural): (Vec<_>, Vec<_>) = expected_items
+            .into_iter()
+            .partition(|item| matches!(self.ctx.krate.types.get(*item), Some(Type::TypeParam { .. })));
+        for item in structural.into_iter().chain(bare_params) {
             let mut branch_substitutions = substitutions.clone();
             if self.infer_overload_type(item, actual, &mut branch_substitutions) {
                 *substitutions = branch_substitutions;
@@ -2766,8 +2957,20 @@ impl<'builder> ModuleBuilder<'builder> {
         actual: &FunctionType,
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
+        // An `async` callback and a sync-spelled `(...) => Promise<U>` slot are
+        // the same TypeScript type; the async bit only differs in spelling. The
+        // mismatch is bridged when the sync-spelled side's return is
+        // Promise-shaped (or erased), and the return comparison below aligns
+        // the Future wrapping.
         if expected.is_async != actual.is_async {
-            return false;
+            let sync_return = if expected.is_async {
+                actual.return_ty
+            } else {
+                expected.return_ty
+            };
+            if !self.future_shaped_return(sync_return) {
+                return false;
+            }
         }
         if actual.params.len() > expected.params.len()
             && (actual.rest != actual.params.len().checked_sub(1)
@@ -2787,7 +2990,52 @@ impl<'builder> ModuleBuilder<'builder> {
             }
         }
         let actual_return_ty = self.substitute_type_params(actual.return_ty, &actual_substitutions);
-        self.infer_overload_type(expected.return_ty, actual_return_ty, substitutions)
+        if self.infer_overload_type(expected.return_ty, actual_return_ty, substitutions) {
+            return true;
+        }
+        // Async-vs-sync spelling can leave exactly one return Future-wrapped
+        // (`Promise<U>` vs the async body's bare `U`); compare the unwrapped
+        // payloads in that case.
+        if expected.is_async != actual.is_async {
+            match (
+                self.future_payload_type(expected.return_ty),
+                self.future_payload_type(actual_return_ty),
+            ) {
+                (Some(expected_inner), None) => {
+                    return self.infer_overload_type(expected_inner, actual_return_ty, substitutions);
+                }
+                (None, Some(actual_inner)) => {
+                    return self.infer_overload_type(expected.return_ty, actual_inner, substitutions);
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Return whether a sync-spelled callback return type is Promise-shaped
+    /// (or erased enough to stand in for one) for async-spelling bridging.
+    fn future_shaped_return(&self, return_ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx
+                .krate
+                .types
+                .get(self.type_param_constraint_or_self(return_ty)),
+            Some(Type::Future(_) | Type::Unknown | Type::TypeParam { .. })
+        )
+    }
+
+    /// Return the payload type of a `Future`-shaped type, if it is one.
+    fn future_payload_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::Future(inner)) => Some(*inner),
+            _ => None,
+        }
     }
 
     /// Check that an actual callback can accept the input required by an overload parameter.
@@ -3387,17 +3635,29 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.span.start, call.span.end);
+        self.packed_spread_arguments(item_ty, &call.arguments, span, body)
+    }
+
+    /// Pack an argument slice (call or `new` expression) into one variadic list.
+    pub(in crate::lowering) fn packed_spread_arguments(
+        &mut self,
+        item_ty: smelt_hir::TypeId,
+        arguments: &[Argument<'_>],
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
         let mut current_items = Vec::new();
         let mut packed = None;
-        for arg in &call.arguments {
+        for arg in arguments {
             match arg {
                 Argument::SpreadElement(spread) => {
                     if !current_items.is_empty() {
                         let left = body.push_expr(Expr {
                             kind: ExprKind::ListLit(std::mem::take(&mut current_items)),
                             ty: list_ty,
-                            span: self.span(call.span.start, call.span.end),
+                            span,
                         });
                         packed = Some(packed.map_or(left, |existing| {
                             body.push_expr(Expr {
@@ -3406,7 +3666,7 @@ impl<'builder> ModuleBuilder<'builder> {
                                     right: left,
                                 },
                                 ty: list_ty,
-                                span: self.span(call.span.start, call.span.end),
+                                span,
                             })
                         }));
                     }
@@ -3418,7 +3678,7 @@ impl<'builder> ModuleBuilder<'builder> {
                                 right: spread_expr,
                             },
                             ty: list_ty,
-                            span: self.span(call.span.start, call.span.end),
+                            span,
                         })
                     }));
                 }
@@ -3429,7 +3689,7 @@ impl<'builder> ModuleBuilder<'builder> {
             let right = body.push_expr(Expr {
                 kind: ExprKind::ListLit(current_items),
                 ty: list_ty,
-                span: self.span(call.span.start, call.span.end),
+                span,
             });
             packed = Some(packed.map_or(right, |existing| {
                 body.push_expr(Expr {
@@ -3438,13 +3698,13 @@ impl<'builder> ModuleBuilder<'builder> {
                         right,
                     },
                     ty: list_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    span,
                 })
             }));
         }
         packed.ok_or_else(|| {
             SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
+                span,
                 "spread call requires at least one argument",
             )
         })
@@ -3540,6 +3800,78 @@ impl<'builder> ModuleBuilder<'builder> {
             ty,
             span: self.span(call.span.start, call.span.end),
         }))
+    }
+
+    /// Lower call arguments for a statically typed, possibly under-applied
+    /// closure call, padding missing optional parameters with typed `None`.
+    ///
+    /// A curried or partially applied call site may supply fewer arguments than
+    /// the selected [`FunctionType`] declares. When the omitted parameters are
+    /// optional (`Optional<T>` ABI) or absorbed by a trailing rest slot, the
+    /// call is still statically typed: rather than erasing the callee, this
+    /// synthesizes a `None` literal for each missing fixed parameter (typed with
+    /// that parameter's declared `Optional<T>`) and an empty `List` for an
+    /// unfilled rest slot. Supplied arguments beyond the fixed parameters are
+    /// packed into the rest list, or evaluated and dropped when no rest slot
+    /// exists, matching JavaScript's excess-argument semantics.
+    fn typed_under_applied_closure_arguments(
+        &mut self,
+        function: &FunctionType,
+        arguments: &[Argument<'_>],
+        call_span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+        let span = self.span(call_span.start, call_span.end);
+        // Fixed parameters are those before a rest slot; a rest signature keeps
+        // its trailing `List` parameter out of the fixed range.
+        let fixed_param_count = function.rest.unwrap_or(function.params.len());
+        let mut args = Vec::with_capacity(function.params.len());
+        for index in 0..fixed_param_count {
+            if let Some(argument) = arguments.get(index) {
+                args.push(self.argument(argument, body)?);
+            } else {
+                // Missing optional parameter: synthesize a typed `None` carrying
+                // the parameter's declared type so the closure call stays typed.
+                let param_ty = function
+                    .params
+                    .get(index)
+                    .copied()
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                args.push(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: param_ty,
+                    span,
+                }));
+            }
+        }
+        if let Some(rest_index) = function.rest {
+            let rest_args = arguments
+                .iter()
+                .skip(rest_index)
+                .map(|argument| self.argument(argument, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let rest_param_ty = function
+                .params
+                .get(rest_index)
+                .copied()
+                .unwrap_or_else(|| {
+                    let item = self.ctx.krate.types.intern(Type::Unknown);
+                    self.ctx.krate.types.intern(Type::List(item))
+                });
+            args.push(body.push_expr(Expr {
+                kind: ExprKind::ListLit(rest_args),
+                ty: rest_param_ty,
+                span,
+            }));
+        } else {
+            // No rest slot: surplus arguments are evaluated for their side
+            // effects and discarded, exactly as JavaScript ignores extra call
+            // arguments.
+            for argument in arguments.iter().skip(fixed_param_count) {
+                let _ = self.argument(argument, body)?;
+            }
+        }
+        Ok(args)
     }
 
     /// Fold Remeda partial-bind nested calls into direct closure calls.

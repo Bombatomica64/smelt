@@ -121,27 +121,16 @@ impl FunctionEmitter<'_> {
                 ))
             }
             smelt_hir::AsyncOp::SetTimeout => {
-                let [callback, duration] = args else {
+                let [callback, duration, extra @ ..] = args else {
                     return Err(EmitError::new(
                         "setTimeout requires callback and duration operands",
                     ));
                 };
                 let callback_text = self.operand_text(callback)?;
-                let callback_call = if let Some(Type::Function(function)) =
-                    self.mir.types.get(self.operand_ty(callback)?)
-                    && function.params.is_empty()
-                {
-                    if function.may_throw {
-                        "(smelt_timer_callback)().map(|_| ())".to_owned()
-                    } else {
-                        "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
-                            .to_owned()
-                    }
-                } else {
-                    "{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(Vec::new()).map(|_| ()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) } }".to_owned()
-                };
+                let callback_call = self.timer_callback_call_text(callback, extra.first())?;
+                let extra_binding = self.timer_extra_args_binding(extra.first())?;
                 Ok(format!(
-                    "{{ let smelt_timer_callback = {callback_text}.clone(); {set_timeout}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
+                    "{{ let smelt_timer_callback = {callback_text}.clone(); {extra_binding}{set_timeout}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
                     self.value_at_type(duration, self.type_id(Type::Float)?)?,
                     set_timeout = smelt_stdlib::runtime_symbols::timers::SET_TIMEOUT,
                 ))
@@ -163,27 +152,16 @@ impl FunctionEmitter<'_> {
                 // with `setTimeout`: the only difference is that the runtime helper
                 // re-arms the timer after each fire (see `smelt_set_interval`). The
                 // callback-invocation snippet is identical to the timeout case.
-                let [callback, duration] = args else {
+                let [callback, duration, extra @ ..] = args else {
                     return Err(EmitError::new(
                         "setInterval requires callback and period operands",
                     ));
                 };
                 let callback_text = self.operand_text(callback)?;
-                let callback_call = if let Some(Type::Function(function)) =
-                    self.mir.types.get(self.operand_ty(callback)?)
-                    && function.params.is_empty()
-                {
-                    if function.may_throw {
-                        "(smelt_timer_callback)().map(|_| ())".to_owned()
-                    } else {
-                        "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
-                            .to_owned()
-                    }
-                } else {
-                    "{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(Vec::new()).map(|_| ()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) } }".to_owned()
-                };
+                let callback_call = self.timer_callback_call_text(callback, extra.first())?;
+                let extra_binding = self.timer_extra_args_binding(extra.first())?;
                 Ok(format!(
-                    "{{ let smelt_timer_callback = {callback_text}.clone(); {set_interval}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
+                    "{{ let smelt_timer_callback = {callback_text}.clone(); {extra_binding}{set_interval}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
                     self.value_at_type(duration, self.type_id(Type::Float)?)?,
                     set_interval = smelt_stdlib::runtime_symbols::timers::SET_INTERVAL,
                 ))
@@ -317,6 +295,54 @@ impl FunctionEmitter<'_> {
                 ))
             }
         }
+    }
+
+    /// Render the timer-callback invocation shared by setTimeout/setInterval.
+    ///
+    /// A statically-typed zero-parameter closure is invoked directly (only
+    /// possible without forwarded arguments); every other callback dispatches
+    /// through the erased `SmeltUnknown` callable ABI, receiving the packed
+    /// extra-argument vector (the `setTimeout(cb, ms, ...args)` tail) bound by
+    /// [`Self::timer_extra_args_binding`] when present.
+    fn timer_callback_call_text(
+        &self,
+        callback: &Operand,
+        extra: Option<&Operand>,
+    ) -> Result<String, EmitError> {
+        if extra.is_none()
+            && let Some(Type::Function(function)) =
+                self.mir.types.get(self.operand_ty(callback)?)
+            && function.params.is_empty()
+        {
+            return Ok(if function.may_throw {
+                "(smelt_timer_callback)().map(|_| ())".to_owned()
+            } else {
+                "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
+                    .to_owned()
+            });
+        }
+        let call_args = if extra.is_some() {
+            "smelt_timer_args.clone()"
+        } else {
+            "Vec::new()"
+        };
+        Ok(format!(
+            "{{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)({call_args}).map(|_| ()) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }} }}"
+        ))
+    }
+
+    /// Render the `let smelt_timer_args = ...;` prelude for forwarded timer
+    /// arguments, or an empty string when the timer call has no extras.
+    fn timer_extra_args_binding(&self, extra: Option<&Operand>) -> Result<String, EmitError> {
+        let Some(extra) = extra else {
+            return Ok(String::new());
+        };
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let args_ty = self.type_id(Type::List(unknown_ty))?;
+        Ok(format!(
+            "let smelt_timer_args: Vec<SmeltUnknown> = {}.iter().cloned().collect(); ",
+            self.value_at_type(extra, args_ty)?
+        ))
     }
 
     /// Return the future item type when an async combinator operand is a list of futures.
@@ -901,6 +927,11 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let value_ty = self.operand_ty(value)?;
         let class_name = self.symbol_name(class)?;
+        if let Some(check) =
+            self.concrete_union_class_check(&self.operand_text(value)?, value_ty, class)
+        {
+            return Ok(check);
+        }
         if matches!(
             class_name,
             "Error"
@@ -1020,19 +1051,18 @@ impl FunctionEmitter<'_> {
         // / `SmeltUnknown::String` (never an `Object`), so the marker check is the
         // correct `false`, while a boxed wrapper object carrying the dedicated
         // marker resolves to `true`.
+        // AbortController/AbortSignal keep their own markers (they are runtime
+        // primitives, not host-object registry entries). Every other modeled host
+        // object and boxed primitive wrapper resolves its marker through the
+        // shared `smelt_stdlib::host_object` registry, so this `instanceof` path
+        // cannot drift from the frontend construction path or the runtime for-in
+        // filter. (`ArrayBuffer`/`Blob`/`Number` are already handled by dedicated
+        // branches above; sourcing them here too is harmless since those
+        // short-circuit first.)
         let abort_marker = match class_name {
             "AbortController" => Some("__smelt_abortcontroller"),
             "AbortSignal" => Some("__smelt_abortsignal"),
-            "WeakMap" => Some("__smelt_weakmap"),
-            "WeakSet" => Some("__smelt_weakset"),
-            "DataView" => Some("__smelt_dataview"),
-            "SharedArrayBuffer" => Some("__smelt_sharedarraybuffer"),
-            "File" => Some("__smelt_file"),
-            "DOMException" => Some("__smelt_domexception"),
-            "Boolean" => Some("__smelt_boolean"),
-            "String" => Some("__smelt_string"),
-            "Symbol" => Some("__smelt_symbol"),
-            _ => None,
+            _ => smelt_stdlib::host_object_marker(class_name),
         };
         if let Some(marker) = abort_marker {
             let value_is_dynamic = matches!(

@@ -48,6 +48,7 @@ mod specialization;
 pub mod stubs;
 mod test_report;
 mod timing;
+mod unknown_report;
 
 use std::{io, io::Write as _, path::PathBuf};
 
@@ -111,6 +112,35 @@ fn main() -> CliResult<()> {
             baseline_report: baseline_report.as_deref().map(PathBuf::from),
             include_diagnostics: *include_diagnostics,
             suppress_warnings: *suppress_warnings,
+        })?;
+        if let Some(output_path) = output {
+            std::fs::write(output_path, report)?;
+        } else {
+            let mut stdout = io::stdout().lock();
+            write!(stdout, "{report}")?;
+        }
+        return Ok(());
+    }
+
+    if let Command::SmeltUnknownReport {
+        roots,
+        format,
+        baseline,
+        output,
+    } = &args.command
+    {
+        let report_format = match format.as_str() {
+            "json" => unknown_report::UnknownReportFormat::Json,
+            "md" | "markdown" => unknown_report::UnknownReportFormat::Markdown,
+            other => {
+                return Err(format!("unknown --format `{other}`; use `md` or `json`").into());
+            }
+        };
+        let root_paths = roots.iter().map(PathBuf::from).collect::<Vec<_>>();
+        let report = unknown_report::unknown_report(&unknown_report::UnknownReportOptions {
+            roots: &root_paths,
+            format: report_format,
+            baseline: baseline.as_deref().map(PathBuf::from),
         })?;
         if let Some(output_path) = output {
             std::fs::write(output_path, report)?;
@@ -200,7 +230,10 @@ fn main() -> CliResult<()> {
                 write!(stdout, "{report}")?;
             }
         }
-        Command::RustDiagnostics { .. } | Command::RustTestReport { .. } | Command::DumpSchema => {
+        Command::RustDiagnostics { .. }
+        | Command::RustTestReport { .. }
+        | Command::SmeltUnknownReport { .. }
+        | Command::DumpSchema => {
             return Ok(());
         }
         Command::Clean => return Err("`smelt clean` is not implemented yet".into()),

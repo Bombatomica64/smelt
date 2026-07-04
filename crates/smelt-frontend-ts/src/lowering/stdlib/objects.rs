@@ -1243,6 +1243,57 @@ return_ty,
         })))
     }
 
+    /// Lower direct TypeScript `ArrayBuffer.isView` calls.
+    ///
+    /// `ArrayBuffer.isView(x)` is true for typed-array views and `DataView`s.
+    /// Smelt's runtime lowers typed arrays to plain numeric lists (no view
+    /// identity survives), so the only value the check can recognize is the
+    /// marker-bearing `DataView` model: the call lowers exactly like
+    /// `x instanceof DataView`, reusing the marker-based `InstanceOf` path.
+    /// Statically concrete non-erased values fold to `false`.
+    pub(in crate::lowering) fn arraybuffer_is_view_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "ArrayBuffer"
+            || member.property.name != "isView"
+            || self.classes.contains_key("ArrayBuffer")
+        {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "ArrayBuffer.isView requires exactly one argument",
+            ));
+        };
+        let value = self.argument(argument, body)?;
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            let class = self.intern_type_name("DataView");
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::InstanceOf { value, class },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript string case methods.
     pub(in crate::lowering) fn string_case_call(
         &mut self,
@@ -1319,7 +1370,13 @@ return_ty,
     pub(in crate::lowering) fn string_method_erased_receiver(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => true,
-            Some(Type::Optional(inner)) => self.string_method_erased_receiver(*inner),
+            // `string | undefined` surfaces (e.g. `const [first] = words`)
+            // come from tsc-checked positions where the payload is a string;
+            // treat the optional wrapper as an erased string surface too.
+            Some(Type::Optional(inner)) => {
+                self.string_method_erased_receiver(*inner)
+                    || self.ctx.krate.types.get(*inner) == Some(&Type::String)
+            }
             Some(Type::Union(items)) => items.iter().any(|item| {
                 let item = self.type_param_constraint_or_self(*item);
                 matches!(
@@ -1619,17 +1676,32 @@ return_ty,
                 "string matchAll requires one RegExp argument",
             ));
         };
-        let haystack = self.expression(&member.object, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(member.object.span().start, member.object.span().end),
-                "string matchAll requires a string receiver",
-            ));
+        let mut haystack = self.expression(&member.object, body)?;
+        let haystack_ty = Self::expr_ty(body, haystack);
+        if self.ctx.krate.types.get(haystack_ty) != Some(&Type::String) {
+            // Coerce string-compatible surfaces (optional/defaulted params,
+            // erased generics, unions with a string arm) to `String` like the
+            // other string-method receivers do.
+            if self.is_string_compatible_type(haystack_ty)
+                || self.string_method_erased_receiver(haystack_ty)
+            {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                haystack = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: haystack },
+                    ty: string_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(member.object.span().start, member.object.span().end),
+                    "string matchAll requires a string receiver",
+                ));
+            }
         }
         let regex = self.argument(pattern_argument, body)?;
-        let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Float);
-        let match_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        // Each match is a full JavaScript match object (numbered groups,
+        // `groups`, `index`, `input`) built as an erased runtime value.
+        let match_ty = self.ctx.krate.types.intern(Type::Unknown);
         let ty = self.ctx.krate.types.intern(Type::List(match_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::RegexMatchAll { regex, haystack },

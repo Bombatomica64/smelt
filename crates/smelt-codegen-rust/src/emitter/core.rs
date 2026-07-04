@@ -3034,6 +3034,14 @@ impl<'mir> FunctionEmitter<'mir> {
         else {
             return Ok(None);
         };
+        // `SmeltErasedFunction` already erases static return differences at the ABI.
+        if self.is_erased_unknown_rest_function(source_function)
+            && !source_function.may_throw
+            && self.is_erased_unknown_rest_function(target_function)
+            && !target_function.may_throw
+        {
+            return Ok(None);
+        }
         if source == target
             || !self.can_adapt_rendered_function_value(source, target)
             || matches!(
@@ -3383,6 +3391,14 @@ impl<'mir> FunctionEmitter<'mir> {
         ) else {
             return Ok(None);
         };
+        // `SmeltErasedFunction` already erases static return differences at the ABI.
+        if self.is_erased_unknown_rest_function(source)
+            && !source.may_throw
+            && self.is_erased_unknown_rest_function(target_function)
+            && !target_function.may_throw
+        {
+            return Ok(None);
+        }
         let parameter_mismatch = source.params.len() != target_function.params.len()
             || source
                 .params

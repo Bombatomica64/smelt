@@ -89,7 +89,14 @@ pub struct TypeInterner {
 
 impl TypeInterner {
     /// Returns the `TypeId` for `ty`, inserting it if needed.
-    pub fn intern(&mut self, ty: Type) -> TypeId {
+    pub fn intern(&mut self, mut ty: Type) -> TypeId {
+        // Union identity must not depend on source spelling order. Besides
+        // deduplicating equivalent types, canonical member order gives Rust
+        // codegen one stable tagged-enum definition for `A | B` and `B | A`.
+        if let Type::Union(items) = &mut ty {
+            items.sort_unstable_by_key(|item| item.0);
+            items.dedup();
+        }
         if let Some((idx, _)) = self
             .types
             .iter()
@@ -113,5 +120,23 @@ impl TypeInterner {
     /// Returns all interned types in insertion order.
     pub fn all(&self) -> &[Type] {
         &self.types
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonicalizes_union_member_order() {
+        let mut types = TypeInterner::default();
+        let string = types.intern(Type::String);
+        let float = types.intern(Type::Float);
+
+        let first = types.intern(Type::Union(vec![string, float, string]));
+        let second = types.intern(Type::Union(vec![float, string]));
+
+        assert_eq!(first, second);
+        assert_eq!(types.get(first), Some(&Type::Union(vec![string, float])));
     }
 }

@@ -213,6 +213,32 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.static_member_with_absent_fallback(member, body, true)
+    }
+
+    /// Lower a static member read without the absent-list-field `undefined`
+    /// fallback.
+    ///
+    /// Call dispatch probes member expressions to decide whether a property is
+    /// a callable field; there an unmodeled list member (e.g. `iterator.next`)
+    /// must stay an error so the later modeled method paths can claim the
+    /// call, instead of being folded into an `undefined` "callable".
+    pub(in crate::lowering) fn static_member_no_absent_fallback(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.static_member_with_absent_fallback(member, body, false)
+    }
+
+    /// Shared static-member lowering; `absent_list_field_is_undefined` gates
+    /// the JS absent-property-read-yields-`undefined` rule for list receivers.
+    fn static_member_with_absent_fallback(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+        absent_list_field_is_undefined: bool,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Some(expr) = self.global_alias_member_read(member, body)? {
             return Ok(expr);
         }
@@ -325,7 +351,30 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
-        let field_ty = self.class_field_type(access_receiver_ty, field)?;
+        let field_ty = match self.class_field_type(access_receiver_ty, field) {
+            Ok(field_ty) => field_ty,
+            // Reading an absent property yields `undefined` in JavaScript. A
+            // Smelt list is a plain vector with no expando-property storage
+            // (e.g. the RegExp match-array `index`/`input` fields), so an
+            // unmodeled field read on a list receiver is truthfully
+            // `undefined` rather than a lowering error.
+            Err(error) => {
+                if absent_list_field_is_undefined
+                    && matches!(
+                        self.ctx.krate.types.get(access_receiver_ty),
+                        Some(Type::List(_))
+                    )
+                {
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(member.span.start, member.span.end),
+                    }));
+                }
+                return Err(error);
+            }
+        };
         if optional_access {
             let ty = self.optional_chain_result_type(field_ty);
             return Ok(body.push_expr(Expr {
@@ -1507,6 +1556,23 @@ impl ModuleBuilder<'_> {
             return;
         };
         let base_ty = Self::local_ty(body, local);
+        // Writing through a narrowed local invalidates the prior flow fact: a new
+        // value may inhabit a different union arm (or leave the narrowed subset
+        // entirely), so any stale narrowing must be reconciled before later reads
+        // project it into a concrete arm. When the observed value's type is a
+        // member of the narrowed union (or matches it exactly) the fact is
+        // refined to the observed type; otherwise it is reset to the declared
+        // storage type so codegen falls back to the erased/full-union shape.
+        if let Some(current) = self.narrowed_type(name)
+            && current != observed_ty
+        {
+            if self.type_is_narrowing_of(observed_ty, current) {
+                self.apply_narrowing(name.to_owned(), observed_ty);
+            } else {
+                self.invalidate_narrowing(name, base_ty);
+            }
+            return;
+        }
         if self.ctx.krate.types.get(base_ty) != Some(&Type::Unknown) {
             return;
         }
@@ -1514,6 +1580,38 @@ impl ModuleBuilder<'_> {
             return;
         }
         self.apply_narrowing(name.to_owned(), observed_ty);
+    }
+
+    /// Return whether `candidate` is compatible with a `current` narrowed type.
+    ///
+    /// Assignment refinement only keeps a narrowing when the assigned value is
+    /// provably still inside the narrowed set: an exact type match, or a union
+    /// member of the current narrowing. Anything else is treated as escaping the
+    /// narrowed subset and triggers invalidation.
+    fn type_is_narrowing_of(
+        &self,
+        candidate: smelt_hir::TypeId,
+        current: smelt_hir::TypeId,
+    ) -> bool {
+        if candidate == current {
+            return true;
+        }
+        matches!(
+            self.ctx.krate.types.get(current),
+            Some(Type::Union(items)) if items.contains(&candidate)
+        )
+    }
+
+    /// Drop the active narrowing for `name` by pinning `base_ty` in this scope.
+    ///
+    /// The narrowing stack is a stack of branch scopes and `narrowed_type` reads
+    /// the innermost hit. Pinning the declared storage type in the *current*
+    /// scope shadows any narrowing recorded here or in an enclosing scope, so
+    /// later reads in this flow see the widened (erased/full-union) shape. The
+    /// shadow is scoped: when the branch pops, an enclosing-scope narrowing that
+    /// legitimately still holds on the other control-flow path is restored.
+    fn invalidate_narrowing(&mut self, name: &str, base_ty: smelt_hir::TypeId) {
+        self.apply_narrowing(name.to_owned(), base_ty);
     }
 
     /// Extract target and value from increment/decrement expression.

@@ -41,6 +41,7 @@ impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std
 impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
 impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.values } }
 
+// @smelt:prelude-end — generated program below
 fn main() {
     let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![5.0, 8.0, 13.0]; smelt_list_items }));
     let values: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_2);

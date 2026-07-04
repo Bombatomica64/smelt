@@ -3,6 +3,66 @@
 use super::*;
 
 #[test]
+fn emits_concrete_union_enum_and_projects_typeof_narrowed_local() {
+    let source = source_for(
+        r#"
+function resolvePath(path: string | (() => string)): string {
+  if (typeof path === "string" && path.includes(".")) {
+    return path;
+  }
+  if (typeof path === "string") {
+    return path + ".ts";
+  }
+  return path();
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(source.contains("M0(") && source.contains("M1("), "{source}");
+    assert!(
+        source.contains("matches!(path.clone(), SmeltUnion"),
+        "{source}"
+    );
+    assert!(
+        source.contains("union guard selected an excluded member"),
+        "{source}"
+    );
+}
+
+#[test]
+fn narrows_concrete_union_locals_with_in_array_and_instanceof_guards() {
+    let source = source_for(
+        r#"
+interface Named { name: string; }
+interface LengthBearing { length: number; }
+function lengthOf(value: Named | LengthBearing): number {
+  if ("length" in value) return value.length;
+  return 0;
+}
+
+function values(source: number[] | Record<string, number>): number[] {
+  return Array.isArray(source) ? source : Object.values(source);
+}
+
+class Left { left: string = "left"; }
+class Right { right: string = "right"; }
+function read(value: Left | Right): string {
+  if (value instanceof Left) return value.left;
+  return "right";
+}
+"#,
+    );
+
+    assert!(source.matches("pub enum SmeltUnion").count() >= 3, "{source}");
+    assert!(
+        source.contains("union guard selected an excluded member"),
+        "{source}"
+    );
+    assert!(source.contains("matches!(value.clone(), SmeltUnion"), "{source}");
+}
+
+#[test]
 fn injects_url_dependency_for_url_mapping() {
     let manifest = deps::cargo_toml(
         &EmitOptions::default().crate_name,
@@ -1017,6 +1077,35 @@ export function make(): RestCallback {
 }
 
 #[test]
+fn does_not_rewrap_equivalent_erased_rest_function_shapes() {
+    let source = source_for(
+        r#"
+type AnyRest = (...args: unknown[]) => unknown;
+type StringRest = (...args: unknown[]) => string;
+
+function read(): StringRest {
+  return (...args: unknown[]) => String(args.length);
+}
+
+const callback: AnyRest = read();
+const value = callback("x");
+"#,
+    );
+
+    assert!(
+        !source.contains("let smelt_adapted: SmeltErasedFunction = ::std::rc::Rc::new"),
+        "erased-rest callbacks with equivalent ABI should pass through unchanged\n{source}"
+    );
+    assert!(
+        source.contains("let callback: SmeltErasedFunction = read().clone();")
+            || source.contains("let callback: SmeltErasedFunction;")
+                && source.contains("callback = _smelt_tmp_")
+                && source.contains(".clone();"),
+        "erased-rest callback assignment should preserve the shared SmeltErasedFunction\n{source}"
+    );
+}
+
+#[test]
 fn emits_optional_string_match_with_some_patterns() {
     let source = source_for(
         r#"
@@ -1483,7 +1572,7 @@ function run(setter: Setter): number {
     );
 
     assert!(
-        source.contains("set: ::std::rc::Rc<dyn Fn(&mut Flags) -> SmeltUnknown>"),
+        source.contains("set: ::std::rc::Rc<dyn Fn(&mut Flags) -> SmeltUnion"),
         "{source}"
     );
     assert!(
@@ -3577,6 +3666,41 @@ for (const { index } of matches) {
 
     assert!(source.contains(".match_all_indices(&"));
     assert!(source.contains("pub fn match_all_indices(&self"));
+    // matchAll builds concrete `SmeltMatch` values, erased explicitly at the
+    // dynamic boundary rather than as inline `SmeltUnknown` bags.
+    assert!(source.contains("pub struct SmeltMatch"));
+    assert!(source.contains(".map(SmeltMatch::into_smelt_unknown)"));
+    assert!(
+        source.contains("-> Vec<SmeltMatch>"),
+        "match_all_indices should return concrete SmeltMatch values: {source}"
+    );
+}
+
+#[test]
+fn emits_regex_exec_as_concrete_smelt_match() {
+    let source = source_for(
+        r#"
+const re = /(?<year>\d{4})-(\d{2})/;
+const m = re.exec("2024-07");
+console.log(m === null);
+"#,
+    );
+
+    // exec returns a concrete `Option<SmeltMatch>`; the typed match dataflow
+    // does not build a `SmeltUnknown` property bag. The single erasure to the
+    // dynamic consumer boundary is the explicit `into_smelt_unknown` adapter.
+    assert!(
+        source.contains("pub fn exec(&self, haystack: &str) -> Option<SmeltMatch>"),
+        "exec should return a concrete SmeltMatch option: {source}"
+    );
+    assert!(source.contains("pub struct SmeltMatch"));
+    assert!(source.contains("impl IntoSmeltUnknown for SmeltMatch"));
+    assert!(source.contains(".exec(&\"2024-07\".to_owned()).map(SmeltMatch::into_smelt_unknown)"));
+    // The numbered-group / named-group / index / input shape is modeled with
+    // concrete fields, not assembled as an untyped object during exec.
+    assert!(source.contains("groups: Vec<Option<String>>"));
+    assert!(source.contains("named: ::std::collections::HashMap<String, Option<String>>"));
+    assert!(source.contains("fn from_captures(regex: &fancy_regex::Regex"));
 }
 
 #[test]
@@ -3998,6 +4122,61 @@ fn instanceof_boxed_primitive_wrapper_emits_marker_check() {
         assert!(
             source.contains(&format!("value.contains_key(\"{marker}\")")),
             "expected `instanceof {target}` to emit a `{marker}` marker check:\n{source}"
+        );
+    }
+}
+
+#[test]
+fn runtime_host_marker_registry_hides_boxed_primitive_wrappers() {
+    // The runtime `for...in` / `Object.keys` filter (`smelt_object_has_host_marker`
+    // / `smelt_record_has_host_marker`) is generated from the shared
+    // `smelt_stdlib::host_object` registry. It must include the boxed-primitive
+    // markers (`__smelt_boolean`, `__smelt_string`, `__smelt_symbol`) so a boxed
+    // wrapper object never leaks its internal marker key as an enumerable
+    // property — a case the previously hand-maintained list omitted for
+    // `__smelt_boolean`/`__smelt_string`/`__smelt_symbol`.
+    let source = source_for("export function f(value: any): boolean { return value instanceof Boolean; }");
+    let host_marker_fn = source
+        .split("fn smelt_object_has_host_marker(")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .expect("missing smelt_object_has_host_marker helper");
+    for marker in [
+        "__smelt_arraybuffer",
+        "__smelt_weakmap",
+        "__smelt_number",
+        "__smelt_boolean",
+        "__smelt_string",
+        "__smelt_symbol",
+    ] {
+        assert!(
+            host_marker_fn.contains(&format!("\"{marker}\"")),
+            "runtime host-marker registry must include `{marker}`:\n{host_marker_fn}"
+        );
+    }
+}
+
+/// The private host-marker array builder emits every registry marker plus the
+/// runtime-owned abort/namespace markers, so the frontend construction path, the
+/// `instanceof` codegen path, and this runtime filter share one source of truth.
+#[test]
+fn host_marker_registry_array_covers_registry_and_runtime_markers() {
+    let array = host_marker_registry_array();
+    for marker in smelt_stdlib::host_object_markers() {
+        assert!(
+            array.contains(&format!("\"{marker}\"")),
+            "host-marker array missing registry marker `{marker}`: {array}"
+        );
+    }
+    for marker in [
+        "__smelt_abortcontroller",
+        "__smelt_abortsignal",
+        "__smelt_builtin_namespace",
+        "__smelt_global_object",
+    ] {
+        assert!(
+            array.contains(&format!("\"{marker}\"")),
+            "host-marker array missing runtime marker `{marker}`: {array}"
         );
     }
 }
@@ -5162,5 +5341,287 @@ export function cbRepeat(xs: string[]): string[] {
     assert!(
         source.contains("closure_arg_0.clone().repeat("),
         "callback body should emit the real string repeat call: {source}"
+    );
+}
+
+#[test]
+fn timer_typed_extra_args_use_wrapper_closure_not_erased_list() {
+    // `setTimeout(callback, ms, ...args)` with a statically typed callback and
+    // concretely typed extras must capture the extras in a synthesized
+    // zero-argument wrapper closure and call the callback directly, producing no
+    // erased `Vec<SmeltUnknown>` argument pack.
+    let source = source_for(
+        r#"
+function greet(name: string, count: number): void {
+  console.log(name);
+  console.log(count);
+}
+setTimeout(greet, 10, "hi", 3);
+"#,
+    );
+
+    // Extras keep their concrete Rust types in per-argument bindings; the erased
+    // `smelt_timer_args: Vec<SmeltUnknown>` pack of the dynamic path is absent.
+    assert!(source.contains("smelt_timer_arg_0"), "{source}");
+    assert!(source.contains("smelt_timer_arg_1"), "{source}");
+    assert!(
+        source.contains("let smelt_timer_arg_0: String"),
+        "typed extra should be a concrete String binding: {source}"
+    );
+    assert!(
+        source.contains("let smelt_timer_arg_1: f64"),
+        "typed extra should be a concrete f64 binding: {source}"
+    );
+    assert!(
+        !source.contains("smelt_timer_args"),
+        "typed timer extras must not pack into an erased Vec<SmeltUnknown>: {source}"
+    );
+    // The wrapper captures by value (move) and invokes the callback directly.
+    assert!(source.contains("move ||"), "{source}");
+    assert!(
+        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1.clone())"),
+        "{source}"
+    );
+    assert!(source.contains("smelt_set_timeout("), "{source}");
+}
+
+#[test]
+fn set_interval_typed_extra_args_use_wrapper_closure() {
+    // `setInterval` shares the typed-wrapper path with `setTimeout`.
+    let source = source_for(
+        r#"
+function tick(label: string, n: number): void {
+  console.log(label);
+}
+setInterval(tick, 5, "tock", 2);
+"#,
+    );
+
+    assert!(
+        !source.contains("smelt_timer_args"),
+        "typed interval extras must not pack into an erased Vec<SmeltUnknown>: {source}"
+    );
+    assert!(source.contains("smelt_timer_arg_0"), "{source}");
+    assert!(source.contains("smelt_timer_arg_1"), "{source}");
+    assert!(
+        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1.clone())"),
+        "{source}"
+    );
+    assert!(source.contains("smelt_set_interval("), "{source}");
+}
+
+#[test]
+fn timer_optional_typed_extra_arg_uses_wrapper_closure() {
+    // A single concretely typed extra (matching an optional callback parameter)
+    // still routes through the typed wrapper and forwards exactly one argument.
+    let source = source_for(
+        r#"
+function note(prefix: string, suffix?: string): void {
+  console.log(prefix);
+}
+setTimeout(note, 10, "with-optional", "extra");
+"#,
+    );
+
+    assert!(
+        !source.contains("smelt_timer_args"),
+        "typed optional timer extras must not pack into an erased Vec<SmeltUnknown>: {source}"
+    );
+    assert!(source.contains("smelt_timer_arg_0"), "{source}");
+    assert!(source.contains("smelt_timer_arg_1"), "{source}");
+}
+
+#[test]
+fn timer_untyped_extra_arg_keeps_erased_list_path() {
+    // An `unknown`-typed extra is a genuine dynamic boundary, so the erased
+    // `Vec<SmeltUnknown>` dispatch path must be preserved for it.
+    let source = source_for(
+        r#"
+function handle(value: unknown): void {}
+function fire(payload: unknown): void {
+  setTimeout(handle, 10, payload);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_timer_args"),
+        "untyped timer extras must keep the erased Vec<SmeltUnknown> dispatch path: {source}"
+    );
+    assert!(
+        !source.contains("smelt_timer_arg_0"),
+        "untyped path must not synthesize per-argument typed bindings: {source}"
+    );
+}
+
+#[test]
+fn structural_in_guard_projects_to_concrete_union_discriminant() {
+    // Issue #55: a `"field" in value` guard over a concrete class union must
+    // lower to a tagged-enum discriminant check, not an erased runtime object
+    // lookup. Inside the true branch the value projects into the matching arm.
+    let source = source_for(
+        r#"
+class Circle { radius: number = 1; }
+class Square { side: number = 2; }
+function describe(shape: Circle | Square): number {
+  if ("radius" in shape) {
+    return shape.radius;
+  }
+  return 0;
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    // The `in` check is a concrete discriminant test, never a SmeltUnknown map.
+    assert!(
+        source.contains("matches!(shape.clone(), SmeltUnion"),
+        "structural `in` should emit a concrete tag check: {source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Object(values) => values.contains_key"),
+        "structural `in` on a concrete union must not erase to an object lookup: {source}"
+    );
+    // The narrowed read projects into the concrete arm.
+    assert!(
+        source.contains("union guard selected an excluded member"),
+        "{source}"
+    );
+}
+
+#[test]
+fn property_equality_after_in_guard_projects_concrete_arm() {
+    // Issue #55: property-equality discriminant comparison works once the value
+    // has been narrowed to a concrete arm. The `in` guard narrows `shape` to
+    // `Circle`, then `shape.tag === "c"` reads the concrete arm's field.
+    let source = source_for(
+        r#"
+class Circle { tag: string = "c"; radius: number = 1; }
+class Square { side: number = 2; }
+function describe(shape: Circle | Square): number {
+  if ("tag" in shape && shape.tag === "c") {
+    return shape.radius;
+  }
+  return 0;
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(
+        source.contains("matches!(shape.clone(), SmeltUnion"),
+        "{source}"
+    );
+    // The discriminant field comparison reads the projected concrete arm.
+    assert!(
+        source.contains(".tag.clone() == \"c\".to_owned()"),
+        "narrowed discriminant comparison should read the concrete field: {source}"
+    );
+}
+
+#[test]
+fn timer_unknown_callback_param_keeps_erased_list_path() {
+    // A concretely typed extra whose callback parameter is `unknown` is still a
+    // dynamic boundary: forwarding the `String` directly would drop it into a
+    // `SmeltUnknown` parameter slot without the boundary conversion. The wrapper
+    // path must be declined so the erased `Vec<SmeltUnknown>` ABI (which boxes
+    // each argument) is used instead.
+    let source = source_for(
+        r#"
+function handle(value: unknown): void {}
+setTimeout(handle, 10, "x");
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_timer_args"),
+        "unknown callback parameters must keep the erased Vec<SmeltUnknown> dispatch path: {source}"
+    );
+    assert!(
+        !source.contains("smelt_timer_arg_0"),
+        "unknown callback parameter path must not synthesize typed per-argument bindings: {source}"
+    );
+}
+
+#[test]
+fn reassigning_narrowed_union_local_stays_within_narrowed_arm() {
+    // Issue #55 invalidation rule: writing a value that still inhabits the
+    // narrowed arm refines the narrowing rather than dropping it, so the write
+    // re-injects the concrete union variant and later reads still project it.
+    let source = source_for(
+        r#"
+function resolve(path: string | (() => string)): string {
+  if (typeof path === "string") {
+    path = path + "x";
+    return path;
+  }
+  return path();
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    // The assignment re-injects the concrete arm, proving the fact survived the
+    // widening-compatible write.
+    assert!(
+        source.contains("path = SmeltUnion"),
+        "assignment of a narrowed-compatible value should re-inject the arm: {source}"
+    );
+    assert!(
+        source.contains("union guard selected an excluded member"),
+        "{source}"
+    );
+}
+
+#[test]
+fn erases_concrete_union_operand_before_truthiness_extraction() {
+    // A destructuring default over a `boolean | number` field lowers `flag` to a
+    // concrete `SmeltUnion…` enum. Using it in a boolean position must first
+    // project the tagged enum back to its erased value (`into_smelt_unknown()`)
+    // because the truthiness `match` operates over `SmeltUnknown` discriminants.
+    // Regression for the concrete-union boundary: without the erase the emitted
+    // `match flag.clone() { SmeltUnknown::… }` would not type-check against the
+    // `SmeltUnion…` storage.
+    let source = source_for(
+        r#"
+function pick(opts: { flag?: boolean | number }): boolean {
+  const { flag = false } = opts;
+  return !flag;
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(
+        source.contains("let flag: SmeltUnion"),
+        "flag should keep its concrete-union storage: {source}"
+    );
+    assert!(
+        source.contains("match flag.into_smelt_unknown()"),
+        "a concrete-union operand must be erased before the truthiness match: {source}"
+    );
+}
+
+#[test]
+fn injects_concrete_union_at_nullish_default_sink() {
+    // An erased object-field read defaulted with `??` flows into a concrete
+    // `boolean | number` sink. The coalesced `SmeltUnknown` value must be
+    // reconstructed into the tagged union (`SmeltUnion…::from_smelt_unknown`)
+    // rather than left erased. Regression for the concrete-union boundary: the
+    // sink stores `SmeltUnion…`, so leaving the value as `SmeltUnknown` fails to
+    // type-check.
+    let source = source_for(
+        r#"
+function opt(record: Record<string, unknown>): boolean | number {
+  const value: boolean | number = (record["k"] as boolean | number) ?? false;
+  return value;
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(
+        source.contains("::from_smelt_unknown("),
+        "an erased value flowing into a concrete-union sink must be reconstructed: {source}"
     );
 }

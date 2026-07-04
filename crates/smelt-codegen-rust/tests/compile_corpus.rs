@@ -215,6 +215,84 @@ function mixed(): Map<string, string | number> {
 "#,
         },
         Case {
+            name: "flow_narrowed_concrete_union",
+            area: "concrete_unions",
+            source: r#"
+function resolvePath(path: string | (() => string)): string {
+  if (typeof path === "string" && path.includes(".")) {
+    return path;
+  }
+  if (typeof path === "string") {
+    return path + ".ts";
+  }
+  return path();
+}
+"#,
+        },
+        Case {
+            name: "structural_guarded_concrete_unions",
+            area: "concrete_unions",
+            source: r#"
+interface Named { name: string; }
+interface LengthBearing { length: number; }
+function lengthOf(value: Named | LengthBearing): number {
+  if ("length" in value) return value.length;
+  return 0;
+}
+
+function values(source: number[] | Record<string, number>): number[] {
+  return Array.isArray(source) ? source : Object.values(source);
+}
+
+class Left { left: string = "left"; }
+class Right { right: string = "right"; }
+function read(value: Left | Right): string {
+  if (value instanceof Left) return value.left;
+  return "right";
+}
+"#,
+        },
+        Case {
+            // Issue #55: structural `in` and discriminant-property comparison on
+            // a concrete class union must compile to tagged-enum discriminant
+            // checks and concrete arm projections, never SmeltUnknown erasure.
+            name: "discriminant_in_and_property_narrowing",
+            area: "concrete_unions",
+            source: r#"
+class Circle { radius: number = 1; }
+class Square { side: number = 2; }
+
+function area(shape: Circle | Square): number {
+  if ("radius" in shape) {
+    return shape.radius * shape.radius;
+  }
+  return 0;
+}
+
+function tagged(shape: Circle | Square): number {
+  if ("radius" in shape && shape.radius === 3) {
+    return shape.radius;
+  }
+  return 0;
+}
+"#,
+        },
+        Case {
+            // Issue #55 invalidation: a widening-compatible write to a narrowed
+            // union local re-injects the concrete arm and must still compile.
+            name: "narrowed_union_reassignment",
+            area: "concrete_unions",
+            source: r#"
+function resolvePath(path: string | (() => string)): string {
+  if (typeof path === "string") {
+    path = path + ".ts";
+    return path;
+  }
+  return path();
+}
+"#,
+        },
+        Case {
             name: "set_collection",
             area: "collections",
             source: r"
@@ -258,6 +336,32 @@ async function run(): Promise<number> {
   return await lift(5);
 }
 ",
+        },
+        // --- timer typed extra arguments -------------------------------------
+        Case {
+            name: "timer_typed_extra_args",
+            area: "timers",
+            source: r#"
+function greet(name: string, count: number): void {
+  console.log(name);
+  console.log(count);
+}
+function tick(label: string): void {
+  console.log(label);
+}
+setTimeout(greet, 10, "hi", 3);
+setInterval(tick, 5, "tock");
+"#,
+        },
+        Case {
+            name: "timer_optional_typed_arg",
+            area: "timers",
+            source: r#"
+function note(prefix: string, suffix?: string): void {
+  console.log(prefix);
+}
+setTimeout(note, 10, "with-optional", "extra");
+"#,
         },
         Case {
             name: "interface_method_call",

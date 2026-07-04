@@ -7,6 +7,7 @@ struct Point {
     y: f64,
 }
 
+// @smelt:prelude-end — generated program below
 
 fn main() {
     let mut p: Point;

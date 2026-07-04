@@ -41,6 +41,7 @@ impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std
 impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
 impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.values } }
 
+// @smelt:prelude-end — generated program below
 fn main() {
     let _smelt_tmp_1: ::std::collections::HashMap<String, f64> = ::std::collections::HashMap::from([("ada".to_owned(), 10.0), ("grace".to_owned(), 20.0)]);
     let scores: ::std::collections::HashMap<String, f64> = _smelt_tmp_1;
