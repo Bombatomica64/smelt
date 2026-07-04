@@ -84,7 +84,11 @@ impl FunctionEmitter<'_> {
     /// Converts a match scrutinee operand to its Rust text representation.
     pub(super) fn match_scrutinee_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let operand_ty = self.operand_ty(operand)?;
-        if operand_ty == self.type_id(Type::String)? {
+        // Compare the resolved type directly rather than interning `Type::String`
+        // and comparing ids: a program that never uses a string (e.g. a switch
+        // over a purely numeric enum) may not have `Type::String` in the type
+        // table at all, and requiring it there would spuriously error.
+        if self.mir.types.get(operand_ty) == Some(&Type::String) {
             match operand {
                 Operand::Copy(place) | Operand::Move(place) => {
                     Ok(format!("{}.as_str()", self.place_text(place)?))

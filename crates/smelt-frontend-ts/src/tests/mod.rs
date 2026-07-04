@@ -224,3 +224,4 @@ mod specialization_tests;
 mod part07_tests;
 mod estk6_coverage_tests;
 mod class_module_tests;
+mod enum_switch_tests;

@@ -439,6 +439,85 @@ export function sum(adder: Adder): number {
 }
 ",
         },
+        Case {
+            // Issue #78: `switch` over non-literal case labels. Enum-member and
+            // const-reference labels const-fold to the member's numeric/string
+            // literal, and the enum type resolves to its underlying primitive so
+            // the scrutinee matches the folded arms and the emitted Rust
+            // compiles.
+            name: "switch_nonliteral_case_labels",
+            area: "control_flow",
+            source: r#"
+enum Color {
+  Red = 0,
+  Green = 1,
+  Blue = 2,
+}
+
+enum Fruit {
+  Apple,
+  Banana,
+  Cherry,
+}
+
+enum Level {
+  Low = "low",
+  High = "high",
+}
+
+const OTHER_TAG = "[object Other]";
+
+export function colorName(c: Color): string {
+  switch (c) {
+    case Color.Red:
+      return "red";
+    case Color.Green:
+      return "green";
+    case Color.Blue:
+      return "blue";
+    default:
+      return "unknown";
+  }
+}
+
+export function fruitRank(f: Fruit): number {
+  switch (f) {
+    case Fruit.Apple:
+      return 10;
+    case Fruit.Banana:
+      return 20;
+    case Fruit.Cherry:
+      return 30;
+    default:
+      return 0;
+  }
+}
+
+export function levelLabel(l: Level): string {
+  switch (l) {
+    case Level.Low:
+      return "lo";
+    case Level.High:
+      return "hi";
+    default:
+      return "x";
+  }
+}
+
+export function classify(tag: string): number {
+  switch (tag) {
+    case OTHER_TAG:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+export function redValue(): number {
+  return Color.Red;
+}
+"#,
+        },
     ]
 }
 

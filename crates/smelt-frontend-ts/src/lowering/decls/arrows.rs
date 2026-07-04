@@ -923,6 +923,15 @@ return_ty: target_function.return_ty,
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
+        // A `case EnumName.Member:` label or an enum-member operand inside
+        // another foldable const expression resolves to the member's
+        // const-folded value.
+        if let Expression::Identifier(object) = &member.object
+            && let Some(value) =
+                self.enum_member_literal(object.name.as_str(), member.property.name.as_str())
+        {
+            return Ok(value);
+        }
         if let Expression::Identifier(object) = &member.object {
             let value = match (object.name.as_str(), member.property.name.as_str()) {
                 ("Number", "NaN") => Some(f64::NAN),
