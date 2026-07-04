@@ -179,6 +179,13 @@ impl<'hir> LoweringCtx<'hir> {
                 method,
                 body: body_id,
             },
+            smelt_hir::FunctionOwner::ClassStaticMethod { class, method } => {
+                HirOrigin::ClassStaticMethod {
+                    class,
+                    method,
+                    body: body_id,
+                }
+            }
         };
         let mut function = MirFunction::new(function_id, name, origin, return_ty, span);
         function.is_async = is_async;

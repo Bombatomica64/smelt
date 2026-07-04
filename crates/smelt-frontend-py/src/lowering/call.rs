@@ -61,6 +61,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.int_new_call_expression(call, body)? {
             return Ok(Some(expr));
         }
+        if let Some(expr) = self.class_static_method_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
         if let Some(expr) = self.class_method_call_expression(call, body)? {
             return Ok(Some(expr));
         }

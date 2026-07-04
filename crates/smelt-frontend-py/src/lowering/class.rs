@@ -7,6 +7,11 @@ struct ClassBodyLowering {
     constructor_id: Option<ItemId>,
     /// Item ids of non-constructor methods in declaration order.
     method_ids: Vec<ItemId>,
+    /// Item ids of `@staticmethod` methods in declaration order.
+    static_methods: Vec<ItemId>,
+    /// Static (class-level) fields declared by bare/annotated class-body
+    /// assignments with a concrete literal initializer.
+    static_fields_out: Vec<smelt_hir::StaticField>,
     /// Whether the class derives from `IntEnum`.
     is_int_enum: bool,
     /// Collected `IntEnum` member name → integer value pairs.
@@ -237,6 +242,8 @@ impl ModuleBuilder<'_> {
         let mut fields: Vec<Field> = Vec::new();
         let mut constructor_id: Option<ItemId> = None;
         let mut method_ids: Vec<ItemId> = Vec::new();
+        let mut static_methods: Vec<ItemId> = Vec::new();
+        let mut static_fields_out: Vec<smelt_hir::StaticField> = Vec::new();
         let is_int_enum = base
             .and_then(|base_sym| self.ctx.krate.symbols.get(base_sym))
             .is_some_and(|base_name| base_name == "IntEnum");
@@ -252,6 +259,7 @@ impl ModuleBuilder<'_> {
             descriptors: Vec::new(),
             constructor: None,
             methods: Vec::new(),
+            static_methods: Vec::new(),
             abstract_methods: Vec::new(),
             implements: vec![],
         }));
@@ -287,6 +295,21 @@ impl ModuleBuilder<'_> {
                 Stmt::Assign(assign) if is_int_enum => {
                     self.int_enum_member_assign(class_name_str, assign, &mut enum_members)?;
                 }
+                // A bare `NAME = <literal>` in a non-enum class body declares a
+                // class variable (a static member shared by the class). Lower it
+                // to a materialized static field resolvable via `Class.NAME`.
+                Stmt::Assign(assign) if !is_int_enum => {
+                    if let Some(static_field) = self.class_var_static_field(assign)? {
+                        static_fields_out.push(static_field);
+                    } else {
+                        return Err(SmeltError::unsupported(
+                            self.span(assign.range),
+                            format!(
+                                "class '{class_name_str}': class-level assignment must be a single name bound to a literal"
+                            ),
+                        ));
+                    }
+                }
                 Stmt::FunctionDef(func) => {
                     let method_name = func.name.as_str();
                     if materialized.is_some()
@@ -297,6 +320,18 @@ impl ModuleBuilder<'_> {
                     if Self::is_abstractmethod(func) {
                         *kind = ClassKind::Abstract;
                         abstract_methods.push(self.abstract_method_sig(func)?);
+                        continue;
+                    }
+                    if Self::is_staticmethod(func) {
+                        let mid = self.class_method_with_receiver(
+                            class_name_str,
+                            class_sym,
+                            class_ty,
+                            func,
+                            true,
+                        )?;
+                        static_methods.push(mid);
+                        hir_module.items.push(mid);
                         continue;
                     }
                     if method_name == "__init__" {
@@ -369,6 +404,8 @@ impl ModuleBuilder<'_> {
                 fields,
                 constructor_id,
                 method_ids,
+                static_methods,
+                static_fields_out,
                 is_int_enum,
                 enum_members,
                 abstract_methods,
@@ -475,10 +512,11 @@ impl ModuleBuilder<'_> {
             base,
             base_args: Vec::new(),
             fields: std::mem::take(fields),
-            static_fields: Vec::new(),
+            static_fields: std::mem::take(&mut lowered.static_fields_out),
             descriptors,
             constructor: constructor_id,
             methods: std::mem::take(method_ids),
+            static_methods: std::mem::take(&mut lowered.static_methods),
             abstract_methods: std::mem::take(&mut lowered.abstract_methods),
             implements: vec![],
         });
@@ -547,7 +585,7 @@ impl ModuleBuilder<'_> {
     fn int_enum_member_assign(
         &mut self,
         class_name: &str,
-        assign: &ruff_python_ast::StmtAssign,
+        assign: &StmtAssign,
         enum_members: &mut HashMap<String, i64>,
     ) -> Result<(), SmeltError> {
         if assign.targets.len() != 1 {
@@ -676,6 +714,76 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Return whether a method is decorated with `@staticmethod`.
+    fn is_staticmethod(func: &StmtFunctionDef) -> bool {
+        func.decorator_list
+            .iter()
+            .any(|decorator| decorator_simple_name(decorator) == Some("staticmethod"))
+    }
+
+    /// Lower a class-level `NAME = <literal>` assignment to a static field.
+    ///
+    /// Returns `None` when the assignment is not a single `Name` target bound to
+    /// a concrete literal, so the caller can reject unsupported class-variable
+    /// forms. The static field is resolvable as `Class.NAME` and lowers to a
+    /// receiver-free associated accessor in Rust codegen.
+    fn class_var_static_field(
+        &mut self,
+        assign: &StmtAssign,
+    ) -> Result<Option<smelt_hir::StaticField>, SmeltError> {
+        let [target] = assign.targets.as_slice() else {
+            return Ok(None);
+        };
+        let Expr::Name(target_name) = target else {
+            return Ok(None);
+        };
+        let Some((value, ty)) = self.class_var_literal(assign.value.as_ref())? else {
+            return Ok(None);
+        };
+        let name = self.intern_name(target_name.id.as_str());
+        Ok(Some(smelt_hir::StaticField {
+            name,
+            ty,
+            visibility: Visibility::Public,
+            value: Some(value),
+            span: self.span(assign.range),
+        }))
+    }
+
+    /// Convert a class-variable initializer expression to a concrete literal and
+    /// its Smelt type, or `None` when it is not a supported literal form.
+    fn class_var_literal(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<Option<(Literal, TypeId)>, SmeltError> {
+        let pair = match expr {
+            Expr::NumberLiteral(number) => match &number.value {
+                Number::Int(int_value) => {
+                    let value = int_value.as_i64().ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(number.range),
+                            "class-variable integer literal is out of i64 range",
+                        )
+                    })?;
+                    (Literal::Int(value), self.intern_type(Type::Int))
+                }
+                Number::Float(value) => {
+                    (Literal::Float(*value), self.intern_type(Type::Float))
+                }
+                Number::Complex { .. } => return Ok(None),
+            },
+            Expr::StringLiteral(value) => (
+                Literal::String(value.value.to_str().to_owned()),
+                self.intern_type(Type::String),
+            ),
+            Expr::BooleanLiteral(value) => {
+                (Literal::Bool(value.value), self.intern_type(Type::Bool))
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(pair))
+    }
+
     /// Lower an abstract Python method declaration to a HIR method signature.
     fn abstract_method_sig(&mut self, func: &StmtFunctionDef) -> Result<MethodSig, SmeltError> {
         let span = self.span(func.range);
@@ -757,12 +865,33 @@ impl ModuleBuilder<'_> {
         class_ty: TypeId,
         func: &StmtFunctionDef,
     ) -> Result<ItemId, SmeltError> {
+        self.class_method_with_receiver(class_name_str, class_sym, class_ty, func, false)
+    }
+
+    /// Lower a Python class method to a HIR function item.
+    ///
+    /// When `is_static` is set the method is a `@staticmethod`: it takes no
+    /// implicit `self`/`cls` receiver and is owned by
+    /// [`FunctionOwner::ClassStaticMethod`] so codegen emits a receiver-free
+    /// associated function resolvable via `Class.method(..)`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "class method lowering threads class identity and the static-receiver flag through one shared body"
+    )]
+    fn class_method_with_receiver(
+        &mut self,
+        class_name_str: &str,
+        class_sym: Symbol,
+        class_ty: TypeId,
+        func: &StmtFunctionDef,
+        is_static: bool,
+    ) -> Result<ItemId, SmeltError> {
         let span = self.span(func.range);
         let method_name_str = func.name.as_str();
         let method_sym = self.intern_name(method_name_str);
-        let is_init = method_name_str == "__init__";
-        let is_new = method_name_str == "__new__";
-        let is_classmethod = self.is_classmethod(func)?;
+        let is_init = !is_static && method_name_str == "__init__";
+        let is_new = !is_static && method_name_str == "__new__";
+        let is_classmethod = !is_static && self.is_classmethod(func)?;
 
         let return_ty = if is_init {
             self.intern_type(Type::None)
@@ -787,36 +916,42 @@ impl ModuleBuilder<'_> {
         let mut params: Vec<Param> = Vec::new();
 
         // Add the implicit receiver local for use inside the method body.
+        // A `@staticmethod` has no implicit receiver, so this is skipped and all
+        // declared parameters are lowered as ordinary function parameters.
         let implicit_receiver_name = if is_classmethod || is_new {
             "cls"
         } else {
             "self"
         };
-        let self_sym = self.intern_name(implicit_receiver_name);
-        let self_local = fn_body.push_local(LocalDecl {
-            name: Some(self_sym),
-            ty: class_ty,
-            mutable: false,
-            span,
-        });
-        self.locals
-            .insert(implicit_receiver_name.to_owned(), self_local);
-        if !is_init && !is_classmethod && !is_new {
-            fn_body.params.push(self_local);
-            params.push(Param {
-                name: self_sym,
-                local: self_local,
+        if !is_static {
+            let self_sym = self.intern_name(implicit_receiver_name);
+            let self_local = fn_body.push_local(LocalDecl {
+                name: Some(self_sym),
                 ty: class_ty,
+                mutable: false,
                 span,
             });
+            self.locals
+                .insert(implicit_receiver_name.to_owned(), self_local);
+            if !is_init && !is_classmethod && !is_new {
+                fn_body.params.push(self_local);
+                params.push(Param {
+                    name: self_sym,
+                    local: self_local,
+                    ty: class_ty,
+                    span,
+                });
+            }
         }
 
         let mut first = true;
         for param_with_default in func.parameters.iter_non_variadic_params() {
             let p = &param_with_default.parameter;
             let param_name_str = p.name.as_str();
-            // Skip the implicit receiver; it was added above.
-            if first
+            // Skip the implicit receiver; it was added above. Static methods
+            // have no implicit receiver, so every parameter is a real argument.
+            if !is_static
+                && first
                 && (param_name_str == implicit_receiver_name
                     || ((is_classmethod || is_new) && param_name_str == "self"))
             {
@@ -868,6 +1003,11 @@ impl ModuleBuilder<'_> {
 
         let owner = if is_init {
             FunctionOwner::Constructor { class: class_sym }
+        } else if is_static {
+            FunctionOwner::ClassStaticMethod {
+                class: class_sym,
+                method: method_sym,
+            }
         } else {
             FunctionOwner::ClassMethod {
                 class: class_sym,

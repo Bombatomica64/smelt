@@ -287,3 +287,76 @@ export function writeBag(bag: StringBag, key: string, value: string): void {
     ensure!(!ctx.class_index_values.is_empty());
     Ok(())
 }
+
+/// Issue #98: a `static` method lowers to a `ClassStaticMethod`-owned function
+/// (no `this` receiver) kept in the class's `static_methods`, and a `static`
+/// constant becomes a materialized static field with a concrete literal value.
+#[test]
+fn lowers_static_method_and_static_const() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+class MathUtils {
+  static readonly LIMIT: number = 7;
+  static square(value: number): number {
+    return value * value;
+  }
+}
+
+export function area(radius: number): number {
+  return MathUtils.square(radius) * MathUtils.LIMIT;
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+
+    let class = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some("MathUtils") => {
+                Some(class)
+            }
+            _ => None,
+        })
+        .ok_or("missing MathUtils class item")?;
+
+    // The static method lives in `static_methods`, not `methods`.
+    ensure_eq!(class.static_methods.len(), 1);
+    let static_item = class
+        .static_methods
+        .first()
+        .copied()
+        .ok_or("missing static method item")?;
+    let static_index = usize::try_from(static_item.0)
+        .map_err(|err| format!("item id does not fit usize: {err}"))?;
+    let Some(Item::Function(function)) = ctx.krate.items.get(static_index) else {
+        return Err("static method item is not a function".to_owned());
+    };
+    ensure!(matches!(
+        function.owner,
+        smelt_hir::FunctionOwner::ClassStaticMethod { .. }
+    ));
+    // A static method must not carry an implicit `this` receiver.
+    ensure!(
+        function
+            .params
+            .first()
+            .is_none_or(|param| ctx.krate.symbols.get(param.name) != Some("this"))
+    );
+
+    // The static constant is materialized with its concrete literal value.
+    ensure_eq!(class.static_fields.len(), 1);
+    let static_field = class
+        .static_fields
+        .first()
+        .ok_or("missing static field")?;
+    ensure!(matches!(
+        static_field.value,
+        Some(Literal::Float(value)) if (value - 7.0).abs() < f64::EPSILON
+    ));
+    Ok(())
+}

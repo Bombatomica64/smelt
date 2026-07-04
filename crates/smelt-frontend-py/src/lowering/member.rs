@@ -1,4 +1,104 @@
 impl ModuleBuilder<'_> {
+    /// Lower a qualified static method call `Class.staticMethod(args)`.
+    ///
+    /// Resolves the class name to its declared `@staticmethod` items and, when a
+    /// match is found, lowers the call as a direct call to the receiver-free
+    /// associated function so codegen emits `Class::staticMethod(args)`. Returns
+    /// `None` when the callee is not a static-method call.
+    fn class_static_method_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let Some((class_name, method_name)) = self.class_member_path(attr) else {
+            return Ok(None);
+        };
+        let Some(item_id) = self.class_static_method_item(class_name, method_name) else {
+            return Ok(None);
+        };
+        let span = self.span(call.range);
+        let return_ty = match self.item_ref(item_id) {
+            Item::Function(function) => function.return_ty,
+            Item::Class(_) | Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {
+                return Ok(None);
+            }
+        };
+        let callee = body.push_expr(HirExpr {
+            kind: ExprKind::Item(item_id),
+            ty: self.item_expr_type(item_id),
+            span: self.span(attr.range),
+        });
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::Call { callee, args },
+            ty: return_ty,
+            span,
+        })))
+    }
+
+    /// Lower a qualified static-field read `Class.NAME` to its literal value.
+    ///
+    /// Returns `None` when the attribute does not name a class-level static
+    /// field, so the caller can fall through to the ordinary attribute path.
+    fn class_static_member_expression(
+        &self,
+        attr: &ruff_python_ast::ExprAttribute,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some((class_name, member)) = self.class_member_path(attr) else {
+            return Ok(None);
+        };
+        let Some(class_item) = self.items.get(class_name).copied() else {
+            return Ok(None);
+        };
+        let Item::Class(class) = self.item_ref(class_item) else {
+            return Ok(None);
+        };
+        let Some(field) = class
+            .static_fields
+            .iter()
+            .find(|field| self.ctx.krate.symbols.get(field.name) == Some(member))
+        else {
+            return Ok(None);
+        };
+        let Some(value) = field.value.clone() else {
+            return Ok(None);
+        };
+        let ty = field.ty;
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::Literal(value),
+            ty,
+            span: self.span(attr.range),
+        })))
+    }
+
+    /// Resolve a class's `@staticmethod` item by name from its class item.
+    fn class_static_method_item(
+        &self,
+        class_name: &str,
+        method_name: &str,
+    ) -> Option<ItemId> {
+        let class_item = self.items.get(class_name).copied()?;
+        let Item::Class(class) = self.item_ref(class_item) else {
+            return None;
+        };
+        class.static_methods.iter().copied().find(|item| {
+            matches!(
+                self.item_ref(*item),
+                Item::Function(function)
+                    if self.ctx.krate.symbols.get(function.name) == Some(method_name)
+            )
+        })
+    }
+
     /// Lower supported class method calls into their HIR runtime operations.
     fn class_method_call_expression(
         &mut self,

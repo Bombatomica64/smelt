@@ -513,6 +513,34 @@ impl FunctionEmitter<'_> {
                         ))
                     };
                 }
+                if let HirOrigin::ClassStaticMethod { class, method, .. } = function.origin {
+                    // `Class.staticMethod(args)` lowers to the receiver-free
+                    // associated function `Class::staticMethod(args)`. Arguments
+                    // are coerced to the emitted parameter types like any other
+                    // static call, and missing trailing parameters default.
+                    let class_name = sanitize_ident(self.symbol_name(class)?);
+                    let method_name = sanitize_ident(self.symbol_name(method)?);
+                    let mut rendered_args = args
+                        .iter()
+                        .enumerate()
+                        .map(|(index, arg)| {
+                            let Some(param) = function.params.get(index).copied() else {
+                                return self.operand_text(arg);
+                            };
+                            let target_ty = self.function_local_decl(function, param)?.ty;
+                            self.value_at_type(arg, target_ty)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    for param in function.params.iter().skip(args.len()) {
+                        let target_ty = self.function_local_decl(function, *param)?.ty;
+                        rendered_args.push(self.default_value(target_ty)?);
+                    }
+                    let arg_values = rendered_args.join(", ");
+                    return Ok(format!(
+                        "{class_name}::{method_name}({arg_values}){}",
+                        self.throwing_call_suffix(function)
+                    ));
+                }
                 let rust_function_name = self.function_rust_name(function)?;
                 let emitted_params = self.emitted_function_param_types(&rust_function_name)?;
                 if function.params.len() == 1 {

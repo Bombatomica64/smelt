@@ -541,3 +541,70 @@ class codes(IntEnum):
     lower_module(source, &mut ctx)?;
     Ok(())
 }
+
+/// Issue #98: a `@staticmethod` lowers to a `ClassStaticMethod`-owned function
+/// with no `self` binding, and a class-level variable lowers to a static field.
+#[test]
+fn staticmethod_and_class_var_lower_to_static_members() -> TestResult {
+    let source = py!(r#"
+class MathUtils:
+    LIMIT = 7
+
+    @staticmethod
+    def square(value: float) -> float:
+        return value * value
+
+def area(radius: float) -> float:
+    return MathUtils.square(radius) * MathUtils.LIMIT
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let class = module
+        .items
+        .iter()
+        .find_map(|item_id| match item(&ctx, *item_id).ok()? {
+            Item::Class(class) if symbol(&ctx, class.name).ok()? == "MathUtils" => Some(class),
+            _ => None,
+        })
+        .ok_or("expected MathUtils class")?;
+
+    // The static method is kept in `static_methods` and owns no `self` binding.
+    ensure_eq(&class.static_methods.len(), &1, "static method count")?;
+    let static_item = class
+        .static_methods
+        .first()
+        .copied()
+        .ok_or("missing static method item")?;
+    let static_method = item(&ctx, static_item)?;
+    let Item::Function(function) = static_method else {
+        return Err("static method item is not a function".to_owned());
+    };
+    ensure(
+        matches!(
+            function.owner,
+            smelt_hir::FunctionOwner::ClassStaticMethod { .. }
+        ),
+        "expected ClassStaticMethod owner",
+    )?;
+    let method_body = body(&ctx, function.body.ok_or("expected static method body")?)?;
+    ensure(
+        !method_body
+            .locals
+            .iter()
+            .any(|local| local.name.and_then(|name| symbol(&ctx, name).ok()) == Some("self")),
+        "static method must not bind self",
+    )?;
+
+    // The class variable becomes a materialized static field.
+    ensure_eq(&class.static_fields.len(), &1, "static field count")?;
+    let static_field = class
+        .static_fields
+        .first()
+        .ok_or("missing static field")?;
+    ensure(
+        matches!(static_field.value, Some(Literal::Int(7))),
+        "expected concrete static field value",
+    )?;
+    Ok(())
+}

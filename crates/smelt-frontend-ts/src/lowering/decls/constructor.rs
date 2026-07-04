@@ -508,6 +508,7 @@ impl ModuleBuilder<'_> {
             fields,
             constructor: Some(constructor),
             methods,
+            static_methods: Vec::new(),
             abstract_methods: Vec::new(),
             implements: Vec::new(),
             static_fields: Vec::new(),

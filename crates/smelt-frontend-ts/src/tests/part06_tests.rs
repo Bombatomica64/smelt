@@ -158,7 +158,10 @@ fn lowers_generic_classes() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_static_members() -> Result<(), String> {
+fn rejects_uninitialized_static_field_but_lowers_static_members() -> Result<(), String> {
+    // A `static` field without a concrete literal initializer is still rejected:
+    // there is no materializable value to resolve `Class.role` to (issue #98
+    // lowers only literal-initialized static constants).
     let mut field_ctx = HirCtx::new();
     let field_errors = lowering_errors(
         ts!("class User {
@@ -168,17 +171,22 @@ fn rejects_static_members() -> Result<(), String> {
 "),
         &mut field_ctx,
     )?;
-    assert_unsupported_ts(&field_errors, "static fields")?;
+    assert_unsupported_ts(&field_errors, "static fields require a concrete literal initializer")?;
 
-    let mut method_ctx = HirCtx::new();
-    let method_errors = lowering_errors(
+    // A literal-initialized `static` constant and a `static` method now lower
+    // successfully (issue #98): the constant becomes a materialized static field
+    // and the method a receiver-free associated function.
+    let mut ok_ctx = HirCtx::new();
+    lower_ok(
         ts!("class User {
-  static role(): string { return \"admin\"; }
+  static readonly ROLE: string = \"admin\";
+  static greeting(): string { return \"hi\"; }
 }
 "),
-        &mut method_ctx,
+        &mut ok_ctx,
     )?;
-    assert_unsupported_ts(&method_errors, "static methods")
+    ensure!(smelt_hir::validate(&ok_ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]

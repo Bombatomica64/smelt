@@ -92,6 +92,19 @@ pub enum FunctionOwner {
         /// Method name.
         method: Symbol,
     },
+    /// Function is a `static` method of a class.
+    ///
+    /// Unlike [`FunctionOwner::ClassMethod`], a static method takes no `this`
+    /// receiver: it lowers to a Rust associated function (`Class::method(..)`)
+    /// resolvable via qualified access `Class.method(..)`, keeping its typed
+    /// signature. It shares the constructor/method namespace only through its
+    /// owning class symbol, so codegen groups it into the same inherent impl.
+    ClassStaticMethod {
+        /// Owning class.
+        class: Symbol,
+        /// Method name.
+        method: Symbol,
+    },
     /// Function is a constructor of a class.
     Constructor {
         /// Owning class.
@@ -138,6 +151,14 @@ pub struct Class {
     pub constructor: Option<ItemId>,
     /// Method IDs of the class.
     pub methods: Vec<ItemId>,
+    /// Static method IDs of the class.
+    ///
+    /// These are lowered as associated functions (no `this` receiver) and are
+    /// resolved through qualified access `Class.staticMethod(..)`. They are kept
+    /// separate from [`Class::methods`] so codegen never emits a receiver for
+    /// them and call-site resolution can distinguish qualified static calls
+    /// from instance method calls.
+    pub static_methods: Vec<ItemId>,
     /// Abstract method signatures required by this class.
     pub abstract_methods: Vec<MethodSig>,
     /// Interfaces implemented by this class.

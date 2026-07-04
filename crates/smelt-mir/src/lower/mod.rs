@@ -291,6 +291,11 @@ fn lower_class_table_entry(mir: &mut Mir, class: &smelt_hir::Class, item_functio
             .iter()
             .filter_map(|method_item| item_functions.get(method_item).copied())
             .collect(),
+        static_methods: class
+            .static_methods
+            .iter()
+            .filter_map(|method_item| item_functions.get(method_item).copied())
+            .collect(),
         abstract_methods: class.abstract_methods.clone(),
         implements: class.implements.clone(),
     });
