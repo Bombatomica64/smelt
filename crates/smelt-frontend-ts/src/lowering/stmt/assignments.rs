@@ -19,7 +19,7 @@ use smelt_hir::{
 
 impl ModuleBuilder<'_> {
     /// Runtime key used for JavaScript's well-known `Symbol.iterator` value.
-    const SYMBOL_ITERATOR_KEY: &'static str = "__smelt_symbol_iterator";
+    pub(in crate::lowering) const SYMBOL_ITERATOR_KEY: &'static str = "__smelt_symbol_iterator";
 
     /// Lower supported namespace member calls into the matching HIR operation.
     pub(in crate::lowering) fn namespace_member_call(

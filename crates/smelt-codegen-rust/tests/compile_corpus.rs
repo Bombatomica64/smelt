@@ -522,6 +522,50 @@ export function readMixed(bag: MixedBag, key: string): number | undefined {
 "#,
         },
         Case {
+            // Issue #96: statically-resolvable computed property names. A
+            // `const`-keyed class field (`[TAG]`) folds to the const's string
+            // value as a named field; an enum-member-keyed interface field
+            // (`[Kind.First]`) folds to the enum member's value; a well-known
+            // `[Symbol.iterator]` interface method resolves to the stable
+            // synthetic member spelling. All three become ordinary named
+            // members so the emitted Rust compiles, and reading the folded
+            // class field back through its concrete member type stays concrete.
+            name: "computed_property_names",
+            area: "interfaces",
+            source: r#"
+const TAG = "tag";
+
+enum Kind {
+  First = "first",
+}
+
+class Tagged {
+  [TAG]: string = "leaf";
+  value: number = 0;
+}
+
+interface ByKind {
+  [Kind.First]: number;
+}
+
+interface Seq {
+  [Symbol.iterator](): number;
+}
+
+export function makeTagged(): Tagged {
+  return new Tagged();
+}
+
+export function taggedValue(node: Tagged): number {
+  return node.value;
+}
+
+export function firstOf(record: ByKind): number {
+  return record.first;
+}
+"#,
+        },
+        Case {
             name: "interface_method_call",
             area: "interfaces",
             source: r"

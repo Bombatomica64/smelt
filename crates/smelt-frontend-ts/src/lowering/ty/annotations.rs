@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::lowering::{ModuleBuilder, is_static_property_key};
+use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{
     Expression, TSSignature, TSTupleElement, TSType, TSTypeName, TSTypeQueryExprName,
@@ -627,7 +627,10 @@ return_ty: function.return_ty,
             let TSSignature::TSPropertySignature(prop) = member else {
                 continue;
             };
-            if prop.computed && !is_static_property_key(&prop.key) {
+            // A computed field keeps its declared name when the key statically
+            // resolves (`[K]`, `[E.Member]`, `[Symbol.iterator]`); a genuinely
+            // dynamic key names no static field and is skipped.
+            if prop.computed && !self.is_resolvable_property_key(&prop.key) {
                 continue;
             }
             let Ok(name) = self.property_key_symbol(&prop.key) else {

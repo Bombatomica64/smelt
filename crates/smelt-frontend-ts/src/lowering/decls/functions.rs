@@ -3,10 +3,7 @@
 
 use std::collections::HashSet;
 
-use crate::lowering::support::{
-    is_static_property_key,
-    visibility,
-};
+use crate::lowering::support::visibility;
 use crate::lowering::{
     AssertionNarrowing, GeneratorYieldAccumulator,
     ModuleBuilder, RestParam, specialization,
@@ -869,7 +866,7 @@ impl ModuleBuilder<'_> {
                             class_text,
                         ));
                     }
-                    if property.computed && !is_static_property_key(&property.key) {
+                    if property.computed && !self.is_resolvable_property_key(&property.key) {
                         return Err(SmeltError::unsupported(
                             self.span(property.span.start, property.span.end),
                             "dynamic computed property names are not lowered yet",
@@ -935,7 +932,7 @@ impl ModuleBuilder<'_> {
                             class_text,
                         ));
                     }
-                    if method.computed && !is_static_property_key(&method.key) {
+                    if method.computed && !self.is_resolvable_property_key(&method.key) {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
                             "dynamic computed method names are not lowered yet",
@@ -1105,7 +1102,7 @@ impl ModuleBuilder<'_> {
                             "getters and setters are not lowered yet",
                         ));
                     }
-                    if method.computed && !is_static_property_key(&method.key) {
+                    if method.computed && !self.is_resolvable_property_key(&method.key) {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
                             "dynamic computed method names are not lowered yet",

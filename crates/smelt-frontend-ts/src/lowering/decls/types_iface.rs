@@ -1,7 +1,7 @@
 //! `ModuleBuilder` lowering methods (part 04): type-declaration name qualification
 //! and related HIR construction helpers split out of `lowering.rs`.
 
-use crate::lowering::support::{is_static_property_key, statement_terminates};
+use crate::lowering::support::statement_terminates;
 use crate::lowering::{InterfaceHeritageRef, ModuleBuilder};
 use crate::SmeltError;
 use oxc::ast::ast::{
@@ -108,7 +108,11 @@ impl ModuleBuilder<'_> {
             for sig in &interface.body.body {
                 match sig {
                     TSSignature::TSPropertySignature(prop) => {
-                        if prop.computed && !is_static_property_key(&prop.key) {
+                        // A computed property signature keeps its declared field
+                        // when the key statically resolves (`[K]`, `[E.Member]`,
+                        // `[Symbol.iterator]`); a genuinely dynamic key has no
+                        // named field to record and is skipped.
+                        if prop.computed && !self.is_resolvable_property_key(&prop.key) {
                             continue;
                         }
                         let ty = prop
@@ -136,7 +140,7 @@ impl ModuleBuilder<'_> {
                         });
                     }
                     TSSignature::TSMethodSignature(method) => {
-                        if (method.computed && !is_static_property_key(&method.key))
+                        if (method.computed && !self.is_resolvable_property_key(&method.key))
                             || method.this_param.is_some()
                         {
                             return Err(SmeltError::unsupported(

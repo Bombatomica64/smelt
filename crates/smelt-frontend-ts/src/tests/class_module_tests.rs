@@ -265,6 +265,182 @@ export function isEnabled(flags: Flags): boolean {
     Ok(())
 }
 
+/// Find a class item by source name in a lowered module.
+fn class_named<'a>(
+    ctx: &'a HirCtx,
+    module: &'a smelt_hir::Module,
+    name: &str,
+) -> Result<&'a smelt_hir::Class, String> {
+    module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Class(class) if ctx.krate.names.get(class.name) == Some(name) => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| format!("missing class `{name}`"))
+}
+
+/// Find an interface item by source name in a lowered module.
+fn interface_named<'a>(
+    ctx: &'a HirCtx,
+    module: &'a smelt_hir::Module,
+    name: &str,
+) -> Result<&'a smelt_hir::Interface, String> {
+    module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Interface(interface) if ctx.krate.names.get(interface.name) == Some(name) => {
+                Some(interface)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| format!("missing interface `{name}`"))
+}
+
+/// A `const`-keyed computed interface field (`{ [KEY]: T }`) resolves to the
+/// const's string value as a static named member (issue #96), instead of being
+/// rejected as a dynamic property name.
+#[test]
+fn lowers_const_keyed_computed_interface_field() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const KEY = "id";
+
+export interface Keyed {
+  [KEY]: number;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let keyed = interface_named(&ctx, module, "Keyed")?;
+    ensure!(
+        keyed
+            .fields
+            .iter()
+            .any(|field| ctx.krate.symbols.get(field.name) == Some("id")
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::Float))),
+        "expected const-keyed field `id: Float`, got {:?}",
+        keyed.fields
+    );
+    Ok(())
+}
+
+/// An enum-member-keyed computed interface field (`{ [E.A]: T }`) folds to the
+/// enum member's string value as a static named member (issue #96).
+#[test]
+fn lowers_enum_keyed_computed_interface_field() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+enum Kind {
+  First = "first",
+}
+
+export interface ByKind {
+  [Kind.First]: number;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let by_kind = interface_named(&ctx, module, "ByKind")?;
+    ensure!(
+        by_kind
+            .fields
+            .iter()
+            .any(|field| ctx.krate.symbols.get(field.name) == Some("first")
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::Float))),
+        "expected enum-keyed field `first: Float`, got {:?}",
+        by_kind.fields
+    );
+    Ok(())
+}
+
+/// A `const`-keyed computed class field resolves to the const's string value as
+/// a static named class field (issue #96).
+#[test]
+fn lowers_const_keyed_computed_class_field() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const TAG = "tag";
+
+class Node {
+  [TAG]: string = "leaf";
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let node = class_named(&ctx, module, "Node")?;
+    ensure!(
+        node.fields
+            .iter()
+            .any(|field| ctx.krate.symbols.get(field.name) == Some("tag")
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::String))),
+        "expected const-keyed class field `tag: String`, got {:?}",
+        node.fields
+    );
+    Ok(())
+}
+
+/// A well-known `[Symbol.iterator]` interface method resolves to the stable
+/// synthetic member spelling so it lowers to a named method (issue #96) rather
+/// than being silently dropped or rejected as a dynamic key.
+#[test]
+fn lowers_symbol_iterator_computed_interface_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export interface Seq {
+  [Symbol.iterator](): number;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let seq = interface_named(&ctx, module, "Seq")?;
+    ensure!(
+        seq.methods
+            .iter()
+            .any(|method| ctx.krate.symbols.get(method.name)
+                == Some("__smelt_symbol_iterator")),
+        "expected a `__smelt_symbol_iterator` method, got {:?}",
+        seq.methods
+    );
+    Ok(())
+}
+
+/// A genuinely dynamic computed class property name (a runtime call) is not a
+/// statically-resolvable key, so it still reports the dynamic-property-name
+/// diagnostic (issue #96 folds only static keys; it does not silence honest
+/// dynamic ones).
+#[test]
+fn rejects_dynamic_computed_class_property_name() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let class_errors = lowering_errors(
+        ts!(r#"
+class Dynamic {
+  [Math.random()]: number = 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(
+        &class_errors,
+        "dynamic computed property names are not lowered yet",
+    )?;
+    Ok(())
+}
+
 /// A class string index signature also supports keyed writes (`bag[key] = v`):
 /// the assignment lowers cleanly and the emitted program validates.
 #[test]
