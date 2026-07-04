@@ -3359,3 +3359,111 @@ const values: Mapped<readonly number[], string> = ["a", "b"];
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+#[test]
+fn in_guard_narrows_class_union_to_concrete_arm() -> Result<(), String> {
+    // Issue #55: a structural `"field" in value` guard narrows a class union so
+    // the true-branch read is lowered at the single matching arm. Smelt records
+    // this as a narrowing fact that re-types the local read with an
+    // `UnknownCast` to the narrowed type.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Circle { radius: number = 1; }
+class Square { side: number = 2; }
+function describe(shape: Circle | Square): number {
+  if ("radius" in shape) {
+    return shape.radius;
+  }
+  return 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = module
+        .items
+        .iter()
+        .filter_map(|item_id| ctx.krate.items.get(item_id.0 as usize))
+        .find_map(|item| match item {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some("describe") => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "expected `describe` to lower into a function item".to_owned())?;
+    let body = function_body(&ctx, function)?;
+    // The narrowed read is re-typed to the single class arm via an UnknownCast.
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        &expr.kind,
+        ExprKind::UnknownCast { target, .. }
+            if matches!(ctx.krate.types.get(*target), Some(Type::Class { .. }))
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn property_equality_narrows_union_by_field_presence() -> Result<(), String> {
+    // Issue #55: `value.field === literal` narrows the union to arms that carry
+    // `field` (Smelt erases literal types, so presence is what it can prove).
+    // Chained after an `in` guard the discriminant read projects the concrete
+    // arm and the whole function lowers to a valid HIR crate.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Circle { tag: string = "c"; radius: number = 1; }
+class Square { side: number = 2; }
+function describe(shape: Circle | Square): number {
+  if ("tag" in shape && shape.tag === "c") {
+    return shape.radius;
+  }
+  return 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = module
+        .items
+        .iter()
+        .filter_map(|item_id| ctx.krate.items.get(item_id.0 as usize))
+        .find_map(|item| match item {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some("describe") => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "expected `describe` to lower into a function item".to_owned())?;
+    let body = function_body(&ctx, function)?;
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        &expr.kind,
+        ExprKind::UnknownCast { target, .. }
+            if matches!(ctx.krate.types.get(*target), Some(Type::Class { .. }))
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn reassigning_narrowed_local_with_compatible_value_keeps_narrowing() -> Result<(), String> {
+    // Issue #55 invalidation: writing a value still inside the narrowed set
+    // refines the fact instead of dropping it. The reassigned `path` read stays
+    // narrowed to `string`, so the function validates cleanly.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function resolve(path: string | (() => string)): string {
+  if (typeof path === "string") {
+    path = path + "x";
+    return path;
+  }
+  return path();
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let _ = module_id;
+    Ok(())
+}

@@ -10,6 +10,18 @@ impl FunctionEmitter<'_> {
         key: &Operand,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
+        // A `"field" in value` test over a concrete union projects to a static
+        // discriminant check instead of a runtime object lookup. The frontend
+        // keeps such receivers at their union type precisely so this fast path
+        // can fire; `concrete_union_field_check` returns `None` when the union is
+        // not fully concrete, leaving the erased fallback below to run.
+        if matches!(self.mir.types.get(dict_ty), Some(Type::Union(_)))
+            && let Some(field) = self.operand_string_literal(key)
+            && let Some(check) =
+                self.concrete_union_field_check(&self.operand_text(dict)?, dict_ty, &field)
+        {
+            return Ok(check);
+        }
         let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
             if self.dict_contains_key_uses_erased_object(dict_ty) {
                 let dict_text = self.operand_text(dict)?;
@@ -36,6 +48,17 @@ impl FunctionEmitter<'_> {
             self.operand_text(dict)?,
             self.operand_text(key)?
         ))
+    }
+
+    /// Return the string value when an operand is a constant string literal.
+    ///
+    /// Used to recognize a static discriminant key in `"field" in value` so the
+    /// concrete-union field check can be emitted from a literal property name.
+    fn operand_string_literal(&self, operand: &Operand) -> Option<String> {
+        match operand {
+            Operand::Const(Constant::String(value)) => Some(value.clone()),
+            _ => None,
+        }
     }
 
     /// Return whether a dictionary containment check must inspect an erased

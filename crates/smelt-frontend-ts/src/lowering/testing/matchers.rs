@@ -902,6 +902,22 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Push a fresh narrowing scope carrying a single local fact.
+    ///
+    /// Unlike [`apply_narrowing`], which mutates the current scope, this always
+    /// pushes a new scope so callers can pop exactly the fact they added. It is
+    /// used for scoped branch facts (such as switch-case discriminant narrowing)
+    /// whose lifetime must not outlive the branch body.
+    pub(in crate::lowering) fn apply_narrowing_scope(
+        &mut self,
+        name: String,
+        target: smelt_hir::TypeId,
+    ) {
+        let mut scope = HashMap::new();
+        scope.insert(name, target);
+        self.narrowed_locals.push(scope);
+    }
+
     /// Return the active narrowed type for a source local, if any.
     pub(in crate::lowering) fn narrowed_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
         self.narrowed_locals
@@ -950,6 +966,8 @@ impl ModuleBuilder<'_> {
         } else if let Some((name, target)) = self.array_is_array_guard(expression, body) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.in_operator_guard(expression, body) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.property_equality_guard(expression, body) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.instanceof_local_guard(expression, body) {
             out.insert(name, target);
@@ -1497,6 +1515,140 @@ impl ModuleBuilder<'_> {
         })?;
         let narrowed = self.intern_filtered_union(retained)?;
         Some((name.to_owned(), narrowed))
+    }
+
+    /// Recognize `value.field === literal` discriminant guards.
+    ///
+    /// TypeScript discriminated unions are narrowed by comparing a shared
+    /// discriminant property against a literal. Smelt erases string/number
+    /// literal *types* to `String`/`Float`, so arms cannot be told apart by the
+    /// discriminant field's value type. What Smelt can prove structurally is
+    /// which arms even *carry* the accessed field: comparing `value.field` to a
+    /// literal is only meaningful for arms that expose `field`, so the true
+    /// branch narrows the union to those arms. This mirrors [`in_operator_guard`]
+    /// but keys off a property comparison rather than an `in` test.
+    ///
+    /// The narrowing is intentionally conservative: it only fires when at least
+    /// one union arm lacks the field (so the guard actually excludes a member).
+    /// When every arm carries the field the comparison proves nothing about the
+    /// union shape and no fact is recorded.
+    pub(in crate::lowering) fn property_equality_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::Equality
+        ) {
+            return None;
+        }
+        let (name, field_name) = Self::member_literal_comparison(binary)?;
+        let local = self.locals.get(name.as_str()).copied()?;
+        let ty = self
+            .narrowed_type(&name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        // Only narrow when the comparison distinguishes union arms: some arm must
+        // carry the field and some other arm must not. `filtered_union_members`
+        // returns `None` for non-unions, so single concrete types are untouched.
+        let Type::Union(items) = self.ctx.krate.types.get(ty)?.clone() else {
+            return None;
+        };
+        let all_have_field = items.iter().all(|item| {
+            self.ctx
+                .krate
+                .types
+                .get(*item)
+                .is_some_and(|member| self.type_has_known_field(member, &field_name))
+        });
+        if all_have_field {
+            return None;
+        }
+        let retained = self.filtered_union_members(ty, |member| {
+            self.type_has_known_field(member, &field_name)
+        })?;
+        let narrowed = self.intern_filtered_union(retained)?;
+        Some((name, narrowed))
+    }
+
+    /// Return the local name and property of a `value.field <op> literal` test.
+    ///
+    /// Recognizes both operand orders (`value.field === "x"` and
+    /// `"x" === value.field`). Only static member access on a plain identifier
+    /// compared against a literal counts; anything else yields `None`.
+    fn member_literal_comparison(
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+    ) -> Option<(String, String)> {
+        let member_side = Self::static_member_of_local(&binary.left)
+            .filter(|_| Self::is_comparison_literal(&binary.right))
+            .or_else(|| {
+                Self::static_member_of_local(&binary.right)
+                    .filter(|_| Self::is_comparison_literal(&binary.left))
+            })?;
+        Some(member_side)
+    }
+
+    /// Return `(local, property)` when an expression is `local.property`.
+    fn static_member_of_local(expression: &Expression<'_>) -> Option<(String, String)> {
+        let Expression::StaticMemberExpression(member) = expression else {
+            return None;
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        Some((object.name.to_string(), member.property.name.to_string()))
+    }
+
+    /// Return whether an expression is a literal usable as a discriminant value.
+    fn is_comparison_literal(expression: &Expression<'_>) -> bool {
+        matches!(
+            expression,
+            Expression::StringLiteral(_)
+                | Expression::NumericLiteral(_)
+                | Expression::BooleanLiteral(_)
+                | Expression::NullLiteral(_)
+        )
+    }
+
+    /// Compute the fact proven by a `switch (value.field)` discriminant.
+    ///
+    /// Inside every labeled case a `switch (value.field)` proves that `value`
+    /// carries `field`, so the union narrows to arms exposing it. As with
+    /// [`property_equality_guard`], the fact is only recorded when it actually
+    /// excludes an arm (some union member lacks the field); otherwise the switch
+    /// proves nothing about the union shape. Returns `None` for non-union locals
+    /// and for discriminants that are not a plain `local.field` access.
+    pub(in crate::lowering) fn switch_discriminant_narrowing(
+        &mut self,
+        discriminant: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let (name, field_name) = Self::static_member_of_local(discriminant)?;
+        let local = self.locals.get(name.as_str()).copied()?;
+        let ty = self
+            .narrowed_type(&name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let Type::Union(items) = self.ctx.krate.types.get(ty)?.clone() else {
+            return None;
+        };
+        let all_have_field = items.iter().all(|item| {
+            self.ctx
+                .krate
+                .types
+                .get(*item)
+                .is_some_and(|member| self.type_has_known_field(member, &field_name))
+        });
+        if all_have_field {
+            return None;
+        }
+        let retained = self.filtered_union_members(ty, |member| {
+            self.type_has_known_field(member, &field_name)
+        })?;
+        let narrowed = self.intern_filtered_union(retained)?;
+        Some((name, narrowed))
     }
 
     /// Recognize `value instanceof Class` and retain matching concrete class arms.

@@ -5455,6 +5455,71 @@ function fire(payload: unknown): void {
 }
 
 #[test]
+fn structural_in_guard_projects_to_concrete_union_discriminant() {
+    // Issue #55: a `"field" in value` guard over a concrete class union must
+    // lower to a tagged-enum discriminant check, not an erased runtime object
+    // lookup. Inside the true branch the value projects into the matching arm.
+    let source = source_for(
+        r#"
+class Circle { radius: number = 1; }
+class Square { side: number = 2; }
+function describe(shape: Circle | Square): number {
+  if ("radius" in shape) {
+    return shape.radius;
+  }
+  return 0;
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    // The `in` check is a concrete discriminant test, never a SmeltUnknown map.
+    assert!(
+        source.contains("matches!(shape.clone(), SmeltUnion"),
+        "structural `in` should emit a concrete tag check: {source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Object(values) => values.contains_key"),
+        "structural `in` on a concrete union must not erase to an object lookup: {source}"
+    );
+    // The narrowed read projects into the concrete arm.
+    assert!(
+        source.contains("union guard selected an excluded member"),
+        "{source}"
+    );
+}
+
+#[test]
+fn property_equality_after_in_guard_projects_concrete_arm() {
+    // Issue #55: property-equality discriminant comparison works once the value
+    // has been narrowed to a concrete arm. The `in` guard narrows `shape` to
+    // `Circle`, then `shape.tag === "c"` reads the concrete arm's field.
+    let source = source_for(
+        r#"
+class Circle { tag: string = "c"; radius: number = 1; }
+class Square { side: number = 2; }
+function describe(shape: Circle | Square): number {
+  if ("tag" in shape && shape.tag === "c") {
+    return shape.radius;
+  }
+  return 0;
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(
+        source.contains("matches!(shape.clone(), SmeltUnion"),
+        "{source}"
+    );
+    // The discriminant field comparison reads the projected concrete arm.
+    assert!(
+        source.contains(".tag.clone() == \"c\".to_owned()"),
+        "narrowed discriminant comparison should read the concrete field: {source}"
+    );
+}
+
+#[test]
 fn timer_unknown_callback_param_keeps_erased_list_path() {
     // A concretely typed extra whose callback parameter is `unknown` is still a
     // dynamic boundary: forwarding the `String` directly would drop it into a
@@ -5475,5 +5540,35 @@ setTimeout(handle, 10, "x");
     assert!(
         !source.contains("smelt_timer_arg_0"),
         "unknown callback parameter path must not synthesize typed per-argument bindings: {source}"
+    );
+}
+
+#[test]
+fn reassigning_narrowed_union_local_stays_within_narrowed_arm() {
+    // Issue #55 invalidation rule: writing a value that still inhabits the
+    // narrowed arm refines the narrowing rather than dropping it, so the write
+    // re-injects the concrete union variant and later reads still project it.
+    let source = source_for(
+        r#"
+function resolve(path: string | (() => string)): string {
+  if (typeof path === "string") {
+    path = path + "x";
+    return path;
+  }
+  return path();
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    // The assignment re-injects the concrete arm, proving the fact survived the
+    // widening-compatible write.
+    assert!(
+        source.contains("path = SmeltUnion"),
+        "assignment of a narrowed-compatible value should re-inject the arm: {source}"
+    );
+    assert!(
+        source.contains("union guard selected an excluded member"),
+        "{source}"
     );
 }
