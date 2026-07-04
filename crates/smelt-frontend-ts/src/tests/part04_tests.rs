@@ -3528,6 +3528,186 @@ function run(fn: Step2): string {
     Ok(())
 }
 
+/// Find the `Type::Function` stored in an interface field by field name.
+fn interface_field_function(
+    ctx: &HirCtx,
+    interface_name: &str,
+    field_name: &str,
+) -> Option<smelt_hir::FunctionType> {
+    ctx.krate.items.iter().find_map(|item| {
+        let Item::Interface(interface) = item else {
+            return None;
+        };
+        if ctx.krate.symbols.get(interface.name) != Some(interface_name) {
+            return None;
+        }
+        interface.fields.iter().find_map(|field| {
+            if ctx.krate.symbols.get(field.name) != Some(field_name) {
+                return None;
+            }
+            match ctx.krate.types.get(field.ty) {
+                Some(Type::Function(function)) => Some(function.clone()),
+                _ => None,
+            }
+        })
+    })
+}
+
+#[test]
+fn preserves_optional_and_rest_arity_on_interface_method_field() -> Result<(), String> {
+    // A callable interface method with a trailing optional parameter and a rest
+    // parameter must surface its source arity on the generated callable field:
+    // `required_params` stops at the first optional parameter and `rest` marks
+    // the packed tail. Regression for issue #53 where interface method fields
+    // hardcoded `rest: None, required_params: None`, masking the real arity.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Logger {
+  log(message: string, level?: string, ...extra: string[]): void;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let function = interface_field_function(&ctx, "Logger", "log")
+        .ok_or_else(|| "missing Logger.log callable field".to_owned())?;
+    // params: [message, Optional<level>, List<extra>]
+    ensure_eq!(function.params.len(), 3);
+    ensure_eq!(function.rest, Some(2));
+    ensure_eq!(function.required_params, Some(1));
+    ensure!(matches!(
+        ctx.krate.types.get(function.params[1]),
+        Some(Type::Optional(_))
+    ));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn preserves_required_arity_on_callable_type_alias() -> Result<(), String> {
+    // A callable type alias `(a, b?) => T` must record its required arity so
+    // under-application through the alias stays typed. Previously
+    // `callable_type_to_hir` set `required_params: None`, defaulting consumers
+    // to `params.len()` and rejecting or erasing legal partial calls.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Holder {
+  handler: (first: number, second?: number) => number;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let function = interface_field_function(&ctx, "Holder", "handler")
+        .ok_or_else(|| "missing Holder.handler callable field".to_owned())?;
+    ensure_eq!(function.params.len(), 2);
+    ensure_eq!(function.required_params, Some(1));
+    ensure!(matches!(
+        ctx.krate.types.get(function.params[1]),
+        Some(Type::Optional(_))
+    ));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn types_curried_under_application_through_callable_field_signature() -> Result<(), String> {
+    // A curried factory whose returned callable declares an optional trailing
+    // parameter can be under-applied with zero arguments. Because the arity is
+    // now statically known, the call lowers to a typed `ClosureCall` (with the
+    // omitted optional synthesized as a typed `None`) instead of routing through
+    // the erased arity-short fallback. The HIR must validate cleanly.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Curried {
+  (seed: number): Inner;
+}
+
+interface Inner {
+  (value?: number): number;
+}
+
+function run(make: Curried): number {
+  const inner = make(1);
+  return inner();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let closure_calls = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+        .count();
+    // `make(1)` and `inner()` both lower to typed closure calls.
+    ensure_eq!(closure_calls, 2);
+    // No expression should have been erased to `Unknown` for the under-applied
+    // `inner()` call: its result type is the declared `number` return.
+    let erased_calls = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| {
+            matches!(expr.kind, ExprKind::ClosureCall { .. })
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Unknown))
+        })
+        .count();
+    ensure_eq!(erased_calls, 0);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn missing_required_param_before_rest_slot_erases_under_application() -> Result<(), String> {
+    // Regression for the review of issue #53: a rest slot only absorbs the
+    // surplus tail *after* the required prefix, so it can never satisfy a
+    // missing required argument. `make(1)()` under-applies a returned
+    // `(first: number, ...rest: string[]) => number` with zero arguments —
+    // `first` is required, so this is not statically typed under-application and
+    // must route through the erased arity-independent ABI (result `Unknown`),
+    // never synthesize a typed `None` for the non-optional `first`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Factory {
+  (seed: number): Handler;
+}
+
+interface Handler {
+  (first: number, ...rest: string[]): number;
+}
+
+function run(make: Factory): number {
+  return make(1)();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    // The under-applied `make(1)()` call is erased: its result type is `Unknown`
+    // rather than the declared `number` return, and no typed `None` is packed.
+    let erased_under_applied = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| {
+            matches!(expr.kind, ExprKind::ClosureCall { .. })
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Unknown))
+        })
+        .count();
+    ensure_eq!(erased_under_applied, 1);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 #[test]
 fn lowers_unhinted_function_expression_object_property_as_unknown_callable() -> Result<(), String> {
     let mut ctx = HirCtx::new();

@@ -172,6 +172,17 @@ impl ModuleBuilder<'_> {
                                             "interface method parameters require explicit types",
                                         )
                                     })?;
+                                // An optional parameter (`x?: T`) has the same
+                                // `Optional<T>` ABI as an optional function-type
+                                // parameter so under-application can pass a typed
+                                // `None`. Recording it here keeps the callable
+                                // method field's arity in sync with the
+                                // `required_params` count below.
+                                let ty = if param.optional {
+                                    self.ctx.krate.types.intern(Type::Optional(ty))
+                                } else {
+                                    ty
+                                };
                                 let (param_name, param_span) =
                                     if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
                                         (
@@ -190,10 +201,44 @@ impl ModuleBuilder<'_> {
                                     span: param_span,
                                 });
                             }
-                            Ok((return_ty, params))
+                            // A trailing rest parameter (`...args: T[]`) becomes
+                            // the final `List<T>` slot; its index feeds the
+                            // `rest` metadata so call lowering packs the tail
+                            // instead of mistaking the array for a fixed param.
+                            let mut rest_index = None;
+                            if let Some(rest) = &method.params.rest {
+                                let rest_ty = rest
+                                    .type_annotation
+                                    .as_ref()
+                                    .map(|annotation| {
+                                        self.function_type_rest_param_to_hir(
+                                            &annotation.type_annotation,
+                                        )
+                                    })
+                                    .transpose()?
+                                    .ok_or_else(|| {
+                                        SmeltError::unsupported(
+                                            self.span(rest.span.start, rest.span.end),
+                                            "interface method rest parameters require explicit array types",
+                                        )
+                                    })?;
+                                // The rest binding's own identifier is purely
+                                // type-level in an interface method signature, so
+                                // a synthetic slot name is sufficient for the
+                                // generated callable field.
+                                rest_index = Some(params.len());
+                                params.push(ParamSig {
+                                    name: self.synthetic_param_symbol(params.len()),
+                                    ty: rest_ty,
+                                    span: self.span(rest.span.start, rest.span.end),
+                                });
+                            }
+                            let required_params =
+                                Self::formal_parameters_required_count(&method.params);
+                            Ok((return_ty, params, rest_index, required_params))
                         })();
                         self.pop_type_parameter_scope();
-                        let (return_ty, params) = result?;
+                        let (return_ty, params, rest_index, required_params) = result?;
                         if method.optional {
                             let param_tys = params.iter().map(|param| param.ty).collect::<Vec<_>>();
                             let mutable_params =
@@ -201,8 +246,8 @@ impl ModuleBuilder<'_> {
                             let function_ty = self.ctx.krate.types.intern(Type::Function(
                                 FunctionType {
                                     params: param_tys,
-                                    rest: None,
-                                    required_params: None,
+                                    rest: rest_index,
+                                    required_params: Some(required_params),
                                     mutable_params,
                                     return_ty,
                                     is_async: matches!(
@@ -224,9 +269,9 @@ impl ModuleBuilder<'_> {
                         methods.push(MethodSig {
                             name: self.property_key_symbol(&method.key)?,
                             params,
-            rest: None,
-                            required_params: None,
-return_ty,
+                            rest: rest_index,
+                            required_params: Some(required_params),
+                            return_ty,
                             visibility: Visibility::Public,
                             is_async: matches!(
                                 self.ctx.krate.types.get(return_ty),
@@ -250,14 +295,47 @@ return_ty,
                                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                                 .transpose()?
                                 .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                            // Optional call-signature parameters keep the
+                            // `Optional<T>` ABI so under-application can supply a
+                            // typed `None`, matching the `required_params` count.
+                            let ty = if param.optional {
+                                self.ctx.krate.types.intern(Type::Optional(ty))
+                            } else {
+                                ty
+                            };
                             params.push(ty);
                         }
+                        // Preserve a trailing rest parameter so the call
+                        // signature's runtime arity survives instead of the
+                        // rest slot being lowered as a fixed array parameter.
+                        let mut rest_index = None;
+                        if let Some(rest) = &signature.params.rest {
+                            let rest_ty = rest
+                                .type_annotation
+                                .as_ref()
+                                .map(|annotation| {
+                                    self.function_type_rest_param_to_hir(
+                                        &annotation.type_annotation,
+                                    )
+                                })
+                                .transpose()?
+                                .ok_or_else(|| {
+                                    SmeltError::unsupported(
+                                        self.span(rest.span.start, rest.span.end),
+                                        "call signature rest parameters require explicit array types",
+                                    )
+                                })?;
+                            rest_index = Some(params.len());
+                            params.push(rest_ty);
+                        }
+                        let required_params =
+                            Self::formal_parameters_required_count(&signature.params);
                         call_signatures.push(FunctionType {
                             mutable_params: self
                                 .mutable_params_from_returned_tuple_state(&params, return_ty),
                             params,
-                            rest: None,
-                            required_params: None,
+                            rest: rest_index,
+                            required_params: Some(required_params),
                             return_ty,
                             is_async: matches!(
                                 self.ctx.krate.types.get(return_ty),

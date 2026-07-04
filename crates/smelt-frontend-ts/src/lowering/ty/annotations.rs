@@ -1260,10 +1260,11 @@ return_ty: function.return_ty,
             let return_ty = self.ts_type_to_hir(&return_type.type_annotation)?;
             let mutable_params =
                 self.mutable_params_from_returned_tuple_state(&lowered_params, return_ty);
+            let required_params = Some(Self::formal_parameters_required_count(params));
             Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: lowered_params,
                 rest: rest_index,
-                required_params: None,
+                required_params,
                 mutable_params,
                 return_ty,
                 is_async: false,
@@ -1272,6 +1273,26 @@ return_ty: function.return_ty,
         })();
         self.pop_type_parameter_scope();
         result
+    }
+
+    /// Count the leading required parameters of an oxc callable signature.
+    ///
+    /// TypeScript's `Function.length` (the source-level required arity) stops at
+    /// the first parameter that is optional (`x?`) or carries a default value,
+    /// and never counts a trailing rest parameter. This mirrors the same
+    /// computation performed for concrete function declarations in
+    /// [`Self::formal_parameter_has_default`], so callable *type* annotations
+    /// (`(a: T, b?: U) => V`, aliases, callable fields) preserve the exact
+    /// under-application semantics that assignability and call lowering depend
+    /// on instead of falling back to `params.len()`.
+    pub(in crate::lowering) fn formal_parameters_required_count(
+        params: &oxc::ast::ast::FormalParameters<'_>,
+    ) -> usize {
+        params
+            .items
+            .iter()
+            .position(|param| param.optional || Self::formal_parameter_has_default(param))
+            .unwrap_or(params.items.len())
     }
 
     /// Return whether a tuple rest element can be erased from HIR tuple metadata.

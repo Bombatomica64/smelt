@@ -1367,10 +1367,26 @@ impl ModuleBuilder<'_> {
         let substitutions = self
             .type_argument_substitution(&type_params, args, self.span(0, 0))
             .ok()?;
+        // Prefer an overload whose declared arity can actually accept the call.
+        // A rest parameter or optional trailing parameters relax the exact match,
+        // so the requested `arg_count` may sit anywhere in
+        // `required_params..=params.len()` (or above it when a rest slot
+        // absorbs the surplus). Fall back to an exact match, then the first
+        // signature, so callers with no argument count still resolve.
         let signature = signatures
             .iter()
-            .find(|signature| arg_count.is_some_and(|count| signature.params.len() == count))
+            .find(|signature| {
+                arg_count.is_some_and(|count| Self::signature_accepts_arg_count(signature, count))
+            })
+            .or_else(|| {
+                signatures
+                    .iter()
+                    .find(|signature| arg_count.is_some_and(|count| signature.params.len() == count))
+            })
             .or_else(|| signatures.first())?;
+        let rest = signature.rest;
+        let required_params = signature.required_params;
+        let is_async = signature.is_async;
         let params = signature
             .params
             .iter()
@@ -1380,13 +1396,34 @@ impl ModuleBuilder<'_> {
         let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
-            rest: None,
-            required_params: None,
+            rest,
+            required_params,
             mutable_params,
             return_ty,
-            is_async: signature.is_async,
+            is_async,
             may_throw: false,
         })))
+    }
+
+    /// Return whether a call-signature overload can accept `arg_count` arguments.
+    ///
+    /// The requested arity is acceptable when it supplies at least the required
+    /// parameters and does not overflow the declared parameters — unless the
+    /// signature has a rest parameter, which absorbs any surplus. This mirrors
+    /// [`Self::function_arity_assignable`] at the call site so overload
+    /// selection honours optional/rest arity instead of demanding an exact
+    /// `params.len()` match.
+    fn signature_accepts_arg_count(signature: &FunctionType, arg_count: usize) -> bool {
+        let required = signature
+            .required_params
+            .unwrap_or(signature.params.len());
+        if arg_count < required {
+            return false;
+        }
+        if signature.rest.is_some() {
+            return true;
+        }
+        arg_count <= signature.params.len()
     }
 
     /// Recognize `Array.isArray(value)` guard expressions.
