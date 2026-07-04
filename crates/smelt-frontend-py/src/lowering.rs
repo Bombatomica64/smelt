@@ -13,8 +13,8 @@ use std::path::Path;
 
 use ruff_python_ast::{
     BoolOp, CmpOp, ElifElseClause, Expr, ModModule, Number, Operator, Pattern as RuffPattern,
-    PatternMatchAs, Singleton, Stmt, StmtAnnAssign, StmtAssert, StmtAugAssign, StmtClassDef,
-    StmtFor, StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StmtMatch, StmtWith,
+    PatternMatchAs, Singleton, Stmt, StmtAnnAssign, StmtAssert, StmtAssign, StmtAugAssign,
+    StmtClassDef, StmtFor, StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StmtMatch, StmtWith,
     UnaryOp as RuffUnaryOp,
 };
 use ruff_text_size::{Ranged, TextRange};

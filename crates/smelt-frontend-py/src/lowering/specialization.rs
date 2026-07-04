@@ -394,7 +394,10 @@ impl ModuleBuilder<'_> {
                 };
                 let name = self.ctx.krate.symbols.get(function.name)?;
                 let owner_name = match function.owner {
-                    FunctionOwner::ClassMethod { method, .. } => self.ctx.krate.symbols.get(method),
+                    FunctionOwner::ClassMethod { method, .. }
+                    | FunctionOwner::ClassStaticMethod { method, .. } => {
+                        self.ctx.krate.symbols.get(method)
+                    }
                     FunctionOwner::Module | FunctionOwner::Constructor { .. } => None,
                 };
                 (descriptor_callable_name_matches(name, expected_name)
@@ -1129,7 +1132,8 @@ impl ModuleBuilder<'_> {
                     FunctionOwner::Module => {
                         self.ctx.krate.symbols.get(function.name) == Some(source_name)
                     }
-                    FunctionOwner::ClassMethod { class, method } => {
+                    FunctionOwner::ClassMethod { class, method }
+                    | FunctionOwner::ClassStaticMethod { class, method } => {
                         self.ctx.krate.symbols.get(method) == Some(source_name)
                             && owner_name.is_some_and(|owner| {
                                 self.ctx.krate.symbols.get(class) == Some(owner)

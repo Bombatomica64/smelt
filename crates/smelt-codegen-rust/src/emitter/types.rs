@@ -589,9 +589,9 @@ impl FunctionEmitter<'_> {
     /// Return type parameters declared by the current class function scope.
     fn current_function_type_params(&self) -> HashSet<Symbol> {
         let class_name = match self.function.origin {
-            HirOrigin::ClassConstructor { class, .. } | HirOrigin::ClassMethod { class, .. } => {
-                class
-            }
+            HirOrigin::ClassConstructor { class, .. }
+            | HirOrigin::ClassMethod { class, .. }
+            | HirOrigin::ClassStaticMethod { class, .. } => class,
             HirOrigin::Body(_) => return HashSet::new(),
         };
         self.mir

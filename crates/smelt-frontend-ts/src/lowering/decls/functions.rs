@@ -16,7 +16,7 @@ use oxc::ast::ast::{
 use oxc::span::GetSpan;
 use smelt_hir::{
     Body, CLASS_INDEX_STORE_FIELD, Class, Expr, ExprKind,
-    Field, Function, FunctionOwner, FunctionType, Item, LocalDecl, MethodSig, Param,
+    Field, Function, FunctionOwner, FunctionType, Item, Literal, LocalDecl, MethodSig, Param,
     ParamSig, Pattern, Span, Stmt, Type, Visibility,
 };
 
@@ -850,6 +850,10 @@ impl ModuleBuilder<'_> {
         let mut field_initializers = Vec::new();
         let mut constructor = None;
         let mut methods = Vec::new();
+        let mut static_methods = Vec::new();
+        // Static class constants declared directly in source (`static NAME =
+        // <literal>`), as opposed to `static_fields` merged from specialization.
+        let mut source_static_fields: Vec<smelt_hir::StaticField> = Vec::new();
         let mut abstract_methods = Vec::new();
         let mut descriptor_accessors = Vec::new();
         // Value type declared by a class string/number index signature, if any.
@@ -876,9 +880,17 @@ impl ModuleBuilder<'_> {
                         if materialized.is_some() {
                             continue;
                         }
+                        // A `static NAME: T = <literal>` declares a class-level
+                        // constant resolvable via `Class.NAME`. Lower it to a
+                        // materialized static field (issue #98). Non-literal or
+                        // untyped static initializers are not yet lowered.
+                        if let Some(static_field) = self.class_static_field(property)? {
+                            source_static_fields.push(static_field);
+                            continue;
+                        }
                         return Err(SmeltError::unsupported(
                             self.span(property.span.start, property.span.end),
-                            "static fields are not lowered yet",
+                            "static fields require a concrete literal initializer",
                         ));
                     }
                     let name = self.property_key_symbol(&property.key)?;
@@ -942,9 +954,12 @@ impl ModuleBuilder<'_> {
                         if materialized.is_some() {
                             continue;
                         }
+                        // Static getters need associated-accessor lowering that
+                        // is not implemented yet; static *methods* are handled in
+                        // the method-lowering pass below.
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
-                            "static methods are not lowered yet",
+                            "static accessors are not lowered yet",
                         ));
                     }
                     let name = self.property_key_symbol(&method.key)?;
@@ -1018,11 +1033,22 @@ impl ModuleBuilder<'_> {
                 });
             }
         }
-        let static_fields = materialized
+        let mut static_fields = materialized
             .as_ref()
             .map_or_else(Vec::new, |materialized_class| {
                 self.merge_materialized_class_members(materialized_class, &mut fields, class_span)
             });
+        // Source-declared `static NAME = <literal>` constants extend the
+        // materialized set; a materialized value takes precedence when a member
+        // is named by both, so only append source statics not already present.
+        for static_field in source_static_fields {
+            if !static_fields
+                .iter()
+                .any(|existing| existing.name == static_field.name)
+            {
+                static_fields.push(static_field);
+            }
+        }
         let method_sigs = self.class_method_signatures(&class.body.body)?;
         let virtual_method_fields =
             self.virtual_method_field_names(&class.body.body, class.r#abstract);
@@ -1112,10 +1138,22 @@ impl ModuleBuilder<'_> {
                         if materialized.is_some() {
                             continue;
                         }
-                        return Err(SmeltError::unsupported(
-                            self.span(method.span.start, method.span.end),
-                            "static methods are not lowered yet",
-                        ));
+                        // Only plain `static foo(..)` methods are lowered as
+                        // receiver-free associated functions (issue #98). Static
+                        // getters/setters and computed static keys are deferred.
+                        if method.kind != MethodDefinitionKind::Method {
+                            return Err(SmeltError::unsupported(
+                                self.span(method.span.start, method.span.end),
+                                "static accessors are not lowered yet",
+                            ));
+                        }
+                        let item = self.class_static_function(
+                            class_text,
+                            class_name,
+                            method,
+                        )?;
+                        static_methods.push(item);
+                        continue;
                     }
                     if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition {
                         if !matches!(method.kind, MethodDefinitionKind::Method) {
@@ -1337,6 +1375,7 @@ impl ModuleBuilder<'_> {
             descriptors,
             constructor,
             methods,
+            static_methods,
             abstract_methods,
             implements,
         }));
@@ -1374,7 +1413,7 @@ impl ModuleBuilder<'_> {
             args: Vec::new(),
         });
         Ok(body.push_expr(Expr {
-            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            kind: ExprKind::Literal(Literal::None),
             ty,
             span: self.span(class.span.start, class.span.end),
         }))
@@ -1971,6 +2010,93 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a class method or constructor to HIR.
+    /// Lower a `static NAME: T = <literal>` class field to a static field.
+    ///
+    /// Returns `None` when the initializer is missing or is not a concrete
+    /// literal, so the caller can reject unsupported static-field forms. The
+    /// field's type comes from the annotation when present, otherwise it is
+    /// inferred from the literal. It is resolvable via `Class.NAME` and lowers to
+    /// a receiver-free associated accessor in Rust codegen.
+    pub(in crate::lowering) fn class_static_field(
+        &mut self,
+        property: &oxc::ast::ast::PropertyDefinition<'_>,
+    ) -> Result<Option<smelt_hir::StaticField>, SmeltError> {
+        let name = self.property_key_symbol(&property.key)?;
+        let Some(value_expr) = &property.value else {
+            return Ok(None);
+        };
+        // The field type is taken from the materialized literal so the emitted
+        // accessor return type always matches the concrete value's Rust type.
+        let Some((literal, ty)) = self.static_field_literal(value_expr)? else {
+            return Ok(None);
+        };
+        let visibility = if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
+            Visibility::Private
+        } else {
+            visibility(property.accessibility)
+        };
+        Ok(Some(smelt_hir::StaticField {
+            name,
+            ty,
+            visibility,
+            value: Some(literal),
+            span: self.span(property.span.start, property.span.end),
+        }))
+    }
+
+    /// Convert a static-field initializer expression to a concrete literal and
+    /// its inferred type.
+    ///
+    /// Numeric literals lower to `Float`, mirroring JavaScript's single `number`
+    /// type (TypeScript has no `int` spelling), so an annotated `number` static
+    /// and its value agree. Returns `None` when the expression is not a
+    /// supported literal form.
+    fn static_field_literal(
+        &mut self,
+        expr: &Expression<'_>,
+    ) -> Result<Option<(Literal, smelt_hir::TypeId)>, SmeltError> {
+        let pair = match expr {
+            Expression::StringLiteral(literal) => (
+                Literal::String(literal.value.to_string()),
+                self.ctx.krate.types.intern(Type::String),
+            ),
+            Expression::BooleanLiteral(literal) => (
+                Literal::Bool(literal.value),
+                self.ctx.krate.types.intern(Type::Bool),
+            ),
+            Expression::NumericLiteral(literal) => (
+                Literal::Float(literal.value),
+                self.ctx.krate.types.intern(Type::Float),
+            ),
+            _ => return Ok(None),
+        };
+        Ok(Some(pair))
+    }
+
+    /// Lower a `static foo(..)` class method to a receiver-free HIR function.
+    ///
+    /// This is the static counterpart to [`Self::class_function`]: the resulting
+    /// function has no `this` parameter and is owned by
+    /// [`FunctionOwner::ClassStaticMethod`], so codegen emits an associated
+    /// function `Class::foo(..)` resolvable via qualified access `Class.foo(..)`.
+    pub(in crate::lowering) fn class_static_function(
+        &mut self,
+        class_text: &str,
+        class_name: smelt_hir::Symbol,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let class_ty = self.ctx.krate.types.intern(Type::Class {
+            name: class_name,
+            args: Vec::new(),
+        });
+        self.class_function_impl(class_text, class_name, class_ty, method, false, true, &[])
+    }
+
+    /// Lower an instance method or constructor of a class to a HIR function.
+    ///
+    /// Non-constructor methods take an implicit leading `this` receiver;
+    /// constructors run field and parameter-property initializers. Static
+    /// methods use [`Self::class_static_function`] instead.
     pub(in crate::lowering) fn class_function(
         &mut self,
         class_text: &str,
@@ -1978,6 +2104,34 @@ impl ModuleBuilder<'_> {
         class_ty: smelt_hir::TypeId,
         method: &oxc::ast::ast::MethodDefinition<'_>,
         is_constructor: bool,
+        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.class_function_impl(
+            class_text,
+            class_name,
+            class_ty,
+            method,
+            is_constructor,
+            false,
+            field_initializers,
+        )
+    }
+
+    /// Shared implementation for instance, constructor, and static class
+    /// functions. `is_static` suppresses the implicit `this` receiver and routes
+    /// ownership to [`FunctionOwner::ClassStaticMethod`].
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "class function lowering threads the receiver/constructor flags through one shared body"
+    )]
+    fn class_function_impl(
+        &mut self,
+        class_text: &str,
+        class_name: smelt_hir::Symbol,
+        class_ty: smelt_hir::TypeId,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+        is_constructor: bool,
+        is_static: bool,
         field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &method.value.body else {
@@ -2063,15 +2217,20 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span: self.span(method.span.start, method.span.start),
         });
-        self.locals.insert("this".to_owned(), this_local);
-        if !is_constructor {
-            body.params.push(this_local);
-            params.push(Param {
-                name: this_symbol,
-                local: this_local,
-                ty: class_ty,
-                span: self.span(method.span.start, method.span.start),
-            });
+        // A static method has no `this` receiver: it must not bind `this` and
+        // must not carry a receiver parameter, so it lowers to a receiver-free
+        // associated function.
+        if !is_static {
+            self.locals.insert("this".to_owned(), this_local);
+            if !is_constructor {
+                body.params.push(this_local);
+                params.push(Param {
+                    name: this_symbol,
+                    local: this_local,
+                    ty: class_ty,
+                    span: self.span(method.span.start, method.span.start),
+                });
+            }
         }
 
         let mut destructured_params = Vec::new();
@@ -2197,6 +2356,11 @@ impl ModuleBuilder<'_> {
             body: Some(body_id),
             owner: if is_constructor {
                 FunctionOwner::Constructor { class: class_name }
+            } else if is_static {
+                FunctionOwner::ClassStaticMethod {
+                    class: class_name,
+                    method: method_name,
+                }
             } else {
                 FunctionOwner::ClassMethod {
                     class: class_name,

@@ -566,6 +566,45 @@ export function firstOf(record: ByKind): number {
 "#,
         },
         Case {
+            // Issue #98: static methods lower to receiver-free associated
+            // functions (`Class::method(..)`) and static class constants lower
+            // to materialized static fields resolvable via `Class.CONST`. Both
+            // must round-trip through the pipeline and compile as Rust. The
+            // static method is called qualified, and the static constants are
+            // read qualified in a free function, exercising both the emitted
+            // associated function and the concrete literal read paths.
+            name: "class_static_members",
+            area: "classes",
+            source: r#"
+class MathUtils {
+  static readonly PI: number = 3.14;
+  static readonly NAME: string = "math";
+
+  static square(value: number): number {
+    return value * value;
+  }
+
+  static clamp(value: number, low: number, high: number): number {
+    if (value < low) return low;
+    if (value > high) return high;
+    return value;
+  }
+}
+
+export function circleArea(radius: number): number {
+  return MathUtils.square(radius) * MathUtils.PI;
+}
+
+export function boundedSquare(value: number): number {
+  return MathUtils.clamp(MathUtils.square(value), 0, 100);
+}
+
+export function utilName(): string {
+  return MathUtils.NAME;
+}
+"#,
+        },
+        Case {
             // Issue #97 / #18: optional class/data fields lower to `Option<T>`
             // with explicit construction. The optional field (`y?: number`)
             // becomes an `Option<f64>` struct slot; construction that supplies

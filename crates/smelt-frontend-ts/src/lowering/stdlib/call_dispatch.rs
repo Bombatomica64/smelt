@@ -123,6 +123,9 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.callable_static_member_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.class_static_method_call(call, body)? {
+            return Ok(expr);
+        }
         if let Expression::StaticMemberExpression(member) = &call.callee {
             if member.property.name == "next" && call.arguments.is_empty() {
                 let receiver = self.expression(&member.object, body)?;
@@ -1228,6 +1231,79 @@ impl<'builder> ModuleBuilder<'builder> {
             ));
         };
         self.argument(value, body).map(Some)
+    }
+
+    /// Lower a qualified static method call `Class.staticMethod(args)`.
+    ///
+    /// Resolves the receiver identifier to a user class and, when it declares a
+    /// `staticMethod`, lowers the call as a direct call to the receiver-free
+    /// associated function item so codegen emits `Class::staticMethod(args)`.
+    /// Returns `None` when the callee is not a `Class.method(..)` static call so
+    /// the caller can fall through to the ordinary member-call path.
+    pub(in crate::lowering) fn class_static_method_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        // The receiver must be a bare class name and not shadowed by a local.
+        if self.locals.contains_key(object.name.as_str()) {
+            return Ok(None);
+        }
+        let Some(class_item) = self.classes.get(object.name.as_str()).copied() else {
+            return Ok(None);
+        };
+        let Item::Class(class) = self.item_ref(class_item) else {
+            return Ok(None);
+        };
+        let Some(static_item) = self.resolve_class_static_method(
+            &class.static_methods.clone(),
+            member.property.name.as_str(),
+        ) else {
+            return Ok(None);
+        };
+        let Item::Function(function) = self.item_ref(static_item) else {
+            return Ok(None);
+        };
+        let return_ty = function.return_ty;
+        let span = self.span(call.span.start, call.span.end);
+        // Arguments are lowered as-is; the Rust emitter coerces each to the
+        // associated function's declared parameter type at the call site, the
+        // same way a direct free-function call is adapted.
+        let mut args = Vec::new();
+        for argument in &call.arguments {
+            args.push(self.argument(argument, body)?);
+        }
+        let callee = body.push_expr(Expr {
+            kind: ExprKind::Item(static_item),
+            ty: self.item_expr_type(static_item, span)?,
+            span,
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Call { callee, args },
+            ty: return_ty,
+            span,
+        })))
+    }
+
+    /// Return the static method item on a class matching `method_name`, if any.
+    fn resolve_class_static_method(
+        &self,
+        static_methods: &[smelt_hir::ItemId],
+        method_name: &str,
+    ) -> Option<smelt_hir::ItemId> {
+        static_methods.iter().copied().find(|item| {
+            matches!(
+                self.item_ref(*item),
+                Item::Function(function)
+                    if self.ctx.krate.symbols.get(function.name) == Some(method_name)
+            )
+        })
     }
 
     /// Lower calls where an object property itself is a callable value.

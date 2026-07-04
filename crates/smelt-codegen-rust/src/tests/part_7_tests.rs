@@ -6120,3 +6120,92 @@ def make() -> Optional[int]:
     // Reading the optional field yields the `Option<i64>` value unchanged.
     assert!(source.contains("a.y.clone()"), "{source}");
 }
+
+/// Issue #98: a TypeScript `static` method lowers to a receiver-free associated
+/// function and a qualified static call resolves to `Class::method(..)`.
+#[test]
+fn emits_typescript_static_method_as_associated_function() {
+    let source = source_for(
+        r#"
+class MathUtils {
+  static square(value: number): number {
+    return value * value;
+  }
+}
+export function area(radius: number): number {
+  return MathUtils.square(radius);
+}
+"#,
+    );
+
+    // The static method is emitted inside the class impl with no `self`.
+    assert!(source.contains("fn square(value: f64) -> f64"), "{source}");
+    assert!(
+        !source.contains("fn square(&self") && !source.contains("fn square(&mut self"),
+        "static method must not take a receiver: {source}"
+    );
+    // The qualified call resolves to the associated function.
+    assert!(source.contains("MathUtils::square("), "{source}");
+}
+
+/// Issue #98: a TypeScript `static` class constant lowers to a materialized
+/// static field and a qualified read resolves to its concrete literal value.
+#[test]
+fn emits_typescript_static_const_read() {
+    let source = source_for(
+        r#"
+class Config {
+  static readonly LIMIT: number = 42;
+  static readonly NAME: string = "smelt";
+}
+export function limit(): number {
+  return Config.LIMIT;
+}
+export function label(): string {
+  return Config.NAME;
+}
+"#,
+    );
+
+    // Static constants become receiver-free associated accessors.
+    assert!(
+        source.contains("fn __smelt_static_limit() -> f64"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn __smelt_static_name() -> String"),
+        "{source}"
+    );
+    // Qualified reads resolve to the concrete literal values.
+    assert!(source.contains("return 42"), "{source}");
+    assert!(source.contains(r#""smelt".to_owned()"#), "{source}");
+}
+
+/// Issue #98: a Python `@staticmethod` lowers to a receiver-free associated
+/// function and a class-level variable lowers to a static field read.
+#[test]
+fn emits_python_static_method_and_class_var() {
+    let source = source_for_py(
+        r#"
+class MathUtils:
+    PI = 3
+
+    @staticmethod
+    def square(value: float) -> float:
+        return value * value
+
+def area(radius: float) -> float:
+    return MathUtils.square(radius) * MathUtils.PI
+"#,
+    );
+
+    assert!(source.contains("fn square(value: f64) -> f64"), "{source}");
+    assert!(
+        !source.contains("fn square(&self") && !source.contains("fn square(&mut self"),
+        "static method must not take a receiver: {source}"
+    );
+    assert!(source.contains("MathUtils::square("), "{source}");
+    // The class variable `PI = 3` reads back as its concrete integer literal.
+    assert!(source.contains("fn __smelt_static_PI"), "{source}");
+    assert!(source.contains(" 3"), "{source}");
+}

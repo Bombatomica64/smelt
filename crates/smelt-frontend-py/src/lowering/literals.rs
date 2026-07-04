@@ -128,6 +128,9 @@ impl ModuleBuilder<'_> {
                 if let Some(member_expr) = self.enum_member_expression(attr, body)? {
                     return Ok(member_expr);
                 }
+                if let Some(member_expr) = self.class_static_member_expression(attr, body)? {
+                    return Ok(member_expr);
+                }
                 if let Some(member_expr) = self.module_member_expression(attr, body)? {
                     return Ok(member_expr);
                 }

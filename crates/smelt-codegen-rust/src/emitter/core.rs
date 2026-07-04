@@ -2436,6 +2436,34 @@ impl<'mir> FunctionEmitter<'mir> {
                     self.return_type_text(self.function.return_ty)?
                 ));
             }
+            HirOrigin::ClassStaticMethod { method, .. } => {
+                // A static method takes no receiver: emit every parameter and no
+                // `self`, producing an associated function `Class::name(..)`.
+                let name = sanitize_ident(self.symbol_name(method)?);
+                let method_params = self
+                    .function
+                    .params
+                    .iter()
+                    .map(|param| {
+                        let mutability = if self.local_binding_needs_mut(*param) {
+                            "mut "
+                        } else {
+                            ""
+                        };
+                        Ok(format!(
+                            "{mutability}{}: {}",
+                            self.local_name(*param)?,
+                            self.parameter_decl_type_text(*param)?
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ");
+                out.push_str(&format!(
+                    "    {}fn {name}({method_params}) -> {} {{\n",
+                    if self.function.is_async { "async " } else { "" },
+                    self.return_type_text(self.function.return_ty)?
+                ));
+            }
             HirOrigin::Body(_) => return self.emit(out),
         }
         self.emit_block(self.entry_block()?, out)?;
