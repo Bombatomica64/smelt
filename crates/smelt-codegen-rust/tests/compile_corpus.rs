@@ -361,6 +361,23 @@ export function containsWhole(haystack: string, needle: string): boolean {
 }
 ",
         },
+        Case {
+            // Issue #87: `.at(index)` accepts statically numeric-compatible index
+            // types beyond an exact `number`. An optional-numeric index
+            // (`number | undefined`) is coerced to the runtime `Float` the
+            // optional-index path expects, and the emitted normalized-index
+            // arithmetic must compile for both array and string receivers.
+            name: "at_index_coercion",
+            area: "collections",
+            source: r"
+export function pickOptional(values: number[], index: number | undefined): number | undefined {
+  return values.at(index);
+}
+export function pickChar(text: string, index: number | undefined): string | undefined {
+  return text.at(index);
+}
+",
+        },
         // --- async / Promise lowering ----------------------------------------
         Case {
             name: "async_await",
