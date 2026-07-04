@@ -130,6 +130,11 @@ impl ModuleBuilder<'_> {
                 target,
                 "Promise"
                     | "ArrayBuffer"
+                    // Node `Buffer`: `new Buffer(...)`/`Buffer.from`/`alloc`/
+                    // `concat` erase to a `__smelt_buffer` record (see
+                    // `buffer_record_from_bytes`), and `value instanceof Buffer`
+                    // resolves through that marker in `instance_of_text`.
+                    | "Buffer"
                     | "Blob"
                     | "Number"
                     // Boxed primitive wrappers. A real primitive (`true`, `"a"`)
@@ -177,7 +182,7 @@ impl ModuleBuilder<'_> {
     /// satisfy would reintroduce the erased-vs-runtime disagreement the globals
     /// plan warns against, so unmodeled host globals are deliberately excluded.
     pub(super) fn is_known_defined_global_constructor(name: &str) -> bool {
-        matches!(name, "Blob" | "ArrayBuffer")
+        matches!(name, "Blob" | "ArrayBuffer" | "Buffer")
             || Self::marker_only_builtin_marker(name).is_some()
     }
 
@@ -598,12 +603,17 @@ impl ModuleBuilder<'_> {
     /// Return true for ambient globals the default deterministic profile treats
     /// as absent (no runtime support, no modeled value).
     ///
-    /// `Buffer` is a Node-only binary buffer constructor; the default profile is
-    /// non-Node, so it is reported absent. Keeping presence here (rather than
-    /// resolving the identifier to a fabricated value) makes the `typeof` guard
-    /// the single source of truth and keeps `isBuffer` deterministic.
+    /// No ambient global is modeled as absent today: `Buffer` used to live here
+    /// (Node-only, non-Node default profile) but is now a modeled host object
+    /// with a concrete byte-buffer representation and a working `instanceof` /
+    /// `Buffer.isBuffer` identity, so it is reported *present* through
+    /// `is_known_defined_global_constructor` instead. The empty set is kept as a
+    /// deliberate seam: a genuinely unsupported ambient global can be reinstated
+    /// here to fold its `typeof` existence guards to the absent answer.
     pub(super) fn is_absent_ambient_global(name: &str) -> bool {
-        matches!(name, "Buffer")
+        // No absent ambient globals currently; discard the operand explicitly.
+        let _ = name;
+        false
     }
 
     /// Return a static `typeof` comparison result when all runtime variants agree.

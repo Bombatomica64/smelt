@@ -967,3 +967,42 @@ const asBool = Boolean("");
     assert!(!source.contains("float() parse failed"));
     assert!(source.contains(".is_empty()"));
 }
+
+#[test]
+fn emits_captured_class_method_call_inside_map_callback() {
+    // Issue #64: a captured class instance whose method is called inside a
+    // `.map()` callback body must lower into the synthesized closure and emit
+    // valid Rust. The compact callback IR does not model this call shape when
+    // the method body is non-trivial, so it routes through the closure-body
+    // fallback; the whole HIR -> MIR -> Rust pipeline must still succeed (any
+    // failure panics inside `source_for`). The emitted closure captures the
+    // receiver and dispatches the method with the callback's element argument.
+    let source = source_for(
+        r#"
+class Counter {
+  base: number;
+  constructor(b: number) {
+    this.base = b;
+  }
+  scaled(x: number): number {
+    const factor = this.base;
+    return x * factor;
+  }
+}
+
+export function scaleAll(xs: number[]): number[] {
+  const c = new Counter(2);
+  return xs.map((x) => c.scaled(x));
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".scaled("),
+        "captured class method call did not survive callback lowering: {source}"
+    );
+    assert!(
+        source.contains(".map("),
+        "array map iteration was dropped: {source}"
+    );
+}

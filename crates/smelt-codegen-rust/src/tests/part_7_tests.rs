@@ -4259,6 +4259,36 @@ fn instanceof_boxed_primitive_wrapper_emits_marker_check() {
 }
 
 #[test]
+fn instanceof_buffer_and_is_buffer_emit_marker_check() {
+    // `value instanceof Buffer` and `Buffer.isBuffer(value)` over an erased value
+    // both emit the shared `__smelt_buffer` marker-key check on
+    // `SmeltUnknown::Object`; a non-buffer never carries the marker, so the check
+    // is the correct `false`.
+    for source in [
+        "export function f(value: any): boolean { return value instanceof Buffer; }",
+        "export function f(value: any): boolean { return Buffer.isBuffer(value); }",
+    ] {
+        let generated = source_for(source);
+        assert!(
+            generated.contains("value.contains_key(\"__smelt_buffer\")"),
+            "expected `{source}` to emit a `__smelt_buffer` marker check:\n{generated}"
+        );
+    }
+}
+
+#[test]
+fn buffer_from_emits_marker_record() {
+    // `Buffer.from([...])` erases to a marker-bearing record carrying the
+    // `__smelt_buffer` identity key so downstream `instanceof`/`isBuffer` resolve.
+    let generated =
+        source_for("export function f() { const b = Buffer.from([1, 2, 3]); return b; }");
+    assert!(
+        generated.contains("\"__smelt_buffer\""),
+        "expected `Buffer.from` to emit a `__smelt_buffer` marker record:\n{generated}"
+    );
+}
+
+#[test]
 fn runtime_host_marker_registry_hides_boxed_primitive_wrappers() {
     // The runtime `for...in` / `Object.keys` filter (`smelt_object_has_host_marker`
     // / `smelt_record_has_host_marker`) is generated from the shared
@@ -4275,6 +4305,7 @@ fn runtime_host_marker_registry_hides_boxed_primitive_wrappers() {
         .expect("missing smelt_object_has_host_marker helper");
     for marker in [
         "__smelt_arraybuffer",
+        "__smelt_buffer",
         "__smelt_weakmap",
         "__smelt_number",
         "__smelt_boolean",
