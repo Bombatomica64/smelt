@@ -621,6 +621,56 @@ export function sum(adder: Adder): number {
 ",
         },
         Case {
+            // Issue #99: generic classes and interfaces lower to real Rust
+            // generics rather than erasing their instantiations to
+            // `SmeltUnknown`. `Container<T>` emits `struct Container<T>` with an
+            // `impl<T: ..> Container<T>` whose methods return the parameter;
+            // `Pair<A, B>` exercises multi-parameter generics; `Outcome<T, E>`
+            // is a generic interface used at a concrete return position. The use
+            // sites (`new Container<number>(3)`, `b.get()`, `p.getSecond()`)
+            // must instantiate the class concretely (`Container<f64>`) and pass
+            // arguments through so Rust monomorphizes, all of which must compile.
+            name: "generic_classes_and_interfaces",
+            area: "generics",
+            source: r#"
+class Container<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  get(): T { return this.value; }
+  set(value: T): void { this.value = value; }
+}
+
+class Pair<A, B> {
+  first: A;
+  second: B;
+  constructor(first: A, second: B) { this.first = first; this.second = second; }
+  getFirst(): A { return this.first; }
+  getSecond(): B { return this.second; }
+}
+
+interface Outcome<T, E> {
+  ok: boolean;
+  value: T;
+  error: E;
+}
+
+export function useContainer(): number {
+  const b = new Container<number>(3);
+  b.set(5);
+  return b.get();
+}
+
+export function usePair(): string {
+  const p = new Pair<number, string>(1, "x");
+  return p.getSecond();
+}
+
+export function makeOk(v: number): Outcome<number, string> {
+  return { ok: true, value: v, error: "" };
+}
+"#,
+        },
+        Case {
             // Issue #78: `switch` over non-literal case labels. Enum-member and
             // const-reference labels const-fold to the member's numeric/string
             // literal, and the enum type resolves to its underlying primitive so

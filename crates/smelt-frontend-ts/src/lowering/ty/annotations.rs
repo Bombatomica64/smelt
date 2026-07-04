@@ -2450,12 +2450,34 @@ return_ty: function.return_ty,
             if let Item::Function(function) = self.item_ref(*item)
                 && function.name == method
             {
-                return Ok((function.return_ty, *item));
+                // A generic class receiver such as `Box<number>` instantiates the
+                // method's declared type parameters. `get(): T` on `Box<number>`
+                // returns `number`, not the bare parameter `T`, so the call
+                // expression is typed with the receiver's concrete arguments
+                // substituted in. Without this, the method result stays a
+                // `TypeParam` and erases to `SmeltUnknown` at use sites even
+                // though the emitted `impl<T> Box<T>` method already returns `T`.
+                let return_ty = function.return_ty;
+                let item_id = *item;
+                let substitutions = self.type_argument_substitution(
+                    &class.type_params,
+                    &args,
+                    self.span(span.start, span.end),
+                )?;
+                let substituted_return = self.substitute_type_params(return_ty, &substitutions);
+                return Ok((substituted_return, item_id));
             }
         }
         for abstract_method in &class.abstract_methods {
             if abstract_method.name == method {
-                return Ok((abstract_method.return_ty, smelt_hir::ItemId(u32::MAX)));
+                let return_ty = abstract_method.return_ty;
+                let substitutions = self.type_argument_substitution(
+                    &class.type_params,
+                    &args,
+                    self.span(span.start, span.end),
+                )?;
+                let substituted_return = self.substitute_type_params(return_ty, &substitutions);
+                return Ok((substituted_return, smelt_hir::ItemId(u32::MAX)));
             }
         }
         if let Some(base) = class.base {

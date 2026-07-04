@@ -358,4 +358,37 @@ async function run(): Promise<number> {
             "a returned parameter must remain a copy:\n{output}"
         );
     }
+
+    #[test]
+    fn propagates_generic_class_type_params_into_mir() {
+        // Issue #99: HIR generic class type parameters survive into `MirClass`
+        // so codegen can emit `struct Container<T>` and `impl<T> Container<T>`.
+        let mut ctx = HirCtx::new();
+        ok_or_panic(
+            to_hir(
+                "class Container<T> {\n  value: T;\n  constructor(value: T) { this.value = value; }\n  get(): T { return this.value; }\n}\n",
+                FileId(0),
+                &mut ctx,
+            ),
+            "HIR",
+        );
+
+        let mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
+        let container = mir
+            .classes
+            .iter()
+            .find(|class| mir.symbols.get(class.name) == Some("Container"))
+            .unwrap_or_else(|| {
+                std::panic::resume_unwind(Box::new("Container class lowered to MIR".to_owned()))
+            });
+        assert_eq!(container.type_params.len(), 1);
+        let type_param = container.type_params.first().unwrap_or_else(|| {
+            std::panic::resume_unwind(Box::new("Container has a type parameter".to_owned()))
+        });
+        assert_eq!(
+            mir.symbols.get(type_param.name),
+            Some("T"),
+            "the class type parameter name is preserved in MIR"
+        );
+    }
 }
