@@ -551,10 +551,16 @@ impl FunctionEmitter<'_> {
         // of the Rust expression that produces each. Only the leading prefix the
         // callback actually declares is forwarded (and coerced) below.
         let float_ty = self.type_id(Type::Float)?;
+        // `index` here names the fold body's `let index = index as f64;` binding
+        // (see the `fold` closures below), so it is already `f64`. Passing the
+        // bare local — rather than a pre-cast `index as f64` string — lets the
+        // shared coercion seam emit a single, minimal cast to the callback's
+        // declared parameter type instead of stacking a redundant `as f64`
+        // (e.g. `(index.trunc() as i64)` for an `i64` param, `index` for `f64`).
         let candidate_args: [(&str, TypeId); 4] = [
             ("acc", dest_ty),
             ("item", element_ty),
-            ("index as f64", float_ty),
+            ("index", float_ty),
             ("array", list_ty),
         ];
         let mut call_args = Vec::with_capacity(function_ty.params.len());
