@@ -16,11 +16,12 @@ name = "smelt-gui"
 path = "src/main.rs"
 
 [features]
-# Python frontend support. ON by default in this repository; DISABLED for the
-# crates.io release because `smelt-frontend-py` depends on the Ruff parser via a
-# git dependency that crates.io forbids. A TypeScript-only build reports Python
-# input as a stage failure. Build from source with `--features python` for the
-# full pipeline.
+# Python frontend support. ON by default. `smelt-frontend-py`'s Ruff parser now
+# comes from crates.io, so this parser-based Python path is publishable and the
+# crates.io release KEEPS `python` (see `scripts/publish-crates.sh`). Only the
+# `ty` type-resolution path (git-only `ty_project` tree) is excluded from the
+# release; the GUI does not expose a `ty` feature, so nothing to strip here
+# beyond giving the `smelt-frontend-py` dep a crates.io version at publish time.
 default = ["python"]
 python = ["dep:smelt-frontend-py"]
 

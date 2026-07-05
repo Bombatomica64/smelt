@@ -72,7 +72,7 @@ use ruff_db::files::system_path_to_file;
 use ruff_db::parsed::parsed_module;
 use ruff_db::system::{OsSystem, SystemPathBuf};
 use ruff_python_ast::{Stmt, StmtFunctionDef};
-use ruff_text_size::{Ranged, TextSize};
+use ruff_text_size::Ranged;
 use ty_project::{ProjectDatabase, ProjectMetadata};
 use ty_python_semantic::types::Type;
 use ty_python_semantic::{HasType, SemanticModel};
@@ -99,17 +99,27 @@ pub struct ResolvedModuleTypes {
 
 impl ResolvedModuleTypes {
     /// Return the resolved return-type spelling for the function whose
-    /// definition starts at `offset`, if `ty` resolved one.
+    /// definition starts at byte `offset`, if `ty` resolved one.
+    ///
+    /// `offset` is a plain `u32` byte offset (the value of a Ruff `TextSize`,
+    /// via `TextSize::to_u32`) rather than a `ruff_text_size::TextSize`. Keeping
+    /// no Ruff type in this crate's public API lets the Python frontend use the
+    /// published crates.io Ruff while this crate keeps the git-pinned `ty` Ruff:
+    /// the two Ruff checkouts are distinct crates whose `TextSize` types would
+    /// not unify, so only the raw offset crosses the boundary.
     #[must_use]
-    pub fn return_type_at(&self, offset: TextSize) -> Option<&str> {
-        self.return_types.get(&offset.to_u32()).map(String::as_str)
+    pub fn return_type_at(&self, offset: u32) -> Option<&str> {
+        self.return_types.get(&offset).map(String::as_str)
     }
 
     /// Return the resolved type spelling for the parameter whose declaration
-    /// starts at `offset`, if `ty` resolved one.
+    /// starts at byte `offset`, if `ty` resolved one.
+    ///
+    /// `offset` is a plain `u32` byte offset; see [`Self::return_type_at`] for
+    /// why the boundary uses `u32` instead of a Ruff `TextSize`.
     #[must_use]
-    pub fn param_type_at(&self, offset: TextSize) -> Option<&str> {
-        self.param_types.get(&offset.to_u32()).map(String::as_str)
+    pub fn param_type_at(&self, offset: u32) -> Option<&str> {
+        self.param_types.get(&offset).map(String::as_str)
     }
 
     /// Number of resolved return types (used by tests / diagnostics).
@@ -502,7 +512,7 @@ mod tests {
         let resolved = resolve_module_types("def inc(x: int):\n    return x + 1\n", "m")?;
         let parsed = ruff_python_parser::parse_module("def inc(x: int):\n    return x + 1\n")?;
         let func = parsed.syntax().body[0].as_function_def_stmt().unwrap();
-        assert_eq!(resolved.return_type_at(func.start()), Some("int"));
+        assert_eq!(resolved.return_type_at(func.start().to_u32()), Some("int"));
         Ok(())
     }
 
@@ -511,7 +521,7 @@ mod tests {
         let resolved = resolve_module_types("def noop():\n    pass\n", "m")?;
         let parsed = ruff_python_parser::parse_module("def noop():\n    pass\n")?;
         let func = parsed.syntax().body[0].as_function_def_stmt().unwrap();
-        assert_eq!(resolved.return_type_at(func.start()), Some("None"));
+        assert_eq!(resolved.return_type_at(func.start().to_u32()), Some("None"));
         Ok(())
     }
 
@@ -522,7 +532,7 @@ mod tests {
         let parsed = ruff_python_parser::parse_module(src)?;
         let func = parsed.syntax().body[0].as_function_def_stmt().unwrap();
         let x = func.parameters.iter().next().unwrap().as_parameter();
-        assert_eq!(resolved.param_type_at(x.start()), Some("int"));
+        assert_eq!(resolved.param_type_at(x.start().to_u32()), Some("int"));
         Ok(())
     }
 

@@ -71,11 +71,16 @@ impl ResolvedTypes {
 
     /// Return the `ty`-resolved return-type spelling for the function whose
     /// definition starts at `offset`, if any.
+    ///
+    /// `offset` is this crate's own `ruff_text_size::TextSize` (from the
+    /// crates.io Ruff parser). It is converted to a plain `u32` before crossing
+    /// into `smelt_py_types`, whose git-pinned Ruff `TextSize` is a *different*
+    /// crate and would not type-check here. See [`ResolvedTypes`] docs.
     #[must_use]
     pub(crate) fn return_type_at(&self, offset: TextSize) -> Option<&str> {
         #[cfg(feature = "ty")]
         {
-            self.inner.as_ref()?.return_type_at(offset)
+            self.inner.as_ref()?.return_type_at(offset.to_u32())
         }
         #[cfg(not(feature = "ty"))]
         {
@@ -86,11 +91,14 @@ impl ResolvedTypes {
 
     /// Return the `ty`-resolved parameter-type spelling for the parameter whose
     /// declaration starts at `offset`, if any.
+    ///
+    /// `offset` is converted to a plain `u32` before crossing into
+    /// `smelt_py_types`; see [`Self::return_type_at`] for why.
     #[must_use]
     pub(crate) fn param_type_at(&self, offset: TextSize) -> Option<&str> {
         #[cfg(feature = "ty")]
         {
-            self.inner.as_ref()?.param_type_at(offset)
+            self.inner.as_ref()?.param_type_at(offset.to_u32())
         }
         #[cfg(not(feature = "ty"))]
         {
