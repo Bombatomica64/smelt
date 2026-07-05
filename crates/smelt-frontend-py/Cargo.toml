@@ -3,13 +3,14 @@ name = "smelt-frontend-py"
 version.workspace = true
 edition.workspace = true
 autoexamples = false
-# NOT published to crates.io: this crate depends on the Ruff parser via a git
-# dependency (only empty 0.0.3 placeholders of `ruff_python_parser` et al. exist
-# on crates.io), which crates.io forbids. Consumers of the published
-# `smelt-transpiler`/`smelt-gui` get a TypeScript-only build; build from a
-# source checkout with `--features python` for the Python frontend. Revisit once
-# astral-sh/ruff#43 publishes real component-crate releases.
-publish = false
+# Publishable on the NON-ty path only. The Ruff parser crates now come from
+# crates.io (real `0.0.3` releases), so the default+`--no-default-features`
+# (ty-off) build has no git dependency and can be published. The `ty` feature
+# still pulls the git-pinned `smelt-py-types`/`ty_project` tree, which is NOT on
+# crates.io — so `scripts/publish-crates.sh` strips the `ty` feature and the
+# optional `smelt-py-types` dep before uploading (consumers publish with the
+# `python` feature but never `ty`). Revisit the `ty` split once `ty_project`
+# ships to crates.io (astral-sh/ruff#43).
 
 [lints]
 workspace = true
@@ -25,22 +26,30 @@ default = ["ty"]
 ty = ["dep:smelt-py-types"]
 
 [dependencies]
-smelt-asyncio = { path = "../smelt-asyncio" }
-smelt-hir = { path = "../smelt-hir" }
-smelt-specialize = { path = "../smelt-specialize" }
-smelt-stdlib = { path = "../smelt-stdlib" }
+smelt-asyncio = { path = "../smelt-asyncio", version = "0.1.0" }
+smelt-hir = { path = "../smelt-hir", version = "0.1.0" }
+smelt-specialize = { path = "../smelt-specialize", version = "0.1.0" }
+smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.0" }
 
 # Optional `ty`-backed Python type resolution, gated behind the `ty` feature.
 smelt-py-types = { path = "../smelt-py-types", optional = true }
 
-# Python parsing via Astral's Ruff parser. Not published to crates.io, so we
-# pull it from the upstream git repo — the same approach `ty` (Astral's type
-# checker) takes. Type-checking is deferred to a later milestone; here we only
-# need the parser + AST + text-size primitives.
+# Python parsing via Astral's Ruff parser, pulled from crates.io. These are the
+# real published `0.0.3` parser crates (`ruff_python_ast` 141 KB /
+# `ruff_python_parser` 559 KB, published 2026-06-25), not the empty placeholders
+# earlier work assumed — so this crate is publishable on the non-ty path.
 #
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938" }
-ruff_python_ast    = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938" }
-ruff_text_size     = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938" }
+# IMPORTANT: the `ty` feature pulls in `smelt-py-types`, whose `ty_project` /
+# `ruff_db` tree is git-pinned and transitively carries its OWN copy of the Ruff
+# crates at the same `0.0.3` version but a DIFFERENT source (git rev). Cargo
+# treats those as distinct crates, so their `TextSize`/AST types are NOT
+# interchangeable with these crates.io ones. The frontend-py ↔ smelt-py-types
+# boundary therefore exchanges only plain `u32` byte offsets (never a Ruff
+# type), so the two Ruff checkouts never have to unify. Do not re-introduce a
+# `ruff_*` type into that boundary or the `ty`-on build breaks with E0308.
+ruff_python_parser = "0.0.3"
+ruff_python_ast    = "0.0.3"
+ruff_text_size     = "0.0.3"
 
 [dev-dependencies]
 pico-args = "0.5"

@@ -18,11 +18,11 @@ workspace = true
 [features]
 # Python frontend support. ON by default in this repository (via the `ty`
 # default feature below) so `cargo build`/`cargo test`/CI exercise the Python
-# pipeline unchanged. It pulls in `smelt-frontend-py`, which depends on the Ruff
-# parser via a git dependency that crates.io forbids, so the published crate is
-# built with this feature DISABLED (a TypeScript-only `smelt` binary). To use
-# Python from a published install, build from a source checkout with
-# `--features python` (or `--features ty`).
+# pipeline unchanged. It pulls in `smelt-frontend-py`, whose Ruff parser now
+# comes from crates.io, so this parser-based Python path IS publishable: the
+# release keeps `python` (and retargets `default` to it) — see
+# `scripts/publish-crates.sh`. Only the `ty` feature below is stripped for the
+# release, because it pulls the git-only `ty_project` tree (not on crates.io).
 default = ["ty"]
 python = ["dep:smelt-frontend-py"]
 

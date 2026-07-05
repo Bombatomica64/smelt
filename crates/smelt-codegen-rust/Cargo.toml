@@ -20,6 +20,11 @@ default = ["ty"]
 # annotation-free Python that lowers via `ty`-resolved types (issue #93). ON by
 # default; the corpus's Python cases now run under a plain `--ignored` run.
 # Build with `--no-default-features` to drop the ty dependency tree.
+#
+# This feature is stripped from the crates.io release (`ty_project` is git-only,
+# not on crates.io). It only forwards into `smelt-frontend-py`, which is a
+# dev-dependency here, so it never affects the published library — see
+# `scripts/publish-crates.sh`.
 ty = ["smelt-frontend-py/ty"]
 
 [dependencies]
