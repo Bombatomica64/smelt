@@ -75,12 +75,21 @@ impl ConstLiteral {
     /// Return the JavaScript property-member name this constant would name when
     /// used as a computed key (`{ [K]: v }` / `class C { [K]: T }`).
     ///
-    /// JavaScript coerces a computed key to a string member name, so only string
-    /// and numeric constants resolve to a stable static identifier here. A whole
+    /// JavaScript coerces a computed key to a string member name, so string and
+    /// numeric constants resolve to a stable static identifier here. A whole
     /// finite number is rendered without a fractional part (`0` -> "0") to match
-    /// the numeric-literal key spelling. Boolean/null/symbol constants have no
-    /// well-defined static member spelling for Smelt's named-field model and
-    /// return `None`, leaving genuinely dynamic keys on the runtime-keyed path.
+    /// the numeric-literal key spelling.
+    ///
+    /// A `Symbol.for(<description>)` registry symbol also folds: registry symbols
+    /// are globally interned by description, so every reference names the same
+    /// member (issue #115). It maps to the stable synthetic spelling shared with
+    /// inline `[Symbol.for(...)]` keys via
+    /// [`crate::lowering::ty::computed_key_symbols::registry_symbol_key`]. A
+    /// *unique* `Symbol(...)` value has fresh identity each time and never folds.
+    ///
+    /// Boolean/null constants have no well-defined static member spelling for
+    /// Smelt's named-field model and return `None`, leaving genuinely dynamic
+    /// keys on the runtime-keyed path.
     fn computed_member_name(&self) -> Option<String> {
         match &self.literal {
             Literal::String(value) => Some(value.clone()),
@@ -88,7 +97,28 @@ impl ConstLiteral {
             Literal::Float(value) => {
                 Some(ModuleBuilder::numeric_property_key_name(*value))
             }
-            Literal::Bool(_) | Literal::Symbol(_) | Literal::Undefined | Literal::None => None,
+            Literal::Symbol(value) => {
+                ty::computed_key_symbols::registry_description_of_symbol_literal(value)
+                    .map(ty::computed_key_symbols::registry_symbol_key)
+            }
+            Literal::Bool(_) | Literal::Undefined | Literal::None => None,
+        }
+    }
+
+    /// Return the synthetic registry member key when this constant is a
+    /// `Symbol.for(<description>)` registry symbol.
+    ///
+    /// Registry-backed keys are interned verbatim (they are synthetic member
+    /// spellings, not source names), so computed-key resolution uses this to
+    /// decide whether a folded const key is a symbol key. Returns `None` for
+    /// every non-registry-symbol constant.
+    fn symbol_registry_name(&self) -> Option<String> {
+        match &self.literal {
+            Literal::Symbol(value) => {
+                ty::computed_key_symbols::registry_description_of_symbol_literal(value)
+                    .map(ty::computed_key_symbols::registry_symbol_key)
+            }
+            _ => None,
         }
     }
 }

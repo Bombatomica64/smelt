@@ -841,12 +841,44 @@ return_ty: target_function.return_ty,
     ///   through the builtin path instead.
     pub(in crate::lowering) fn is_known_non_importable_exported_const(expression: &Expression<'_>) -> bool {
         if let Expression::CallExpression(call) = expression
-            && let Expression::StaticMemberExpression(member) = &call.callee
-            && let Expression::Identifier(object) = &member.object
+            && Self::is_symbol_for_call(call)
         {
-            return object.name == "Symbol" && member.property.name == "for";
+            return true;
         }
         Self::is_host_constructor_presence_alias(expression)
+    }
+
+    /// Return whether a call expression is `Symbol.for(...)`.
+    ///
+    /// Recognizes the global registry constructor by its `Symbol.for` callee
+    /// shape, independent of the argument, so both the const-folding path and the
+    /// non-importable-const check agree on what a registry symbol looks like.
+    fn is_symbol_for_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return false;
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return false;
+        };
+        object.name == "Symbol" && member.property.name == "for"
+    }
+
+    /// Return the string-literal description of a `Symbol.for("desc")` call.
+    ///
+    /// Only a single string-literal argument folds to a stable registry
+    /// description; a non-literal argument (a computed description) has no
+    /// compile-time spelling and returns `None`, leaving the const on the runtime
+    /// value path.
+    pub(in crate::lowering) fn symbol_for_call_description<'a>(
+        call: &'a oxc::ast::ast::CallExpression<'a>,
+    ) -> Option<&'a str> {
+        if !Self::is_symbol_for_call(call) {
+            return None;
+        }
+        let [Argument::StringLiteral(description)] = call.arguments.as_slice() else {
+            return None;
+        };
+        Some(description.value.as_str())
     }
 
     /// Return whether an initializer is a `globalThis.X`-presence host-constructor
@@ -1064,10 +1096,24 @@ return_ty: target_function.return_ty,
     }
 
     /// Fold supported pure calls inside exported const initializers.
+    ///
+    /// `Symbol.for(<string literal>)` folds to a stable registry-symbol literal
+    /// (`Symbol.for(<description>)`), matching the string the runtime `Symbol.for`
+    /// value path produces. Registry symbols are globally interned by
+    /// description, so this shared spelling lets a `const K = Symbol.for("k")`
+    /// alias fold to the same synthetic computed-key member as an inline
+    /// `[Symbol.for("k")]` key (issue #115). A unique `Symbol(...)` gets a fresh
+    /// span-tagged spelling because it has fresh identity each evaluation.
     pub(in crate::lowering) fn call_literal_const_expression(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
+        if let Some(description) = Self::symbol_for_call_description(call) {
+            return Ok(ConstLiteral {
+                literal: Literal::Symbol(format!("Symbol.for({description})")),
+                ty: self.ctx.krate.types.intern(Type::Unknown),
+            });
+        }
         if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol") {
             if call.arguments.len() > 1 {
                 return Err(SmeltError::unsupported(
