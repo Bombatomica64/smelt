@@ -48,12 +48,17 @@ CRATES=(
 )
 
 # Manifests that need Python references stripped before packaging/publishing.
+# Backups are stored OUTSIDE the crate directories (under target/) so they are
+# never packaged into the crate; each entry is "backupfile|manifestpath".
+BAKDIR="$ROOT/target/publish-bak"
+mkdir -p "$BAKDIR"
 BACKUPS=()
 restore_manifests() {
-  for backup in "${BACKUPS[@]:-}"; do
-    [[ -n "$backup" ]] || continue
-    local target="${backup%.publish-bak}"
-    mv -f "$backup" "$target"
+  for entry in "${BACKUPS[@]:-}"; do
+    [[ -n "$entry" ]] || continue
+    local backup="${entry%%|*}"
+    local target="${entry##*|}"
+    [[ -e "$backup" ]] && mv -f "$backup" "$target"
   done
 }
 trap restore_manifests EXIT
@@ -61,8 +66,9 @@ trap restore_manifests EXIT
 strip_python() {
   local crate="$1"
   local manifest="$ROOT/crates/$crate/Cargo.toml"
-  cp "$manifest" "$manifest.publish-bak"
-  BACKUPS+=("$manifest.publish-bak")
+  local backup="$BAKDIR/$crate.Cargo.toml.bak"
+  cp "$manifest" "$backup"
+  BACKUPS+=("$backup|$manifest")
   case "$crate" in
     smelt-transpiler)
       sed -i \
@@ -121,7 +127,9 @@ for crate in "${CRATES[@]}"; do
   fi
 
   if [[ "$EXECUTE" -eq 1 ]]; then
-    cargo publish -p "$crate" --no-default-features
+    # --allow-dirty: stripping Python references leaves the manifest modified in
+    # the working tree; that is intentional and restored right after.
+    cargo publish -p "$crate" --no-default-features --allow-dirty
   else
     # --no-verify checks manifest publishability (versions present, no git deps)
     # without needing the dependency crates to already be on crates.io.
