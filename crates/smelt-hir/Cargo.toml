@@ -2,6 +2,14 @@
 name = "smelt-hir"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Shared high-level IR (HIR) types and validation for the Smelt transpiler."
+keywords = ["smelt", "hir", "compiler", "ir", "transpiler"]
+categories = ["compilers", "development-tools"]
 
 [lints]
 workspace = true

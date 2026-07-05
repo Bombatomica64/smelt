@@ -3,14 +3,22 @@ name = "smelt-frontend-ts"
 version.workspace = true
 edition.workspace = true
 autoexamples = false
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "TypeScript frontend for the Smelt transpiler: lowers strict TypeScript to Smelt HIR via oxc."
+keywords = ["smelt", "typescript", "frontend", "compiler", "transpiler"]
+categories = ["compilers", "development-tools"]
 
 [lints]
 workspace = true
 
 [dependencies]
-smelt-hir = { path = "../smelt-hir" }
-smelt-specialize = { path = "../smelt-specialize" }
-smelt-stdlib = { path = "../smelt-stdlib" }
+smelt-hir = { path = "../smelt-hir", version = "0.1.0" }
+smelt-specialize = { path = "../smelt-specialize", version = "0.1.0" }
+smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.0" }
 oxc = { version = "0.138.0", features = ["semantic"] }
 
 [dev-dependencies]

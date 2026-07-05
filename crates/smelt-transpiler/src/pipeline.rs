@@ -1,7 +1,7 @@
 //! CLI pipeline helpers for AST/HIR/MIR rendering and crate emission.
 
 use std::{
-    fs, io,
+    io,
     io::Write as _,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
@@ -17,18 +17,12 @@ use crate::{
 };
 
 /// Parses a Python file and dumps the Ruff AST for CLI debugging.
+///
+/// Delegates to the [`crate::python`] module so the Ruff-backed frontend stays
+/// behind the `python` feature; TypeScript-only builds report that Python
+/// support was not compiled in.
 pub(crate) fn dump_python_ast(file: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let source = fs::read_to_string(file)?;
-    let module =
-        smelt_frontend_py::parse_module(&source, smelt_hir::FileId(0)).map_err(|errors| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("{}:\n{errors:#?}", Path::new(file).display()),
-            )
-        })?;
-    let mut stdout = io::stdout().lock();
-    writeln!(stdout, "{module:#?}")?;
-    Ok(())
+    crate::python::dump_ast(file)
 }
 
 /// Prints HIR in compact or debug format.

@@ -10,7 +10,7 @@ members = [
     "crates/smelt-runtime",
     "crates/smelt-specialize",
     "crates/smelt-test",
-    "crates/smelt-cli",
+    "crates/smelt-transpiler",
     "crates/smelt-gui",
     "crates/smelt-py-ty-spike",
     "crates/smelt-py-types",
@@ -26,13 +26,18 @@ default-members = [
     "crates/smelt-runtime",
     "crates/smelt-specialize",
     "crates/smelt-test",
-    "crates/smelt-cli",
+    "crates/smelt-transpiler",
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+license = "GPL-3.0-only"
+repository = "https://github.com/Bombatomica64/smelt"
+homepage = "https://github.com/Bombatomica64/smelt"
+authors = ["Lorenzo Micheli"]
 
 # Deps used by more than one crate — pin version here, reference with { workspace = true } in members
 [workspace.dependencies]

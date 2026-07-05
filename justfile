@@ -1,4 +1,4 @@
-smelt := "RUSTFLAGS='-Awarnings' cargo run -q -p smelt-cli --"
+smelt := "RUSTFLAGS='-Awarnings' cargo run -q -p smelt-transpiler --"
 module_demo := ".tmp_module_demo"
 
 # Run a test for a given directory (e.g. examples/typescript/end-to-end/01_number)
@@ -43,8 +43,8 @@ test-compile-corpus:
 
 # Run the focused module-linking and stub-generation tests
 test-modules:
-	cargo test -p smelt-cli --test hir_cli check_emits_typescript_declaration_stubs_for_linked_modules
-	cargo test -p smelt-cli --test hir_cli check_emits_python_stubs_for_linked_modules
+	cargo test -p smelt-transpiler --test hir_cli check_emits_typescript_declaration_stubs_for_linked_modules
+	cargo test -p smelt-transpiler --test hir_cli check_emits_python_stubs_for_linked_modules
 
 # Try mixed TypeScript -> Python module linking, build the generated crate, and run it
 try-modules:

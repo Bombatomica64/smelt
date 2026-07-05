@@ -25,6 +25,40 @@ into a generated Rust crate whose `cargo test` run passes. The probed files are:
 This is the first real third-party TypeScript test slice where source-language
 tests lower into native Rust `#[test]` functions and pass under Cargo.
 
+## Installation
+
+The `smelt` binary is published to crates.io as **`smelt-transpiler`**:
+
+```sh
+cargo install smelt-transpiler
+smelt --help
+```
+
+### TypeScript vs. Python
+
+The published crates are **TypeScript-only**. The Python frontend
+(`smelt-frontend-py`) parses with Astral's Ruff, which is currently only
+available as a git dependency — crates.io only hosts empty `0.0.3` placeholders
+of the Ruff component crates (tracked upstream by
+[astral-sh/ruff#43](https://github.com/astral-sh/ruff/issues/43)), and
+crates.io forbids git dependencies. So the Python frontend cannot ship in a
+published crate yet.
+
+To use Python, build from a source checkout with the `python` feature (enabled
+by default in this repository):
+
+```sh
+git clone https://github.com/Bombatomica64/smelt
+cd smelt
+cargo install --path crates/smelt-transpiler --features python
+```
+
+Publishing to crates.io is handled by [`scripts/publish-crates.sh`](scripts/publish-crates.sh)
+(`--execute` to publish for real; a bare run does a dry run). It publishes the
+crates leaf-first and strips the unpublishable Python references from the
+`smelt-transpiler`, `smelt-gui`, and `smelt-codegen-rust` manifests that are
+uploaded, leaving the working tree untouched.
+
 ## v1.0 Goals
 
 - A real Express app (TypeScript, strict mode) compiles to a working `axum` server.
@@ -68,7 +102,7 @@ crates/
   smelt-mir/            Mid-level IR (SSA-ish, ownership-naive)
   smelt-codegen-rust/   MIR → Rust source
   smelt-runtime/        Runtime helpers that transpiled code depends on
-  smelt-cli/            The `smelt` binary
+  smelt-transpiler/     The `smelt` binary
 specs/                  Design documents
 examples/               Example projects (Express demo, FastAPI demo)
 ```

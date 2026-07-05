@@ -2,6 +2,14 @@
 name = "smelt-specialize"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Build-time host-runtime specialization (sandboxed partial evaluation) for the Smelt transpiler."
+keywords = ["smelt", "specialization", "compiler", "transpiler"]
+categories = ["compilers", "development-tools"]
 
 [lints]
 workspace = true

@@ -2,6 +2,14 @@
 name = "smelt-asyncio"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Async runtime support helpers for code transpiled by Smelt."
+keywords = ["smelt", "async", "asyncio", "runtime", "transpiler"]
+categories = ["development-tools", "asynchronous"]
 
 [lints]
 workspace = true

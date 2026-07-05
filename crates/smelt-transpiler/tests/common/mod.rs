@@ -1,4 +1,4 @@
-//! Shared integration-test helpers for `smelt-cli`.
+//! Shared integration-test helpers for `smelt-transpiler`.
 
 #![allow(
     dead_code,

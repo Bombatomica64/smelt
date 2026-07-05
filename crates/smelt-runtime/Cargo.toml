@@ -2,6 +2,14 @@
 name = "smelt-runtime"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Runtime helpers that Rust programs transpiled by Smelt depend on."
+keywords = ["smelt", "runtime", "transpiler"]
+categories = ["development-tools"]
 
 [lints]
 workspace = true
