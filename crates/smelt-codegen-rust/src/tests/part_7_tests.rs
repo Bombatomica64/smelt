@@ -76,7 +76,7 @@ function read(value: Left | Right): string {
 #[test]
 fn emits_class_index_signature_named_fields_and_keyed_store() {
     let source = source_for(
-        r#"
+        r"
 class StringBag {
   [key: string]: string;
 }
@@ -97,7 +97,7 @@ export function writeBag(bag: StringBag, key: string, value: string): void {
 export function mixedSize(bag: MixedBag): number {
   return bag.size;
 }
-"#,
+",
     );
 
     // Both classes emit concrete Rust structs.
@@ -5950,13 +5950,13 @@ fn lowers_function_expression_array_callback() {
     // function callbacks". `source_for` panics on any blocker, so reaching
     // codegen proves the non-arrow form was accepted.
     let source = source_for(
-        r#"
+        r"
 function increment(values: number[]): number[] {
   return values.map(function (value) {
     return value + 1;
   });
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -5970,7 +5970,7 @@ fn falls_back_to_closure_body_for_function_expression_callback() {
     // issue #86 the closure-body fallback was gated on the argument being an
     // arrow, so this rejected the file.
     let source = source_for(
-        r#"
+        r"
 function run(values: string[]): Array<string | undefined> {
   return values.map(function (value) {
     try {
@@ -5980,7 +5980,7 @@ function run(values: string[]): Array<string | undefined> {
     }
   });
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -5992,7 +5992,7 @@ fn lowers_named_function_item_array_callback() {
     // must lower into the callback closure by calling the function by name, with
     // its typed signature preserved (issue #86).
     let source = source_for(
-        r#"
+        r"
 function square(value: number): number {
   return value * value;
 }
@@ -6000,7 +6000,7 @@ function square(value: number): number {
 function squares(values: number[]): number[] {
   return values.map(square);
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -6013,12 +6013,12 @@ fn lowers_local_function_variable_array_callback() {
     // to an array method by name (`values.map(transform)`), must lower into the
     // callback closure by calling the captured local (issue #86).
     let source = source_for(
-        r#"
+        r"
 function scale(values: number[]): number[] {
   const transform = (value: number): number => value * 3;
   return values.map(transform);
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -6031,7 +6031,7 @@ fn lowers_asserted_identifier_array_callback() {
     // the same named-reference path as the unwrapped form, so the assertion is
     // transparent instead of hitting the arrow-only gate (issue #86).
     let source = source_for(
-        r#"
+        r"
 function square(value: number): number {
   return value * value;
 }
@@ -6039,7 +6039,7 @@ function square(value: number): number {
 function squares(values: number[]): number[] {
   return values.map(square as (value: number) => number);
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -6054,7 +6054,7 @@ fn lowers_optional_class_field_to_option_with_explicit_construction() {
     // optional interface fields already lower. The named non-optional field
     // (`x: number`) stays concrete `f64` with no `Option` wrapper.
     let source = source_for(
-        r#"
+        r"
 class Point {
   x: number;
   y?: number;
@@ -6072,7 +6072,7 @@ function make(): number {
   const b = new Point(3);
   return a.total() + b.total();
 }
-"#,
+",
     );
 
     assert!(source.contains("struct Point"), "{source}");
@@ -6093,7 +6093,7 @@ fn lowers_optional_dataclass_field_to_option_with_explicit_construction() {
     // omits the field must synthesize the typed `None` default while a present
     // argument is wrapped as `Some(..)`. The required `int` field stays concrete.
     let source = source_for_py(
-        r#"
+        r"
 from dataclasses import dataclass
 from typing import Optional
 
@@ -6108,7 +6108,7 @@ def make() -> Optional[int]:
     a = Point(1, 2)
     b = Point(3)
     return a.y
-"#,
+",
     );
 
     assert!(source.contains("struct Point"), "{source}");
@@ -6125,7 +6125,7 @@ def make() -> Optional[int]:
 #[test]
 fn emits_typescript_static_method_as_associated_function() {
     let source = source_for(
-        r#"
+        r"
 class MathUtils {
   static square(value: number): number {
     return value * value;
@@ -6134,7 +6134,7 @@ class MathUtils {
 export function area(radius: number): number {
   return MathUtils.square(radius);
 }
-"#,
+",
     );
 
     // The static method is emitted inside the class impl with no `self`.
@@ -6185,7 +6185,7 @@ export function label(): string {
 #[test]
 fn emits_python_static_method_and_class_var() {
     let source = source_for_py(
-        r#"
+        r"
 class MathUtils:
     PI = 3
 
@@ -6195,7 +6195,7 @@ class MathUtils:
 
 def area(radius: float) -> float:
     return MathUtils.square(radius) * MathUtils.PI
-"#,
+",
     );
 
     assert!(source.contains("fn square(value: f64) -> f64"), "{source}");
