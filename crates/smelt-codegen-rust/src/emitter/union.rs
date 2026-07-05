@@ -377,6 +377,30 @@ pub(crate) fn emit_union_definitions(
         output.push_str(
             "        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()\n",
         );
+        output.push_str("    }\n}\n");
+        // Concrete unions surface as fields of generated classes, which derive
+        // `Debug` and `Default`. A data-carrying enum can derive neither, and a
+        // `#[derive(Debug)]` would additionally demand that every member type be
+        // `Debug` (excluding `SmeltJsMap`, function members, and other runtime
+        // carriers). Emit both by hand: `Debug` reuses the erased `SmeltUnknown`
+        // view (always present, since the union already emits `IntoSmeltUnknown`)
+        // exactly like the `PartialEq` impl above, and `Default` selects the
+        // first arm, matching how `default_value` builds a concrete-union default.
+        output.push_str(&format!("impl ::std::fmt::Debug for {name} {{\n"));
+        output.push_str(
+            "    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {\n",
+        );
+        output.push_str(
+            "        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)\n",
+        );
+        output.push_str("    }\n}\n");
+        let first_member = *members
+            .first()
+            .ok_or_else(|| EmitError::new("concrete union has no members"))?;
+        let first_default = emitter.default_value(first_member)?;
+        output.push_str(&format!("impl Default for {name} {{\n"));
+        output.push_str("    fn default() -> Self {\n");
+        output.push_str(&format!("        Self::M0({first_default})\n"));
         output.push_str("    }\n}\n\n");
     }
     Ok(output)

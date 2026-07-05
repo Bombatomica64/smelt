@@ -379,6 +379,30 @@ function resolvePath(path: string | (() => string)): string {
 "#,
         },
         Case {
+            // A class field whose declared type is a concrete union
+            // (`string | number`) lowers the field to a tagged `SmeltUnion*`
+            // enum. The struct derives `Clone, Debug, Default`, so the union
+            // enum must provide `Debug` and `Default` too (an enum with
+            // data-carrying variants can derive neither). Regression for the
+            // union-field derive gap: the emitted crate must compile. The same
+            // gap blocks union-valued class index signatures (issue #84).
+            name: "class_union_field",
+            area: "concrete_unions",
+            source: r"
+class Holder {
+  value: string | number = 0;
+}
+
+export function getVal(h: Holder): string | number {
+  return h.value;
+}
+
+export function makeHolder(): Holder {
+  return new Holder();
+}
+",
+        },
+        Case {
             name: "set_collection",
             area: "collections",
             source: r"
