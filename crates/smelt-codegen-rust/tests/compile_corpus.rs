@@ -912,13 +912,14 @@ fn emit_case_crate(case: &Case, crate_dir: &Path) -> Result<(), String> {
 /// the program lowers and compiles.
 #[cfg(feature = "ty")]
 fn python_corpus() -> Vec<Case> {
-    vec![Case {
-        name: "py_inferred_returns",
-        area: "py_ty_return_inference",
-        // No function carries a `-> T`; `ty` infers int/str/bool from the
-        // bodies. Parameters keep annotations (unannotated params stay an
-        // explicit boundary — a documented deferral).
-        source: r"
+    vec![
+        Case {
+            name: "py_inferred_returns",
+            area: "py_ty_return_inference",
+            // No function carries a `-> T`; `ty` infers int/str/bool from the
+            // bodies. Parameters keep annotations (unannotated params stay an
+            // explicit boundary — a documented deferral).
+            source: r"
 def inc(x: int):
     return x + 1
 
@@ -934,7 +935,52 @@ def total(values: list[int]):
         result = result + value
     return result
 ",
-    }]
+        },
+        Case {
+            // Issue #94: method and non-top-level calls. `Counter.total`
+            // (instance method) calls `self.doubled()`, a sibling declared
+            // *later* in the class body — resolvable only because method items
+            // are pre-registered before any body is lowered. `Counter.make` is a
+            // `@classmethod` that constructs the class through the implicit `cls`
+            // receiver (`cls(start)`) and calls the sibling `@staticmethod`
+            // `origin()` via `cls.origin()`. `use_counter` drives an instance
+            // method on a local, and `via_factory` calls the classmethod
+            // qualified (`Counter.make(..)`). Every dispatch must lower to the
+            // right shape (receiver method vs receiver-free associated call) and
+            // the emitted Rust must compile.
+            name: "py_method_calls",
+            area: "py_method_dispatch",
+            source: r#"
+class Counter:
+    value: int
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def total(self) -> int:
+        return self.doubled() + Counter.origin()
+
+    def doubled(self) -> int:
+        return self.value * 2
+
+    @classmethod
+    def make(cls, start: int) -> "Counter":
+        base = cls(start)
+        return cls(base.value + cls.origin())
+
+    @staticmethod
+    def origin() -> int:
+        return 0
+
+def use_counter(start: int) -> int:
+    counter = Counter(start)
+    return counter.total()
+
+def via_factory(start: int) -> int:
+    return Counter.make(start).total()
+"#,
+        },
+    ]
 }
 
 /// Lowers a Python corpus `case` through the real Python pipeline (with `ty`

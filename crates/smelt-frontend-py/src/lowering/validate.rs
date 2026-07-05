@@ -41,6 +41,33 @@ fn visible_class_methods(ctx: &HirCtx) -> HashMap<String, HashMap<String, ItemId
     class_methods
 }
 
+/// Collect class `@staticmethod` items already present in the shared crate.
+fn visible_class_static_methods(ctx: &HirCtx) -> HashMap<String, HashMap<String, ItemId>> {
+    let mut class_static_methods: HashMap<String, HashMap<String, ItemId>> = HashMap::new();
+    for (idx, item) in ctx.krate.items.iter().enumerate() {
+        let Item::Function(function) = item else {
+            continue;
+        };
+        let FunctionOwner::ClassStaticMethod { class, method } = function.owner else {
+            continue;
+        };
+        let Ok(item_idx) = u32::try_from(idx) else {
+            continue;
+        };
+        let Some(class_name) = ctx.krate.symbols.get(class) else {
+            continue;
+        };
+        let Some(method_name) = ctx.krate.symbols.get(method) else {
+            continue;
+        };
+        class_static_methods
+            .entry(class_name.to_owned())
+            .or_default()
+            .insert(method_name.to_owned(), ItemId(item_idx));
+    }
+    class_static_methods
+}
+
 /// Return true for module-level `__all__` metadata assignments.
 fn is_module_all_assignment(stmt: &Stmt) -> bool {
     match stmt {
