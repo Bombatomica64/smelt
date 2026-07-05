@@ -633,3 +633,147 @@ export function roundTrip(x: Record<string, number>): unknown {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Builtin interceptor scoping.
+//
+// The name-matched global interceptors (`isNaN`, `parseInt`, `String`, ...) and
+// the string/number method interceptors (`.includes`, `.toString`) fire early,
+// before the callee/receiver is resolved against the module's bindings. They
+// must respect lexical scope: a value import, module item, or local binding of
+// the same name shadows the global, and a namespace/util object receiver marks a
+// free-function call rather than a string/number method. es-toolkit relies on
+// all of these (`import { isNaN } from './isNaN'`, `ns.includes(coll, value)`).
+// ---------------------------------------------------------------------------
+
+/// A bound string method taken as a *value* (`''.slice`, not `''.slice(...)`)
+/// resolves to the erased dynamic boundary instead of hard-erroring on field
+/// access, mirroring es-toolkit `pick('', 'slice')`.
+#[test]
+fn bound_string_method_reference_lowers_as_erased_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function pluck(): unknown {
+  const method = ''.slice;
+  return method;
+}
+"#),
+        &mut ctx,
+    )?;
+    // The value read lowers to a plain field access; it must not be rejected.
+    ensure!(crate_has(&ctx, |kind| matches!(
+        kind,
+        ExprKind::Field { .. }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A value import of `isNaN` shadows the numeric-global predicate, so the call
+/// lowers through the ordinary call path rather than as `NumericPredicate`.
+#[test]
+fn value_imported_is_nan_is_not_the_numeric_global() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { isNaN } from './isNaN';
+export function check(): unknown {
+  return isNaN(true);
+}
+"#),
+        &mut ctx,
+    )?;
+    // The shadowing binding is called; the numeric-global predicate op must not
+    // be synthesized for the shadowed name.
+    ensure!(!crate_has(&ctx, |kind| matches!(
+        kind,
+        ExprKind::NumericPredicate {
+            op: NumericPredicateOp::IsNaN,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// The bare-identifier `isNaN` global still lowers to the numeric predicate when
+/// it is *not* shadowed, so the shadow guard does not disable the global.
+#[test]
+fn unshadowed_is_nan_still_lowers_to_numeric_predicate() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const value: number = 3;
+const flag = isNaN(value);
+"#),
+        &mut ctx,
+    )?;
+    ensure!(crate_has(&ctx, |kind| matches!(
+        kind,
+        ExprKind::NumericPredicate {
+            op: NumericPredicateOp::IsNaN,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A value import of `parseInt` shadows the global, so `parseInt(str, undefined)`
+/// lowers through the ordinary call path rather than the global parse op.
+#[test]
+fn value_imported_parse_int_is_not_the_global() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { parseInt } from './parseInt';
+export function pi(): unknown {
+  return parseInt('10', undefined);
+}
+"#),
+        &mut ctx,
+    )?;
+    // Neither the radix parse op nor the bare `ToInt` cast may be synthesized for
+    // the shadowed name.
+    ensure!(!crate_has(&ctx, |kind| matches!(
+        kind,
+        ExprKind::ParseIntRadix { .. }
+    )));
+    ensure!(!crate_has(&ctx, |kind| matches!(
+        kind,
+        ExprKind::PrimitiveCast {
+            op: PrimitiveCastOp::ToInt,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A namespace-import `includes`/`toString` is the free-function form, so its
+/// second argument is a value, not a numeric string position or radix. It must
+/// not be rejected by the string/number method interceptors.
+#[test]
+fn namespace_includes_and_to_string_are_free_functions() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import * as tk from './lib';
+export function useNs(value: unknown): unknown {
+  const a = tk.includes(value, '__p');
+  const b = tk.toString(value);
+  return [a, b];
+}
+"#),
+        &mut ctx,
+    )?;
+    // The string-includes op (which would demand a numeric position) must not
+    // fire on the namespace free-function call.
+    ensure!(!crate_has(&ctx, |kind| matches!(
+        kind,
+        ExprKind::StringContains { .. }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

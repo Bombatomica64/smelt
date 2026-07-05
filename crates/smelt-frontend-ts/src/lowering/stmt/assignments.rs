@@ -1313,6 +1313,16 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
+        // These names (`parseInt`, `String`, `Number`, `parseFloat`, `BigInt`,
+        // `Boolean`) are recognized as JavaScript globals by identifier name. A
+        // value import, module item, or local binding of the same name shadows
+        // the global — e.g. es-toolkit's `import { parseInt } from './parseInt'`
+        // accepts a value and an optional `undefined` radix. Defer to the
+        // ordinary call path so the shadowing binding is called instead of the
+        // global primitive-conversion op.
+        if self.builtin_call_identifier_is_shadowed(callee.name.as_str()) {
+            return Ok(None);
+        }
         if callee.name == "parseInt" {
             let (operand, radix) = self.parse_int_operand("parseInt", call, body)?;
             let ty = self.ctx.krate.types.intern(Type::Float);

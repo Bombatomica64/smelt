@@ -561,6 +561,14 @@ return_ty: string_ty,
                 (op, format!("Number.{}", member.property.name))
             }
             Expression::Identifier(identifier) if identifier.name == "isNaN" => {
+                // A value import, module item, or local binding of `isNaN`
+                // shadows the global predicate (es-toolkit's own
+                // `import { isNaN } from './isNaN'` accepts `any`). Defer to the
+                // ordinary call path so the shadowing binding is called instead
+                // of forcing the numeric-global predicate onto its argument.
+                if self.builtin_call_identifier_is_shadowed(identifier.name.as_str()) {
+                    return Ok(None);
+                }
                 (NumericPredicateOp::IsNaN, "isNaN".to_owned())
             }
             _ => return Ok(None),
@@ -764,6 +772,15 @@ return_ty: string_ty,
             return Ok(None);
         };
         if member.property.name != "toString" {
+            return Ok(None);
+        }
+        // `ns.toString(value)` on a utility *namespace* object (a `import * as _`
+        // star import or a registered object namespace) is the lodash/es-toolkit
+        // free-function `toString`, whose first argument is the value being
+        // stringified, not a `Number.prototype.toString` radix. Defer to the
+        // generic namespace member-call path instead of treating the value as a
+        // radix and rejecting a non-numeric one.
+        if self.imported_utility_object(&member.object) {
             return Ok(None);
         }
         let operand = self.expression(&member.object, body)?;

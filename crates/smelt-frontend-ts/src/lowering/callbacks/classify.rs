@@ -999,6 +999,26 @@ impl ModuleBuilder<'_> {
         )
     }
 
+    /// Return whether a name-matched global builtin call is shadowed by a real
+    /// binding in scope, so the global interceptor must not fire.
+    ///
+    /// The builtin call interceptors (`isNaN(...)`, `parseInt(...)`, ...) are
+    /// dispatched by identifier name *before* the callee is resolved against the
+    /// module's bindings. That is only correct when the name still refers to the
+    /// JavaScript global. A value import, module item, or local binding of the
+    /// same name lexically shadows the global — for example es-toolkit's
+    /// `import { isNaN } from './isNaN'` makes `isNaN(true)` a call to the
+    /// imported function, not the numeric global predicate. In that case the
+    /// interceptor bails and the ordinary call path lowers the real binding
+    /// (mirroring how [`Self::imported_utility_object`] defers namespace member
+    /// calls). A file that genuinely calls the global has no such binding, so the
+    /// interceptor keeps firing unchanged.
+    pub(in crate::lowering) fn builtin_call_identifier_is_shadowed(&self, name: &str) -> bool {
+        self.locals.contains_key(name)
+            || self.items.contains_key(name)
+            || self.value_imports.contains(name)
+    }
+
     /// Lower a function-expression callback after expected parameter types are known.
     pub(in crate::lowering) fn function_callback_from_params(
         &mut self,
