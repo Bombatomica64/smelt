@@ -804,26 +804,67 @@ impl ModuleBuilder<'_> {
                 list_ty = asserted_ty;
                 item_ty
             };
-        let initial = if let Some(initial_argument) = initial_argument {
+        let mut initial = if let Some(initial_argument) = initial_argument {
             Some(self.argument(initial_argument, body)?)
         } else {
             None
         };
-        let accumulator_ty = initial.map_or(element_ty, |initial| Self::expr_ty(body, initial));
+        // The accumulator seed type: the initial value's type, or (with no
+        // initial) the element type, which seeds the fold from the first element.
+        let seed_ty = initial.map_or(element_ty, |initial| Self::expr_ty(body, initial));
         let index_ty = self.ctx.krate.types.intern(Type::Int);
-        let callback_param_tys = [accumulator_ty, element_ty, index_ty, list_ty];
-        let callback_expr = if let Argument::ArrowFunctionExpression(arrow) = callback_argument {
-            self.arrow_closure_body_expr(arrow, &callback_param_tys, accumulator_ty, body)?
-        } else {
-            let callback = self.callback_argument(
-                callback_argument,
-                &callback_param_tys,
-                "array reduce",
-                body,
-            )?;
-            self.require_callback_ty(callback.return_ty, accumulator_ty, call, "array reduce")?;
-            callback.expr
-        };
+        // Contextual callback parameter types `(acc, cur, index, array)`. The
+        // arrow path lowers its body with `seed_ty` as the return hint; the
+        // named path resolves the accumulator type from the callback's own
+        // declared signature via `reduce_accumulator_ty` below.
+        let callback_param_tys = [seed_ty, element_ty, index_ty, list_ty];
+        let (callback_expr, accumulator_ty) =
+            if let Argument::ArrowFunctionExpression(arrow) = callback_argument {
+                let callback_expr =
+                    self.arrow_closure_body_expr(arrow, &callback_param_tys, seed_ty, body)?;
+                (callback_expr, seed_ty)
+            } else {
+                let callback = self.callback_argument(
+                    callback_argument,
+                    &callback_param_tys,
+                    "array reduce",
+                    body,
+                )?;
+                // TypeScript threads the accumulator type `U` through
+                // `reduce<U>(cb: (acc: U, cur, i, arr) => U, initial: U): U`,
+                // unifying it from the callback's declared accumulator parameter,
+                // its return type, and the initial value. When a named/opaque
+                // callback's declared return type is not identical to the seed
+                // but the two statically reconcile (concrete unions, optionals,
+                // `unknown`/generic surfaces, numeric widening; see #71's shared
+                // reconciler), pick `U` and coerce the seed/callback result into
+                // it in the emitter, rather than rejecting the reduce.
+                let declared_acc_ty = self.callback_declared_accumulator_ty(callback.expr, body);
+                let accumulator_ty = self.reduce_accumulator_ty(
+                    seed_ty,
+                    declared_acc_ty,
+                    callback.return_ty,
+                    call,
+                    initial.is_some(),
+                )?;
+                (callback.expr, accumulator_ty)
+            };
+        // When the accumulator type was widened past the seed's own type, coerce
+        // the initial value into it so the emitted fold seeds with the exact
+        // destination type (the emitter injects concrete-union members, boxes
+        // into optionals, etc. through the same `TypeAssert` coercion seam other
+        // array callbacks use for element-type coercions).
+        if let (Some(initial_expr), Some(initial_argument)) = (initial.as_mut(), initial_argument)
+            && Self::expr_ty(body, *initial_expr) != accumulator_ty
+        {
+            *initial_expr = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert {
+                    value: *initial_expr,
+                },
+                ty: accumulator_ty,
+                span: self.span(initial_argument.span().start, initial_argument.span().end),
+            });
+        }
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListReduce {
                 list,
@@ -833,6 +874,97 @@ impl ModuleBuilder<'_> {
             ty: accumulator_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return a callback expression's declared accumulator (first) parameter type.
+    ///
+    /// A named or local reduce callback lowers to a value whose HIR type is its
+    /// declared `Type::Function`; its first parameter is the accumulator slot
+    /// `acc`. This surfaces that type so [`Self::reduce_accumulator_ty`] can use
+    /// the callback's declared accumulator as the reduce result type `U` when it
+    /// is wider than the seed. Returns `None` when the callback is not a plain
+    /// function value (e.g. an opaque erased value with no static signature).
+    fn callback_declared_accumulator_ty(
+        &self,
+        callback_expr: smelt_hir::ExprId,
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let ty = Self::expr_ty(body, callback_expr);
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::Function(function)) => function.params.first().copied(),
+            _ => None,
+        }
+    }
+
+    /// Reconcile the reduce accumulator type from the seed and callback types.
+    ///
+    /// `reduce` threads an accumulator of a single type `U` through the fold: the
+    /// initial value, every callback result, and the final result all have type
+    /// `U`. `U` is unified from the seed (the initial value's type, or the
+    /// element type when there is no initial), the callback's declared
+    /// accumulator (first) parameter type, and the callback's return type. This
+    /// picks `U` and lets the emitter coerce the seed and each callback result
+    /// into it:
+    ///
+    /// - When the seed already equals the callback return type (the common case),
+    ///   `U` is that type unchanged.
+    /// - Otherwise, when the callback declares an accumulator parameter type that
+    ///   both the seed and the return type are assignable to — e.g.
+    ///   `step(acc: string | number, x): number` folded from `"seed"` — that
+    ///   declared type is `U`. This matches how TypeScript resolves `reduce<U>`.
+    /// - Failing a usable declared parameter, the seed and return type are
+    ///   reconciled through the shared conditional-branch reconciler
+    ///   ([`Self::conditional_branch_type`]) used by #71 (numeric widening, list
+    ///   element unification, concrete unions). A genuinely irreconcilable pair
+    ///   surfaces the existing "array reduce callback returns an unsupported
+    ///   type" error.
+    ///
+    /// With no initial value the fold seeds from the first element, so the
+    /// accumulator must stay the element type: a widening callback return is
+    /// rejected because there is no seed to coerce into the wider type.
+    fn reduce_accumulator_ty(
+        &mut self,
+        seed_ty: smelt_hir::TypeId,
+        declared_acc_ty: Option<smelt_hir::TypeId>,
+        callback_return_ty: smelt_hir::TypeId,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        has_initial: bool,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if seed_ty == callback_return_ty {
+            return Ok(seed_ty);
+        }
+        if has_initial {
+            // Prefer the callback's declared accumulator type when both the seed
+            // and the return type flow into it: that is exactly TypeScript's `U`.
+            if let Some(declared_acc_ty) = declared_acc_ty
+                && declared_acc_ty != seed_ty
+                && self.type_assignable_to(seed_ty, declared_acc_ty)
+                && self.type_assignable_to(callback_return_ty, declared_acc_ty)
+            {
+                return Ok(declared_acc_ty);
+            }
+            // A callback with no distinct declared accumulator (or an opaque one)
+            // whose return type simply subsumes the seed uses the return type.
+            if self.type_assignable_to(seed_ty, callback_return_ty) {
+                return Ok(callback_return_ty);
+            }
+            // Fall back to the shared reconciler; only accept a result the
+            // callback result can be coerced into (its own return type flows in
+            // by construction, so require the seed to as well).
+            if let Ok(reconciled) = self.conditional_branch_type(
+                seed_ty,
+                callback_return_ty,
+                None,
+                call.span.start,
+                call.span.end,
+            ) && self.type_assignable_to(callback_return_ty, reconciled)
+                && self.type_assignable_to(seed_ty, reconciled)
+            {
+                return Ok(reconciled);
+            }
+        }
+        self.require_callback_ty(callback_return_ty, seed_ty, call, "array reduce")?;
+        Ok(seed_ty)
     }
 
 }

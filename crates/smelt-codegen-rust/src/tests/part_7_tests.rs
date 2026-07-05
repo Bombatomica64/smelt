@@ -6249,3 +6249,104 @@ def area(radius: float) -> float:
     assert!(source.contains("fn __smelt_static_PI"), "{source}");
     assert!(source.contains(" 3"), "{source}");
 }
+
+/// Issue #113: a named `reduce` callback whose declared return type is not
+/// identical to the initial value's type but statically reconciles with it must
+/// not be rejected with "array reduce callback returns an unsupported type". The
+/// accumulator widens to the reconciled type (`string | number`), the initial
+/// `0` is coerced into that concrete union, and the emitted `fold` invokes the
+/// callback with only the two arguments it declares (not the four the runtime
+/// supplies) so the closure call type-checks.
+#[test]
+fn reduce_named_callback_reconciles_union_return_type() {
+    let source = source_for(
+        r"
+function step(acc: string | number, value: number): string | number {
+  return acc;
+}
+export function run(values: number[]): string | number {
+  return values.reduce(step, 0);
+}
+",
+    );
+    assert!(source.contains(".iter().enumerate().fold("), "{source}");
+    // The named callback declares two parameters, so the emitted fold calls it
+    // with exactly two arguments rather than the runtime's `(acc, item, index,
+    // array)` four-argument shape.
+    assert!(
+        source.contains("(smelt_callback)(acc, item)"),
+        "reduce should call the two-parameter callback with two args: {source}"
+    );
+    assert!(source.contains("fn run("), "{source}");
+}
+
+/// Issue #113: a named `reduce` callback whose declared accumulator parameter is
+/// wider than both the seed and the callback return type resolves the reduce
+/// result to that declared accumulator type (TypeScript's `U`). The callback
+/// returns a `number` that must be coerced back into the `string | number`
+/// accumulator on each fold step, so the emitted fold both seeds and folds
+/// through the concrete union.
+#[test]
+fn reduce_named_callback_uses_declared_accumulator_type() {
+    let source = source_for(
+        r#"
+function step(acc: string | number, value: number): number {
+  return value;
+}
+export function run(values: number[]): string | number {
+  return values.reduce(step, "seed");
+}
+"#,
+    );
+    assert!(source.contains(".iter().enumerate().fold("), "{source}");
+    assert!(source.contains("(smelt_callback)(acc, item)"), "{source}");
+    assert!(source.contains("fn run("), "{source}");
+}
+
+/// Issue #113: a named `reduce` callback that widens a concrete seed into an
+/// erased `unknown` accumulator (a genuine dynamic boundary) still lowers; the
+/// accumulator is the callback's `unknown` return type and the numeric seed is
+/// coerced into it.
+#[test]
+fn reduce_named_callback_widens_to_unknown_accumulator() {
+    let source = source_for(
+        r"
+function step(acc: number, value: number): unknown {
+  return acc + value;
+}
+export function run(values: number[]): unknown {
+  return values.reduce(step, 0);
+}
+",
+    );
+    assert!(source.contains(".iter().enumerate().fold("), "{source}");
+    assert!(source.contains("fn run("), "{source}");
+}
+
+/// Issue #113: a genuinely irreconcilable named `reduce` callback — a `string`
+/// accumulator with a `boolean` return type that shares no common concrete
+/// shape — is still rejected, so the reconciliation does not silently widen
+/// unrelated types through a `SmeltUnknown` shortcut.
+#[test]
+fn reduce_named_callback_rejects_irreconcilable_return_type() {
+    let mut ctx = HirCtx::new();
+    let result = to_hir(
+        r#"
+function step(acc: string, value: number): boolean {
+  return true;
+}
+export function run(values: number[]): string {
+  return values.reduce(step, "seed");
+}
+"#,
+        FileId(0),
+        &mut ctx,
+    );
+    let errors = result.expect_err("irreconcilable reduce callback must be rejected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("callback returns an unsupported type")),
+        "expected the reduce return-type rejection, got: {errors:?}"
+    );
+}

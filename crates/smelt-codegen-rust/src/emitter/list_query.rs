@@ -517,6 +517,19 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts an array reduce callback into Rust `fold` text.
+    ///
+    /// The emitted `fold` threads the accumulator through as `acc: dest_ty` and
+    /// invokes the callback with only as many of `(acc, item, index, array)` as
+    /// the callback declares — a JS `reduce` callback commonly takes fewer than
+    /// the four arguments the runtime supplies (e.g. a named `step(acc, x)` or an
+    /// arrow `(acc, value) => …`). Each supplied argument is coerced to the
+    /// callback parameter's type, and the callback result is coerced back to the
+    /// accumulator type `dest_ty` through the shared coercion seam, so a callback
+    /// whose declared return type merely reconciles with (rather than equals) the
+    /// accumulator — a concrete-union member, an optional/`unknown` widening —
+    /// still folds into a value the next step accepts (issue #113). The frontend
+    /// (`lower_list_reduce`) picks `dest_ty` so this reconciliation is statically
+    /// valid; here we only render the arity- and type-matched call.
     pub(super) fn list_reduce_text(
         &self,
         list: &Operand,
@@ -529,12 +542,36 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("array reduce receiver must be a list"));
         };
         let element_ty = *list_element_ty;
-        if let Some(initial_operand) = initial {
-            if self.operand_ty(initial_operand)? != dest_ty {
+        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
+        else {
+            return Err(EmitError::new("array reduce callback must be a function"));
+        };
+        let callback_return_ty = function_ty.return_ty;
+        // The four values the JS runtime would pass, paired with the source type
+        // of the Rust expression that produces each. Only the leading prefix the
+        // callback actually declares is forwarded (and coerced) below.
+        let float_ty = self.type_id(Type::Float)?;
+        let candidate_args: [(&str, TypeId); 4] = [
+            ("acc", dest_ty),
+            ("item", element_ty),
+            ("index as f64", float_ty),
+            ("array", list_ty),
+        ];
+        let mut call_args = Vec::with_capacity(function_ty.params.len());
+        for (index, param_ty) in function_ty.params.iter().copied().enumerate() {
+            let Some((value_text, source_ty)) = candidate_args.get(index).copied() else {
                 return Err(EmitError::new(
-                    "array reduce initial value and callback result must match the destination type",
+                    "array reduce callback declares more parameters than reduce supplies",
                 ));
-            }
+            };
+            call_args.push(self.value_at_type_text(value_text, source_ty, param_ty)?);
+        }
+        if let Some(initial_operand) = initial
+            && self.operand_ty(initial_operand)? != dest_ty
+        {
+            return Err(EmitError::new(
+                "array reduce initial value and callback result must match the destination type",
+            ));
         }
         let owned_list_text = self.operand_text(list)?;
         let borrowed_list_text = match list {
@@ -549,9 +586,13 @@ impl FunctionEmitter<'_> {
             // the reduce body to a default value.
             Err(_) => self.operand_text(callback)?,
         };
-        let callback_text = format!(
-            "{{ let smelt_callback = {callback_closure}; (smelt_callback)(acc, item, index, array) }}"
-        );
+        // Coerce the callback result to the accumulator type so a reconcilable
+        // (but not identical) return type still produces the next `acc` value.
+        let call_expr = format!("(smelt_callback)({})", call_args.join(", "));
+        let callback_result_text =
+            self.value_at_type_text(&call_expr, callback_return_ty, dest_ty)?;
+        let callback_text =
+            format!("{{ let smelt_callback = {callback_closure}; {callback_result_text} }}");
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_text(initial_operand)?;
             Ok(format!(

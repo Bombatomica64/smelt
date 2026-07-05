@@ -267,6 +267,66 @@ function byLocal(values: number[]): number[] {
 }
 ",
         },
+        Case {
+            name: "reduce_callback_return_reconciliation",
+            area: "closures",
+            // A named/opaque `reduce` callback whose declared return type is not
+            // identical to the initial value's type but statically reconciles
+            // with it must not be rejected with "array reduce callback returns an
+            // unsupported type" (issue #113). TypeScript threads a single
+            // accumulator type `U` through `reduce<U>`, so the accumulator widens
+            // to the callback's return type and the seed is coerced into it. Each
+            // form must emit a `fold` that compiles: `intoUnion` seeds a `0`
+            // number into a `string | number` concrete-union accumulator;
+            // `intoRecord`/`intoList` seed an empty object/array into a wider
+            // container; `intoOptional` seeds `undefined` into an optional; and
+            // `intoUnknown` widens a concrete seed into an erased accumulator.
+            source: r#"
+function unionStep(acc: string | number, value: number): string | number {
+  return acc;
+}
+function intoUnion(values: number[]): string | number {
+  return values.reduce(unionStep, 0);
+}
+
+function recordStep(acc: Record<string, number>, value: string): Record<string, number> {
+  acc[value] = 1;
+  return acc;
+}
+function intoRecord(values: string[]): Record<string, number> {
+  return values.reduce(recordStep, {});
+}
+
+function listStep(acc: (string | number)[], value: number): (string | number)[] {
+  acc.push(value);
+  return acc;
+}
+function intoList(values: number[]): (string | number)[] {
+  return values.reduce(listStep, []);
+}
+
+function optionalStep(acc: number | undefined, value: number): number | undefined {
+  return acc;
+}
+function intoOptional(values: number[]): number | undefined {
+  return values.reduce(optionalStep, undefined);
+}
+
+function unknownStep(acc: number, value: number): unknown {
+  return acc + value;
+}
+function intoUnknown(values: number[]): unknown {
+  return values.reduce(unknownStep, 0);
+}
+
+function narrowReturnStep(acc: string | number, value: number): number {
+  return value;
+}
+function narrowReturn(values: number[]): string | number {
+  return values.reduce(narrowReturnStep, "seed");
+}
+"#,
+        },
         // --- string / list operations ----------------------------------------
         Case {
             name: "list_collection",
