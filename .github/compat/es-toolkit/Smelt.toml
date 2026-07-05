@@ -8,29 +8,40 @@ roots = ["src"]
 test-prefix = ["array/**/*.spec.ts", "function/**/*.spec.ts", "math/**/*.spec.ts", "object/**/*.spec.ts", "predicate/**/*.spec.ts", "promise/**/*.spec.ts", "string/**/*.spec.ts", "util/**/*.spec.ts", "error/**/*.spec.ts"]
 entries = ["src/index.ts"]
 # Spec files excluded from the whole-crate build because they depend on host
-# globals Smelt's non-DOM profile deliberately does not model. Any one
-# unbuildable file aborts the entire crate build, so these DOM/host-only specs
-# would otherwise block every es-toolkit test from running. Each entry lists the
-# unmodeled global it needs; remove an entry once Smelt models that global.
+# globals Smelt's non-DOM profile deliberately does not model, or hit a known
+# lowering blocker. Any one unbuildable file aborts the entire crate build, so
+# these specs would otherwise block every es-toolkit test from running. Each
+# entry lists what it needs; remove an entry once Smelt models it.
 exclude = [
   # `document` / `HTMLElement` (DOM)
   "src/object/cloneDeep.dom.spec.ts",   # @vitest-environment happy-dom; document.createElement, HTMLElement
   "src/compat/object/clone.spec.ts",    # document.createElement, document.body
   "src/compat/object/cloneWith.spec.ts", # document.createElement, document.body
   "src/compat/predicate/isElement.spec.ts", # document (isElement DOM checks)
-  # `Blob` / `File` (host file APIs)
-  "src/object/clone.spec.ts",           # new File(...), new Blob(...)
-  "src/object/cloneDeep.spec.ts",       # new File(...), new Blob(...)
-  "src/predicate/isBlob.spec.ts",       # new Blob(...), globalThis.File
-  "src/predicate/isFile.spec.ts",       # new File(...), Blob, globalThis.File
+  # Blocked on the Error-options constructor, not on a host global: `Blob`/
+  # `File` are modeled now, but this spec also spells
+  # `new AggregateError(errors, message, { cause })` / `new Error(msg, { cause })`,
+  # which the Error constructor lowering does not accept yet ("supports at most
+  # one message argument"). Re-include once Error `cause` options land.
+  "src/object/clone.spec.ts",
 ]
+# `Blob` / `File` are modeled as marker records with real `type`/`size`/
+# `content` (and `name`/`lastModified` for File), so the former Blob/File
+# excludes are back in the build:
+#   src/object/cloneDeep.spec.ts, src/predicate/isBlob.spec.ts,
+#   src/predicate/isFile.spec.ts
+# Note: isBlob/isFile specs reassign `globalThis.File`/`globalThis.Blob`
+# (monkey-patching, a Smelt non-goal); they build, but the environment-absence
+# test cases will fail at runtime because presence guards fold at compile time.
 # Deliberately NOT excluded (host/ECMA globals, but ambiguous whether Smelt can
 # model them — left in per "when unsure, leave it in"):
 #   src/predicate/isFunction.spec.ts   -> `Proxy`
 #   src/predicate/isPlainObject.spec.ts -> `Intl`, `Proxy`, `Request`
-# After the excludes above, `smelt build` aborts earlier at
-# src/predicate/isEqualWith.spec.ts on a fixable `field access` lowering blocker
-# (not a host global), which is other work.
+# After the excludes above, `smelt build` still aborts earlier at
+# src/predicate/isEqualWith.spec.ts ("const item expression shape is not
+# supported for inlining yet"), which is other work; with that file also
+# excluded the next blockers are isFunction.spec.ts (`Proxy`) and
+# isPlainObject.spec.ts (`Intl`).
 
 [output]
 target = "./dist-smelt"

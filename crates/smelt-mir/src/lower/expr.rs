@@ -1802,6 +1802,29 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::BlobFromParts {
+                parts,
+                blob_type,
+                name,
+                last_modified,
+            } => {
+                let parts_operand = self.lower_expr(*parts)?;
+                let blob_type_operand = self.lower_expr(*blob_type)?;
+                let name_operand = name.map(|name_expr| self.lower_expr(name_expr)).transpose()?;
+                let last_modified_operand = last_modified
+                    .map(|last_modified_expr| self.lower_expr(last_modified_expr))
+                    .transpose()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::BlobFromParts {
+                        parts: parts_operand,
+                        blob_type: blob_type_operand,
+                        name: name_operand,
+                        last_modified: last_modified_operand,
+                    },
+                )?
+            }
             ExprKind::Method {
                 receiver,
                 method,

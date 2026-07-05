@@ -727,6 +727,21 @@ fn rewrite_rvalue(
             rewrite_operand_except(path, aliases, dest)
                 | rewrite_operand_except(text, aliases, dest)
         }
+        Rvalue::BlobFromParts {
+            parts,
+            blob_type,
+            name,
+            last_modified,
+        } => {
+            rewrite_operand_except(parts, aliases, dest)
+                | rewrite_operand_except(blob_type, aliases, dest)
+                | name
+                    .as_mut()
+                    .is_some_and(|name_operand| rewrite_operand_except(name_operand, aliases, dest))
+                | last_modified.as_mut().is_some_and(|last_modified_operand| {
+                    rewrite_operand_except(last_modified_operand, aliases, dest)
+                })
+        }
         Rvalue::NumericExtrema { args, .. } => args.iter_mut().fold(false, |changed, arg| {
             rewrite_operand_except(arg, aliases, dest) | changed
         }),

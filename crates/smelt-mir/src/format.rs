@@ -1205,6 +1205,24 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(text)
             )
         }
+        Rvalue::BlobFromParts {
+            parts,
+            blob_type,
+            name,
+            last_modified,
+        } => {
+            let name_text = name
+                .as_ref()
+                .map_or_else(|| "none".to_owned(), operand_text);
+            let last_modified_text = last_modified
+                .as_ref()
+                .map_or_else(|| "none".to_owned(), operand_text);
+            format!(
+                "blob_from_parts {}, {}, {name_text}, {last_modified_text}",
+                operand_text(parts),
+                operand_text(blob_type),
+            )
+        }
         Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
         Rvalue::AsyncOp { op, args } => {
             let op_text = match op {

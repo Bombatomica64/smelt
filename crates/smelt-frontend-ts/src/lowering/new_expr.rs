@@ -152,6 +152,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "Blob" && !self.classes.contains_key("Blob") {
             return self.blob_constructor_expression(new_expr, body);
         }
+        if callee.name == "File" && !self.classes.contains_key("File") {
+            return self.file_constructor_expression(new_expr, body);
+        }
         if callee.name == "Number" && !self.classes.contains_key("Number") {
             return self.boxed_primitive_constructor_expression(
                 new_expr,
@@ -837,13 +840,13 @@ impl ModuleBuilder<'_> {
     /// The mapping lives in the shared `smelt_stdlib::host_object` registry so the
     /// construct side, the `instanceof` side, and the runtime host-marker registry
     /// cannot drift. "Marker-only" here means host objects with no retained
-    /// structural fields (`WeakMap`/`WeakSet`/`DataView`/`SharedArrayBuffer`/
-    /// `File`); host objects with retained fields (`ArrayBuffer`, `Blob`, boxed
+    /// structural fields (`WeakMap`/`WeakSet`/`DataView`/`SharedArrayBuffer`);
+    /// host objects with retained fields (`ArrayBuffer`, `Blob`, `File`, boxed
     /// primitives, `DOMException`) have their own dedicated constructors and are
     /// excluded here even though they share the registry.
     pub(crate) fn marker_only_builtin_marker(name: &str) -> Option<&'static str> {
         match name {
-            "WeakMap" | "WeakSet" | "DataView" | "SharedArrayBuffer" | "File" => {
+            "WeakMap" | "WeakSet" | "DataView" | "SharedArrayBuffer" => {
                 smelt_stdlib::host_object_marker(name)
             }
             _ => None,
@@ -1129,54 +1132,108 @@ impl ModuleBuilder<'_> {
 
     /// Lower `new Blob(parts?, options?)` to a concrete marker-bearing record.
     ///
-    /// JavaScript `Blob` is a host binary-data object. es-toolkit only
-    /// constructs it and inspects it via `value instanceof Blob` (the `isBlob`
-    /// predicate over an erased `unknown`, plus the `cloneDeepWith` clone path).
-    /// Rather than erase it to a shapeless `SmeltUnknown` (which would lose its
-    /// identity), model it as a record carrying a dedicated `__smelt_blob`
-    /// marker plus its observable `type` string, mirroring the `ArrayBuffer`
-    /// model so a later dynamic `instanceof Blob` resolves through the marker
-    /// (see `instance_of_text`). The constructor arguments are still lowered so
-    /// their effects/types are validated, but only `type` is retained.
+    /// JavaScript `Blob` is a host binary-data object: constructed, inspected
+    /// via `value instanceof Blob` (the `isBlob` predicate over an erased
+    /// `unknown`), and read through `.type`/`.size` (the `clone`/`cloneDeepWith`
+    /// paths). Rather than erase it to a shapeless `SmeltUnknown` (which would
+    /// lose its identity), model it as a record carrying a dedicated
+    /// `__smelt_blob` marker plus its observable `type`, `size`, and `content`,
+    /// built by the `smelt_blob_record_from_parts` runtime helper (see
+    /// `ExprKind::BlobFromParts`) so a later dynamic `instanceof Blob` resolves
+    /// through the marker (see `instance_of_text`) and field reads observe real
+    /// values.
     pub(super) fn blob_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
-        // Lower the constructor arguments for their side effects and type checks
-        // even though only the MIME `type` ends up on the modeled record.
-        for argument in &new_expr.arguments {
-            let _ = self.argument(argument, body)?;
-        }
-        let blob_type = self.blob_options_type_string(new_expr.arguments.get(1), body, span);
-        let marker_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("__smelt_blob".to_owned())),
-            ty: string_ty,
+        let parts = self.blob_parts_expression(new_expr.arguments.first(), body, span)?;
+        let (blob_type, _) =
+            self.blob_options_expressions(new_expr.arguments.get(1), "Blob", body, span)?;
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::BlobFromParts {
+                parts,
+                blob_type,
+                name: None,
+                last_modified: None,
+            },
+            ty: unknown_ty,
             span,
-        });
-        let marker_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
+        }))
+    }
+
+    /// Lower `new File(parts, name, options?)` to a concrete marker-bearing record.
+    ///
+    /// JavaScript `File` extends `Blob`, so the modeled record carries the
+    /// `__smelt_file` marker *on top of* `__smelt_blob` (stamped by the
+    /// `smelt_blob_record_from_parts` runtime helper): `file instanceof Blob`
+    /// and `file instanceof File` both resolve through their markers, matching
+    /// the host subtype relationship that `isBlob`/`isFile` observe. The record
+    /// retains `name`, `type`, `lastModified`, `size`, and `content`, so the
+    /// `clone`/`cloneDeepWith` paths that rebuild a `File` from those fields
+    /// round-trip real values.
+    pub(super) fn file_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let parts = self.blob_parts_expression(new_expr.arguments.first(), body, span)?;
+        let name = match new_expr.arguments.get(1) {
+            Some(name_arg) => {
+                let name = self.argument(name_arg, body)?;
+                self.blob_string_field_expression(name, name_arg.span(), "File", "name", body)?
+            }
+            None => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(String::new())),
+                ty: string_ty,
+                span,
+            }),
+        };
+        let (blob_type, last_modified) =
+            self.blob_options_expressions(new_expr.arguments.get(2), "File", body, span)?;
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::BlobFromParts {
+                parts,
+                blob_type,
+                name: Some(name),
+                last_modified,
+            },
+            ty: unknown_ty,
             span,
-        });
-        let type_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("type".to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let object = body.push_expr(Expr {
-            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (type_key, blob_type)]),
-            ty: dict_ty,
-            span,
-        });
+        }))
+    }
+
+    /// Lower a `Blob`/`File` constructor `BlobPart` array to an erased value.
+    ///
+    /// Parts are heterogeneous at runtime (strings and other Blob/File records),
+    /// so the lowered array is erased to `SmeltUnknown` and walked by the
+    /// `smelt_blob_record_from_parts` runtime helper. A missing argument
+    /// (`new Blob()`) lowers to an empty erased list.
+    fn blob_parts_expression(
+        &mut self,
+        parts_argument: Option<&Argument<'_>>,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let parts = if let Some(argument) = parts_argument {
+            self.argument(argument, body)?
+        } else {
+            let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+            body.push_expr(Expr {
+                kind: ExprKind::ListLit(Vec::new()),
+                ty: list_ty,
+                span,
+            })
+        };
         Ok(body.push_expr(Expr {
             kind: ExprKind::UnknownCast {
-                value: object,
+                value: parts,
                 target: unknown_ty,
             },
             ty: unknown_ty,
@@ -1184,43 +1241,122 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Resolve a `Blob` constructor `options.type` string literal when present.
+    /// Resolve the `type` (and `File`-only `lastModified`) expressions from a
+    /// `Blob`/`File` constructor options argument.
     ///
-    /// Only a directly-spelled `{ type: "..." }` literal is carried onto the
-    /// modeled record; any other options shape falls back to the empty MIME
-    /// string that a real `Blob` reports when no type is supplied.
-    pub(super) fn blob_options_type_string(
+    /// An object-literal options argument keeps the spelled `type`/`lastModified`
+    /// *value expressions* — arbitrary expressions such as `valueToClone.type`,
+    /// not just string literals — and lowers every other property for its
+    /// effects. A missing or non-literal options argument falls back to the
+    /// empty MIME string a real `Blob` reports when no type is supplied.
+    fn blob_options_expressions(
         &mut self,
         options_argument: Option<&Argument<'_>>,
+        class_name: &str,
         body: &mut Body,
         span: Span,
-    ) -> smelt_hir::ExprId {
+    ) -> Result<(smelt_hir::ExprId, Option<smelt_hir::ExprId>), SmeltError> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let blob_type = options_argument.and_then(|argument| {
-            let Argument::ObjectExpression(object) = argument else {
-                return None;
-            };
-            object.properties.iter().find_map(|property| {
-                let ObjectPropertyKind::ObjectProperty(property) = property else {
-                    return None;
-                };
-                let PropertyKey::StaticIdentifier(key) = &property.key else {
-                    return None;
-                };
-                if key.name != "type" {
-                    return None;
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let mut blob_type = None;
+        let mut last_modified = None;
+        match options_argument {
+            Some(Argument::ObjectExpression(object)) => {
+                for property in &object.properties {
+                    let ObjectPropertyKind::ObjectProperty(property) = property else {
+                        continue;
+                    };
+                    let PropertyKey::StaticIdentifier(key) = &property.key else {
+                        let _ = self.expression(&property.value, body)?;
+                        continue;
+                    };
+                    let value = self.expression(&property.value, body)?;
+                    let value_span = property.value.span();
+                    match key.name.as_str() {
+                        "type" => {
+                            blob_type = Some(self.blob_string_field_expression(
+                                value,
+                                value_span,
+                                class_name,
+                                "options.type",
+                                body,
+                            )?);
+                        }
+                        "lastModified" => {
+                            let value_ty = Self::expr_ty(body, value);
+                            let coerced = if matches!(
+                                self.ctx.krate.types.get(value_ty),
+                                Some(Type::Int | Type::Float)
+                            ) {
+                                value
+                            } else if self.type_contains_unknown(value_ty) {
+                                body.push_expr(Expr {
+                                    kind: ExprKind::TypeAssert { value },
+                                    ty: float_ty,
+                                    span: self.span(value_span.start, value_span.end),
+                                })
+                            } else {
+                                return Err(SmeltError::unsupported(
+                                    self.span(value_span.start, value_span.end),
+                                    format!(
+                                        "{class_name} constructor options.lastModified must be a number"
+                                    ),
+                                ));
+                            };
+                            last_modified = Some(coerced);
+                        }
+                        // Unmodeled options (`endings`, ...) are evaluated for
+                        // their effects and dropped from the record.
+                        _ => {}
+                    }
                 }
-                match &property.value {
-                    Expression::StringLiteral(literal) => Some(literal.value.to_string()),
-                    _ => None,
-                }
+            }
+            // A non-literal options value (a variable, a call) is evaluated for
+            // its effects; its fields are not recoverable statically, so the
+            // record falls back to the constructor defaults.
+            Some(argument) => {
+                let _ = self.argument(argument, body)?;
+            }
+            None => {}
+        }
+        let blob_type = blob_type.unwrap_or_else(|| {
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(String::new())),
+                ty: string_ty,
+                span,
             })
         });
-        body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(blob_type.unwrap_or_default())),
-            ty: string_ty,
-            span,
-        })
+        Ok((blob_type, last_modified))
+    }
+
+    /// Coerce a lowered `Blob`/`File` constructor field to a string expression,
+    /// mirroring the `DOMException` message idiom: strings pass through,
+    /// string-compatible or erased values get a runtime `TypeAssert`, anything
+    /// else is a lowering error naming the offending field.
+    fn blob_string_field_expression(
+        &mut self,
+        value: smelt_hir::ExprId,
+        value_span: oxc::span::Span,
+        class_name: &str,
+        field_name: &str,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = Self::expr_ty(body, value);
+        if self.ctx.krate.types.get(value_ty) == Some(&Type::String) {
+            return Ok(value);
+        }
+        if self.is_string_compatible_type(value_ty) || self.type_contains_unknown(value_ty) {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value },
+                ty: string_ty,
+                span: self.span(value_span.start, value_span.end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(value_span.start, value_span.end),
+            format!("{class_name} constructor {field_name} must be a string"),
+        ))
     }
 
     /// Lower a boxed primitive wrapper (`new Number(v)`, `new Boolean(v)`) to a

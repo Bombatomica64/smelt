@@ -78,3 +78,17 @@ pub mod json {
     /// `JSON.parse` and other JSON-ingest boundaries.
     pub const UNKNOWN_FROM_JSON_VALUE: &str = "smelt_unknown_from_json_value";
 }
+
+/// Host-object construction helpers.
+///
+/// These build the marker records that model JavaScript host builtins (see
+/// `host_object.rs` for the marker registry itself).
+pub mod host {
+    /// Builds the modeled `Blob`/`File` record from its `BlobPart` contents.
+    ///
+    /// Backs `new Blob(parts?, options?)` and `new File(parts, name, options?)`
+    /// (`Rvalue::BlobFromParts`). Concatenates part contents, stores the UTF-8
+    /// byte `size`, and stamps `__smelt_file` on top of `__smelt_blob` when a
+    /// file name is supplied.
+    pub const BLOB_RECORD_FROM_PARTS: &str = "smelt_blob_record_from_parts";
+}

@@ -390,6 +390,7 @@ fn emit_source_with_free_function_router(
     let needs_erased_function = needs_erased_function_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
     let needs_date_timezone_offset = stdlib::needs_date_timezone_offset_runtime(mir);
+    let needs_blob_record = stdlib::needs_blob_record_runtime(mir);
     let needs_shared_captures = mir
         .closures
         .iter()
@@ -992,6 +993,47 @@ fn emit_source_with_free_function_router(
             writer.line("}");
         }
         writer.blank_line();
+        if needs_blob_record {
+            writer.line("/// Build the modeled host `Blob`/`File` record for `new Blob(...)` / `new File(...)`.");
+            writer.line("///");
+            writer.line("/// Concatenates BlobPart contents (strings verbatim; nested Blob/File records");
+            writer.line("/// contribute their stored `content`; other parts stringify like JavaScript)");
+            writer.line("/// and stores the UTF-8 byte length as `size`. Passing a file name stamps the");
+            writer.line("/// `__smelt_file` marker on top of `__smelt_blob`, so `file instanceof Blob`");
+            writer.line("/// observes the host subtype relationship; `lastModified` defaults to `0.0`");
+            writer.line("/// for determinism instead of the wall clock.");
+            writer.line(format!(
+                "fn {}(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> SmeltUnknown {{",
+                smelt_stdlib::runtime_symbols::host::BLOB_RECORD_FROM_PARTS,
+            ));
+            writer.line("    let mut content = String::new();");
+            writer.line("    if let SmeltUnknown::Array(items) = parts {");
+            writer.line("        for item in items.iter() {");
+            writer.line("            match item {");
+            writer.line("                SmeltUnknown::String(text) => content.push_str(text),");
+            writer.line("                SmeltUnknown::Object(map) if map.contains_key(\"__smelt_blob\") => {");
+            writer.line("                    if let Some(SmeltUnknown::String(text)) = map.get(\"content\") { content.push_str(&text); }");
+            writer.line("                }");
+            writer.line("                other => content.push_str(&other.to_string()),");
+            writer.line("            }");
+            writer.line("        }");
+            writer.line("    }");
+            writer.line("    let record = ::std::collections::HashMap::from([");
+            writer.line("        (\"__smelt_blob\".to_owned(), SmeltUnknown::Bool(true)),");
+            writer.line("        (\"type\".to_owned(), SmeltUnknown::String(blob_type)),");
+            writer.line("        (\"size\".to_owned(), SmeltUnknown::Number(content.len() as f64)),");
+            writer.line("        (\"content\".to_owned(), SmeltUnknown::String(content)),");
+            writer.line("    ]);");
+            writer.line("    let record = SmeltObject::new(record);");
+            writer.line("    if let Some(name) = file_name {");
+            writer.line("        record.insert(\"__smelt_file\".to_owned(), SmeltUnknown::Bool(true));");
+            writer.line("        record.insert(\"name\".to_owned(), SmeltUnknown::String(name));");
+            writer.line("        record.insert(\"lastModified\".to_owned(), SmeltUnknown::Number(last_modified.unwrap_or(0.0)));");
+            writer.line("    }");
+            writer.line("    SmeltUnknown::Object(record)");
+            writer.line("}");
+            writer.blank_line();
+        }
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
         writer.line("    // A missing property reads as JS `undefined`, distinct from an");
         writer.line("    // explicit `null` value (`obj.missing === undefined`, `!== null`).");

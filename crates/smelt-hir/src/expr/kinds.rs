@@ -589,6 +589,22 @@ pub enum ExprKind {
         path: ExprId,
         text: ExprId,
     },
+    /// Construct a modeled host `Blob` or `File` record from constructor
+    /// arguments (`new Blob(parts?, options?)` / `new File(parts, name, options?)`).
+    ///
+    /// `parts` is the erased `BlobPart` array (strings and other `Blob`/`File`
+    /// records); `blob_type` is the resolved MIME `type` string. `name` and
+    /// `last_modified` are present only for `File`, whose record additionally
+    /// carries the `__smelt_file` marker on top of `__smelt_blob` so
+    /// `file instanceof Blob` observes the host subtype relationship. The
+    /// runtime helper concatenates part contents and stores the UTF-8 byte
+    /// `size`, so `.size`/`.type`/`.name` reads observe real values.
+    BlobFromParts {
+        parts: ExprId,
+        blob_type: ExprId,
+        name: Option<ExprId>,
+        last_modified: Option<ExprId>,
+    },
     BinOp {
         op: BinOp,
         lhs: ExprId,

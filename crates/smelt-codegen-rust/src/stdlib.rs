@@ -149,6 +149,15 @@ pub(crate) fn needs_date_timezone_offset_runtime(mir: &Mir) -> bool {
     })
 }
 
+/// Returns true when generated Rust constructs a modeled host `Blob`/`File`
+/// record and therefore needs the `smelt_blob_record_from_parts` runtime helper.
+#[must_use]
+pub(crate) fn needs_blob_record_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(rvalue, Rvalue::BlobFromParts { .. })
+    })
+}
+
 /// Returns true when a MIR rvalue uses Url APIs.
 fn rvalue_needs_url(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::UrlField { .. })
