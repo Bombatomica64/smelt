@@ -918,6 +918,32 @@ export function drive(data: Iterable<unknown>): unknown[] {
 }
 ",
         },
+        Case {
+            // Issue #114 (follow-up to #83/#84): dotted access to an *undeclared*
+            // member of a class with an index signature used to hit the
+            // `unknown class or interface field` gate. It now resolves through
+            // the index signature's value type: a dotted read is a keyed lookup
+            // into the runtime store (issue #84), typed as the index value `T`
+            // rather than an erased `Unknown`, and the emitted Rust must
+            // compile. Declared named members (`bag.size`) still use the
+            // concrete struct access; only undeclared names route to the store.
+            name: "undeclared_index_signature_field_access",
+            area: "field_access",
+            source: r"
+class StringBag {
+  size: number = 0;
+  [key: string]: string | number;
+}
+
+export function readNamed(bag: StringBag): number {
+  return bag.size;
+}
+
+export function readDynamic(bag: StringBag): string | number {
+  return bag.anything;
+}
+",
+        },
         // --- array literals with function / this / class elements ------------
         Case {
             name: "array_literal_expr_elements",

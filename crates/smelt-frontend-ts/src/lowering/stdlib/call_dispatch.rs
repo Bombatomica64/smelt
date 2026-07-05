@@ -1291,6 +1291,35 @@ impl<'builder> ModuleBuilder<'builder> {
         })))
     }
 
+    /// Return whether a static-member expression names `Class.staticMethod` on a
+    /// bare, unshadowed class identifier.
+    ///
+    /// This mirrors the preconditions of [`Self::class_static_method_call`] so
+    /// other member-call dispatchers can defer such calls to it instead of
+    /// lowering them as callable-field reads (which would erase the concrete
+    /// associated function to the runtime `SmeltUnknown` call ABI). It is a
+    /// read-only check: the receiver identifier must resolve to a declared class
+    /// (not a local) whose `static_methods` include the accessed property.
+    fn static_member_is_class_static_method(
+        &self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> bool {
+        let Expression::Identifier(object) = &member.object else {
+            return false;
+        };
+        if self.locals.contains_key(object.name.as_str()) {
+            return false;
+        }
+        let Some(class_item) = self.classes.get(object.name.as_str()).copied() else {
+            return false;
+        };
+        let Item::Class(class) = self.item_ref(class_item) else {
+            return false;
+        };
+        self.resolve_class_static_method(&class.static_methods.clone(), member.property.name.as_str())
+            .is_some()
+    }
+
     /// Return the static method item on a class matching `method_name`, if any.
     fn resolve_class_static_method(
         &self,
@@ -1319,6 +1348,20 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
+        // `Class.staticMethod(...)` is a receiver-free associated-function call,
+        // resolved authoritatively by `class_static_method_call` (dispatched
+        // right after this helper). It must not be lowered here as a callable
+        // *field* read on the class value: the callee-field lowering below would
+        // route it through the erased `SmeltUnknown` call ABI instead of the
+        // concrete `Class::staticMethod` associated function. This guard used to
+        // be implicit — undeclared field access on a `Type::Class` receiver hard-
+        // errored, so `static_member_no_absent_fallback` failed and this helper
+        // bailed. Issue #114 made that access route to the dynamic boundary
+        // instead of erroring, so the deferral is now made explicit here rather
+        // than relying on the removed hard error.
+        if self.static_member_is_class_static_method(member) {
+            return Ok(None);
+        }
         if member.property.name == "call" {
             let callable = self.expression(&member.object, body)?;
             let callable_ty = Self::expr_ty(body, callable);
