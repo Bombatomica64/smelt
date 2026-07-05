@@ -777,6 +777,20 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::FileWriteText { path, text } => {
             format!("file_write_text {}, {}", expr_ref(*path), expr_ref(*text))
         }
+        ExprKind::BlobFromParts {
+            parts,
+            blob_type,
+            name,
+            last_modified,
+        } => {
+            let name_text = name.map_or("none".to_owned(), expr_ref);
+            let last_modified_text = last_modified.map_or("none".to_owned(), expr_ref);
+            format!(
+                "blob_from_parts {}, {}, {name_text}, {last_modified_text}",
+                expr_ref(*parts),
+                expr_ref(*blob_type),
+            )
+        }
         ExprKind::BinOp { op, lhs, rhs } => {
             format!("{op:?} {}, {}", expr_ref(*lhs), expr_ref(*rhs))
         }

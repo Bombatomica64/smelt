@@ -42,10 +42,11 @@ fn new_unresolved_builtin_class_is_missing_stdlib() -> Result<(), String> {
 }
 
 /// `new WeakMap()` / `new WeakSet()` / `new DataView()` / `new SharedArrayBuffer()`
-/// / `new File()` lower to concrete marker-bearing records so `instanceof` keeps a
-/// distinct identity for each host type, rather than erasing to a shapeless
+/// lower to concrete marker-bearing records so `instanceof` keeps a distinct
+/// identity for each host type, rather than erasing to a shapeless
 /// `SmeltUnknown::Object` (which the `isWeakMap`/`isWeakSet`/`isTypedArray`/`clone`
-/// predicates inspect).
+/// predicates inspect). (`File` retains structural fields now and has its own
+/// `BlobFromParts` construction; see `new_file_lowers_to_blob_from_parts_with_name`.)
 #[test]
 fn new_marker_only_host_builtins_lower_to_concrete_marker_records() -> Result<(), String> {
     for (source, marker) in [
@@ -53,7 +54,6 @@ fn new_marker_only_host_builtins_lower_to_concrete_marker_records() -> Result<()
         ("const w = new WeakSet();", "__smelt_weakset"),
         ("const d = new DataView(new ArrayBuffer(8));", "__smelt_dataview"),
         ("const s = new SharedArrayBuffer(8);", "__smelt_sharedarraybuffer"),
-        (r#"const f = new File(["x"], "n.txt");"#, "__smelt_file"),
     ] {
         let mut ctx = HirCtx::new();
         let module_id = lower_ok(source, &mut ctx)?;
@@ -527,9 +527,11 @@ fn object_constructor_passes_object_argument_through() -> Result<(), String> {
     Ok(())
 }
 
-/// `new Blob(parts, options)` lowers to a concrete record carrying the
-/// dedicated `__smelt_blob` marker (and observable `type`), giving it a distinct
-/// identity for `instanceof Blob` instead of erasing it to a shapeless value.
+/// `new Blob(parts, options)` lowers to a `BlobFromParts` construction (the
+/// `smelt_blob_record_from_parts` runtime helper builds the marker record with
+/// real `type`/`size`/`content`), retaining the spelled options `type` string,
+/// so `instanceof Blob` keeps a distinct identity and field reads observe real
+/// values instead of a shapeless erased object.
 #[test]
 fn new_blob_lowers_to_concrete_marker_record() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -542,16 +544,16 @@ fn new_blob_lowers_to_concrete_marker_record() -> Result<(), String> {
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             (&expr.kind, ctx.krate.types.get(expr.ty)),
-            (ExprKind::DictLit(entries), Some(Type::Dict(_, _))) if entries.len() == 2
+            (
+                ExprKind::BlobFromParts {
+                    name: None,
+                    last_modified: None,
+                    ..
+                },
+                Some(Type::Unknown)
+            )
         )),
-        "expected `new Blob(...)` to lower to a concrete record (DictLit + Dict type)",
-    );
-    ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            &expr.kind,
-            ExprKind::Literal(Literal::String(text)) if text == "__smelt_blob"
-        )),
-        "expected the Blob record to carry the `__smelt_blob` marker key",
+        "expected `new Blob(...)` to lower to a BlobFromParts construction",
     );
     ensure!(
         body.exprs.iter().any(|expr| matches!(
@@ -589,6 +591,101 @@ export function isBlob(x: unknown): x is Blob {
                 ExprKind::InstanceOf { class, .. } if ctx.krate.symbols.get(class) == Some("Blob")
             )),
         "expected `x instanceof Blob` to lower to a Blob InstanceOf predicate",
+    );
+    Ok(())
+}
+
+/// The `isFile` predicate shape (`typeof File === 'undefined'` presence guard
+/// plus `x instanceof File`) lowers like the `isBlob` shape: the presence guard
+/// folds to a constant and the `instanceof` resolves through the modeled
+/// `__smelt_file` marker instead of aborting on an unmodeled class.
+#[test]
+fn is_file_predicate_shape_lowers() -> Result<(), String> {
+    let source = ts!(r#"
+export function isFile(x: unknown): x is File {
+  if (typeof File === 'undefined') {
+    return false;
+  }
+  return x instanceof File;
+}
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(source, &mut ctx)?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(
+                expr.kind,
+                ExprKind::InstanceOf { class, .. } if ctx.krate.symbols.get(class) == Some("File")
+            )),
+        "expected `x instanceof File` to lower to a File InstanceOf predicate",
+    );
+    Ok(())
+}
+
+/// `new File(parts, name, options)` lowers to a `BlobFromParts` construction
+/// that retains the spelled `name` and `lastModified` expressions, so the
+/// modeled record observes real `.name`/`.type`/`.size`/`.lastModified` reads
+/// (the `clone`/`cloneDeepWith` File round-trip).
+#[test]
+fn new_file_lowers_to_blob_from_parts_with_name() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"const f = new File(['content'], 'file.txt', { type: 'text/plain', lastModified: 3 });"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            (&expr.kind, ctx.krate.types.get(expr.ty)),
+            (
+                ExprKind::BlobFromParts {
+                    name: Some(_),
+                    last_modified: Some(_),
+                    ..
+                },
+                Some(Type::Unknown)
+            )
+        )),
+        "expected `new File(...)` to lower to BlobFromParts retaining name and lastModified",
+    );
+    Ok(())
+}
+
+/// A `Blob` constructor options `type` spelled as a non-literal expression
+/// (`{ type: source.type }`, the `cloneDeepWith` Blob clone arm) is retained on
+/// the modeled record instead of collapsing to the empty MIME default.
+#[test]
+fn new_blob_retains_dynamic_options_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function cloneBlob(source: Blob): Blob {
+  return new Blob([source], { type: source.type });
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let retained_dynamic_type = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            matches!(
+                &expr.kind,
+                ExprKind::BlobFromParts { blob_type, name: None, .. }
+                    if !matches!(
+                        body.exprs.get(blob_type.0 as usize).map(|blob_type_expr| &blob_type_expr.kind),
+                        Some(ExprKind::Literal(Literal::String(text))) if text.is_empty()
+                    )
+            )
+        })
+    });
+    ensure!(
+        retained_dynamic_type,
+        "expected `new Blob([source], {{ type: source.type }})` to retain the dynamic type expression",
     );
     Ok(())
 }

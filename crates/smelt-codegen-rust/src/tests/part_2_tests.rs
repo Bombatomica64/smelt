@@ -257,6 +257,43 @@ const no = isBlob(1);
 }
 
 #[test]
+fn emits_blob_record_helper_for_file_constructor() {
+    let source = source_for(
+        r#"
+const file = new File(["content"], "file.txt", { type: "text/plain" });
+const isFile = file instanceof File;
+const isBlob = file instanceof Blob;
+"#,
+    );
+
+    // Construction routes through the shared runtime helper (which stamps
+    // `__smelt_file` on top of `__smelt_blob`), and both instanceof checks
+    // resolve through their marker keys.
+    assert!(
+        source.contains("fn smelt_blob_record_from_parts("),
+        "{source}"
+    );
+    assert!(source.contains("smelt_blob_record_from_parts(("), "{source}");
+    assert!(
+        source.contains("value.contains_key(\"__smelt_file\")"),
+        "{source}"
+    );
+    assert!(
+        source.contains("value.contains_key(\"__smelt_blob\")"),
+        "{source}"
+    );
+}
+
+#[test]
+fn omits_blob_record_helper_without_blob_construction() {
+    let source = source_for("const value: number = 1;");
+    assert!(
+        !source.contains("smelt_blob_record_from_parts"),
+        "the Blob/File record helper must stay gated behind actual Blob/File construction: {source}"
+    );
+}
+
+#[test]
 fn emits_runtime_boxed_number_identity_for_unknown_instanceof_guard() {
     let source = source_for(
         r"

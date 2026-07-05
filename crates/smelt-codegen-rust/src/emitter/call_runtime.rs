@@ -1200,6 +1200,35 @@ impl FunctionEmitter<'_> {
             Rvalue::UrlField { field, url } => self.url_field_text(*field, url),
             Rvalue::FileReadText { path } => self.file_read_text(path),
             Rvalue::FileWriteText { path, text } => self.file_write_text(path, text),
+            Rvalue::BlobFromParts {
+                parts,
+                blob_type,
+                name,
+                last_modified,
+            } => {
+                let parts_text = self.operand_text(parts)?;
+                let type_text = self.operand_text(blob_type)?;
+                let name_text = match name {
+                    Some(name_operand) => {
+                        format!("Some(({}).clone())", self.operand_text(name_operand)?)
+                    }
+                    None => "None".to_owned(),
+                };
+                let last_modified_text = match last_modified {
+                    Some(last_modified_operand) => {
+                        format!(
+                            "Some(({}) as f64)",
+                            self.operand_text(last_modified_operand)?
+                        )
+                    }
+                    None => "None".to_owned(),
+                };
+                Ok(format!(
+                    "{blob_record_from_parts}(({parts_text}).clone(), ({type_text}).clone(), {name_text}, {last_modified_text})",
+                    blob_record_from_parts =
+                        smelt_stdlib::runtime_symbols::host::BLOB_RECORD_FROM_PARTS,
+                ))
+            }
             Rvalue::Await(operand) => {
                 if self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::None) {
                     return self.default_value(dest_ty);

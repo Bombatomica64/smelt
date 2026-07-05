@@ -1521,6 +1521,18 @@ pub enum Rvalue {
         /// Text content to write.
         text: Operand,
     },
+    /// Construct a modeled host `Blob`/`File` marker record from constructor parts.
+    BlobFromParts {
+        /// Erased `BlobPart` array (strings and other `Blob`/`File` records).
+        parts: Operand,
+        /// Resolved MIME `type` string.
+        blob_type: Operand,
+        /// `File` name; present only for `new File(...)`, which also stamps
+        /// the `__smelt_file` marker on top of `__smelt_blob`.
+        name: Option<Operand>,
+        /// `File` options `lastModified` milliseconds, when spelled.
+        last_modified: Option<Operand>,
+    },
     /// Await a future and produce its output.
     Await(Operand),
     /// Run a runtime-backed async operation.

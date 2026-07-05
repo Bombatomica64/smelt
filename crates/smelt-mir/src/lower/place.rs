@@ -232,6 +232,7 @@ impl LoweringCtx<'_> {
             | ExprKind::UrlField { .. }
             | ExprKind::FileReadText { .. }
             | ExprKind::FileWriteText { .. }
+            | ExprKind::BlobFromParts { .. }
             | ExprKind::BinOp { .. }
             | ExprKind::UnaryOp { .. }
             | ExprKind::Conditional { .. }

@@ -169,6 +169,11 @@ impl ModuleBuilder<'_> {
                     // resolves through that marker in `instance_of_text`.
                     | "Buffer"
                     | "Blob"
+                    // `File` records stamp `__smelt_file` on top of
+                    // `__smelt_blob` (see `file_constructor_expression`), so
+                    // both `value instanceof File` and `value instanceof Blob`
+                    // resolve through their markers in `instance_of_text`.
+                    | "File"
                     | "Number"
                     // Boxed primitive wrappers. A real primitive (`true`, `"a"`)
                     // is never `instanceof` its wrapper; only the boxed object
@@ -215,7 +220,7 @@ impl ModuleBuilder<'_> {
     /// satisfy would reintroduce the erased-vs-runtime disagreement the globals
     /// plan warns against, so unmodeled host globals are deliberately excluded.
     pub(super) fn is_known_defined_global_constructor(name: &str) -> bool {
-        matches!(name, "Blob" | "ArrayBuffer" | "Buffer")
+        matches!(name, "Blob" | "File" | "ArrayBuffer" | "Buffer")
             || Self::marker_only_builtin_marker(name).is_some()
     }
 

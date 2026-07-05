@@ -624,6 +624,21 @@ impl Rvalue {
                 visit(path);
                 visit(text);
             }
+            Self::BlobFromParts {
+                parts,
+                blob_type,
+                name,
+                last_modified,
+            } => {
+                visit(parts);
+                visit(blob_type);
+                if let Some(name_operand) = name {
+                    visit(name_operand);
+                }
+                if let Some(last_modified_operand) = last_modified {
+                    visit(last_modified_operand);
+                }
+            }
             Self::NumericExtrema { args, .. } => {
                 for arg in args {
                     visit(arg);
@@ -1303,6 +1318,21 @@ impl Rvalue {
             Self::FileWriteText { path, text } => {
                 visit(path);
                 visit(text);
+            }
+            Self::BlobFromParts {
+                parts,
+                blob_type,
+                name,
+                last_modified,
+            } => {
+                visit(parts);
+                visit(blob_type);
+                if let Some(name_operand) = name {
+                    visit(name_operand);
+                }
+                if let Some(last_modified_operand) = last_modified {
+                    visit(last_modified_operand);
+                }
             }
             Self::NumericExtrema { args, .. } => {
                 for arg in args.iter_mut() {
