@@ -622,3 +622,118 @@ export function area(radius: number): number {
     ));
     Ok(())
 }
+
+/// Issue #114 (follow-up to #83/#84): dotted access to an *undeclared* member of
+/// a class that carries a string index signature resolves through the index
+/// signature's value type, not the erased `Unknown` boundary. `bag.anything`
+/// is a keyed store read whose static type is the index value `string`, so the
+/// function that returns it type-checks concretely. This is the statically
+/// resolvable case the blocker used to reject; it must lower without error and
+/// keep its concrete type.
+#[test]
+fn resolves_dot_access_on_class_index_signature() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class StringBag {
+  [key: string]: string;
+}
+export function readBag(bag: StringBag): string {
+  return bag.anything;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // The undeclared dotted read stays concretely typed as the index value
+    // (`string`), never widened to `Unknown`.
+    let read_bag = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Function(function)
+                if ctx.krate.symbols.get(function.name) == Some("read_bag") =>
+            {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing read_bag function".to_owned())?;
+    ensure!(matches!(
+        ctx.krate.types.get(read_bag.return_ty),
+        Some(Type::String)
+    ));
+    Ok(())
+}
+
+/// Issue #114: dotted access to an undeclared member of a class whose base type
+/// carries an index signature resolves through the *inherited* index value
+/// type. `derived.dynamic` finds no named field on `Derived` and no index
+/// signature on `Derived` itself, but the base `Bag`'s string index signature
+/// supplies the value type. The subclass access must not hard-error.
+#[test]
+fn resolves_dot_access_through_inherited_index_signature() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Bag {
+  [key: string]: string;
+}
+class Derived extends Bag {
+  size: number = 0;
+}
+export function readDynamic(derived: Derived): string {
+  return derived.dynamic;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Issue #114: an undeclared dotted read on a concrete class with neither an
+/// index signature nor a resolvable base no longer aborts lowering with the
+/// `unknown class or interface field` blocker. Static resolution (declared
+/// fields, methods, index signatures, base/interface heritage, builtins) is
+/// exhausted, so the access routes to the explicit `Unknown` dynamic boundary
+/// (mirroring how interface receivers and `id`-named reads were already handled
+/// through ad-hoc escape hatches that this general rule replaces). In valid
+/// TypeScript this only type-checks for widened/dynamic receivers or — as under
+/// isolated per-file lowering — a receiver whose full member set is not visible
+/// here; either way the honest lowering is the boundary, not a hard error. This
+/// is not SmeltUnknown *widening* of statically-typed access: every static
+/// resolver is tried first, so the declared field `x` keeps its concrete type.
+#[test]
+fn routes_unresolved_class_field_to_dynamic_boundary_without_error() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Point {
+  x: number = 0;
+}
+export function readDynamic(p: Point): unknown {
+  return p.y;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    // Lowering succeeds (no `unknown class or interface field` abort); the
+    // declared field `x` is untouched and stays concrete `Float`.
+    let point = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Class(class) if ctx.krate.names.get(class.name) == Some("Point") => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| "missing Point class".to_owned())?;
+    ensure!(point.fields.iter().any(|field| {
+        ctx.krate.symbols.get(field.name) == Some("x")
+            && matches!(ctx.krate.types.get(field.ty), Some(Type::Float))
+    }));
+    Ok(())
+}

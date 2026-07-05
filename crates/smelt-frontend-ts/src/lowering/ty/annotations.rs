@@ -1956,7 +1956,6 @@ return_ty: function.return_ty,
                     })))
                 });
                 let interface = self.find_interface(name).cloned();
-                let interface_exists = interface.is_some();
                 let interface_field = if let Some(interface) = interface {
                     let substitutions = self.type_argument_substitution(
                         &interface.type_params,
@@ -2076,40 +2075,28 @@ return_ty: function.return_ty,
                 {
                     return Ok(ty);
                 }
-                if self.class_by_symbol(name).is_none()
-                    && class_name.as_deref().is_none_or(|sidecar_name| {
-                        !self.class_fields.contains_key(sidecar_name)
-                    })
-                    && !interface_exists
-                {
-                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
-                }
-                if self
-                    .class_by_symbol(name)
-                    .is_some_and(|class| class.base.is_some())
-                    || self
-                        .ctx
-                        .krate
-                        .symbols
-                        .get(name)
-                        .is_some_and(|base_lookup_name| {
-                            self.class_bases.contains_key(base_lookup_name)
-                        })
-                {
-                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
-                }
-                let field_name = self.ctx.krate.symbols.get(field).unwrap_or("<unknown>");
-                if field_name == "id" {
-                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
-                }
-                if interface_exists {
-                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
-                }
-                let receiver_name = self.ctx.krate.symbols.get(name).unwrap_or("<unknown>");
-                Err(SmeltError::unsupported(
-                    self.span(0, 0),
-                    format!("unknown class or interface field `{field_name}` on `{receiver_name}`"),
-                ))
+                // Static resolution is exhausted: the field is not a declared
+                // named field/method, an index-signature value, a builtin
+                // member, or reachable through the base class or interface
+                // heritage chains. In valid TypeScript, dot access still type-
+                // checks in exactly one situation — the receiver's static shape
+                // is *widened* or *dynamic*: an index signature on a base type,
+                // an `any`-typed heritage clause, a declaration-merged member,
+                // or (during isolated per-file lowering, where cross-module
+                // classes expose no fields here) a class whose full member set
+                // is simply not visible yet. Routing these to the `Unknown`
+                // dynamic boundary is the honest lowering; hard-erroring would
+                // reject source TypeScript accepts. This is not SmeltUnknown
+                // *widening* of statically-typed access — every static resolver
+                // above is tried first, so declared members keep their concrete
+                // types and only genuinely-unresolvable dynamic access lands
+                // here. Issue #114 (follow-up to #83/#84): resolvable
+                // undeclared-field access now flows through the index signature
+                // (`class_index_field`/`interface_index_values`) above, and the
+                // residual unresolvable case falls through to the boundary
+                // instead of the old per-field (`id`) / interface-exists /
+                // has-base escape hatches.
+                Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
             _ => Err(SmeltError::unsupported(
                 self.span(0, 0),
