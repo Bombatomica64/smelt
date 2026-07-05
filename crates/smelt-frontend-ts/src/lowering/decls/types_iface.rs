@@ -903,6 +903,17 @@ impl ModuleBuilder<'_> {
                 // are left untouched: the fact only projects concrete union arms.
                 let discriminant_narrowing =
                     self.switch_discriminant_narrowing(&switch_stmt.discriminant, body);
+                // A `switch (typeof x)` discriminates a union the way a chain of
+                // `if (typeof x === 'k')` guards would: each labeled arm proves
+                // `x` is the member(s) whose runtime `typeof` matches that arm's
+                // label. Unlike the field-discriminant fact above, this narrowing
+                // is per-arm, so the arm's own label(s) drive it. `pending_kinds`
+                // accumulates the string labels of grouped empty cases
+                // (`case 'a': case 'b':`) sharing the next arm's body; a `None`
+                // entry marks a label we could not read as a `typeof` kind, which
+                // disables narrowing for that group.
+                let typeof_switch_local = Self::typeof_identifier_name(&switch_stmt.discriminant);
+                let mut pending_kinds: Vec<Option<String>> = Vec::new();
                 let mut arms = Vec::new();
                 let mut default = None;
                 let mut pending_empty_labels = Vec::new();
@@ -911,6 +922,9 @@ impl ModuleBuilder<'_> {
                 for (case_index, case) in switch_stmt.cases.iter().enumerate() {
                     if case.consequent.is_empty() {
                         if let Some(test) = &case.test {
+                            if typeof_switch_local.is_some() {
+                                pending_kinds.push(Self::string_literal_value(test));
+                            }
                             pending_empty_labels.push(self.literal_case_label(test)?);
                             continue;
                         }
@@ -919,13 +933,35 @@ impl ModuleBuilder<'_> {
                     // arm handles the "no label matched" path and must not assume
                     // the discriminant property is present.
                     let narrowing_pushed = if case.test.is_some() {
-                        if let Some((name, target)) = discriminant_narrowing.clone() {
+                        // Prefer the per-arm `typeof` fact when the discriminant is
+                        // `typeof x`; otherwise project the shared field-discriminant
+                        // fact. Grouped labels for this arm (`pending_kinds`) union
+                        // with the arm's own label, and a group we could not read as
+                        // kinds records no fact.
+                        let typeof_fact = typeof_switch_local.as_ref().and_then(|name| {
+                            let group = std::mem::take(&mut pending_kinds);
+                            let current = case.test.as_ref().and_then(Self::string_literal_value);
+                            match current {
+                                Some(current) if group.iter().all(Option::is_some) => {
+                                    let mut kinds: Vec<String> =
+                                        group.into_iter().flatten().collect();
+                                    kinds.push(current);
+                                    self.switch_typeof_case_narrowing(name, &kinds, body)
+                                }
+                                _ => None,
+                            }
+                        });
+                        let fact = typeof_fact.or_else(|| discriminant_narrowing.clone());
+                        if let Some((name, target)) = fact {
                             self.apply_narrowing_scope(name, target);
                             true
                         } else {
                             false
                         }
                     } else {
+                        // The `default` arm proves no discriminant fact; drop any
+                        // pending `typeof` group kinds that fell through to it.
+                        pending_kinds.clear();
                         false
                     };
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));

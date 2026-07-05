@@ -957,6 +957,45 @@ function isUndefined(value?: number): boolean {
 }
 
 #[test]
+fn narrows_union_param_in_switch_typeof_cases() -> Result<(), String> {
+    // `switch (typeof x)` narrows the `string | string[]` union per arm the way
+    // a chain of `if (typeof x === 'k')` guards would: the `'string'` arm proves
+    // `chars` is a `string` (so `.length` and `=== chars` type-check) and the
+    // `'object'` arm proves it is the `string[]` member (so `.includes` does).
+    // Without per-arm `typeof` switch narrowing these member accesses hit the
+    // union receiver and fail to lower. Mirrors es-toolkit `string/trimStart.ts`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function trimStartLike(str: string, chars: string | string[]): number {
+  let startIndex = 0;
+  switch (typeof chars) {
+    case 'string': {
+      if (chars.length !== 1) {
+        return -1;
+      }
+      while (startIndex < str.length && str[startIndex] === chars) {
+        startIndex++;
+      }
+      break;
+    }
+    case 'object': {
+      while (startIndex < str.length && chars.includes(str[startIndex])) {
+        startIndex++;
+      }
+    }
+  }
+  return startIndex;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_typeof_bigint_guard() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
