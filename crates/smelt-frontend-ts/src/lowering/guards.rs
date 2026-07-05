@@ -49,6 +49,33 @@ impl ModuleBuilder<'_> {
             ));
         };
         let class_text = class_ident.name.as_str();
+        // `x instanceof Uint8Array` (any typed-array view). Smelt models a typed
+        // array as a plain numeric list, so identity is only recoverable from the
+        // static type: a list-typed operand *is* a typed array in this model and
+        // folds to `true`, while any other concrete or erased operand carries no
+        // typed-array identity and folds to `false`. This deliberately cannot
+        // distinguish a typed array from a plain `number[]` — the numeric-list
+        // representation erases that distinction — but it keeps the check honest
+        // for the common concrete cases and never aborts the build. A
+        // user-declared class of the same name owns the name and is handled by
+        // the ordinary class path below.
+        if smelt_stdlib::is_typed_array_class_name(class_text)
+            && !self.classes.contains_key(class_text)
+        {
+            let result = matches!(
+                self.ctx
+                    .krate
+                    .types
+                    .get(self.type_param_constraint_or_self(value_ty)),
+                Some(Type::List(_))
+            );
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(result)),
+                ty,
+                span: self.span(binary.span.start, binary.span.end),
+            }));
+        }
         if Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::Date)
             && self.expression_is_known_date_value(value, body)
         {
@@ -125,6 +152,12 @@ impl ModuleBuilder<'_> {
     /// Return true when an expression is a built-in constructor target.
     pub(super) fn instanceof_builtin_target(target: &str) -> bool {
         smelt_stdlib::typescript_stdlib_class(target).is_some()
+            // Typed-array views (`x instanceof Uint8Array`). Smelt backs a typed
+            // array with a plain numeric list, so a *concrete* list-typed operand
+            // resolves through the list check below and an erased/other operand
+            // folds to `false` (see `instanceof_fold_false_builtin_target`) —
+            // either way the target is recognized instead of aborting the build.
+            || smelt_stdlib::is_typed_array_class_name(target)
             || Self::marker_only_builtin_marker(target).is_some()
             || matches!(
                 target,

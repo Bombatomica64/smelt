@@ -95,6 +95,27 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        // A typed-array constructor used as a bare *value* rather than through
+        // `new` — e.g. an `instanceof Uint8Array` / `toBeInstanceOf(Uint8Array)`
+        // target, or a constructor passed to a helper. Mirror the `Date` model:
+        // resolve the name to a `Type::Class` marker value so it is a first-class
+        // constructor reference instead of an unresolved identifier. A
+        // user-declared class of the same name is handled by the branch above and
+        // takes priority. Smelt has no first-class class objects, so the value
+        // itself carries no callable payload; the `instanceof`/matcher lowering
+        // reads the class *name*, not this placeholder.
+        if smelt_stdlib::is_typed_array_class_name(name) {
+            let symbol = self.intern_type_name(name);
+            let ty = self.ctx.krate.types.intern(Type::Class {
+                name: symbol,
+                args: Vec::new(),
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
         if matches!(name, "RegExp" | "Temporal") {
             let ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(body.push_expr(Expr {

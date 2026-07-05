@@ -696,3 +696,128 @@ export function make(): Object {
     );
     Ok(())
 }
+
+/// Every typed-array view constructor — including the BigInt-backed
+/// `BigInt64Array` / `BigUint64Array` that the previous inline recognizer
+/// omitted and which aborted the es-toolkit build as `unresolved class
+/// BigUint64Array` — lowers without a missing-stdlib blocker. Smelt models a
+/// typed array as a plain numeric list, so the constructed value is a `List`.
+#[test]
+fn typed_array_constructors_lower_to_numeric_lists() -> Result<(), String> {
+    for name in smelt_stdlib::TYPED_ARRAY_CLASS_NAMES {
+        let source = format!("const value = new {name}(8);");
+        let mut ctx = HirCtx::new();
+        let module_id = lower_ok(&source, &mut ctx)?;
+        let module = module(&ctx, module_id)?;
+        let body = module_body(&ctx, module)?;
+        ensure!(
+            body.exprs.iter().any(|expr| matches!(
+                ctx.krate.types.get(expr.ty),
+                Some(Type::List(_))
+            )),
+            "expected `new {name}(8)` to lower to a numeric list",
+        );
+    }
+    Ok(())
+}
+
+/// `new Uint8Array([1, 2, 3])` lowers to a list literal (the numeric-list
+/// model reuses the array-expression lowering for the element form).
+#[test]
+fn typed_array_from_literal_lowers_to_list_literal() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const value = new Uint8Array([1, 2, 3]);"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            (&expr.kind, ctx.krate.types.get(expr.ty)),
+            (ExprKind::ListLit(_), Some(Type::List(_)))
+        )),
+        "expected `new Uint8Array([1, 2, 3])` to lower to a list literal",
+    );
+    Ok(())
+}
+
+/// A typed-array constructor used as a bare *value* (an `instanceof` /
+/// `toBeInstanceOf` target, or a helper argument) resolves to a `Type::Class`
+/// reference instead of failing as an `unresolved identifier`, mirroring the
+/// `Date` bare-value model. This is the fix for the `unresolved identifier
+/// Uint8Array` blocker in `clone.spec.ts`.
+#[test]
+fn typed_array_name_resolves_as_bare_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("function ctor(): unknown { return Uint8Array; }"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "ctor")?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            ctx.krate.types.get(expr.ty),
+            Some(Type::Class { name, .. }) if ctx.krate.symbols.get(*name) == Some("Uint8Array")
+        )),
+        "expected a bare `Uint8Array` to resolve to a Uint8Array class reference",
+    );
+    Ok(())
+}
+
+/// `x instanceof Uint8Array` folds to a boolean instead of aborting: a
+/// list-typed operand (a typed array in Smelt's numeric-list model) folds to
+/// `true`, while an unrelated concrete operand folds to `false`. The
+/// numeric-list model cannot distinguish a typed array from a plain `number[]`,
+/// but the check is honest for the common concrete cases and never blocks.
+#[test]
+fn instanceof_typed_array_folds_to_boolean() -> Result<(), String> {
+    for (source, expected) in [
+        (
+            "function check(x: number[]): boolean { return x instanceof Uint8Array; }",
+            true,
+        ),
+        (
+            "function check(x: string): boolean { return x instanceof Uint8Array; }",
+            false,
+        ),
+    ] {
+        let mut ctx = HirCtx::new();
+        let module_id = lower_ok(source, &mut ctx)?;
+        let module = module(&ctx, module_id)?;
+        let function = named_function_item(&ctx, module, "check")?;
+        let body = function_body(&ctx, function)?;
+        ensure!(
+            body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::Literal(Literal::Bool(value)) if *value == expected
+            )),
+            "expected `{source}` to fold `instanceof Uint8Array` to `{expected}`",
+        );
+        ensure!(
+            !body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::InstanceOf { class, .. }
+                    if ctx.krate.symbols.get(*class) == Some("Uint8Array")
+            )),
+            "expected `{source}` to fold the check instead of emitting an InstanceOf",
+        );
+    }
+    Ok(())
+}
+
+/// The es-toolkit `isTypedArray` body (`ArrayBuffer.isView(x) && !(x instanceof
+/// DataView)`) lowers without a blocker, exercising the typed-array
+/// `ArrayBuffer.isView` and `instanceof DataView` paths together.
+#[test]
+fn is_typed_array_predicate_body_lowers() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function isTypedArray(x: unknown): boolean {
+  return ArrayBuffer.isView(x) && !(x instanceof DataView);
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}

@@ -819,6 +819,42 @@ export function make(count: number): number[] {
 }
 
 #[test]
+fn emits_bigint_typed_array_constructor_as_numeric_list() {
+    // `BigInt64Array` / `BigUint64Array` were previously omitted from the
+    // typed-array recognizer, so `new BigUint64Array(...)` aborted the build as
+    // an "unresolved class". They now share the numeric-list model with the
+    // other views: the element form emits a `Vec` literal and `.length` reads a
+    // list length.
+    let source = source_for(
+        r"
+export function make(): number {
+  const values = new BigUint64Array([1, 2, 3]);
+  return values.length;
+}
+",
+    );
+
+    assert!(source.contains("vec!["), "{source}");
+    assert!(!source.contains("unresolved"), "{source}");
+}
+
+#[test]
+fn emits_typed_array_from_element_literal_as_vec_literal() {
+    // `new Uint8Array([1, 2, 3])` reuses the array-literal lowering, so it emits
+    // a concrete `Vec` literal that supports `.length` and integer indexing.
+    let source = source_for(
+        r"
+export function first(): number {
+  const values = new Uint8Array([10, 20, 30]);
+  return values[0];
+}
+",
+    );
+
+    assert!(source.contains("vec![10.0, 20.0, 30.0]"), "{source}");
+}
+
+#[test]
 fn inserts_unknown_iterable_values_into_typed_sets() {
     let source = source_for(
         r"

@@ -54,6 +54,44 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
     }
 }
 
+/// The JavaScript typed-array view constructor names, in a stable order.
+///
+/// These are the eleven `TypedArray` element-view classes (`Uint8Array`,
+/// `Int8Array`, ..., `BigInt64Array`, `BigUint64Array`). Smelt models a typed
+/// array as a plain numeric list (so `.length`, integer indexing, iteration and
+/// value-equality reuse the list machinery), while this shared name list is the
+/// single source of truth every frontend/codegen site consults to decide
+/// whether a constructor / bare identifier / `instanceof` target names a typed
+/// array. Keeping the set here — rather than re-spelling the `matches!(...)` arm
+/// in each site — stops the construction side, the value-resolution side, and
+/// the `instanceof` side from drifting apart.
+pub const TYPED_ARRAY_CLASS_NAMES: [&str; 11] = [
+    "Int8Array",
+    "Uint8Array",
+    "Uint8ClampedArray",
+    "Int16Array",
+    "Uint16Array",
+    "Int32Array",
+    "Uint32Array",
+    "Float32Array",
+    "Float64Array",
+    "BigInt64Array",
+    "BigUint64Array",
+];
+
+/// Return whether a class name is one of the JavaScript typed-array views.
+///
+/// Consulted by the TypeScript frontend (constructor lowering, bare-value
+/// resolution, `instanceof` targeting) and codegen so the eleven typed-array
+/// names are recognized from one place. `BigInt64Array` / `BigUint64Array` are
+/// included even though their elements are `BigInt` values: Smelt's minimum-viable
+/// typed array model backs every view with the same numeric list, so they share
+/// the recognizer with the numeric views.
+#[must_use]
+pub fn is_typed_array_class_name(name: &str) -> bool {
+    TYPED_ARRAY_CLASS_NAMES.contains(&name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +122,25 @@ mod tests {
     fn rejects_user_class_names() {
         for name in ["Regexp", "RegExpLike", "Dates", "HashMap", "MyClass"] {
             assert_eq!(typescript_stdlib_class(name), None);
+        }
+    }
+
+    /// Every typed-array view constructor is recognized, including the BigInt
+    /// views, while plain `Array` and lookalikes are not.
+    #[test]
+    fn recognizes_typed_array_class_names() {
+        for name in TYPED_ARRAY_CLASS_NAMES {
+            assert!(
+                is_typed_array_class_name(name),
+                "expected `{name}` to be recognized as a typed array"
+            );
+        }
+        assert!(is_typed_array_class_name("BigUint64Array"));
+        for name in ["Array", "Uint8", "TypedArray", "Float16Array", "MyUint8Array"] {
+            assert!(
+                !is_typed_array_class_name(name),
+                "did not expect `{name}` to be recognized as a typed array"
+            );
         }
     }
 }

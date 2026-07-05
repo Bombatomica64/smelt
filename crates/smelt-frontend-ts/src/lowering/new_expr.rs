@@ -177,7 +177,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "AbortController" && !self.classes.contains_key("AbortController") {
             return self.abort_controller_constructor_expression(new_expr, body);
         }
-        if Self::is_numeric_typed_array_constructor(callee.name.as_str()) {
+        if Self::is_numeric_typed_array_constructor(callee.name.as_str())
+            && !self.classes.contains_key(callee.name.as_str())
+        {
             return self.numeric_typed_array_constructor_expression(new_expr, body);
         }
         if callee.name == "URLSearchParams" {
@@ -692,20 +694,16 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Return whether a global constructor creates a numeric typed array.
+    /// Return whether a global constructor creates a JavaScript typed array.
+    ///
+    /// Delegates to the shared `smelt_stdlib` recognizer so all eleven typed
+    /// array names — including the BigInt-backed `BigInt64Array` /
+    /// `BigUint64Array`, which the previous inline `matches!` omitted and which
+    /// therefore aborted the es-toolkit build as an "unresolved class" — are
+    /// recognized from one registry. Smelt backs every view with the same
+    /// numeric-list model, so all eleven share this construction path.
     pub(super) fn is_numeric_typed_array_constructor(name: &str) -> bool {
-        matches!(
-            name,
-            "Int8Array"
-                | "Uint8Array"
-                | "Uint8ClampedArray"
-                | "Int16Array"
-                | "Uint16Array"
-                | "Int32Array"
-                | "Uint32Array"
-                | "Float32Array"
-                | "Float64Array"
-        )
+        smelt_stdlib::is_typed_array_class_name(name)
     }
 
     /// Lower `new URLSearchParams(init)` to an object carrying observable `size`.
