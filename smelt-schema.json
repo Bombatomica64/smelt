@@ -94,6 +94,16 @@
           "items": {
             "type": "string"
           }
+        },
+        "exclude": {
+          "description": "Optional root-relative glob patterns for source files to exclude.\n\nMatching files are skipped by both build and probe file discovery. The\nglob syntax matches [`test_globs`](Self::test_globs): `*` spans one path\nsegment and `**` spans zero or more segments, always with `/` separators.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [

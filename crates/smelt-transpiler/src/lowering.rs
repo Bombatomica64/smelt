@@ -261,6 +261,9 @@ impl Drop for QuietPanics {
 
 /// Recursively collect every TypeScript/Python source file under the manifest
 /// source roots, skipping declaration files and vendored/output directories.
+///
+/// Files whose manifest-relative path matches a `[sources] exclude` glob are
+/// dropped so probe discovery honors the same exclusions as build discovery.
 pub(crate) fn discover_source_files(
     config: &crate::config::Config,
     manifest_dir: &Path,
@@ -273,6 +276,7 @@ pub(crate) fn discover_source_files(
         let absolute_root = resolve_manifest_path(manifest_dir, &root);
         collect_source_files(&absolute_root, &mut paths)?;
     }
+    retain_included_paths(&mut paths, config.source_excludes(), manifest_dir);
     paths.sort();
     paths.dedup();
     Ok(paths)
@@ -363,6 +367,11 @@ pub(crate) fn lower_manifest_entries(
 }
 
 /// Returns explicitly listed entries plus test files discovered by glob.
+///
+/// Any root source whose manifest-relative path matches a `[sources] exclude`
+/// glob is removed before dependency resolution. Because excluded specs are
+/// leaf test files that nothing imports, dropping them from the root set keeps
+/// them out of the whole-crate build entirely.
 fn manifest_root_paths(
     config: &crate::config::Config,
     manifest_dir: &Path,
@@ -373,9 +382,31 @@ fn manifest_root_paths(
         .map(|path| resolve_manifest_path(manifest_dir, path))
         .collect::<Vec<_>>();
     paths.extend(discover_test_paths(config, manifest_dir)?);
+    retain_included_paths(&mut paths, config.source_excludes(), manifest_dir);
     paths.sort();
     paths.dedup();
     Ok(paths)
+}
+
+/// Drops paths whose manifest-relative form matches any `exclude` glob.
+///
+/// Exclusion patterns are matched against each path relative to the manifest
+/// directory (for example `src/object/clone.spec.ts`), using the same narrow
+/// glob syntax as [`path_matches_glob`]. Paths outside `manifest_dir` and paths
+/// with no exclude patterns are always retained.
+fn retain_included_paths(paths: &mut Vec<PathBuf>, excludes: &[String], manifest_dir: &Path) {
+    if excludes.is_empty() {
+        return;
+    }
+    paths.retain(|path| !is_excluded_source(path, excludes, manifest_dir));
+}
+
+/// Returns whether `path` matches any `exclude` glob relative to `manifest_dir`.
+fn is_excluded_source(path: &Path, excludes: &[String], manifest_dir: &Path) -> bool {
+    let relative = path.strip_prefix(manifest_dir).unwrap_or(path);
+    excludes
+        .iter()
+        .any(|pattern| path_matches_glob(relative, pattern))
 }
 
 /// Discovers test files matching configured source-root-relative glob patterns.
@@ -770,4 +801,109 @@ fn manifest_module_names(sources: &[&ManifestSource]) -> Vec<String> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for source-file glob matching and `[sources] exclude` filtering.
+
+    use super::{is_excluded_source, path_matches_glob, retain_included_paths};
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn glob_double_star_spans_zero_or_more_segments() {
+        assert!(path_matches_glob(
+            Path::new("object/clone.spec.ts"),
+            "object/**/*.spec.ts"
+        ));
+        assert!(path_matches_glob(
+            Path::new("object/nested/deep/clone.spec.ts"),
+            "object/**/*.spec.ts"
+        ));
+        assert!(path_matches_glob(
+            Path::new("src/object/clone.spec.ts"),
+            "**/*.spec.ts"
+        ));
+    }
+
+    #[test]
+    fn glob_single_star_stays_within_one_segment() {
+        assert!(path_matches_glob(Path::new("clone.spec.ts"), "*.spec.ts"));
+        // `*` does not cross a `/`, so a nested path needs `**`.
+        assert!(!path_matches_glob(
+            Path::new("object/clone.spec.ts"),
+            "*.spec.ts"
+        ));
+    }
+
+    #[test]
+    fn glob_rejects_non_matching_extensions() {
+        assert!(!path_matches_glob(
+            Path::new("src/object/clone.ts"),
+            "src/object/*.spec.ts"
+        ));
+    }
+
+    #[test]
+    fn exclude_matches_manifest_relative_path() {
+        let manifest_dir = Path::new("/repo/es-toolkit");
+        let excludes = vec!["src/object/clone.spec.ts".to_owned()];
+        assert!(is_excluded_source(
+            Path::new("/repo/es-toolkit/src/object/clone.spec.ts"),
+            &excludes,
+            manifest_dir,
+        ));
+        assert!(!is_excluded_source(
+            Path::new("/repo/es-toolkit/src/object/clone.ts"),
+            &excludes,
+            manifest_dir,
+        ));
+    }
+
+    #[test]
+    fn exclude_supports_directory_wide_globs() {
+        let manifest_dir = Path::new("/repo/es-toolkit");
+        let excludes = vec!["src/**/*.spec.ts".to_owned()];
+        assert!(is_excluded_source(
+            Path::new("/repo/es-toolkit/src/array/chunk.spec.ts"),
+            &excludes,
+            manifest_dir,
+        ));
+        assert!(!is_excluded_source(
+            Path::new("/repo/es-toolkit/src/array/chunk.ts"),
+            &excludes,
+            manifest_dir,
+        ));
+    }
+
+    #[test]
+    fn retain_drops_only_excluded_paths() {
+        let manifest_dir = Path::new("/repo/es-toolkit");
+        let mut paths = vec![
+            PathBuf::from("/repo/es-toolkit/src/index.ts"),
+            PathBuf::from("/repo/es-toolkit/src/object/clone.spec.ts"),
+            PathBuf::from("/repo/es-toolkit/src/object/clone.ts"),
+        ];
+        let excludes = vec!["src/object/clone.spec.ts".to_owned()];
+        retain_included_paths(&mut paths, &excludes, manifest_dir);
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("/repo/es-toolkit/src/index.ts"),
+                PathBuf::from("/repo/es-toolkit/src/object/clone.ts"),
+            ]
+        );
+    }
+
+    #[test]
+    fn retain_with_no_excludes_keeps_everything() {
+        let manifest_dir = Path::new("/repo/es-toolkit");
+        let mut paths = vec![
+            PathBuf::from("/repo/es-toolkit/src/index.ts"),
+            PathBuf::from("/repo/es-toolkit/src/object/clone.spec.ts"),
+        ];
+        let original = paths.clone();
+        retain_included_paths(&mut paths, &[], manifest_dir);
+        assert_eq!(paths, original);
+    }
 }
