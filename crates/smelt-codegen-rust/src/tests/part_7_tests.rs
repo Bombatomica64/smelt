@@ -62,6 +62,45 @@ function read(value: Left | Right): string {
     assert!(source.contains("matches!(value.clone(), SmeltUnion"), "{source}");
 }
 
+/// A class field typed as a concrete union (`string | number`) lowers the field
+/// to a tagged `SmeltUnion*` enum. The class struct derives `Clone, Debug,
+/// Default`, so the union enum must supply `Debug` and `Default` as well — a
+/// data-carrying enum can derive neither. The enum keeps `#[derive(Clone)]` and
+/// gains a hand-written `Debug` (reusing the erased `SmeltUnknown` view, exactly
+/// like its `PartialEq`) and a hand-written `Default` selecting the first arm.
+/// Without these impls the struct's `Debug`/`Default` derives fail to compile.
+#[test]
+fn emits_debug_and_default_for_union_typed_class_field() {
+    let source = source_for(
+        r"
+class Holder {
+  value: string | number = 0;
+}
+export function getVal(h: Holder): string | number {
+  return h.value;
+}
+",
+    );
+
+    // The class struct keeps deriving the standard traits.
+    assert!(
+        source.contains("#[derive(Clone, Debug, Default)]"),
+        "{source}"
+    );
+    // The union enum carries hand-written Debug and Default impls.
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(
+        source.contains("impl ::std::fmt::Debug for SmeltUnion"),
+        "{source}"
+    );
+    assert!(
+        source.contains("impl Default for SmeltUnion"),
+        "{source}"
+    );
+    // Default selects the first union arm.
+    assert!(source.contains("Self::M0("), "{source}");
+}
+
 /// Issue #84: a class string index signature `[key: string]: T` emits Rust that
 /// compiles and carries a real runtime keyed store. A pure-index class
 /// (`StringBag`) exposes keyed access whose value type drives an honest
