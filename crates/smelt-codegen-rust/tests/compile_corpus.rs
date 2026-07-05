@@ -236,7 +236,7 @@ function normalize(values: number[]): number[][] {
             // handed to the method (`byLocal`). Each must lower into the callback
             // closure with its typed signature preserved, and the emitted Rust
             // must compile.
-            source: r#"
+            source: r"
 function square(value: number): number {
   return value * 2;
 }
@@ -265,7 +265,7 @@ function byLocal(values: number[]): number[] {
   const transform = (value: number): number => value * 3;
   return values.map(transform);
 }
-"#,
+",
         },
         // --- string / list operations ----------------------------------------
         Case {
@@ -379,6 +379,30 @@ function resolvePath(path: string | (() => string)): string {
 "#,
         },
         Case {
+            // A class field whose declared type is a concrete union
+            // (`string | number`) lowers the field to a tagged `SmeltUnion*`
+            // enum. The struct derives `Clone, Debug, Default`, so the union
+            // enum must provide `Debug` and `Default` too (an enum with
+            // data-carrying variants can derive neither). Regression for the
+            // union-field derive gap: the emitted crate must compile. The same
+            // gap blocks union-valued class index signatures (issue #84).
+            name: "class_union_field",
+            area: "concrete_unions",
+            source: r"
+class Holder {
+  value: string | number = 0;
+}
+
+export function getVal(h: Holder): string | number {
+  return h.value;
+}
+
+export function makeHolder(): Holder {
+  return new Holder();
+}
+",
+        },
+        Case {
             name: "set_collection",
             area: "collections",
             source: r"
@@ -474,14 +498,14 @@ setTimeout(note, 10, "with-optional", "extra");
             // their concrete value. All must emit Rust that compiles.
             name: "exported_const_member_expressions",
             area: "exported_consts",
-            source: r#"
+            source: r"
 export const MAX_INTEGER = Number.MAX_VALUE;
 export const arrayProto = Array.prototype;
 export const slice = Array.prototype.slice;
 export const objectProto = Object.prototype;
 const limits = { lower: 1, upper: 640 } as const;
 export const UPPER_LIMIT = limits.upper;
-"#,
+",
         },
         Case {
             // Issue #84: class string index signatures `[key: string]: T`. A
@@ -499,7 +523,7 @@ export const UPPER_LIMIT = limits.upper;
             // gap that also affects plain union class fields.
             name: "class_index_signature",
             area: "classes",
-            source: r#"
+            source: r"
 class StringBag {
   [key: string]: string;
 }
@@ -524,7 +548,7 @@ export function mixedSize(bag: MixedBag): number {
 export function readMixed(bag: MixedBag, key: string): number | undefined {
   return bag[key];
 }
-"#,
+",
         },
         Case {
             // Issue #96: statically-resolvable computed property names. A
@@ -711,6 +735,43 @@ export function usePair(): string {
 
 export function makeOk(v: number): Outcome<number, string> {
   return { ok: true, value: v, error: "" };
+}
+"#,
+        },
+        Case {
+            // Issue #99 (deferred piece of #102): generic FREE functions lower to
+            // real Rust generics rather than erasing `T` to `SmeltUnknown`.
+            // `identity<T>` emits `fn identity<T: ..>(x: T) -> T`; `first<T>`
+            // exercises a type parameter nested in a `T[]` parameter; `pair<A, B>`
+            // exercises multiple type parameters. The call sites (`identity(3)`,
+            // `first([...])`, `pair(1, "x")`) pass concrete arguments through so
+            // Rust monomorphizes each call, and the concrete results bind to the
+            // callers' concrete return types — all of which must compile.
+            name: "generic_free_functions",
+            area: "generics",
+            source: r#"
+export function identity<T>(x: T): T {
+  return x;
+}
+
+export function first<T>(xs: T[]): T {
+  return xs[0];
+}
+
+export function pair<A, B>(first: A, second: B): B {
+  return second;
+}
+
+export function useIdentity(): number {
+  return identity(3);
+}
+
+export function useFirst(): number {
+  return first([1, 2, 3]);
+}
+
+export function usePair(): string {
+  return pair(1, "x");
 }
 "#,
         },

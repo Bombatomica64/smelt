@@ -112,11 +112,11 @@ test("optional unknown", () => {
 #[test]
 fn erases_explicit_undefined_literal_to_undefined_tag() {
     let source = source_for(
-        r#"
+        r"
 function value(): unknown {
   return undefined;
 }
-"#,
+",
     );
 
     assert!(source.contains("SmeltUnknown::Undefined"), "{source}");
@@ -125,11 +125,11 @@ function value(): unknown {
 #[test]
 fn erases_void_operator_to_undefined_tag() {
     let source = source_for(
-        r#"
+        r"
 function value(): unknown {
   return void 0;
 }
-"#,
+",
     );
 
     assert!(source.contains("SmeltUnknown::Undefined"), "{source}");
@@ -138,11 +138,11 @@ function value(): unknown {
 #[test]
 fn keeps_null_literal_erasure_as_null_tag() {
     let source = source_for(
-        r#"
+        r"
 function value(): unknown {
   return null;
 }
-"#,
+",
     );
 
     assert!(source.contains("SmeltUnknown::Null"), "{source}");
@@ -237,11 +237,11 @@ test("array reference identity", () => {
 #[test]
 fn emits_same_value_zero_identity_for_erased_object_is_or_strict_equality() {
     let source = source_for(
-        r#"
+        r"
 export function same(data: unknown, other: unknown): boolean {
   return data === other || Object.is(data, other);
 }
-"#,
+",
     );
 
     assert!(source.contains(".same_js_key(&"), "{source}");
@@ -273,22 +273,22 @@ function compare(left?: { a: number }, right?: { a: number }): void {
 #[test]
 fn emits_set_mutation_methods() {
     let ts_source = source_for(
-        r#"
+        r"
 let values: Set<number> = new Set([1, 2]);
 const same = values.add(3);
 const deleted = values.delete(2);
 values.clear();
-"#,
+",
     );
     let py_source = source_for_py(
-        r#"
+        r"
 values: set[int] = {1, 2}
 values.add(3)
 values.discard(2)
 values.remove(1)
 copy: set[int] = values.copy()
 values.clear()
-"#,
+",
     );
 
     assert!(ts_source.contains(".clone()"));
@@ -303,12 +303,12 @@ values.clear()
 #[test]
 fn emits_map_and_set_size_properties() {
     let source = source_for(
-        r#"
+        r"
 const values: Set<number> = new Set([1, 2]);
 const mapping: Map<string, number> = new Map();
 const setSize = values.size;
 const mapSize = mapping.size;
-"#,
+",
     );
 
     assert!(source.matches(".len() as f64").count() >= 2);
@@ -317,7 +317,7 @@ const mapSize = mapping.size;
 #[test]
 fn emits_map_and_set_projection_methods() {
     let source = source_for(
-        r#"
+        r"
 const values: Set<number> = new Set([1, 2]);
 const valueKeys = values.keys();
 const valueList = values.values();
@@ -326,7 +326,7 @@ const mapping: Map<string, number> = new Map();
 const mapKeys = mapping.keys();
 const mapValues = mapping.values();
 const mapEntries = mapping.entries();
-"#,
+",
     );
 
     assert!(
@@ -356,7 +356,7 @@ const mapEntries = mapping.entries();
 #[test]
 fn emits_python_set_algebra_methods() {
     let source = source_for_py(
-        r#"
+        r"
 left: set[int] = {1, 2}
 right: set[int] = {2, 3}
 merged: set[int] = left.union(right)
@@ -366,7 +366,7 @@ exclusive: set[int] = left.symmetric_difference(right)
 separate: bool = left.isdisjoint(right)
 subset: bool = left.issubset(right)
 superset: bool = left.issuperset(right)
-"#,
+",
     );
 
     assert!(source.contains(".union(&"));
@@ -458,12 +458,12 @@ function splitWord(word: string, limit: number | undefined | string): string[] {
 #[test]
 fn emits_regexp_string_split_from_static_object_separator() {
     let source = source_for(
-        r#"
+        r"
 function parts(value: string): string[] {
   return value.split(patterns.separator);
 }
 const patterns = { separator: /[T ]/i };
-"#,
+",
     );
 
     assert!(
@@ -493,11 +493,11 @@ const numberJoined = numbers.join("-");
 #[test]
 fn emits_array_concat_method() {
     let source = source_for(
-        r#"
+        r"
 const left: number[] = [1, 2];
 const right: number[] = [3, 4];
 const merged = left.concat(right);
-"#,
+",
     );
 
     assert!(source.contains(".iter().cloned().chain("));
@@ -507,11 +507,11 @@ const merged = left.concat(right);
 #[test]
 fn emits_array_search_methods() {
     let source = source_for(
-        r#"
+        r"
 const values: number[] = [1, 2, 3, 2];
 const first = values.indexOf(2);
 const last = values.lastIndexOf(2);
-"#,
+",
     );
 
     assert!(
@@ -531,14 +531,14 @@ const last = values.lastIndexOf(2);
 #[test]
 fn emits_array_search_methods_with_from_index() {
     let source = source_for(
-        r#"
+        r"
 export function findFrom(values: readonly number[], target: number, from: number): number {
   return values.indexOf(target, from);
 }
 export function findLastFrom(values: readonly number[], target: number, from: number): number {
   return values.lastIndexOf(target, from);
 }
-"#,
+",
     );
 
     // `indexOf` translates a negative `fromIndex` into an offset from the end,
@@ -598,11 +598,11 @@ function sliceOptional(start?: number, end?: number): string {
 #[test]
 fn emits_array_push_method() {
     let source = source_for(
-        r#"
+        r"
 let values: number[] = [1, 2];
 values.push(3);
 const length = values.push(4);
-"#,
+",
     );
 
     assert!(source.contains("let mut"));
@@ -615,12 +615,12 @@ const length = values.push(4);
 #[test]
 fn emits_array_unshift_method() {
     let source = source_for(
-        r#"
+        r"
 let values: number[] = [2, 3];
 const sameLength = values.unshift();
 const oneMore = values.unshift(1);
 const threeMore = values.unshift(-1, 0);
-"#,
+",
     );
 
     assert!(source.contains(".insert(0, 1.0);"));
@@ -632,11 +632,11 @@ const threeMore = values.unshift(-1, 0);
 #[test]
 fn emits_array_reverse_method() {
     let source = source_for(
-        r#"
+        r"
 let values: number[] = [1, 2];
 values.reverse();
 const reversed = values.reverse();
-"#,
+",
     );
 
     assert!(source.contains("let mut"));
@@ -647,12 +647,12 @@ const reversed = values.reverse();
 #[test]
 fn emits_array_sort_method() {
     let source = source_for(
-        r#"
+        r"
 let values: number[] = [10, 2];
 values.sort();
 const sorted = values.sort();
 const sortedByNumber = values.sort((left, right) => left - right);
-"#,
+",
     );
 
     assert!(source.contains("let mut"));

@@ -235,8 +235,20 @@ impl FunctionEmitter<'_> {
                         let base_text = self.local_mut_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_text}.len()"), index)?;
-                        // JS out-of-bounds element access is `undefined`, not `null`.
-                        let missing = if matches!(
+                        // JS out-of-bounds element access is `undefined`, not
+                        // `null`. A type parameter that is in scope for the
+                        // current generic function is a real Rust generic, so
+                        // its missing value is `Default::default()` (a `T`), not
+                        // the erased `SmeltUnknown::Undefined` used for genuinely
+                        // erased element types.
+                        let item_is_in_scope_type_param = matches!(
+                            self.mir.types.get(*item_ty),
+                            Some(Type::TypeParam { name })
+                                if self.current_function_has_type_param(*name)
+                        );
+                        let missing = if item_is_in_scope_type_param {
+                            self.default_value(*item_ty)?
+                        } else if matches!(
                             self.mir.types.get(*item_ty),
                             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                         ) {

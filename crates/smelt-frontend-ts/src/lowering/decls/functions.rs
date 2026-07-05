@@ -55,7 +55,11 @@ impl ModuleBuilder<'_> {
             ));
         };
         let name = self.intern_source_name(name_text);
-        let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        // Retain the declared type parameters so a generic free function such as
+        // `function identity<T>(x: T): T` lowers to real Rust generics instead
+        // of erasing `T` to `SmeltUnknown`. The scope is popped below like any
+        // other function scope; the lowered `TypeParamDef`s survive on the item.
+        let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let assertion_return = match function
             .return_type
             .as_ref()
@@ -394,6 +398,7 @@ impl ModuleBuilder<'_> {
         let function_item = Function {
             name,
             span: self.span(function.span.start, function.span.end),
+            type_params,
             params,
             rest: rest.map(|rest| rest.index),
             required_params: Some(required_params),
@@ -607,7 +612,7 @@ impl ModuleBuilder<'_> {
         }
 
         let name = self.intern_exact_source_name(name_text);
-        let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let hinted_function =
             type_hint.and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
                 Some(Type::Function(function_ty)) => Some(function_ty),
@@ -770,6 +775,7 @@ impl ModuleBuilder<'_> {
         Ok(self.ctx.krate.push_item(Item::Function(Function {
             name,
             span: self.span(function.span.start, function.span.end),
+            type_params,
             params,
             rest: None,
             required_params: None,
@@ -1780,6 +1786,8 @@ impl ModuleBuilder<'_> {
         Ok(self.ctx.krate.push_item(Item::Function(Function {
             name,
             span,
+            // Synthetic default constructor takes generics from the class.
+            type_params: Vec::new(),
             params,
             rest: None,
             required_params: has_base.then_some(0),
@@ -2347,6 +2355,9 @@ impl ModuleBuilder<'_> {
         Ok(self.ctx.krate.push_item(Item::Function(Function {
             name: method_name,
             span: self.span(method.span.start, method.span.end),
+            // Class members take generics from the owning class; per-method
+            // generics are deferred alongside the generic-class increment.
+            type_params: Vec::new(),
             params,
             rest: None,
             required_params: None,

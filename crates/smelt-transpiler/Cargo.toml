@@ -16,19 +16,21 @@ readme = "README.md"
 workspace = true
 
 [features]
-# Python frontend support. ON by default in this repository so `cargo
-# build`/`cargo test`/CI exercise the Python pipeline unchanged. It pulls in
-# `smelt-frontend-py`, which depends on the Ruff parser via a git dependency
-# that crates.io forbids, so the published crate is built with this feature
-# DISABLED (a TypeScript-only `smelt` binary). To use Python from a published
-# install, build from a source checkout with `--features python`.
-default = ["python"]
+# Python frontend support. ON by default in this repository (via the `ty`
+# default feature below) so `cargo build`/`cargo test`/CI exercise the Python
+# pipeline unchanged. It pulls in `smelt-frontend-py`, which depends on the Ruff
+# parser via a git dependency that crates.io forbids, so the published crate is
+# built with this feature DISABLED (a TypeScript-only `smelt` binary). To use
+# Python from a published install, build from a source checkout with
+# `--features python` (or `--features ty`).
+default = ["ty"]
 python = ["dep:smelt-frontend-py"]
 
 # Resolve Python types via Astral's `ty` instead of requiring explicit
-# annotations (issue #93). Implies `python`. OFF by default so `cargo
-# build`/`cargo install` stay lean; build the CLI with `--features ty` to
-# enable ty-backed Python type resolution end to end.
+# annotations (issue #93). Implies `python`. ON by default so the CLI resolves
+# Python types via ty end to end out of the box (issue #109). Build with
+# `--no-default-features` for a lean TypeScript-only CLI, or `--features python`
+# for Python with explicit annotations but without ty.
 ty = ["python", "smelt-frontend-py/ty"]
 
 [[bin]]

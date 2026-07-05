@@ -40,6 +40,7 @@ pub fn normalize_operational_types(mir: &mut Mir) {
 
 /// Normalize one MIR function signature, locals, and typed statements.
 fn normalize_function(mir: &mut Mir, function: &mut MirFunction) {
+    normalize_type_params(mir, &mut function.type_params);
     function.return_ty = normalize(mir, function.return_ty);
     for local in &mut function.locals {
         local.ty = normalize(mir, local.ty);

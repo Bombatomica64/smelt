@@ -128,6 +128,46 @@ export function useContainer(): number {
 }
 
 #[test]
+fn lowers_generic_free_function_with_type_params() -> Result<(), String> {
+    // Issue #99: a generic free function retains its declared type parameters on
+    // the HIR `Function` item (they were previously dropped at
+    // `function_declaration_named`), so MIR and codegen can emit real Rust
+    // generics instead of erasing `T` to `SmeltUnknown`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export function identity<T>(x: T): T {
+  return x;
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+
+    let identity = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function)
+                if ctx.krate.symbols.get(function.name) == Some("identity") =>
+            {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "identity function not lowered".to_owned())?;
+    ensure_eq!(identity.type_params.len(), 1);
+    let type_param = identity
+        .type_params
+        .first()
+        .ok_or_else(|| "identity has no type parameter".to_owned())?;
+    ensure_eq!(ctx.krate.symbols.get(type_param.name), Some("T"));
+    Ok(())
+}
+
+#[test]
 fn lowers_numeric_property_keys() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -14,7 +14,12 @@ use smelt_hir::FileId;
 use smelt_specialize::{
     BackendAvailability, HashInputs, LinuxBubblewrapBackend, NodeModule,
     NodeSpecializationRequest, NodeSpecializer, SandboxBackend, SandboxPolicyRecord,
+    SpecializationManifest,
 };
+
+/// Result type shared by the parity fixture and its helpers, defaulting to a
+/// unit success value so tests can write `ParityResult` for the common case.
+type ParityResult<T = ()> = Result<T, Box<dyn Error>>;
 
 const DECORATED_MEMBER_SOURCE: &str = r#"
 function identity(value: any, _context: any): any {
@@ -61,7 +66,7 @@ console.log(example.initialized);
 "#;
 
 #[test]
-fn decorated_members_match_node_output() -> Result<(), Box<dyn Error>> {
+fn decorated_members_match_node_output() -> ParityResult {
     let Some(node) = discovered_executable(&["/usr/bin/node", "/usr/local/bin/node"]) else {
         return Ok(());
     };
@@ -96,6 +101,14 @@ fn decorated_members_match_node_output() -> Result<(), Box<dyn Error>> {
         hashes: fixture_hashes(),
         sandbox_policy: fixture_policy(project.path()),
     })?;
+    assert_manifest_invariants(&manifest)?;
+    emit_and_compare(&manifest, &source_path, &expected, project.path())
+}
+
+/// Asserts the specialization manifest carries the decorator provenance the
+/// parity fixture depends on: a materialized `Example` class, the wrapped
+/// `greet` capture, and the field-relative `addInitializer` placement.
+fn assert_manifest_invariants(manifest: &SpecializationManifest) -> ParityResult {
     if !manifest.required_adapters.is_empty() {
         return Err(format!(
             "decorated member fixture unexpectedly requires adapters: {:?}",
@@ -131,7 +144,17 @@ fn decorated_members_match_node_output() -> Result<(), Box<dyn Error>> {
     }) {
         return Err("field-relative addInitializer placement is absent".into());
     }
+    Ok(())
+}
 
+/// Lowers the fixture through the manifest-aware pipeline, emits a program
+/// crate, runs it, and asserts its stdout matches the canonical Node output.
+fn emit_and_compare(
+    manifest: &SpecializationManifest,
+    source_path: &Path,
+    expected: &str,
+    project: &Path,
+) -> ParityResult {
     let mut ctx = HirCtx::new();
     to_hir_with_options(
         DECORATED_MEMBER_SOURCE,
@@ -139,21 +162,21 @@ fn decorated_members_match_node_output() -> Result<(), Box<dyn Error>> {
         source_path.to_string_lossy().as_ref(),
         &mut ctx,
         FrontendOptions {
-            specialization: Some(&manifest),
+            specialization: Some(manifest),
         },
     )
     .map_err(|errors| format!("manifest-aware HIR lowering failed: {errors:?}"))?;
     let mut mir =
         smelt_mir::lower_hir(&ctx.krate).map_err(|errors| format!("MIR lowering: {errors:?}"))?;
     smelt_mir::opt::optimize(&mut mir);
-    let generated = project.path().join("generated");
+    let generated = project.join("generated");
     emit_crate(
         &mir,
         &generated,
         &EmitOptions::new("typescript_specialization_members")
             .with_crate_kind(CrateKind::Program),
     )?;
-    let actual = run_generated(&generated.join("Cargo.toml"), project.path())?;
+    let actual = run_generated(&generated.join("Cargo.toml"), project)?;
     if actual != expected {
         let generated_source =
             fs::read_to_string(generated.join("src/main.rs")).unwrap_or_default();
@@ -166,7 +189,7 @@ fn decorated_members_match_node_output() -> Result<(), Box<dyn Error>> {
 }
 
 /// Compiles one standard-decorator fixture with canonical source maps.
-fn compile_typescript(tsc: &Path, source: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
+fn compile_typescript(tsc: &Path, source: &Path, output: &Path) -> ParityResult {
     let result = Command::new(tsc)
         .arg(source)
         .args(["--target", "ES2022", "--module", "commonjs", "--outDir"])
@@ -184,7 +207,7 @@ fn compile_typescript(tsc: &Path, source: &Path, output: &Path) -> Result<(), Bo
 }
 
 /// Runs canonical JavaScript output and captures stdout.
-fn run_node(node: &Path, emitted: &Path) -> Result<String, Box<dyn Error>> {
+fn run_node(node: &Path, emitted: &Path) -> ParityResult<String> {
     let output = Command::new(node).arg(emitted).output()?;
     if !output.status.success() {
         return Err(format!(
@@ -197,7 +220,7 @@ fn run_node(node: &Path, emitted: &Path) -> Result<String, Box<dyn Error>> {
 }
 
 /// Runs generated Rust with an isolated target directory.
-fn run_generated(manifest: &Path, scratch: &Path) -> Result<String, Box<dyn Error>> {
+fn run_generated(manifest: &Path, scratch: &Path) -> ParityResult<String> {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--manifest-path"])
         .arg(manifest)

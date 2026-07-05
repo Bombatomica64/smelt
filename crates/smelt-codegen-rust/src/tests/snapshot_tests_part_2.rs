@@ -17,7 +17,7 @@ use super::snapshot_tests::{assert_emitted_py_source_snapshot, assert_emitted_so
 fn nested_loop_control_flow_emission() {
     assert_emitted_source_snapshot(
         "nested_loop_control_flow_emission",
-        r#"
+        r"
 export function collect(values: number[], flags: boolean[]): number {
   let total = 0;
   let index = 0;
@@ -40,7 +40,7 @@ export function collect(values: number[], flags: boolean[]): number {
 
   return total;
 }
-"#,
+",
         Some("fn collect"),
     );
 }
@@ -51,7 +51,7 @@ export function collect(values: number[], flags: boolean[]): number {
 fn do_while_control_flow_emission() {
     assert_emitted_source_snapshot(
         "do_while_control_flow_emission",
-        r#"
+        r"
 export function firstOutside(value: number): number {
   let previous = value;
   let current = value;
@@ -61,7 +61,7 @@ export function firstOutside(value: number): number {
   } while (current > 0);
   return previous;
 }
-"#,
+",
         Some("fn first_outside"),
     );
 }
@@ -72,7 +72,7 @@ export function firstOutside(value: number): number {
 fn short_circuit_guard_control_flow_emission() {
     assert_emitted_source_snapshot(
         "short_circuit_guard_control_flow_emission",
-        r#"
+        r"
 function valid(value: boolean): boolean {
   return value;
 }
@@ -86,7 +86,7 @@ export function count(a: boolean, b: boolean): number {
   }
   return result;
 }
-"#,
+",
         Some("fn valid"),
     );
 }
@@ -100,7 +100,7 @@ export function count(a: boolean, b: boolean): number {
 fn array_callback_methods_emission() {
     assert_emitted_source_snapshot(
         "array_callback_methods_emission",
-        r#"
+        r"
 const values: number[] = [1, 2, 3];
 const mapped = values.map(value => value + 1);
 const filtered = values.filter(value => value > 1);
@@ -112,7 +112,7 @@ values.forEach(value => value + 1);
 const total = values.reduce((acc, value) => acc + value, 0);
 const indexed = values.map((value, index) => value + index);
 const noInitial = values.reduce((acc, value, index) => acc + value + index);
-"#,
+",
         Some("fn main"),
     );
 }
@@ -174,14 +174,14 @@ for (let ch: string of word) {
 fn first_class_closure_value_emission() {
     assert_emitted_source_snapshot(
         "first_class_closure_value_emission",
-        r#"
+        r"
 function makeAdder(base: number): (value: number) => number {
   const offset = base + 1;
   return (value: number): number => value + offset;
 }
 const adder = makeAdder(2);
 const result = adder(3);
-"#,
+",
         Some("fn make_adder"),
     );
 }
@@ -191,13 +191,13 @@ const result = adder(3);
 fn async_closure_emission() {
     assert_emitted_source_snapshot(
         "async_closure_emission",
-        r#"
+        r"
 async function run(): Promise<number> {
   const lift = async (value: number): Promise<number> => value + 1;
   const result = await lift(4);
   return result;
 }
-"#,
+",
         Some("fn run"),
     );
 }
@@ -208,7 +208,7 @@ async function run(): Promise<number> {
 fn captured_multi_arg_callback_emission() {
     assert_emitted_source_snapshot(
         "captured_multi_arg_callback_emission",
-        r#"
+        r"
 function zip(
   first: unknown[],
   second: unknown[],
@@ -216,7 +216,7 @@ function zip(
 ): unknown[] {
   return first.map((item, index) => fn(item, second[index], index, first));
 }
-"#,
+",
         Some("fn zip"),
     );
 }
@@ -252,7 +252,7 @@ test("rejects", async () => {
 fn unknown_tagged_type_emission() {
     assert_emitted_source_snapshot(
         "unknown_tagged_type_emission",
-        r#"
+        r"
 function identity(value: unknown): unknown {
   return value;
 }
@@ -260,7 +260,7 @@ function identity(value: unknown): unknown {
 function passthrough(values: readonly unknown[]): readonly unknown[] {
   return values;
 }
-"#,
+",
         Some("fn identity"),
     );
 }
@@ -299,7 +299,7 @@ function isArray(value: unknown): boolean {
 fn python_nested_def_closure_emission() {
     assert_emitted_py_source_snapshot(
         "python_nested_def_closure_emission",
-        r#"
+        r"
 from typing import Callable
 
 def make_adder(base: int) -> Callable[[int], int]:
@@ -309,7 +309,7 @@ def make_adder(base: int) -> Callable[[int], int]:
 
 adder: Callable[[int], int] = make_adder(5)
 result: int = adder(6)
-"#,
+",
         Some("fn make_adder"),
     );
 }
@@ -320,11 +320,11 @@ result: int = adder(6)
 fn python_map_filter_lambda_emission() {
     assert_emitted_py_source_snapshot(
         "python_map_filter_lambda_emission",
-        r#"
+        r"
 values: list[int] = [1, 2, 3]
 doubled: list[int] = list(map(lambda value: value * 2, values))
 positives: list[int] = list(filter(lambda value: value > 1, values))
-"#,
+",
         Some("fn main"),
     );
 }

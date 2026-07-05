@@ -1364,13 +1364,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if self.local_function_items.contains_key(id.name.as_str()) {
             return Ok(());
         }
-        let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let predicate_return = function
             .return_type
             .as_ref()
             .and_then(|annotation| self.predicate_return_type(&annotation.type_annotation))
             .transpose();
-        let result = self.predeclared_function(function, id.name.as_str());
+        let result = self.predeclared_function(function, id.name.as_str(), type_params);
         let returns_date = result
             .as_ref()
             .is_ok_and(|predeclared| self.type_is_known_date_value(predeclared.return_ty));
@@ -1414,6 +1414,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
         name_text: &str,
+        type_params: Vec<smelt_hir::TypeParamDef>,
     ) -> Result<Function, SmeltError> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
@@ -1495,6 +1496,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(Function {
             name,
             span: self.span(function.span.start, function.span.end),
+            type_params,
             params,
             rest: rest_index,
             required_params: Some(required_params),

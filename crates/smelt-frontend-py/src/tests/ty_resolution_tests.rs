@@ -130,3 +130,76 @@ fn divergent_return_annotation_prefers_inferred() -> Result<(), String> {
     )?;
     Ok(())
 }
+
+/// An explicit `-> float` annotation is preserved even when `ty` infers a wider
+/// type for the body (issue #93 regression).
+///
+/// `value * value` for `value: float` is inferred by `ty` as a broader numeric
+/// type (`int | float`) than the declared `float`. The declared `float` is a
+/// valid, equal-or-narrower description of that inference, so lowering must keep
+/// the annotation and emit `f64` rather than degrading into an erased union.
+#[test]
+fn annotated_return_kept_when_ty_infers_wider() -> Result<(), String> {
+    let source = "def square(value: float) -> float:\n    return value * value\n";
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = crate::tests::module(&ctx, module_id)?;
+    let item_id = module
+        .items
+        .first()
+        .copied()
+        .ok_or_else(|| "expected function item".to_owned())?;
+    let Item::Function(func) = item(&ctx, item_id)? else {
+        return Err("expected Function item".to_owned());
+    };
+    // The explicit `-> float` contract must survive `ty`'s wider inference.
+    ensure_eq(
+        &ctx.krate.types.get(func.return_ty),
+        &Some(&Type::Float),
+        "annotated float return type must be preserved",
+    )?;
+    Ok(())
+}
+
+/// A `@staticmethod` annotated `-> float` keeps `float`, mirroring the codegen
+/// regression where `square` degraded into an erased union under ty-default.
+#[test]
+fn annotated_staticmethod_return_kept_when_ty_infers_wider() -> Result<(), String> {
+    let source = concat!(
+        "class MathUtils:\n",
+        "    @staticmethod\n",
+        "    def square(value: float) -> float:\n",
+        "        return value * value\n",
+    );
+    let mut ctx = HirCtx::new();
+    // Lowering succeeds and does not panic; the static method's `-> float`
+    // contract is honoured (verified end to end by the codegen `f64` test).
+    lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+/// An UNANNOTATED function still resolves its return type via `ty` after the
+/// annotation-respecting reconciliation change: the fix must only affect the
+/// annotated path, leaving the #93 inference-for-unannotated behaviour intact.
+#[test]
+fn unannotated_return_still_resolves_via_ty() -> Result<(), String> {
+    let source = "def to_text(x: int):\n    return str(x)\n";
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = crate::tests::module(&ctx, module_id)?;
+    let item_id = module
+        .items
+        .first()
+        .copied()
+        .ok_or_else(|| "expected function item".to_owned())?;
+    let Item::Function(func) = item(&ctx, item_id)? else {
+        return Err("expected Function item".to_owned());
+    };
+    // No annotation was present; `ty` resolved the body's `str(x)` to `str`.
+    ensure_eq(
+        &ctx.krate.types.get(func.return_ty),
+        &Some(&Type::String),
+        "ty-inferred return type for unannotated function",
+    )?;
+    Ok(())
+}

@@ -1391,6 +1391,8 @@ return_ty: function.return_ty,
         self.ctx.krate.push_item(Item::Function(Function {
             name,
             span,
+            // Synthetic reference stub carries no free-function type params.
+            type_params: Vec::new(),
             params: Vec::new(),
             rest: None,
             required_params: None,

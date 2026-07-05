@@ -664,6 +664,9 @@ impl ModuleBuilder<'_> {
         Ok(self.ctx.krate.push_item(Item::Function(Function {
             name,
             span,
+            // Class constructors take their generics from the owning class, so
+            // the function item itself declares no free-function type params.
+            type_params: Vec::new(),
             params,
             rest: None,
             required_params: None,
@@ -802,6 +805,9 @@ impl ModuleBuilder<'_> {
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name: method_symbol,
             span,
+            // Method generics come from the owning class; the function item
+            // declares no free-function type params.
+            type_params: Vec::new(),
             params,
             rest: None,
             required_params: None,

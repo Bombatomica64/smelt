@@ -48,6 +48,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     end: 0,
                 },
             },
+            suppress_type_params: RefCell::new(false),
         })
     }
 
@@ -127,33 +128,70 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 out.push_str("fn main() {\n");
             }
-        } else {
-            let fn_params = self
-                .function
-                .params
-                .iter()
-                .map(|param| {
-                    let mutability = if self.local_binding_needs_mut(*param) {
-                        "mut "
-                    } else {
-                        ""
-                    };
-                    Ok(format!(
-                        "{mutability}{}: {}",
-                        self.local_name(*param)?,
-                        self.parameter_decl_type_text(*param)?
-                    ))
-                })
-                .collect::<Result<Vec<_>, EmitError>>()?
-                .join(", ");
-            out.push_str(&format!(
-                "{}fn {}({fn_params}) -> {} {{\n",
-                if self.function.is_async { "async " } else { "" },
-                self.function_rust_name(self.function)?,
-                self.return_type_text(self.function.return_ty)?
-            ));
+            self.emit_body(out)?;
+            out.push_str("}\n");
+            return Ok(());
         }
 
+        // Whether this free function emits real Rust generics was decided once,
+        // crate-wide, by `EmitContext::populate_generic_functions` (signature
+        // safety + a body-cleanliness trial). Suppressing the type parameters
+        // when the function is NOT in that set makes the signature, body, and
+        // every call site agree on the erased shape.
+        if !self.context.is_generic_function(self.function.id) {
+            *self.suppress_type_params.borrow_mut() = true;
+        }
+        let mut body = String::new();
+        self.emit_body(&mut body)?;
+
+        let fn_params = self
+            .function
+            .params
+            .iter()
+            .map(|param| {
+                let mutability = if self.local_binding_needs_mut(*param) {
+                    "mut "
+                } else {
+                    ""
+                };
+                Ok(format!(
+                    "{mutability}{}: {}",
+                    self.local_name(*param)?,
+                    self.parameter_decl_type_text(*param)?
+                ))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+        // A generic free function emits real Rust generics
+        // (`fn identity<T: ..>(x: T) -> T`); the suffix is empty otherwise,
+        // including when the body-cleanliness trial forced a fall back to
+        // erasure (`suppress_type_params`). In that case the parameters and body
+        // are already rendered as `SmeltUnknown`, so declaring `<T>` would leave
+        // an unconstrained, uninferable type parameter on the signature.
+        let generics = if *self.suppress_type_params.borrow() {
+            String::new()
+        } else {
+            crate::classes::function_impl_generics_text(self.mir, self.function)?
+        };
+        out.push_str(&format!(
+            "{}fn {}{generics}({fn_params}) -> {} {{\n",
+            if self.function.is_async { "async " } else { "" },
+            self.function_rust_name(self.function)?,
+            self.return_type_text(self.function.return_ty)?
+        ));
+        out.push_str(&body);
+        out.push_str("}\n");
+        Ok(())
+    }
+
+    /// Emit a free function's body (parameter preludes, block, and fallthrough
+    /// return) without the signature or closing brace.
+    ///
+    /// Split out from [`FunctionEmitter::emit`] so a generic free function can
+    /// trial-render its body to decide whether real generics are safe (the body
+    /// must keep each type parameter opaque). The `main` and test-preamble paths
+    /// do not use this helper.
+    fn emit_body(&self, out: &mut String) -> Result<(), EmitError> {
         self.emit_shared_parameter_preludes(out)?;
         if self.function.is_test && self.context.needs_date_now_runtime {
             out.push_str("    SMELT_DATE_NOW.with(|value| value.set(None));\n");
@@ -171,8 +209,39 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             self.emit_fallthrough_return(out)?;
         }
-        out.push_str("}\n");
         Ok(())
+    }
+
+    /// Reset the per-emission scratch state so a function body can be rendered
+    /// again (the generic body-cleanliness trial renders the body once to decide
+    /// on generics, then the real emit renders it again).
+    ///
+    /// Body rendering records which locals have already been declared; that must
+    /// start empty on the next pass or the re-rendered body would omit
+    /// declarations. Only the parameter locals are pre-declared at function
+    /// entry, matching [`FunctionEmitter::new`].
+    fn reset_body_emission_state(&self) {
+        let mut declared = self.declared_locals.borrow_mut();
+        declared.clear();
+        declared.extend(self.function.params.iter().copied());
+    }
+
+    /// Return whether this generic free function's body keeps every type
+    /// parameter opaque, so the function can emit real Rust generics.
+    ///
+    /// Trial-renders the body with the type parameters in scope and checks
+    /// whether the rendered body still needs the erased carrier (see
+    /// [`body_needs_erased_carrier`]). A clean body (pure passthrough) renders no
+    /// erased tokens and keeps its generics; a body that inspects, compares, or
+    /// erases a `T`-typed value falls back to full erasure. The scratch
+    /// declared-locals state is reset afterwards so the real emit renders from a
+    /// clean slate. The caller only invokes this for signature-generic-safe
+    /// functions, so the type parameters are in scope during the trial.
+    pub(crate) fn renders_real_generics(&self) -> Result<bool, EmitError> {
+        let mut body = String::new();
+        self.emit_body(&mut body)?;
+        self.reset_body_emission_state();
+        Ok(!body_needs_erased_carrier(&body))
     }
 
     /// Emits shared cells for parameters mutated through lexical closures.
@@ -2512,6 +2581,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     end: 0,
                 },
             },
+            suppress_type_params: RefCell::new(false),
         }
         .type_text_with_impl_trait(ty, false)
     }
@@ -2554,6 +2624,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     end: 0,
                 },
             },
+            suppress_type_params: RefCell::new(false),
         }
         .type_text_with_scoped_type_params(ty, false, scoped_type_params)
     }
@@ -2593,6 +2664,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     end: 0,
                 },
             },
+            suppress_type_params: RefCell::new(false),
         }
         .default_value(ty)
     }
@@ -2629,6 +2701,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     end: 0,
                 },
             },
+            suppress_type_params: RefCell::new(false),
         }
         .default_value_with_scoped_type_params(ty, scoped_type_params)
     }
@@ -4591,6 +4664,50 @@ fn emitted_tail_returns(out: &str) -> bool {
         .rev()
         .find(|line| !line.trim().is_empty())
         .is_some_and(|line| line.trim_start().starts_with("return "))
+}
+
+/// Tokens that mark a trial-rendered generic free-function body as needing the
+/// erased runtime, so real generics would produce type errors.
+///
+/// These are the erased carrier types and the JavaScript-semantics methods /
+/// conversions that are only implemented for `SmeltUnknown` (and primitives),
+/// not for an arbitrary generic `T`. A body that mentions any of them inspects,
+/// compares, hashes, keys, or erases a `T`-typed value — operations the generic
+/// bounds (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown`) do not
+/// support on a bare `T` (e.g. `js_strict_eq`, `same_js_key`) or that force a
+/// `T`-vs-`SmeltUnknown` mismatch.
+const ERASED_CARRIER_TOKENS: &[&str] = &[
+    "SmeltUnknown",
+    "SmeltObject",
+    "SmeltArray",
+    "SmeltRecord",
+    "SmeltJsMap",
+    "js_strict_eq",
+    "same_js_key",
+    "smelt_from_unknown",
+    "into_smelt_unknown",
+];
+
+/// Return whether a trial-rendered generic free-function body still needs the
+/// erased runtime carrier.
+///
+/// A generic free function only emits real Rust generics when its body keeps
+/// every type parameter opaque. If the body — rendered with the type parameters
+/// in scope — references any erased carrier type or JavaScript-semantics helper
+/// (see [`ERASED_CARRIER_TOKENS`]), the body inspects, compares, or erases a
+/// `T`-typed value (for example a null/undefined check, a deep-equality
+/// comparison, or a map-keying operation). Emitting real generics for such a
+/// body produces `T`-vs-`SmeltUnknown` mismatches or missing-trait errors, so
+/// the caller falls back to the fully erased signature.
+///
+/// This is a deliberately conservative textual check: any listed token in the
+/// trial body disqualifies generic emission. A pure passthrough body
+/// (`return x;`, `return xs.get(..)..;`) contains none of them and keeps its
+/// generics.
+fn body_needs_erased_carrier(body: &str) -> bool {
+    ERASED_CARRIER_TOKENS
+        .iter()
+        .any(|token| body.contains(token))
 }
 
 // Constant formatting continues in `literals.rs`.

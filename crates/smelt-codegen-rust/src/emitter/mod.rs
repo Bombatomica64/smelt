@@ -88,6 +88,17 @@ pub(crate) struct EmitContext {
     /// { .. }` factory expression. A `BTreeMap` keeps emitted order deterministic.
     pub(crate) function_item_erased_fn_accessors:
         ::std::cell::RefCell<::std::collections::BTreeMap<usize, String>>,
+    /// MIR ids of free functions that emit real Rust generics.
+    ///
+    /// A generic free function only keeps real generics when its signature is
+    /// generic-safe AND its body keeps every type parameter opaque (the body
+    /// trial in [`FunctionEmitter::emit`]). This decision must be identical at
+    /// the definition and at every call site — otherwise a call would pass an
+    /// argument through concretely to a parameter that was actually emitted as
+    /// erased `SmeltUnknown`. The set is computed once by
+    /// [`EmitContext::populate_generic_functions`] and read through
+    /// [`EmitContext::is_generic_function`].
+    generic_functions: RefCell<HashSet<FuncId>>,
 }
 
 impl EmitContext {
@@ -176,7 +187,40 @@ impl EmitContext {
             function_item_erased_fn_accessors: ::std::cell::RefCell::new(
                 ::std::collections::BTreeMap::new(),
             ),
+            generic_functions: RefCell::new(HashSet::new()),
         })
+    }
+
+    /// Compute, once, which free functions emit real Rust generics.
+    ///
+    /// Must be called after [`EmitContext::new`] and before any function is
+    /// emitted. For each free function whose signature is generic-safe, this
+    /// trial-renders the body with the type parameters in scope; the function
+    /// keeps real generics only when the rendered body does not need the erased
+    /// carrier (see `FunctionEmitter::renders_real_generics`). The result is
+    /// shared by the definition and all call sites through
+    /// [`EmitContext::is_generic_function`].
+    pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<(), EmitError> {
+        let mut generic = HashSet::new();
+        for function in &mir.functions {
+            if !matches!(function.origin, HirOrigin::Body(_)) {
+                continue;
+            }
+            if !crate::classes::function_emits_rust_generics(mir, function) {
+                continue;
+            }
+            let emitter = FunctionEmitter::new(mir, self, function)?;
+            if emitter.renders_real_generics()? {
+                generic.insert(function.id);
+            }
+        }
+        *self.generic_functions.borrow_mut() = generic;
+        Ok(())
+    }
+
+    /// Return whether the free function with `id` emits real Rust generics.
+    pub(crate) fn is_generic_function(&self, id: FuncId) -> bool {
+        self.generic_functions.borrow().contains(&id)
     }
 }
 
@@ -651,6 +695,17 @@ pub(crate) struct FunctionEmitter<'mir> {
     none_ty: TypeId,
     /// Synthetic unknown local used when malformed MIR references a missing local.
     unknown_local: LocalDecl,
+    /// When set, a generic free function's own type parameters are treated as
+    /// out of scope (erased to `SmeltUnknown`) even though the function declares
+    /// them.
+    ///
+    /// A generic free function only emits real Rust generics when its body keeps
+    /// each type parameter opaque. The emitter trial-renders the body with the
+    /// type parameters in scope; if the rendered body still references the erased
+    /// `SmeltUnknown` carrier (the body inspects, compares, or erases a
+    /// `T`-typed value), emission falls back to the fully erased signature by
+    /// setting this flag and re-rendering. See [`FunctionEmitter::emit`].
+    suppress_type_params: RefCell<bool>,
 }
 
 /// How to compute the default end bound for a slice.

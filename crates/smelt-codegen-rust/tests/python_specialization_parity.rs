@@ -16,7 +16,11 @@ use smelt_specialize::{
     PythonSpecializationRequest, PythonSpecializer, SandboxBackend, SandboxPolicyRecord,
 };
 
-const PROPERTY_PARITY_SOURCE: &str = r#"
+/// Result type shared by the parity fixtures and their helpers, defaulting to a
+/// unit success value so tests can write `ParityResult` for the common case.
+type ParityResult<T = ()> = Result<T, Box<dyn Error>>;
+
+const PROPERTY_PARITY_SOURCE: &str = r"
 class Counter:
     _value: int
 
@@ -35,7 +39,7 @@ _counter: Counter = Counter(2)
 print(_counter.value)
 _counter.value = 5
 print(_counter.value)
-"#;
+";
 
 const STACKED_DECORATOR_SOURCE: &str = r#"
 from functools import wraps
@@ -72,7 +76,7 @@ _model: Model = Model()
 print(_model.generated(4))
 "#;
 
-const CUSTOM_DESCRIPTOR_SOURCE: &str = r#"
+const CUSTOM_DESCRIPTOR_SOURCE: &str = r"
 from __future__ import annotations
 
 class Descriptor:
@@ -89,9 +93,9 @@ class Model:
 
 _model: Model = Model()
 print(_model.field)
-"#;
+";
 
-const DATACLASS_SOURCE: &str = r#"
+const DATACLASS_SOURCE: &str = r"
 from dataclasses import dataclass
 
 @dataclass
@@ -101,9 +105,9 @@ class Point:
 
 _point: Point = Point(3, 4)
 print(_point.x + _point.y)
-"#;
+";
 
-const SIGNATURE_CHANGING_WRAPPER_SOURCE: &str = r#"
+const SIGNATURE_CHANGING_WRAPPER_SOURCE: &str = r"
 from functools import wraps
 
 def bind_first(function):
@@ -117,7 +121,7 @@ def render(left: int, right: int) -> str:
     return str(left + right)
 
 print(render(5))
-"#;
+";
 
 const INIT_SUBCLASS_SOURCE: &str = r#"
 class Base:
@@ -134,42 +138,42 @@ print(_child.generated())
 "#;
 
 #[test]
-fn property_fixture_matches_cpython_output() -> Result<(), Box<dyn Error>> {
+fn property_fixture_matches_cpython_output() -> ParityResult {
     assert_specialized_parity(PROPERTY_PARITY_SOURCE, "property")
 }
 
 #[test]
-fn stacked_decorator_fixture_matches_cpython_output() -> Result<(), Box<dyn Error>> {
+fn stacked_decorator_fixture_matches_cpython_output() -> ParityResult {
     assert_specialized_parity(STACKED_DECORATOR_SOURCE, "stacked_decorators")
 }
 
 #[test]
-fn metaclass_generated_method_fixture_matches_cpython_output() -> Result<(), Box<dyn Error>> {
+fn metaclass_generated_method_fixture_matches_cpython_output() -> ParityResult {
     assert_specialized_parity(METACLASS_METHOD_SOURCE, "metaclass_method")
 }
 
 #[test]
-fn custom_descriptor_fixture_matches_cpython_output() -> Result<(), Box<dyn Error>> {
+fn custom_descriptor_fixture_matches_cpython_output() -> ParityResult {
     assert_specialized_parity(CUSTOM_DESCRIPTOR_SOURCE, "custom_descriptor")
 }
 
 #[test]
-fn dataclass_fixture_matches_cpython_output() -> Result<(), Box<dyn Error>> {
+fn dataclass_fixture_matches_cpython_output() -> ParityResult {
     assert_specialized_parity(DATACLASS_SOURCE, "dataclass")
 }
 
 #[test]
-fn signature_changing_wrapper_matches_cpython_output() -> Result<(), Box<dyn Error>> {
+fn signature_changing_wrapper_matches_cpython_output() -> ParityResult {
     assert_specialized_parity(SIGNATURE_CHANGING_WRAPPER_SOURCE, "signature_wrapper")
 }
 
 #[test]
-fn init_subclass_generated_method_matches_cpython_output() -> Result<(), Box<dyn Error>> {
+fn init_subclass_generated_method_matches_cpython_output() -> ParityResult {
     assert_specialized_parity(INIT_SUBCLASS_SOURCE, "init_subclass")
 }
 
 /// Specializes one fixture, generates Rust, and compares process stdout.
-fn assert_specialized_parity(source: &str, fixture_name: &str) -> Result<(), Box<dyn Error>> {
+fn assert_specialized_parity(source: &str, fixture_name: &str) -> ParityResult {
     let Some(python) = discovered_python() else {
         return Ok(());
     };
@@ -233,7 +237,7 @@ fn assert_specialized_parity(source: &str, fixture_name: &str) -> Result<(), Box
     Ok(())
 }
 
-/// Finds a CPython executable suitable for the parity fixture.
+/// Finds a `CPython` executable suitable for the parity fixture.
 fn discovered_python() -> Option<&'static Path> {
     ["/usr/bin/python3", "/usr/local/bin/python3"]
         .iter()
@@ -242,7 +246,7 @@ fn discovered_python() -> Option<&'static Path> {
 }
 
 /// Runs the source fixture directly and returns its stdout.
-fn run_python(python: &Path, source: &Path) -> Result<String, Box<dyn Error>> {
+fn run_python(python: &Path, source: &Path) -> ParityResult<String> {
     let output = Command::new(python).arg(source).output()?;
     if !output.status.success() {
         return Err(format!(
@@ -255,7 +259,7 @@ fn run_python(python: &Path, source: &Path) -> Result<String, Box<dyn Error>> {
 }
 
 /// Runs the generated Rust program with an isolated Cargo target directory.
-fn run_generated(manifest: &Path, scratch: &Path) -> Result<String, Box<dyn Error>> {
+fn run_generated(manifest: &Path, scratch: &Path) -> ParityResult<String> {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--manifest-path"])
         .arg(manifest)
@@ -302,7 +306,7 @@ fn fixture_policy(project: &Path) -> SandboxPolicyRecord {
     }
 }
 
-/// Returns the source and CPython runtime roots mounted read-only.
+/// Returns the source and `CPython` runtime roots mounted read-only.
 fn runtime_roots(project: &Path) -> Vec<String> {
     [
         PathBuf::from(project),

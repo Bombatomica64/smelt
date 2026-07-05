@@ -237,6 +237,9 @@ impl ModuleBuilder<'_> {
         let item = Item::Function(Function {
             name,
             span: func_span,
+            // Generic free functions are a TypeScript-frontend feature; the
+            // Python frontend declares no free-function type params here.
+            type_params: Vec::new(),
             params: Vec::new(),
             rest: None,
             required_params: None,

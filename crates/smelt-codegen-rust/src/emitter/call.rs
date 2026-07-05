@@ -663,6 +663,8 @@ impl FunctionEmitter<'_> {
                         self.throwing_call_suffix(function)
                     ));
                 }
+                let free_function_type_params =
+                    self.callee_free_function_type_params(function);
                 let mut rendered_args = args
                     .iter()
                     .enumerate()
@@ -681,6 +683,23 @@ impl FunctionEmitter<'_> {
                             .ok_or_else(|| {
                                 EmitError::new("call argument has no target parameter")
                             })?;
+                        // A concrete argument bound to one of the callee's own
+                        // generic type parameters (`identity(3)` against
+                        // `x: T`) is passed through at its own type so Rust
+                        // monomorphizes `identity::<f64>`; erasing it against the
+                        // bare `T` target would mismatch the generic parameter.
+                        if matches!(
+                            self.mir.types.get(target_ty),
+                            Some(Type::TypeParam { name })
+                                if free_function_type_params.contains(name)
+                        ) {
+                            return self.callee_generic_argument_text(
+                                arg,
+                                function,
+                                target_ty,
+                                &free_function_type_params,
+                            );
+                        }
                         if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
                             && param.is_some_and(|target_param| {
                                 !self
@@ -791,6 +810,49 @@ impl FunctionEmitter<'_> {
             .find(|class| class.name == class_name)
             .map(|class| class.type_params.iter().map(|param| param.name).collect())
             .unwrap_or_default()
+    }
+
+    /// Return the generic type parameters declared by a generic free function.
+    ///
+    /// A generic free function (`function identity<T>(x: T): T`) is emitted as
+    /// `fn identity<T: ..>(x: T) -> T`, so its parameter and return positions
+    /// reference `T` directly. Callers use this to detect arguments whose target
+    /// parameter is one of the callee's own type parameters, which must be
+    /// passed through concretely so Rust monomorphizes the call.
+    fn callee_free_function_type_params(&self, function: &MirFunction) -> HashSet<Symbol> {
+        // Only functions the crate decided to emit as real generics participate
+        // in argument pass-through. Using the crate-wide decision (rather than
+        // the signature-only predicate) keeps the call site in agreement with
+        // the emitted definition: a function whose body forced a fall back to
+        // erasure has erased (`SmeltUnknown`) parameters, so its arguments must
+        // be erased here too, not passed through concretely.
+        if !matches!(function.origin, HirOrigin::Body(_))
+            || !self.context.is_generic_function(function.id)
+        {
+            return HashSet::new();
+        }
+        function
+            .type_params
+            .iter()
+            .map(|param| param.name)
+            .collect()
+    }
+
+    /// Return whether a generic free function's declared return type is one of
+    /// its own type parameters.
+    ///
+    /// A call such as `identity(3)` monomorphizes `fn identity<T>(x: T) -> T` to
+    /// return `f64`, so the call value is already concrete at the site. The dest
+    /// local carries that concrete type from the frontend, so the return needs
+    /// no `SmeltUnknown` extraction. As with the argument pass-through, only a
+    /// bare `TypeParam` return is handled; nested shapes (`T[]`) are excluded to
+    /// keep the increment narrow and correct.
+    fn free_function_returns_own_type_param(&self, function: &MirFunction) -> bool {
+        matches!(
+            self.mir.types.get(function.return_ty),
+            Some(Type::TypeParam { name })
+                if self.callee_free_function_type_params(function).contains(name)
+        )
     }
 
     /// Return whether `function`'s declared return type is a generic type
@@ -955,6 +1017,15 @@ impl FunctionEmitter<'_> {
                     // as the source type: the call value is concrete and needs no
                     // `SmeltUnknown` extraction. Erasing here would emit an
                     // extraction match against a value that is not `SmeltUnknown`.
+                    dest_ty
+                } else if self.free_function_returns_own_type_param(function) {
+                    // A generic free function whose declared return type is one
+                    // of its own type parameters (`identity<T>(x: T): T`) is
+                    // monomorphized at this call site, so `identity(3)` yields a
+                    // concrete `f64`. The dest local carries that concrete type
+                    // from the frontend; use it as the source type so the value
+                    // passes through without a spurious `SmeltUnknown`
+                    // extraction against an already-concrete value.
                     dest_ty
                 } else if function.is_async {
                     self.type_id(Type::Future(function.return_ty))?

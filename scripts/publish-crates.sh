@@ -73,7 +73,7 @@ strip_python() {
     smelt-transpiler)
       sed -i \
         -e '/^smelt-frontend-py = { path = "\.\.\/smelt-frontend-py", optional = true }$/d' \
-        -e '/^default = \["python"\]$/d' \
+        -e '/^default = \["ty"\]$/d' \
         -e '/^python = \["dep:smelt-frontend-py"\]$/d' \
         -e '/^ty = \["python", "smelt-frontend-py\/ty"\]$/d' \
         "$manifest"

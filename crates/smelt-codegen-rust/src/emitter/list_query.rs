@@ -903,6 +903,7 @@ impl FunctionEmitter<'_> {
             let function = MirFunction {
                 id: FuncId(u32::MAX),
                 name: Symbol(u32::MAX),
+                type_params: Vec::new(),
                 origin: HirOrigin::Body(smelt_hir::BodyId(u32::MAX)),
                 is_async: false,
                 is_test: false,

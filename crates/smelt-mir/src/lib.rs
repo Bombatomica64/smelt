@@ -391,4 +391,37 @@ async function run(): Promise<number> {
             "the class type parameter name is preserved in MIR"
         );
     }
+
+    #[test]
+    fn propagates_generic_free_function_type_params_into_mir() {
+        // Issue #99: HIR generic free-function type parameters survive into
+        // `MirFunction` so codegen can emit `fn identity<T>(x: T) -> T`.
+        let mut ctx = HirCtx::new();
+        ok_or_panic(
+            to_hir(
+                "export function identity<T>(x: T): T {\n  return x;\n}\n",
+                FileId(0),
+                &mut ctx,
+            ),
+            "HIR",
+        );
+
+        let mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
+        let identity = mir
+            .functions
+            .iter()
+            .find(|function| mir.symbols.get(function.name) == Some("identity"))
+            .unwrap_or_else(|| {
+                std::panic::resume_unwind(Box::new("identity function lowered to MIR".to_owned()))
+            });
+        assert_eq!(identity.type_params.len(), 1);
+        let type_param = identity.type_params.first().unwrap_or_else(|| {
+            std::panic::resume_unwind(Box::new("identity has a type parameter".to_owned()))
+        });
+        assert_eq!(
+            mir.symbols.get(type_param.name),
+            Some("T"),
+            "the free-function type parameter name is preserved in MIR"
+        );
+    }
 }

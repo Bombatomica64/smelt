@@ -5,10 +5,10 @@ use super::*;
 #[test]
 fn emits_python_list_copy_method() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[int] = [1, 2]
 copied: list[int] = values.copy()
-"#,
+",
     );
 
     assert!(source.contains("let values: SmeltList<i64>"));
@@ -61,10 +61,10 @@ coord_set: set[int] = set(coords)
 #[test]
 fn emits_python_list_count_method() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[int] = [1, 2, 1]
 count: int = values.count(1)
-"#,
+",
     );
 
     assert!(source.contains(".iter().filter(|item| *item == &1).count() as i64;"));
@@ -73,10 +73,10 @@ count: int = values.count(1)
 #[test]
 fn emits_python_list_index_method() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[int] = [1, 2, 1]
 index: int = values.index(2)
-"#,
+",
     );
 
     assert!(source.contains(".iter().position(|item| item == &2)"));
@@ -86,10 +86,10 @@ index: int = values.index(2)
 #[test]
 fn emits_python_list_remove_method() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[int] = [1, 2, 1]
 result: None = values.remove(2)
-"#,
+",
     );
 
     assert!(source.contains("let mut"));
@@ -102,12 +102,12 @@ result: None = values.remove(2)
 #[test]
 fn emits_python_list_sort_method() {
     let source = source_for_py(
-        r#"
+        r"
 ints: list[int] = [2, 1]
 int_result: None = ints.sort()
 floats: list[float] = [2.0, 1.0]
 float_result: None = floats.sort()
-"#,
+",
     );
 
     assert!(source.contains("let mut"));
@@ -333,10 +333,10 @@ has_key: bool = "a" in mapping
 #[test]
 fn emits_python_ternary_expression() {
     let source = source_for_py(
-        r#"
+        r"
 def choose(flag: bool, left: int, right: int) -> int:
     return left if flag else right
-"#,
+",
     );
 
     assert!(source.contains("if "));

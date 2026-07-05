@@ -265,6 +265,13 @@ pub struct MirFunction {
     pub id: FuncId,
     /// Name of the function.
     pub name: Symbol,
+    /// Generic type parameters declared by a generic free function.
+    ///
+    /// Propagated from HIR so codegen can emit real Rust generics
+    /// (`fn identity<T>(x: T) -> T`) for a generic free function and keep `T`
+    /// in scope while rendering its parameter and return types. Class members
+    /// carry no entries here; their generics come from the owning `MirClass`.
+    pub type_params: Vec<smelt_hir::TypeParamDef>,
     /// Origin information (from HIR).
     pub origin: HirOrigin,
     /// Whether this is an async function.
@@ -299,6 +306,7 @@ impl MirFunction {
         Self {
             id,
             name,
+            type_params: Vec::new(),
             origin,
             is_async: false,
             is_test: false,

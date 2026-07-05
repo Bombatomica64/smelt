@@ -4,9 +4,10 @@
     reason = "class helpers are shared across sibling emitter modules"
 )]
 
-use smelt_mir::{Mir, MirClass, MirField, MirInterface};
+use smelt_hir::{Symbol, Type, TypeId};
+use smelt_mir::{Mir, MirClass, MirField, MirFunction, MirInterface};
 
-use crate::{EmitError, emitter::FunctionEmitter, rust::RustIdent};
+use crate::{EmitError, emitter::FunctionEmitter, id_index, rust::RustIdent};
 
 /// Return the sanitized Rust storage type name for a MIR class.
 ///
@@ -126,6 +127,333 @@ pub(crate) fn class_impl_generics_text(mir: &Mir, class: &MirClass) -> Result<St
                     )
                 })
                 .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    Ok(format!("<{params}>"))
+}
+
+/// Return whether a free function's signature should emit real Rust generics.
+///
+/// This increment lowers a free function to real Rust generics
+/// (`fn identity<T>(x: T) -> T`) only when doing so is provably sound for Rust's
+/// type inference at every call site. It is an all-or-nothing decision per
+/// function: if any type parameter fails a safety check, the whole function
+/// falls back to full erasure (all its type parameters render as
+/// `SmeltUnknown`), matching pre-#99 behavior.
+///
+/// A function emits real generics only when EVERY declared type parameter is:
+/// - **unconstrained** — a bounded parameter (`<D extends Date>`, `<O extends {
+///   ... }>`) still needs method/property dispatch through the erased boundary
+///   that this increment does not model;
+/// - **inferable from a plain value parameter** — the parameter must appear in a
+///   *direct* (non-callback) parameter position such as `T`, `T[]`, or
+///   `Option<T>`, so Rust can infer it from the argument. A type parameter used
+///   only in the return type (e.g. a type predicate `data is T`) or only inside
+///   a callback parameter cannot be inferred and would produce `E0283`;
+/// - **absent from every callback (function-typed) parameter** — codegen
+///   synthesizes default callbacks as `move |arg: SmeltUnknown| ...`, which
+///   cannot unify with a generic callback signature `Fn(T) -> _` (`E0631`), so a
+///   type parameter appearing inside a function-typed parameter is unsafe.
+///
+/// These are the deferred "bounded / higher-order / return-only" slices of #99.
+pub(crate) fn function_emits_rust_generics(mir: &Mir, function: &MirFunction) -> bool {
+    if function.type_params.is_empty()
+        || function
+            .type_params
+            .iter()
+            .any(|param| param.constraint.is_some())
+    {
+        return false;
+    }
+
+    let param_types: Vec<TypeId> = function
+        .params
+        .iter()
+        .filter_map(|param| {
+            function
+                .locals
+                .get(id_index(param.0, "local index does not fit usize").ok()?)
+                .map(|local| local.ty)
+        })
+        .collect();
+
+    let signature_safe = function.type_params.iter().all(|type_param| {
+        let name = type_param.name;
+        // The parameter must be inferable from at least one direct value
+        // parameter position and must never appear inside a callback parameter.
+        let mut inferable = false;
+        for &param_ty in &param_types {
+            if type_param_in_callback(mir, param_ty, name) {
+                return false;
+            }
+            if type_param_directly_inferable(mir, param_ty, name) {
+                inferable = true;
+            }
+        }
+        inferable
+    });
+
+    signature_safe && !called_with_erased_type_param_argument(mir, function)
+}
+
+/// Return whether any call site in the crate passes an *erased* argument into a
+/// position typed as one of `function`'s own type parameters.
+///
+/// Rust must be able to infer a unique concrete type argument at every call
+/// site. When a generic free function is invoked with an argument whose static
+/// type is already erased — `SmeltUnknown`, a union (also emitted as
+/// `SmeltUnknown`), or a type parameter from a *different* scope — the emitted
+/// argument does not pin the callee's type parameter, so monomorphization fails
+/// with `E0283` ("type annotations needed"). Such a function cannot safely emit
+/// real generics; it must fall back to the fully erased signature so its
+/// parameter accepts the erased value directly.
+///
+/// This scans every function's `Call` terminators for calls that resolve to
+/// `function` and checks the argument at each of its type-parameter positions.
+fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> bool {
+    // Parameter positions whose declared type is exactly one of the function's
+    // own type parameters (`x: T`). Nested shapes (`T[]`) still bind `T` from
+    // the argument's element type, so only bare-parameter positions are checked.
+    let own_params: std::collections::HashSet<Symbol> =
+        function.type_params.iter().map(|param| param.name).collect();
+    let bare_type_param_positions: Vec<usize> = function
+        .params
+        .iter()
+        .enumerate()
+        .filter_map(|(index, param)| {
+            let ty = function
+                .locals
+                .get(id_index(param.0, "local index does not fit usize").ok()?)?
+                .ty;
+            matches!(mir.types.get(ty), Some(Type::TypeParam { name }) if own_params.contains(name))
+                .then_some(index)
+        })
+        .collect();
+    if bare_type_param_positions.is_empty() {
+        return false;
+    }
+
+    for caller in &mir.functions {
+        for block in &caller.blocks {
+            let Some(smelt_mir::Terminator::Call {
+                callee: smelt_mir::Callee::Static(target),
+                args,
+                ..
+            }) = &block.terminator
+            else {
+                continue;
+            };
+            if *target != function.id {
+                continue;
+            }
+            for &position in &bare_type_param_positions {
+                let Some(arg) = args.get(position) else {
+                    continue;
+                };
+                if operand_type_is_erased(mir, caller, arg) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Return whether an operand's static type is erased for codegen purposes
+/// (`SmeltUnknown`, `Never`, a union — all emitted as `SmeltUnknown` — or a type
+/// parameter that is not resolvable to a concrete type at the call site).
+fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &smelt_mir::Operand) -> bool {
+    let ty = match operand {
+        smelt_mir::Operand::Copy(place) | smelt_mir::Operand::Move(place) => {
+            match place_local(place) {
+                Some(local) => match caller
+                    .locals
+                    .get(usize::try_from(local.0).unwrap_or(usize::MAX))
+                {
+                    Some(decl) => decl.ty,
+                    None => return true,
+                },
+                // A field/index projection is conservatively treated as erased.
+                None => return true,
+            }
+        }
+        // Literal constants (numbers, strings, booleans) are concrete and pin
+        // the type parameter, so they never force erasure.
+        smelt_mir::Operand::Const(_) => return false,
+    };
+    matches!(
+        mir.types.get(ty),
+        Some(Type::Unknown | Type::Never | Type::Union(_) | Type::TypeParam { .. })
+    )
+}
+
+/// Return the base local of a simple `Place::Local`, or `None` for projections.
+fn place_local(place: &smelt_mir::Place) -> Option<smelt_mir::LocalId> {
+    match place {
+        smelt_mir::Place::Local(local) => Some(*local),
+        _ => None,
+    }
+}
+
+/// Return whether `name` appears in a *direct* (non-callback) position of `ty`.
+///
+/// Direct positions are the value shapes Rust can infer a type argument from:
+/// the bare parameter (`T`), collections and wrappers over it (`T[]`,
+/// `Set<T>`, `Option<T>`, `T[]` inside a tuple, a union member, dict key/value).
+/// This walk must mirror what codegen actually EMITS for a parameter type
+/// (see `type_text_with_scoped_type_params`): it only descends through shapes
+/// that preserve the type parameter in the emitted Rust. It intentionally does
+/// NOT descend into:
+/// - **`Union`** — a union parameter erases to `SmeltUnknown` in emission, so a
+///   `T` inside `T | string` disappears from the emitted signature and cannot be
+///   inferred (`E0283`);
+/// - **`Function`** — a callback boundary, handled by [`type_param_in_callback`].
+fn type_param_directly_inferable(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::TypeParam { name: param_name }) => *param_name == name,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+            type_param_directly_inferable(mir, *item, name)
+        }
+        Some(Type::Dict(key, value)) => {
+            type_param_directly_inferable(mir, *key, name)
+                || type_param_directly_inferable(mir, *value, name)
+        }
+        Some(Type::Tuple(items)) => items
+            .iter()
+            .any(|item| type_param_directly_inferable(mir, *item, name)),
+        Some(Type::Class { args, .. }) => args
+            .iter()
+            .any(|arg| type_param_directly_inferable(mir, *arg, name)),
+        // Unions erase to `SmeltUnknown` and functions are a callback boundary,
+        // so neither preserves the type parameter in a directly-inferable value
+        // position.
+        Some(
+            Type::Union(_)
+            | Type::Function(_)
+            | Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::Unknown
+            | Type::Never
+            | Type::None,
+        )
+        | None => false,
+    }
+}
+
+/// Return whether `name` appears anywhere inside a function-typed sub-shape of
+/// `ty` (a callback parameter or return).
+///
+/// Such positions are unsafe for real generics because codegen synthesizes a
+/// default callback as `move |arg: SmeltUnknown| ...`, which cannot unify with a
+/// generic `Fn(T) -> _` signature. The walk descends through value wrappers to
+/// find a nested `Type::Function`, then checks whether `name` occurs anywhere
+/// within that function type.
+fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::Function(function)) => {
+            function
+                .params
+                .iter()
+                .any(|param| type_param_occurs(mir, *param, name))
+                || type_param_occurs(mir, function.return_ty, name)
+        }
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+            type_param_in_callback(mir, *item, name)
+        }
+        Some(Type::Dict(key, value)) => {
+            type_param_in_callback(mir, *key, name)
+                || type_param_in_callback(mir, *value, name)
+        }
+        Some(Type::Tuple(items) | Type::Union(items)) => items
+            .iter()
+            .any(|item| type_param_in_callback(mir, *item, name)),
+        Some(Type::Class { args, .. }) => args
+            .iter()
+            .any(|arg| type_param_in_callback(mir, *arg, name)),
+        Some(
+            Type::TypeParam { .. }
+            | Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::Unknown
+            | Type::Never
+            | Type::None,
+        )
+        | None => false,
+    }
+}
+
+/// Return whether `name` occurs anywhere within `ty`, descending through every
+/// shape including function types. Used to detect a type parameter's presence
+/// inside a callback signature.
+fn type_param_occurs(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::TypeParam { name: param_name }) => *param_name == name,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+            type_param_occurs(mir, *item, name)
+        }
+        Some(Type::Dict(key, value)) => {
+            type_param_occurs(mir, *key, name) || type_param_occurs(mir, *value, name)
+        }
+        Some(Type::Tuple(items) | Type::Union(items)) => {
+            items.iter().any(|item| type_param_occurs(mir, *item, name))
+        }
+        Some(Type::Function(function)) => {
+            function
+                .params
+                .iter()
+                .any(|param| type_param_occurs(mir, *param, name))
+                || type_param_occurs(mir, function.return_ty, name)
+        }
+        Some(Type::Class { args, .. }) => {
+            args.iter().any(|arg| type_param_occurs(mir, *arg, name))
+        }
+        Some(
+            Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::Unknown
+            | Type::Never
+            | Type::None,
+        )
+        | None => false,
+    }
+}
+
+/// Render the bounded generic-parameter suffix for a generic free function.
+///
+/// A generic free function such as `function identity<T>(x: T): T` is emitted
+/// as `fn identity<T: ..>(x: T) -> T`. The bounds mirror generic class impl
+/// blocks (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static`)
+/// so a `T`-typed value can be cloned, defaulted, and cross the erased boundary
+/// when it must. The returned text is empty for non-generic functions (and for
+/// functions with bounded parameters, which stay erased) so callers can splice
+/// it directly after the function name without branching.
+pub(crate) fn function_impl_generics_text(
+    mir: &Mir,
+    function: &MirFunction,
+) -> Result<String, EmitError> {
+    if !function_emits_rust_generics(mir, function) {
+        return Ok(String::new());
+    }
+    let params = function
+        .type_params
+        .iter()
+        .map(|param| {
+            mir.symbols
+                .get(param.name)
+                .map(|name| {
+                    format!(
+                        "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
+                        RustIdent::new(name).into_string()
+                    )
+                })
+                .ok_or_else(|| EmitError::new("function type parameter has unknown symbol"))
         })
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
@@ -269,8 +597,8 @@ pub(crate) fn inherited_trait_methods(mir: &Mir, class: &MirClass) -> Vec<smelt_
 )]
 pub(crate) fn class_type_text(
     mir: &Mir,
-    class_name: smelt_hir::Symbol,
-    class_args: &[smelt_hir::TypeId],
+    class_name: Symbol,
+    class_args: &[TypeId],
 ) -> Result<String, EmitError> {
     let name_text = RustIdent::new(
         mir.symbols
