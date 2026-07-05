@@ -18,9 +18,6 @@ use smelt_hir::{
 };
 
 impl ModuleBuilder<'_> {
-    /// Runtime key used for JavaScript's well-known `Symbol.iterator` value.
-    pub(in crate::lowering) const SYMBOL_ITERATOR_KEY: &'static str = "__smelt_symbol_iterator";
-
     /// Lower supported namespace member calls into the matching HIR operation.
     pub(in crate::lowering) fn namespace_member_call(
         &mut self,
@@ -422,6 +419,13 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower supported well-known `Symbol.<name>` member reads.
+    ///
+    /// Each modeled well-known symbol resolves to the same stable synthetic
+    /// member spelling that computed property-key declaration uses (see
+    /// [`crate::lowering::ty::computed_key_symbols::well_known_symbol_key`]), so a
+    /// read such as `obj[Symbol.asyncIterator]` indexes the field declared by
+    /// `[Symbol.asyncIterator]()` (issue #115). `Symbol.iterator` keeps its
+    /// established `__smelt_symbol_iterator` spelling.
     pub(in crate::lowering) fn symbol_static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
@@ -430,12 +434,15 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Symbol" || member.property.name != "iterator" {
+        if object.name != "Symbol" {
             return None;
         }
+        let key = crate::lowering::ty::computed_key_symbols::well_known_symbol_key(
+            member.property.name.as_str(),
+        )?;
         let ty = self.ctx.krate.types.intern(Type::String);
         Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(Self::SYMBOL_ITERATOR_KEY.to_owned())),
+            kind: ExprKind::Literal(Literal::String(key)),
             ty,
             span: self.span(member.span.start, member.span.end),
         }))

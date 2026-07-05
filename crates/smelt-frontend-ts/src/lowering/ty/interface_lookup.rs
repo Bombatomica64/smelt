@@ -61,16 +61,25 @@ impl ModuleBuilder<'_> {
 
     /// Resolve a computed property key to its static string member name.
     ///
-    /// Returns `Some((name, is_well_known_symbol))` when the key is a
+    /// Returns `Some((name, is_symbol_backed))` when the key is a
     /// statically-resolvable computed key:
     /// * a const reference whose value folds to a string/number literal
     ///   (`const K = "id"; { [K]: v }`),
     /// * an enum member (`enum E { A = "a" }; { [E.A]: v }`) or a foldable
-    ///   `Number`/`Math` numeric constant, or
-    /// * a well-known symbol member (`[Symbol.iterator]`), which maps to a stable
-    ///   synthetic member spelling that member access already understands.
+    ///   `Number`/`Math` numeric constant,
+    /// * a well-known symbol member (`[Symbol.iterator]`,
+    ///   `[Symbol.asyncIterator]`, …), which maps to a stable synthetic member
+    ///   spelling that member access already understands, or
+    /// * a `Symbol.for(<description>)` registry symbol — spelled inline
+    ///   (`[Symbol.for("k")]`), aliased to a `const` (`[matcher]`), or read
+    ///   through a namespace import (`[symbols.override]`) — which folds to a
+    ///   stable synthetic spelling derived from the registry description because
+    ///   registry symbols are globally interned (issue #115).
     ///
-    /// Returns `None` for genuinely dynamic keys (arbitrary expressions, opaque
+    /// The boolean is `true` when the resolved name is a synthetic symbol key
+    /// (interned verbatim) rather than an ordinary source-name-folded key.
+    ///
+    /// Returns `None` for genuinely dynamic keys (arbitrary expressions, unique
     /// `Symbol(...)` brands, boolean/null constants), leaving them on the
     /// explicit runtime-keyed path.
     pub(in crate::lowering) fn resolve_static_computed_key_name(
@@ -78,22 +87,28 @@ impl ModuleBuilder<'_> {
         key: &PropertyKey<'_>,
     ) -> Option<(String, bool)> {
         match key {
-            // A well-known `Symbol.<name>` key names a stable synthetic member.
+            // A well-known / registry `Symbol.<name>` or `Symbol.for(...)` member
+            // key names a stable synthetic member; otherwise a foldable const
+            // member (enum member, Number/Math constant) resolves normally.
             PropertyKey::StaticMemberExpression(member) => {
-                if let Expression::Identifier(object) = &member.object
-                    && object.name == "Symbol"
-                    && member.property.name == "iterator"
-                {
-                    return Some((Self::SYMBOL_ITERATOR_KEY.to_owned(), true));
+                if let Some(symbol_key) = self.symbol_member_key(member) {
+                    return Some((symbol_key, true));
                 }
                 let literal = self.member_literal_const_expression(member).ok()?;
                 literal.computed_member_name().map(|name| (name, false))
             }
-            // A bare identifier reference folds to its const value when known.
+            // An inline `[Symbol.for("k")]` call key folds to its registry key.
+            PropertyKey::CallExpression(call) => {
+                Self::symbol_for_call_key(call).map(|symbol_key| (symbol_key, true))
+            }
+            // A bare identifier reference folds to its const value when known;
+            // a `Symbol.for(...)`-aliased const yields a synthetic symbol key.
             PropertyKey::Identifier(identifier) => self
                 .resolve_const_literal_by_name(identifier.name.as_str())
-                .and_then(|literal| literal.computed_member_name())
-                .map(|name| (name, false)),
+                .and_then(|literal| {
+                    let is_symbol = literal.symbol_registry_name().is_some();
+                    literal.computed_member_name().map(|name| (name, is_symbol))
+                }),
             // Erased type-level wrappers around any of the above still name the
             // inner static key (`[K as const]`, `[(K)]`, `[K!]`).
             PropertyKey::ParenthesizedExpression(inner) => {
@@ -121,19 +136,21 @@ impl ModuleBuilder<'_> {
     ) -> Option<(String, bool)> {
         match expression {
             Expression::StaticMemberExpression(member) => {
-                if let Expression::Identifier(object) = &member.object
-                    && object.name == "Symbol"
-                    && member.property.name == "iterator"
-                {
-                    return Some((Self::SYMBOL_ITERATOR_KEY.to_owned(), true));
+                if let Some(symbol_key) = self.symbol_member_key(member) {
+                    return Some((symbol_key, true));
                 }
                 let literal = self.member_literal_const_expression(member).ok()?;
                 literal.computed_member_name().map(|name| (name, false))
             }
+            Expression::CallExpression(call) => {
+                Self::symbol_for_call_key(call).map(|symbol_key| (symbol_key, true))
+            }
             Expression::Identifier(identifier) => self
                 .resolve_const_literal_by_name(identifier.name.as_str())
-                .and_then(|literal| literal.computed_member_name())
-                .map(|name| (name, false)),
+                .and_then(|literal| {
+                    let is_symbol = literal.symbol_registry_name().is_some();
+                    literal.computed_member_name().map(|name| (name, is_symbol))
+                }),
             Expression::StringLiteral(literal) => Some((literal.value.to_string(), false)),
             Expression::ParenthesizedExpression(inner) => {
                 self.resolve_static_computed_key_name_expr(&inner.expression)
@@ -149,6 +166,58 @@ impl ModuleBuilder<'_> {
             }
             _ => None,
         }
+    }
+
+    /// Resolve a member expression that names a symbol into its stable synthetic
+    /// member key.
+    ///
+    /// Handles two shapes:
+    /// * a well-known symbol access (`Symbol.iterator`, `Symbol.asyncIterator`, …)
+    ///   folds to the per-name synthetic key (see
+    ///   [`crate::lowering::ty::computed_key_symbols::well_known_symbol_key`]),
+    ///   and
+    /// * a namespace-member alias of a `Symbol.for(...)` registry const
+    ///   (`import * as s from "..."; [s.override]`) folds to the registry key by
+    ///   resolving the const behind the qualified name.
+    ///
+    /// Returns `None` when the member is not a modeled symbol key, leaving the
+    /// caller to try const/enum folding or reject the key as dynamic.
+    fn symbol_member_key(
+        &self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> Option<String> {
+        if let Expression::Identifier(object) = &member.object
+            && object.name == "Symbol"
+        {
+            return crate::lowering::ty::computed_key_symbols::well_known_symbol_key(
+                member.property.name.as_str(),
+            );
+        }
+        // `namespace.member` alias of an imported `Symbol.for(...)` const: resolve
+        // the const behind the qualified name and fold its registry description.
+        if let Expression::Identifier(object) = &member.object {
+            let qualified = format!("{}.{}", object.name, member.property.name);
+            if let Some(name) = self
+                .resolve_const_literal_by_name(&qualified)
+                .and_then(|literal| literal.symbol_registry_name())
+            {
+                return Some(name);
+            }
+        }
+        None
+    }
+
+    /// Resolve an inline `Symbol.for(<string literal>)` call key to its registry
+    /// member key.
+    ///
+    /// Reuses [`Self::symbol_for_call_description`] so the inline-key path and the
+    /// const-folding path agree on what a foldable registry call looks like. Only
+    /// the registry form with a string-literal description folds; a unique
+    /// `Symbol(...)` call or a non-literal description has no stable static
+    /// spelling and returns `None`.
+    fn symbol_for_call_key(call: &oxc::ast::ast::CallExpression<'_>) -> Option<String> {
+        Self::symbol_for_call_description(call)
+            .map(crate::lowering::ty::computed_key_symbols::registry_symbol_key)
     }
 
     /// Return whether a computed property key resolves to a static member name.

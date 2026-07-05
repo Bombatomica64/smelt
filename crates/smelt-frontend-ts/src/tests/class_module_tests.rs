@@ -737,3 +737,146 @@ export function readDynamic(p: Point): unknown {
     }));
     Ok(())
 }
+
+/// A well-known `[Symbol.asyncIterator]` interface method resolves to a stable
+/// synthetic member spelling and lowers to a named method rather than hitting
+/// the "property names must be static" gate (issue #115, neverthrow residual).
+#[test]
+fn lowers_symbol_async_iterator_computed_interface_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export interface Seq {
+  [Symbol.asyncIterator](): number;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let seq = interface_named(&ctx, module, "Seq")?;
+    ensure!(
+        seq.methods.iter().any(|method| ctx.krate.symbols.get(method.name)
+            == Some("__smelt_symbol_async_iterator")),
+        "expected a `__smelt_symbol_async_iterator` method, got {:?}",
+        seq.methods
+    );
+    Ok(())
+}
+
+/// A `Symbol.for(<literal>)`-aliased const used as a computed interface method
+/// key (`const matcher = Symbol.for("k"); { [matcher](): T }`) folds to the
+/// registry synthetic member spelling (issue #115, ts-pattern residual). This is
+/// the const-alias shape ts-pattern uses for its `[matcher]()` protocol methods.
+#[test]
+fn lowers_symbol_for_const_keyed_interface_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const matcher = Symbol.for('@ts-pattern/matcher');
+
+export interface Matcher {
+  [matcher](): number;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let matcher = interface_named(&ctx, module, "Matcher")?;
+    ensure!(
+        matcher.methods.iter().any(|method| ctx.krate.symbols.get(method.name)
+            == Some("__smelt_symbol_for_ts_pattern_matcher")),
+        "expected a `__smelt_symbol_for_ts_pattern_matcher` method, got {:?}",
+        matcher.methods
+    );
+    Ok(())
+}
+
+/// An inline `[Symbol.for("k")]` computed interface field folds to the same
+/// registry synthetic member spelling as a `Symbol.for`-aliased const, since
+/// registry symbols are interned by description (issue #115).
+#[test]
+fn lowers_inline_symbol_for_computed_interface_field() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export interface Branded {
+  [Symbol.for('@ts-pattern/override')]: number;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let branded = interface_named(&ctx, module, "Branded")?;
+    ensure!(
+        branded.fields.iter().any(|field| ctx.krate.symbols.get(field.name)
+            == Some("__smelt_symbol_for_ts_pattern_override")),
+        "expected a `__smelt_symbol_for_ts_pattern_override` field, got {:?}",
+        branded.fields
+    );
+    Ok(())
+}
+
+/// A `Symbol.for(<literal>)`-aliased const referenced through a namespace import
+/// (`import * as symbols; { [symbols.override]: T }`) folds to the registry
+/// synthetic member spelling — the exact shape ts-pattern's `Pattern.ts` uses
+/// (issue #115). The registry const is declared and re-exported by an earlier
+/// module so it resolves through the cross-module const machinery.
+#[test]
+fn lowers_namespace_symbol_for_computed_interface_field() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export const override = Symbol.for('@ts-pattern/override');
+"#),
+        "symbols.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import * as symbols from './symbols';
+
+export interface Override {
+  [symbols.override]: number;
+}
+"#),
+        "Pattern.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let override_iface = interface_named(&ctx, module, "Override")?;
+    ensure!(
+        override_iface.fields.iter().any(|field| ctx.krate.symbols.get(field.name)
+            == Some("__smelt_symbol_for_ts_pattern_override")),
+        "expected a `__smelt_symbol_for_ts_pattern_override` field, got {:?}",
+        override_iface.fields
+    );
+    Ok(())
+}
+
+/// A *unique* `Symbol("desc")` (no `.for`) aliased to a const has fresh identity
+/// each evaluation and is not a stable static key, so using it as a computed
+/// property name still reports the dynamic-key diagnostic (issue #115 folds only
+/// globally-interned registry symbols, not unique brands).
+#[test]
+fn rejects_unique_symbol_const_computed_property_name() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const brand = Symbol('brand');
+
+class Branded {
+  [brand]: number = 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(
+        &errors,
+        "dynamic computed property names are not lowered yet",
+    )?;
+    Ok(())
+}

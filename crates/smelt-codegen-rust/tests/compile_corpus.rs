@@ -559,10 +559,19 @@ export function readMixed(bag: MixedBag, key: string): number | undefined {
             // synthetic member spelling. All three become ordinary named
             // members so the emitted Rust compiles, and reading the folded
             // class field back through its concrete member type stays concrete.
+            //
+            // Issue #115 extends the folding to more symbol-backed keys, all of
+            // which must likewise become ordinary named members: a well-known
+            // `[Symbol.asyncIterator]` method, an inline `[Symbol.for("k")]`
+            // field, and a `Symbol.for("k")`-aliased-const key (`[matcher]`).
+            // Registry symbols fold to the same stable synthetic spelling
+            // regardless of how they are spelled, so `matcher` and the inline
+            // `Symbol.for` key naming the same description name the same member.
             name: "computed_property_names",
             area: "interfaces",
             source: r#"
 const TAG = "tag";
+const matcher = Symbol.for("@ts-pattern/matcher");
 
 enum Kind {
   First = "first",
@@ -579,6 +588,15 @@ interface ByKind {
 
 interface Seq {
   [Symbol.iterator](): number;
+  [Symbol.asyncIterator](): number;
+}
+
+interface Matcher {
+  [matcher](): number;
+}
+
+interface Override {
+  [Symbol.for("@ts-pattern/override")]: number;
 }
 
 export function makeTagged(): Tagged {
