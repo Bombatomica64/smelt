@@ -264,6 +264,10 @@ impl ModuleBuilder<'_> {
             implements: vec![],
         }));
         self.items.insert(class_name_str.to_owned(), class_item_id);
+        // Pre-register every method's `ItemId` so a body can call siblings
+        // declared later in the class (`self.helper()`, `cls.helper()`).
+        let method_slots =
+            self.reserve_class_method_slots(class, class_name_str, class_sym, materialized.is_some())?;
         let mut enum_members = HashMap::new();
         let mut abstract_methods = Vec::new();
 
@@ -333,6 +337,10 @@ impl ModuleBuilder<'_> {
                         abstract_methods.push(self.abstract_method_sig(func)?);
                         continue;
                     }
+                    // A slot pre-reserved by `reserve_class_method_slots` is
+                    // overwritten in place so forward references resolved during
+                    // an earlier sibling body keep a valid `ItemId`.
+                    let reserved_slot = method_slots.get(&func.range.start().to_u32()).copied();
                     if Self::is_staticmethod(func) {
                         let mid = self.class_method_with_receiver(
                             class_name_str,
@@ -340,6 +348,7 @@ impl ModuleBuilder<'_> {
                             class_ty,
                             func,
                             true,
+                            reserved_slot,
                         )?;
                         static_methods.push(mid);
                         hir_module.items.push(mid);
@@ -358,13 +367,35 @@ impl ModuleBuilder<'_> {
                         constructor_id = Some(mid);
                         hir_module.items.push(mid);
                     } else {
-                        let mid = self.class_method(class_name_str, class_sym, class_ty, func)?;
+                        // Both instance methods and `@classmethod`s take the
+                        // body-lowering path with `is_static = false` so the
+                        // implicit `self`/`cls` local is created. A classmethod
+                        // then dispatches receiver-free (its `owner` becomes
+                        // `ClassStaticMethod`), so it is bookkept as a static
+                        // method and registered in `class_static_methods`.
+                        let is_classmethod = self.is_classmethod(func)?;
+                        let mid = self.class_method_with_receiver(
+                            class_name_str,
+                            class_sym,
+                            class_ty,
+                            func,
+                            false,
+                            reserved_slot,
+                        )?;
                         self.rename_materialized_descriptor_callable(class_name_str, func, mid)?;
-                        method_ids.push(mid);
-                        self.class_methods
-                            .entry(class_name_str.to_owned())
-                            .or_default()
-                            .insert(method_name.to_owned(), mid);
+                        if is_classmethod {
+                            static_methods.push(mid);
+                            self.class_static_methods
+                                .entry(class_name_str.to_owned())
+                                .or_default()
+                                .insert(method_name.to_owned(), mid);
+                        } else {
+                            method_ids.push(mid);
+                            self.class_methods
+                                .entry(class_name_str.to_owned())
+                                .or_default()
+                                .insert(method_name.to_owned(), mid);
+                        }
                         hir_module.items.push(mid);
                     }
                 }
@@ -865,6 +896,105 @@ impl ModuleBuilder<'_> {
         params
     }
 
+    /// Reserve an [`ItemId`] for every ordinary/class/static method in `class`
+    /// *before* any method body is lowered.
+    ///
+    /// Method resolution at call sites (`self.helper()`, `cls.helper()`,
+    /// `Class.helper()`) looks methods up by name in [`Self::class_methods`] /
+    /// [`Self::class_static_methods`]. Those registries were previously filled
+    /// incrementally as each body was lowered, so a call to a sibling declared
+    /// *later* in the class body could not be resolved (issue #94's dominant
+    /// blocker). Reserving placeholder items up front — keyed by each method's
+    /// source-range start so the main pass can overwrite the exact slot — makes
+    /// intra-class forward references resolvable regardless of declaration order.
+    ///
+    /// The reservation set mirrors the main class-body loop exactly: it skips
+    /// `@abstractmethod`, `__init__`/`__new__` (constructor-shaped), materialized
+    /// descriptor callables (property getters/setters), and — under a
+    /// materialized class — the `__init_subclass__`/`__set_name__` hooks. Each
+    /// remaining instance method is registered in [`Self::class_methods`]; each
+    /// `@staticmethod` / `@classmethod` is registered in
+    /// [`Self::class_static_methods`] (both dispatch receiver-free).
+    fn reserve_class_method_slots(
+        &mut self,
+        class: &StmtClassDef,
+        class_name_str: &str,
+        class_sym: Symbol,
+        materialized_hooks_skipped: bool,
+    ) -> Result<HashMap<u32, ItemId>, SmeltError> {
+        let mut slots: HashMap<u32, ItemId> = HashMap::new();
+        for body_stmt in &class.body {
+            let Stmt::FunctionDef(func) = body_stmt else {
+                continue;
+            };
+            let method_name = func.name.as_str();
+            if materialized_hooks_skipped
+                && matches!(method_name, "__init_subclass__" | "__set_name__")
+            {
+                continue;
+            }
+            if Self::is_abstractmethod(func) || self.is_materialized_descriptor_callable(func) {
+                continue;
+            }
+            let is_static = Self::is_staticmethod(func);
+            // `__init__`/`__new__` are constructor-shaped and are not exposed
+            // through the method registries; leave them to the main pass.
+            if !is_static && matches!(method_name, "__init__" | "__new__") {
+                continue;
+            }
+            // A `@classmethod` dispatches receiver-free like a `@staticmethod`
+            // (its implicit `cls` is erased to the concrete class), so it is
+            // reserved as a static method and registered in `class_static_methods`.
+            let is_classmethod = !is_static && self.is_classmethod(func)?;
+            let receiver_free = is_static || is_classmethod;
+            let method_sym = self.intern_name(method_name);
+            let owner = if receiver_free {
+                FunctionOwner::ClassStaticMethod {
+                    class: class_sym,
+                    method: method_sym,
+                }
+            } else {
+                FunctionOwner::ClassMethod {
+                    class: class_sym,
+                    method: method_sym,
+                }
+            };
+            // Record the real return type now: a sibling body lowered *before*
+            // this method resolves the call through this placeholder, so its
+            // return type must already be accurate. This mirrors the return-type
+            // reconciliation the main pass performs. When it cannot be resolved
+            // the main pass reports the missing-annotation error; a `None`
+            // placeholder here is only a stand-in until then.
+            let return_ty = self
+                .resolve_return_ty(func, func.returns.as_deref())
+                .unwrap_or_else(|| self.intern_type(Type::None));
+            let placeholder = Item::Function(Function {
+                name: method_sym,
+                span: self.span(func.range),
+                params: Vec::new(),
+                rest: None,
+                required_params: None,
+                return_ty,
+                is_async: false,
+                is_test: false,
+                body: None,
+                owner,
+            });
+            let item_id = self.ctx.krate.push_item(placeholder);
+            let registry = if receiver_free {
+                &mut self.class_static_methods
+            } else {
+                &mut self.class_methods
+            };
+            registry
+                .entry(class_name_str.to_owned())
+                .or_default()
+                .insert(method_name.to_owned(), item_id);
+            slots.insert(func.range.start().to_u32(), item_id);
+        }
+        Ok(slots)
+    }
+
     /// Lower a method or constructor inside a class body.
     ///
     /// Handles `self` parameter injection, param annotation enforcement, and
@@ -876,7 +1006,7 @@ impl ModuleBuilder<'_> {
         class_ty: TypeId,
         func: &StmtFunctionDef,
     ) -> Result<ItemId, SmeltError> {
-        self.class_method_with_receiver(class_name_str, class_sym, class_ty, func, false)
+        self.class_method_with_receiver(class_name_str, class_sym, class_ty, func, false, None)
     }
 
     /// Lower a Python class method to a HIR function item.
@@ -896,6 +1026,7 @@ impl ModuleBuilder<'_> {
         class_ty: TypeId,
         func: &StmtFunctionDef,
         is_static: bool,
+        slot: Option<ItemId>,
     ) -> Result<ItemId, SmeltError> {
         let span = self.span(func.range);
         let method_name_str = func.name.as_str();
@@ -1014,9 +1145,16 @@ impl ModuleBuilder<'_> {
 
         let body_id = self.ctx.krate.push_body(fn_body);
 
+        // A `@classmethod` lowers to a receiver-free associated function, the
+        // same owner a `@staticmethod` uses. Python binds its implicit `cls` to
+        // the class object, not an instance, so codegen must emit
+        // `Class::method(args)` (no `&self`). `cls(..)`/`cls.helper(..)` inside
+        // the body are lowered to concrete class construction / associated calls
+        // (see `cls_receiver_call_expression` and `class_method_dispatch`), so
+        // the `cls` local is never dereferenced as a receiver.
         let owner = if is_init {
             FunctionOwner::Constructor { class: class_sym }
-        } else if is_static {
+        } else if is_static || is_classmethod {
             FunctionOwner::ClassStaticMethod {
                 class: class_sym,
                 method: method_sym,
@@ -1040,7 +1178,17 @@ impl ModuleBuilder<'_> {
             body: Some(body_id),
             owner,
         });
-        Ok(self.ctx.krate.push_item(item))
+        // Reuse the slot reserved by the pre-pass when present so any earlier
+        // sibling body that resolved a forward reference to this method keeps a
+        // valid `ItemId`; otherwise append a fresh item.
+        match slot {
+            Some(item_id) => {
+                let index = usize::try_from(item_id.0).unwrap_or(usize::MAX);
+                self.ctx.krate.items[index] = item;
+                Ok(item_id)
+            }
+            None => Ok(self.ctx.krate.push_item(item)),
+        }
     }
 
     // Class helper lowering continues in `class_init.rs`.
