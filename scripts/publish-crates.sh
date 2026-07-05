@@ -94,10 +94,27 @@ needs_strip() {
   esac
 }
 
+VERSION="0.1.0"
+
+# Returns 0 if <crate> already has VERSION on crates.io (so a resumed run can
+# skip it — new-crate publishing is rate-limited, so a batch may need >1 pass).
+already_published() {
+  local crate="$1"
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' \
+    "https://crates.io/api/v1/crates/$crate/$VERSION" -A "smelt-publish")"
+  [[ "$code" == "200" ]]
+}
+
 for crate in "${CRATES[@]}"; do
   echo "==============================================================="
   echo ">>> $crate"
   echo "==============================================================="
+
+  if [[ "$EXECUTE" -eq 1 ]] && already_published "$crate"; then
+    echo "already on crates.io at $VERSION — skipping"
+    continue
+  fi
 
   if needs_strip "$crate"; then
     strip_python "$crate"
