@@ -912,13 +912,14 @@ fn emit_case_crate(case: &Case, crate_dir: &Path) -> Result<(), String> {
 /// the program lowers and compiles.
 #[cfg(feature = "ty")]
 fn python_corpus() -> Vec<Case> {
-    vec![Case {
-        name: "py_inferred_returns",
-        area: "py_ty_return_inference",
-        // No function carries a `-> T`; `ty` infers int/str/bool from the
-        // bodies. Parameters keep annotations (unannotated params stay an
-        // explicit boundary — a documented deferral).
-        source: r"
+    vec![
+        Case {
+            name: "py_inferred_returns",
+            area: "py_ty_return_inference",
+            // No function carries a `-> T`; `ty` infers int/str/bool from the
+            // bodies. Parameters keep annotations (unannotated params stay an
+            // explicit boundary — a documented deferral).
+            source: r"
 def inc(x: int):
     return x + 1
 
@@ -934,7 +935,34 @@ def total(values: list[int]):
         result = result + value
     return result
 ",
-    }]
+        },
+        Case {
+            name: "py_lang_features",
+            area: "py_try_lambda_classbody",
+            // Issue #95: try/except/finally lowers to TryCatch, a lambda call
+            // argument recovers its `Callable[...]` type and lowers to a
+            // closure, and a class-body `...` placeholder is a no-op.
+            source: r#"
+from typing import Callable
+
+class Marker:
+    """A placeholder class."""
+    ...
+
+def apply(f: Callable[[int], int], value: int) -> int:
+    return f(value)
+
+def guarded(value: int) -> int:
+    try:
+        return apply(lambda x: x + 1, value)
+    except ValueError as error:
+        print(error)
+        return 0
+    finally:
+        print("done")
+"#,
+        },
+    ]
 }
 
 /// Lowers a Python corpus `case` through the real Python pipeline (with `ty`

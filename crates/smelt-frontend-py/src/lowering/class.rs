@@ -369,9 +369,17 @@ impl ModuleBuilder<'_> {
                     }
                 }
                 Stmt::Pass(_) => {}
-                // Docstring (bare string literal as Expr statement)
+                // A bare expression statement in a class body carries no runtime
+                // member. Two shapes are accepted as no-ops (matching how `pass`
+                // is skipped): a docstring (`"""..."""`) and an ellipsis body
+                // (`...`), the latter being the common Protocol/stub placeholder.
+                // Any other bare expression would have an observable effect that
+                // the class model cannot represent, so it stays rejected.
                 Stmt::Expr(e) => {
-                    if !matches!(e.value.as_ref(), Expr::StringLiteral(_)) {
+                    if !matches!(
+                        e.value.as_ref(),
+                        Expr::StringLiteral(_) | Expr::EllipsisLiteral(_)
+                    ) {
                         return Err(SmeltError::unsupported(
                             self.span(e.range),
                             format!("class '{class_name_str}': unsupported class body statement"),
