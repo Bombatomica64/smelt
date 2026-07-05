@@ -80,6 +80,18 @@ impl Config {
         self.sources.test_globs.as_deref().unwrap_or(&[])
     }
 
+    /// Get root-relative glob patterns for source files to exclude from lowering.
+    ///
+    /// Files whose root-relative path matches any of these patterns are dropped
+    /// from both build discovery (`entries` plus test globs) and probe
+    /// discovery. This lets a manifest opt specific files out of the whole-crate
+    /// build without hiding them from the repository — useful for spec files
+    /// that depend on host globals Smelt's non-DOM profile does not model.
+    #[must_use]
+    pub fn source_excludes(&self) -> &[String] {
+        self.sources.exclude.as_deref().unwrap_or(&[])
+    }
+
     /// Get the output target directory path.
     #[must_use]
     pub fn output_target(&self) -> &PathBuf {
@@ -115,6 +127,12 @@ pub struct Source {
     /// Optional glob patterns used to discover test source files under roots.
     #[serde(rename = "test-globs", alias = "test-prefix")]
     test_globs: Option<Vec<String>>,
+    /// Optional root-relative glob patterns for source files to exclude.
+    ///
+    /// Matching files are skipped by both build and probe file discovery. The
+    /// glob syntax matches [`test_globs`](Self::test_globs): `*` spans one path
+    /// segment and `**` spans zero or more segments, always with `/` separators.
+    exclude: Option<Vec<String>>,
 }
 
 /// Output configuration from the [output] section.
