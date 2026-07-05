@@ -19,8 +19,8 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 6 | non-working Rust (6r/0s) |
 | [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 26 | non-working Rust (26r/0s) |
 | [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `(unknown)` | 6 | non-working Rust (6r/0s) |
-| [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 11 | non-working Rust (11r/0s) |
-| [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `(unknown)` | 15 | non-working Rust (15r/0s) |
+| [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 21 | non-working Rust (21r/0s) |
+| [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `(unknown)` | 14 | non-working Rust (14r/0s) |
 | [toolz](https://github.com/pytoolz/toolz) | PY | **no** | n/a | `(unknown)` | 14 | non-working Rust (14r/0s) |
 
 ## es-toolkit
@@ -178,17 +178,20 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 159 | 3 | non-working Rust | method 'X' must have an explicit return type annotation |
-| 118 | 3 | non-working Rust | function 'X' must have an explicit return type annotation |
-| 11 | 2 | non-working Rust | parameter 'X' in 'X' must have a type annotation |
+| 83 | 3 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
+| 63 | 3 | non-working Rust | parameter 'X' must have an explicit type annotation |
+| 55 | 3 | non-working Rust | function 'X' must have an explicit return type annotation |
+| 15 | 2 | non-working Rust | parameter 'X' in 'X' must have a type annotation |
+| 5 | 2 | non-working Rust | nested closure return type must be explicit |
 | 3 | 2 | non-working Rust | class 'X': decorator 'X' is not supported |
 | 3 | 2 | non-working Rust | class 'X': class-level assignment must be a single name bound to a literal |
-| 2 | 2 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
+| 3 | 1 | non-working Rust | lambda expressions need an expected `X` type from their context (annotate the assignment t |
+| 2 | 2 | non-working Rust | method 'X' must have an explicit return type annotation |
 | 2 | 1 | non-working Rust | class 'X': multiple inheritance is not supported |
 | 2 | 1 | non-working Rust | class 'X': unsupported class body statement 'X' |
-| 1 | 1 | non-working Rust | nested closure return type must be explicit |
+| 2 | 1 | non-working Rust | integer literal out of i64 range |
 | 1 | 1 | non-working Rust | definition-time metaprogramming for 'X' requires host-runtime specialization |
-| 1 | 1 | non-working Rust | lambda expressions need an expected `X` type from their context (annotate the assignment t |
+| 1 | 1 | non-working Rust | list(value) currently requires a list, set, dict, or homogeneous tuple value |
 
 ## funcy
 
@@ -199,20 +202,20 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 174 | 19 | non-working Rust | function 'X' must have an explicit return type annotation |
-| 147 | 15 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
-| 39 | 5 | non-working Rust | nested closure return type must be explicit |
+| 148 | 16 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
+| 144 | 17 | non-working Rust | function 'X' must have an explicit return type annotation |
+| 40 | 6 | non-working Rust | nested closure return type must be explicit |
+| 31 | 9 | non-working Rust | parameter 'X' must have an explicit type annotation |
 | 13 | 4 | non-working Rust | nested class definitions are not yet supported |
 | 4 | 1 | non-working Rust | attribute access is only supported on class instances |
+| 4 | 3 | non-working Rust | parameter 'X' in 'X' must have a type annotation |
 | 4 | 3 | non-working Rust | pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals |
-| 3 | 3 | non-working Rust | parameter 'X' in 'X' must have a type annotation |
-| 3 | 2 | non-working Rust | parameter 'X' must have an explicit type annotation |
 | 2 | 2 | non-working Rust | definition-time metaprogramming for 'X' requires host-runtime specialization |
-| 2 | 2 | non-working Rust | method 'X' must have an explicit return type annotation |
 | 2 | 1 | non-working Rust | all() and any() argument must be a bool list |
 | 1 | 1 | non-working Rust | set(value) currently requires a set, list, or homogeneous tuple value |
 | 1 | 1 | non-working Rust | class 'X': class-level assignment must be a single name bound to a literal |
 | 1 | 1 | non-working Rust | all() and any() currently support exactly one bool list argument |
+| 1 | 1 | non-working Rust | lambda expressions need an expected `X` type from their context (annotate the assignment t |
 
 ## toolz
 
@@ -223,13 +226,13 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 94 | 14 | non-working Rust | function 'X' must have an explicit return type annotation |
 | 84 | 13 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
+| 70 | 12 | non-working Rust | function 'X' must have an explicit return type annotation |
+| 28 | 6 | non-working Rust | parameter 'X' must have an explicit type annotation |
 | 26 | 4 | non-working Rust | nested closure return type must be explicit |
 | 7 | 4 | non-working Rust | nested class definitions are not yet supported |
 | 5 | 2 | non-working Rust | only `X` deletion is supported |
-| 4 | 2 | non-working Rust | method 'X' must have an explicit return type annotation |
-| 4 | 2 | non-working Rust | parameter 'X' must have an explicit type annotation |
+| 4 | 2 | non-working Rust | parameter 'X' in 'X' must have a type annotation |
 | 3 | 2 | non-working Rust | container constructors do not support keyword arguments yet |
 | 3 | 3 | non-working Rust | definition-time metaprogramming for 'X' requires host-runtime specialization |
 | 3 | 2 | non-working Rust | class 'X': class-level assignment must be a single name bound to a literal |
@@ -244,24 +247,23 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 
 | Libraries hit | Total occ. | Blocker class |
 | ---: | ---: | --- |
-| 5 (funcy, more-itertools, result, returns, toolz) | 601 | only calls to top-level functions, class constructors, and print() are supported |
-| 5 (funcy, more-itertools, result, returns, toolz) | 395 | function 'X' must have an explicit return type annotation |
+| 5 (funcy, more-itertools, result, returns, toolz) | 683 | only calls to top-level functions, class constructors, and print() are supported |
+| 5 (funcy, more-itertools, result, returns, toolz) | 278 | function 'X' must have an explicit return type annotation |
 | 5 (funcy, more-itertools, result, returns, toolz) | 75 | definition-time metaprogramming for 'X' requires host-runtime specialization |
-| 4 (funcy, more-itertools, returns, toolz) | 67 | nested closure return type must be explicit |
+| 4 (funcy, more-itertools, returns, toolz) | 123 | parameter 'X' must have an explicit type annotation |
+| 4 (funcy, more-itertools, returns, toolz) | 72 | nested closure return type must be explicit |
 | 4 (funcy, more-itertools, returns, toolz) | 20 | class 'X': class-level assignment must be a single name bound to a literal |
-| 4 (funcy, more-itertools, returns, toolz) | 9 | lambda expressions need an expected `X` type from their context (annotate the assignment target or c |
-| 3 (funcy, more-itertools, toolz) | 165 | method 'X' must have an explicit return type annotation |
-| 3 (funcy, returns, toolz) | 8 | parameter 'X' must have an explicit type annotation |
+| 4 (funcy, more-itertools, returns, toolz) | 11 | lambda expressions need an expected `X` type from their context (annotate the assignment target or c |
+| 3 (funcy, more-itertools, toolz) | 23 | parameter 'X' in 'X' must have a type annotation |
 | 3 (more-itertools, result, returns) | 7 | class 'X': decorator 'X' is not supported |
+| 3 (more-itertools, returns, toolz) | 4 | binary operator 'X' is not supported |
 | 2 (funcy, toolz) | 20 | nested class definitions are not yet supported |
 | 2 (result, returns) | 17 | unknown class field `X` |
 | 2 (more-itertools, returns) | 14 | class 'X': multiple inheritance is not supported |
-| 2 (funcy, more-itertools) | 14 | parameter 'X' in 'X' must have a type annotation |
 | 2 (funcy, returns) | 10 | pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals |
 | 2 (funcy, returns) | 5 | attribute access is only supported on class instances |
 | 2 (es-toolkit, neverthrow) | 4 | unknown class or interface field `X` on `X` |
 | 2 (es-toolkit, radash) | 3 | array reduce callback returns an unsupported type |
-| 2 (returns, toolz) | 3 | binary operator 'X' is not supported |
 | 2 (es-toolkit, radash) | 2 | callback method `X` is not lowered into closure bodies yet |
 | 2 (es-toolkit, valibot) | 2 | expect(...).toContain(...) requires a string, array, set, or tuple actual value with a matching expe |
 | 2 (neverthrow, ts-pattern) | 2 | property names must be static identifiers or string literals |
