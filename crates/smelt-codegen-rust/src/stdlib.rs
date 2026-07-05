@@ -194,10 +194,12 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
     // `Type::Unknown` in the table. Emit the carrier for unions too.
     // A generic class or interface emits inherent/impl blocks whose type
     // parameters are bounded by `IntoSmeltUnknown + SmeltFromUnknown` (see
-    // `classes::class_impl_generics_text`). Those bounds reference the erasure
-    // traits, so the carrier and its traits must be emitted even when a program
-    // has no explicit `unknown`/union value of its own — otherwise the generic
-    // `impl` block names traits that were never declared.
+    // `classes::class_impl_generics_text`). A generic free function emits the
+    // same bounds on its own `fn name<T: ..>` signature (see
+    // `classes::function_impl_generics_text`). Those bounds reference the
+    // erasure traits, so the carrier and its traits must be emitted even when a
+    // program has no explicit `unknown`/union value of its own — otherwise the
+    // generic signature names traits that were never declared.
     mir.classes
         .iter()
         .any(|class| !class.type_params.is_empty())
@@ -205,6 +207,10 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
             .interfaces
             .iter()
             .any(|interface| !interface.type_params.is_empty())
+        || mir
+            .functions
+            .iter()
+            .any(|function| !function.type_params.is_empty())
         || mir
             .types
             .all()

@@ -569,6 +569,8 @@ impl ModuleBuilder<'_> {
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name,
             span,
+            // Synthetic test wrapper carries no free-function type params.
+            type_params: Vec::new(),
             params: Vec::new(),
             rest: None,
             required_params: None,
@@ -682,6 +684,8 @@ return_ty: none,
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name,
             span,
+            // Synthetic test wrapper carries no free-function type params.
+            type_params: Vec::new(),
             params: Vec::new(),
             rest: None,
             required_params: None,

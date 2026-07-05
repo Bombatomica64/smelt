@@ -62,6 +62,14 @@ pub struct Function {
     pub name: Symbol,
     /// Source location of the function declaration.
     pub span: Span,
+    /// Generic type parameters declared by the function.
+    ///
+    /// A generic free function such as `function identity<T>(x: T): T` carries
+    /// its declared type parameters here so MIR and codegen can emit real Rust
+    /// generics (`fn identity<T>(x: T) -> T`) instead of erasing `T` to
+    /// `SmeltUnknown`. Non-generic functions and class members (whose generics
+    /// come from the owning class) leave this empty.
+    pub type_params: Vec<TypeParamDef>,
     /// Parameters of the function.
     pub params: Vec<Param>,
     /// Index of the rest parameter, if this function declares one.

@@ -229,6 +229,8 @@ impl ModuleBuilder<'_> {
         let item = Item::Function(Function {
             name,
             span,
+            // Synthetic type-helper function carries no type params.
+            type_params: Vec::new(),
             params: Vec::new(),
             rest: None,
             required_params: None,
