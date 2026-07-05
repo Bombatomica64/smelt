@@ -10,16 +10,20 @@ use super::*;
 pub(super) fn assert_emitted_source_snapshot(name: &str, source: &str, case_start: Option<&str>) {
     let emitted = source_for(source);
     assert_no_legacy_callback_fallbacks(&emitted);
-    let emitted = case_start.map_or_else(|| emitted.clone(), |case_start| {
-        let start = emitted
-            .find(case_start)
-            .unwrap_or_else(|| panic!("missing case-specific module start `{case_start}`"));
-        format!(
-            "{}\n\n// ... shared generated runtime prelude omitted from selective snapshot ...\n\n{}",
-            emitted.lines().take(2).collect::<Vec<_>>().join("\n"),
-            &emitted[start..]
-        )
-    });
+    let emitted = match case_start {
+        Some(case_start) => {
+            let start = emitted
+                .find(case_start)
+                .unwrap_or_else(|| panic!("missing case-specific module start `{case_start}`"));
+            format!(
+                "{}\n\n// ... shared generated runtime prelude omitted from selective snapshot ...\n\n{}",
+                emitted.lines().take(2).collect::<Vec<_>>().join("\n"),
+                &emitted[start..]
+            )
+        }
+        // No case marker: snapshot the whole emitted module as-is.
+        None => emitted,
+    };
     assert!(
         emitted.lines().count() <= 450,
         "selective emitter snapshot grew beyond 450 lines"
@@ -37,16 +41,20 @@ pub(super) fn assert_emitted_py_source_snapshot(
 ) {
     let emitted = source_for_py(source);
     assert_no_legacy_callback_fallbacks(&emitted);
-    let emitted = case_start.map_or_else(|| emitted.clone(), |case_start| {
-        let start = emitted
-            .find(case_start)
-            .unwrap_or_else(|| panic!("missing case-specific module start `{case_start}`"));
-        format!(
-            "{}\n\n// ... shared generated runtime prelude omitted from selective snapshot ...\n\n{}",
-            emitted.lines().take(2).collect::<Vec<_>>().join("\n"),
-            &emitted[start..]
-        )
-    });
+    let emitted = match case_start {
+        Some(case_start) => {
+            let start = emitted
+                .find(case_start)
+                .unwrap_or_else(|| panic!("missing case-specific module start `{case_start}`"));
+            format!(
+                "{}\n\n// ... shared generated runtime prelude omitted from selective snapshot ...\n\n{}",
+                emitted.lines().take(2).collect::<Vec<_>>().join("\n"),
+                &emitted[start..]
+            )
+        }
+        // No case marker: snapshot the whole emitted module as-is.
+        None => emitted,
+    };
     assert!(
         emitted.lines().count() <= 450,
         "selective emitter snapshot grew beyond 450 lines"

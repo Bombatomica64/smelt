@@ -5146,7 +5146,8 @@ def update(model: Model) -> int:
         })
         .expect("value type");
     let method = |expected: &str| {
-        mir.functions
+        let function = mir
+            .functions
             .iter()
             .find(|function| {
                 matches!(
@@ -5155,7 +5156,8 @@ def update(model: Model) -> int:
                         if class == class_name && mir.symbols.get(method) == Some(expected)
                 )
             })
-            .map_or_else(|| panic!("{expected} method"), |function| function.id)
+            .unwrap_or_else(|| panic!("{expected} method"));
+        function.id
     };
     let getter = method("__smelt_get_value");
     let setter = method("__smelt_set_value");
