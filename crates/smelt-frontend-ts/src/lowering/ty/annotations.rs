@@ -1857,6 +1857,23 @@ return_ty: function.return_ty,
             Type::String if self.allow_unknown_index_access => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
+            // Any remaining property read on a string value is a bound stdlib
+            // method reference taken as a value — `''.slice`, `str.split`, etc.
+            // (the concrete data properties `length`/`message`/`name`/`prototype`
+            // are handled above). A string in valid TypeScript exposes only
+            // `length` plus methods, so a property that is not one of the modeled
+            // data fields is a callable member accessed without calling it.
+            //
+            // A method *call* (`str.slice(...)`) never reaches here: the dedicated
+            // string call handlers in `dispatch_builtin_call` intercept those
+            // before member-type resolution runs. Only a genuine method *value*
+            // reaches this arm, and, like every other bound-method value on a
+            // builtin/erased receiver, it resolves to the erased dynamic boundary
+            // (`Unknown`) rather than hard-erroring. Codegen already tolerates the
+            // read: `string_field_text` emits an erased value for an unmodeled
+            // string field. This keeps field resolution general for strings
+            // instead of rejecting source that TypeScript accepts.
+            Type::String => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             Type::Function(_) => {
                 if let Some(field) = self
                     .callable_fields

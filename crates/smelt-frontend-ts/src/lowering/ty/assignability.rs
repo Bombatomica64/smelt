@@ -668,6 +668,16 @@ impl ModuleBuilder<'_> {
         if member.property.name != "includes" {
             return Ok(None);
         }
+        // `ns.includes(collection, value, fromIndex?)` on a utility *namespace*
+        // object (a `import * as _` star import or a registered object namespace)
+        // is the lodash/es-toolkit free-function `includes`, whose second
+        // argument is the searched value, not a numeric start position. It is not
+        // `String.prototype.includes(needle, position?)`, so defer to the generic
+        // namespace member-call path instead of coercing the value argument into a
+        // position and rejecting a non-numeric one.
+        if self.imported_utility_object(&member.object) {
+            return Ok(None);
+        }
         // JavaScript `String.prototype.includes(needle, position?)` takes the
         // needle plus an optional numeric start position handled by the emitter.
         if !(1..=2).contains(&call.arguments.len()) {
