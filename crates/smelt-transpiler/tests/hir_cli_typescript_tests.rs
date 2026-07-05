@@ -1382,3 +1382,58 @@ console.log(counter.value);
 
     Ok(())
 }
+
+/// `dump-hir` on a single file now lowers that file's local relative-import
+/// dependencies first, so a `switch` whose case labels reference *imported*
+/// string constants (es-toolkit's `case argumentsTag:` pattern, where the tag
+/// values live in a sibling module) folds instead of failing with
+/// `switch case labels must be string, number, boolean, or null literals`.
+///
+/// This exercises the isolation-only regression that previously made `dump-hir`
+/// and `probe` report a blocker a full manifest build never hit.
+#[test]
+fn dump_hir_folds_imported_const_switch_labels_from_sibling_module() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("src/tags.ts"),
+        r#"export const arrayTag = '[object Array]';
+export const objectTag = '[object Object]';
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/classify.ts"),
+        r#"import { arrayTag, objectTag } from './tags';
+
+export function isContainerTag(tag: string): boolean {
+  switch (tag) {
+    case arrayTag:
+    case objectTag:
+      return true;
+    default:
+      return false;
+  }
+}
+"#,
+    )?;
+
+    let importer_arg = utf8_path(&project_path.join("src/classify.ts"))?;
+    // A successful dump-hir (a non-zero exit would make `smelt` return `Err`)
+    // proves the imported-const case labels folded rather than erroring.
+    let stdout = smelt(&["dump-hir", &importer_arg])?;
+    ensure(
+        stdout.contains("classify.ts"),
+        "missing importer module header in dump-hir output",
+    )?;
+    ensure(
+        stdout.contains("fn is_container_tag"),
+        "importer function item missing from dump-hir output",
+    )?;
+    ensure(
+        !stdout.contains("switch case labels must be"),
+        "imported const switch labels still reported as a blocker",
+    )?;
+
+    Ok(())
+}
