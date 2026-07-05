@@ -7,10 +7,11 @@ edition.workspace = true
 workspace = true
 
 [features]
-# Forward the Python frontend's `ty` feature so the compile corpus can exercise
-# annotation-free Python that lowers via `ty`-resolved types (issue #93). OFF by
-# default so the default build stays lean; CI runs the corpus with `--features
-# ty` alongside `--ignored`.
+default = ["ty"]
+# Forward the Python frontend's `ty` feature so the compile corpus exercises
+# annotation-free Python that lowers via `ty`-resolved types (issue #93). ON by
+# default; the corpus's Python cases now run under a plain `--ignored` run.
+# Build with `--no-default-features` to drop the ty dependency tree.
 ty = ["smelt-frontend-py/ty"]
 
 [dependencies]
