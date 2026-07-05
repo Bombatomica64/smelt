@@ -880,3 +880,59 @@ class Branded {
     )?;
     Ok(())
 }
+
+/// A class extending a modeled JavaScript host constructor (`Blob`, `File`, the
+/// boxed primitive wrappers, …) resolves its base through the shared
+/// `smelt_stdlib::host_object` registry, exactly as extending a builtin error or
+/// collection type does. es-toolkit's `isBlob`/`isFile` specs declare
+/// `class File extends Blob {}` to fake the host `File` global, which previously
+/// failed with `base class \`Blob\` is not declared`.
+#[test]
+fn lowers_class_extending_host_object_base() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export class MyFile extends Blob {
+  name: string;
+  constructor(chunks: unknown[], filename: string) {
+    super(chunks);
+    this.name = filename;
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // The lowered class records `Blob` as its resolved base symbol.
+    let my_file = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some("MyFile") => {
+                Some(class)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing MyFile class".to_owned())?;
+    let base = my_file
+        .base
+        .ok_or_else(|| "MyFile class has no resolved base".to_owned())?;
+    ensure_eq!(ctx.krate.symbols.get(base), Some("Blob"));
+    Ok(())
+}
+
+/// A class extending a genuinely unknown identifier still reports the honest
+/// blocker, so the host-object allowance does not silently accept every base.
+#[test]
+fn rejects_class_extending_undeclared_base() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+export class Widget extends NotARealBaseClass {}
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "base class `NotARealBaseClass` is not declared")?;
+    Ok(())
+}

@@ -147,15 +147,118 @@ pub(crate) fn lower_typescript_files(
 }
 
 /// Dispatches one source file to the matching frontend.
+///
+/// TypeScript targets are lowered together with their local relative-import
+/// dependencies (see [`lower_typescript_file_with_dependencies`]) so cross-file
+/// constants, classes, and interfaces resolve exactly as they do in a full
+/// manifest build. This keeps `dump-hir`/`dump-mir` from reporting isolation-only
+/// blockers — e.g. a `switch case <importedTag>:` label whose value lives in a
+/// sibling module — while still focusing the printed output on the target file.
 pub(crate) fn lower_single_file(file: &str) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     match SourceLang::from_path(file)? {
         SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
-            lower_typescript_files(&[file.to_owned()])
+            lower_typescript_file_with_dependencies(file)
         }
         SourceLang::Python | SourceLang::PythonDeclaration => {
             crate::python::lower_files(&[file.to_owned()])
         }
     }
+}
+
+/// Lower a single TypeScript file after first lowering its local dependencies.
+///
+/// Single-file commands (`dump-hir`, `dump-mir`) historically lowered the target
+/// in isolation, so any value imported from a sibling module — a folded string
+/// tag used as a `switch` case label, an exported base class, an interface — was
+/// unresolvable and surfaced as a spurious lowering blocker. This resolves the
+/// target's relative-import closure (reusing the same manifest graph helpers a
+/// real build uses), lowers every dependency in dependency-first order into one
+/// shared [`smelt_frontend_ts::HirCtx`], and lowers the target last so its
+/// imports fold against the already-lowered modules.
+///
+/// Dependencies are lowered best-effort: a dependency that itself fails to lower
+/// (for example because of an unrelated unsupported feature) is skipped rather
+/// than aborting, since the target only needs the exported metadata a partially
+/// lowered dependency still records. Only the target file's own lowering errors
+/// are reported, and only the target module is returned so the printed HIR/MIR
+/// stays focused on the requested file while the shared crate still carries the
+/// dependency items the target references.
+fn lower_typescript_file_with_dependencies(
+    file: &str,
+) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+    let target_path = PathBuf::from(file);
+    let target_key = target_path.canonicalize().unwrap_or(target_path.clone());
+
+    // Build the dependency-first order of the target and its local imports. Any
+    // failure to scan/resolve dependencies degrades gracefully to lowering the
+    // target alone, preserving the previous isolated behavior for odd inputs.
+    let ordered_paths = ordered_dependency_paths(target_path.clone()).unwrap_or_default();
+
+    let mut ctx = smelt_frontend_ts::HirCtx::new();
+    let mut target_module: Option<(String, ModuleId)> = None;
+
+    for (idx, path) in ordered_paths.iter().enumerate() {
+        let Ok(source) = fs::read_to_string(path) else {
+            continue;
+        };
+        let path_string = path.display().to_string();
+        // A dependency file that is not TypeScript (a Python sibling reached
+        // through a mixed graph) is not lowered by this frontend path.
+        if !SourceLang::from_path(&path_string).is_ok_and(SourceLang::is_typescript) {
+            continue;
+        }
+        let file_id = FileId(u32::try_from(idx).unwrap_or(u32::MAX));
+        let is_target = path.canonicalize().unwrap_or_else(|_| path.clone()) == target_key
+            || path == &target_path;
+        let outcome =
+            smelt_frontend_ts::to_hir_with_path(&source, file_id, &path_string, &mut ctx);
+        match outcome {
+            Ok(module) => {
+                if is_target {
+                    target_module = Some((file.to_owned(), module));
+                }
+            }
+            Err(errors) => {
+                // Surface the target's own errors; a dependency's unrelated
+                // failure is swallowed so it cannot mask the target result.
+                if is_target {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("{}:\n{errors:#?}", target_path.display()),
+                    )
+                    .into());
+                }
+            }
+        }
+    }
+
+    // Fall back to lowering the target directly when the dependency walk never
+    // produced it (empty order, canonicalization mismatch, or a non-TypeScript
+    // classification of the target itself).
+    if let Some(module) = target_module {
+        Ok((ctx.krate, vec![module]))
+    } else {
+        lower_typescript_files(&[file.to_owned()])
+    }
+}
+
+/// Return the target file and its local dependency closure in dependency-first
+/// order (dependencies before importers, target last).
+///
+/// Reuses the manifest module-graph helpers so single-file lowering resolves the
+/// same relative imports a full build does. Returns `None` if the target cannot
+/// be read or its import graph cannot be ordered, letting the caller fall back to
+/// isolated lowering.
+fn ordered_dependency_paths(target: PathBuf) -> Option<Vec<PathBuf>> {
+    let root = read_manifest_source(target).ok()?;
+    let sources = dependency_closure(vec![root]).ok()?;
+    let ordered = order_manifest_sources(&sources).ok()?;
+    Some(
+        ordered
+            .into_iter()
+            .filter_map(|idx| sources.get(idx).map(|source| source.path.clone()))
+            .collect(),
+    )
 }
 
 /// One categorized frontend diagnostic from lowering a single file.

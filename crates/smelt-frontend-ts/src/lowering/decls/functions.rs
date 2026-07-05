@@ -1909,22 +1909,29 @@ impl ModuleBuilder<'_> {
         };
         let name = name.as_str();
         let base = self.intern_type_name(name);
-        let allowed_builtin = matches!(
-            name,
-            "Date"
-                | "Error"
-                | "EvalError"
-                | "RangeError"
-                | "ReferenceError"
-                | "SyntaxError"
-                | "TypeError"
-                | "URIError"
-                | "AggregateError"
-                | "Map"
-                | "ReadonlyMap"
-                | "Set"
-                | "ReadonlySet"
-        );
+        // A modeled JavaScript host constructor (`Blob`, `File`, `ArrayBuffer`, the
+        // boxed primitive wrappers, …) is a legitimate base even though it is not a
+        // source-declared class: `smelt_stdlib::host_object` gives it a concrete
+        // constructed identity, so `class File extends Blob {}` resolves the same
+        // way the error/collection builtins below do. Keying on the shared registry
+        // keeps this a general rule rather than a per-name allowlist.
+        let allowed_builtin = smelt_stdlib::host_object_by_class(name).is_some()
+            || matches!(
+                name,
+                "Date"
+                    | "Error"
+                    | "EvalError"
+                    | "RangeError"
+                    | "ReferenceError"
+                    | "SyntaxError"
+                    | "TypeError"
+                    | "URIError"
+                    | "AggregateError"
+                    | "Map"
+                    | "ReadonlyMap"
+                    | "Set"
+                    | "ReadonlySet"
+            );
         if !allowed_builtin
             && !self.classes.contains_key(name)
             && !self.value_imports.contains(name)
