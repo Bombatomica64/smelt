@@ -2,18 +2,35 @@
 name = "smelt-gui"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "GPUI desktop playground for the Smelt transpiler: edit TypeScript/Python and watch it lower to Rust."
+keywords = ["smelt", "gui", "gpui", "transpiler", "playground"]
+categories = ["development-tools", "gui"]
 
 [[bin]]
 name = "smelt-gui"
 path = "src/main.rs"
 
+[features]
+# Python frontend support. ON by default in this repository; DISABLED for the
+# crates.io release because `smelt-frontend-py` depends on the Ruff parser via a
+# git dependency that crates.io forbids. A TypeScript-only build reports Python
+# input as a stage failure. Build from source with `--features python` for the
+# full pipeline.
+default = ["python"]
+python = ["dep:smelt-frontend-py"]
+
 [dependencies]
 gpui = "0.2.2"
-smelt-frontend-ts = { path = "../smelt-frontend-ts" }
-smelt-frontend-py = { path = "../smelt-frontend-py" }
-smelt-hir = { path = "../smelt-hir" }
-smelt-mir = { path = "../smelt-mir" }
-smelt-codegen-rust = { path = "../smelt-codegen-rust" }
+smelt-frontend-ts = { path = "../smelt-frontend-ts", version = "0.1.0" }
+smelt-frontend-py = { path = "../smelt-frontend-py", optional = true }
+smelt-hir = { path = "../smelt-hir", version = "0.1.0" }
+smelt-mir = { path = "../smelt-mir", version = "0.1.0" }
+smelt-codegen-rust = { path = "../smelt-codegen-rust", version = "0.1.0" }
 gpui-component = "0.5.1"
 
 [lints]

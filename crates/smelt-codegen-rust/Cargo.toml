@@ -2,6 +2,14 @@
 name = "smelt-codegen-rust"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Rust source-code generation from Smelt MIR."
+keywords = ["smelt", "codegen", "compiler", "rust", "transpiler"]
+categories = ["compilers", "development-tools"]
 
 [lints]
 workspace = true
@@ -15,9 +23,9 @@ default = ["ty"]
 ty = ["smelt-frontend-py/ty"]
 
 [dependencies]
-smelt-mir = { path = "../smelt-mir" }
-smelt-hir = { path = "../smelt-hir" }
-smelt-stdlib = { path = "../smelt-stdlib" }
+smelt-mir = { path = "../smelt-mir", version = "0.1.0" }
+smelt-hir = { path = "../smelt-hir", version = "0.1.0" }
+smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.0" }
 
 [dev-dependencies]
 insta = "1.48"

@@ -1,0 +1,58 @@
+[package]
+name = "smelt-transpiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "The `smelt` command-line transpiler: compiles strictly-typed TypeScript (and, from source, Python) to idiomatic Rust."
+keywords = ["transpiler", "typescript", "compiler", "codegen", "cli"]
+categories = ["command-line-utilities", "development-tools", "compilers"]
+readme = "README.md"
+
+[lints]
+workspace = true
+
+[features]
+# Python frontend support. ON by default in this repository (via the `ty`
+# default feature below) so `cargo build`/`cargo test`/CI exercise the Python
+# pipeline unchanged. It pulls in `smelt-frontend-py`, which depends on the Ruff
+# parser via a git dependency that crates.io forbids, so the published crate is
+# built with this feature DISABLED (a TypeScript-only `smelt` binary). To use
+# Python from a published install, build from a source checkout with
+# `--features python` (or `--features ty`).
+default = ["ty"]
+python = ["dep:smelt-frontend-py"]
+
+# Resolve Python types via Astral's `ty` instead of requiring explicit
+# annotations (issue #93). Implies `python`. ON by default so the CLI resolves
+# Python types via ty end to end out of the box (issue #109). Build with
+# `--no-default-features` for a lean TypeScript-only CLI, or `--features python`
+# for Python with explicit annotations but without ty.
+ty = ["python", "smelt-frontend-py/ty"]
+
+[[bin]]
+name = "smelt"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.1", features = ["derive"] }
+hex = { workspace = true }
+oxc_resolver = "11.23.0"
+schemars = "1.2.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+smelt-codegen-rust = { path = "../smelt-codegen-rust", version = "0.1.0" }
+smelt-frontend-py = { path = "../smelt-frontend-py", optional = true }
+smelt-frontend-ts = { path = "../smelt-frontend-ts", version = "0.1.0" }
+smelt-hir = { path = "../smelt-hir", version = "0.1.0" }
+smelt-mir = { path = "../smelt-mir", version = "0.1.0" }
+smelt-specialize = { path = "../smelt-specialize", version = "0.1.0" }
+smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.0" }
+toml = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.27"

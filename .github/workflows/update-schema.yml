@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "crates/smelt-cli/src/config.rs"
+      - "crates/smelt-transpiler/src/config.rs"
 
 jobs:
   update-schema:

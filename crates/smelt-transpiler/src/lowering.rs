@@ -146,34 +146,6 @@ pub(crate) fn lower_typescript_files(
     Ok((ctx.krate, modules))
 }
 
-/// Lowers Python source files to HIR.
-pub(crate) fn lower_python_files(
-    files: &[String],
-) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-    let mut ctx = smelt_frontend_py::HirCtx::new();
-    let mut modules = Vec::new();
-
-    for (idx, file) in files.iter().enumerate() {
-        let source = fs::read_to_string(file)?;
-        let file_id = u32::try_from(idx).map_err(|error| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("too many source files: {error}"),
-            )
-        })?;
-        let module = smelt_frontend_py::to_hir_with_path(&source, FileId(file_id), file, &mut ctx)
-            .map_err(|errors| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("{}:\n{errors:#?}", Path::new(file).display()),
-                )
-            })?;
-        modules.push((file.clone(), module));
-    }
-
-    Ok((ctx.krate, modules))
-}
-
 /// Dispatches one source file to the matching frontend.
 pub(crate) fn lower_single_file(file: &str) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     match SourceLang::from_path(file)? {
@@ -181,7 +153,7 @@ pub(crate) fn lower_single_file(file: &str) -> Result<LoweredCrate, Box<dyn std:
             lower_typescript_files(&[file.to_owned()])
         }
         SourceLang::Python | SourceLang::PythonDeclaration => {
-            lower_python_files(&[file.to_owned()])
+            crate::python::lower_files(&[file.to_owned()])
         }
     }
 }
@@ -233,20 +205,7 @@ pub(crate) fn collect_file_diagnostics(
                 .unwrap_or_default()
         }
         SourceLang::Python | SourceLang::PythonDeclaration => {
-            let mut ctx = smelt_frontend_py::HirCtx::new();
-            smelt_frontend_py::to_hir_with_path(&source, FileId(0), file, &mut ctx)
-                .err()
-                .map(|errors| {
-                    errors
-                        .into_iter()
-                        .map(|error| FileDiagnostic {
-                            category: error.category,
-                            code: error.code,
-                            message: error.message,
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
+            crate::python::diagnostics_for(&source, file)
         }
     }));
     Ok(lowered.unwrap_or_else(|_| {
@@ -708,28 +667,16 @@ fn lower_manifest_source(
             Ok((ctx.krate, next_state, outcome))
         }
         SourceLang::Python | SourceLang::PythonDeclaration => {
-            let mut ctx = smelt_frontend_py::HirCtx {
-                krate,
-                module_namespaces: state.py_module_namespaces,
-                enum_members: state.py_enum_members,
-            };
-            let outcome = smelt_frontend_py::to_hir_with_options(
-                &source.source,
-                file_id,
-                &file_string,
-                &mut ctx,
-                smelt_frontend_py::FrontendOptions {
-                    specialization: specialization.python.as_ref(),
-                },
-            )
-            .map_err(|errors| {
-                manifest_diagnostics(
+            let (next_krate, py_module_namespaces, py_enum_members, outcome) =
+                crate::python::lower_manifest_source(
+                    krate,
+                    state.py_module_namespaces,
+                    state.py_enum_members,
+                    &source.source,
+                    file_id,
                     &file_string,
-                    errors
-                        .iter()
-                        .map(|e| (e.category, e.code, e.message.clone())),
-                )
-            });
+                    specialization.python.as_ref(),
+                );
             let next_state = FrontendLoweringState {
                 ts_export_aliases: state.ts_export_aliases,
                 ts_module_exports: state.ts_module_exports,
@@ -749,16 +696,16 @@ fn lower_manifest_source(
                 ts_interface_construct_signatures: state.ts_interface_construct_signatures,
                 ts_callable_fields: state.ts_callable_fields,
                 ts_callable_object_aliases: state.ts_callable_object_aliases,
-                py_module_namespaces: ctx.module_namespaces,
-                py_enum_members: ctx.enum_members,
+                py_module_namespaces,
+                py_enum_members,
             };
-            Ok((ctx.krate, next_state, outcome))
+            Ok((next_krate, next_state, outcome))
         }
     }
 }
 
 /// Build per-file [`ManifestDiagnostic`]s from a frontend's categorized errors.
-fn manifest_diagnostics(
+pub(crate) fn manifest_diagnostics(
     file: &str,
     errors: impl Iterator<Item = (DiagnosticCategory, &'static str, String)>,
 ) -> Vec<ManifestDiagnostic> {

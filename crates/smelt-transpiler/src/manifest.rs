@@ -10,14 +10,6 @@ use std::{
 };
 
 use oxc_resolver::{ResolveOptions, Resolver};
-use smelt_frontend_py::{
-    ast::{
-        Stmt, StmtImport, StmtImportFrom,
-        visitor::{Visitor, walk_stmt},
-    },
-    parse_module,
-};
-use smelt_hir::FileId;
 
 use crate::lowering::SourceLang;
 
@@ -38,13 +30,13 @@ pub(crate) struct ManifestSource {
 
 /// Import metadata found while scanning source text.
 #[derive(Debug, Clone)]
-struct ManifestImport {
+pub(crate) struct ManifestImport {
     /// Module specifier as written in source.
-    module: String,
+    pub(crate) module: String,
     /// Named value imports, when the statement exposes them cheaply.
-    names: Option<Vec<String>>,
+    pub(crate) names: Option<Vec<String>>,
     /// Python relative import level from `from .pkg import name` syntax.
-    python_relative_level: Option<u32>,
+    pub(crate) python_relative_level: Option<u32>,
 }
 
 /// Mutable state while visiting the manifest import graph.
@@ -635,7 +627,7 @@ fn scan_imports(source: &str, lang: SourceLang) -> Result<Vec<ManifestImport>, S
         SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
             Ok(scan_typescript_imports(source))
         }
-        SourceLang::Python | SourceLang::PythonDeclaration => scan_python_imports(source),
+        SourceLang::Python | SourceLang::PythonDeclaration => crate::python::scan_imports(source),
     }
 }
 
@@ -704,73 +696,6 @@ fn typescript_import_statements(source: &str) -> Vec<String> {
         statements.push(buffer.trim_end_matches(';').trim().to_owned());
     }
     statements
-}
-
-/// Scans Python `import module` and `from module import name` specifiers with Ruff AST.
-fn scan_python_imports(source: &str) -> Result<Vec<ManifestImport>, String> {
-    let module = parse_module(source, FileId(0)).map_err(format_python_parse_errors)?;
-    let mut visitor = PythonImportVisitor {
-        imports: Vec::new(),
-    };
-    for stmt in &module.body {
-        visitor.visit_stmt(stmt);
-    }
-    Ok(visitor.imports)
-}
-
-/// Ruff AST visitor that records Python imports while preserving parser semantics.
-struct PythonImportVisitor {
-    /// Import edges discovered while walking the Python AST.
-    imports: Vec<ManifestImport>,
-}
-
-impl<'a> Visitor<'a> for PythonImportVisitor {
-    /// Records import statements and walks nested bodies for dependency closure.
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "the AST visitor must delegate every non-import statement to Ruff's walker"
-    )]
-    fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        match stmt {
-            Stmt::Import(import) => self.import_stmt(import),
-            Stmt::ImportFrom(import) => self.import_from_stmt(import),
-            _ => walk_stmt(self, stmt),
-        }
-    }
-}
-
-impl PythonImportVisitor {
-    /// Adds one manifest import edge for every module in a Python `import` statement.
-    fn import_stmt(&mut self, stmt: &StmtImport) {
-        for alias in &stmt.names {
-            self.imports.push(ManifestImport {
-                module: alias.name.as_str().to_owned(),
-                names: None,
-                python_relative_level: None,
-            });
-        }
-    }
-
-    /// Adds the module edge from a Python `from ... import ...` statement.
-    fn import_from_stmt(&mut self, stmt: &StmtImportFrom) {
-        self.imports.push(ManifestImport {
-            module: stmt
-                .module
-                .as_ref()
-                .map_or_else(String::new, |module| module.as_str().to_owned()),
-            names: None,
-            python_relative_level: (stmt.level > 0).then_some(stmt.level),
-        });
-    }
-}
-
-/// Formats parser diagnostics for manifest import discovery errors.
-fn format_python_parse_errors(errors: Vec<smelt_frontend_py::SmeltError>) -> String {
-    errors
-        .into_iter()
-        .map(|error| format!("{}: {}", error.code, error.message))
-        .collect::<Vec<_>>()
-        .join("; ")
 }
 
 /// Extracts named imports from a simple TypeScript import clause.

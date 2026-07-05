@@ -2,13 +2,21 @@
 name = "smelt-mir"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Mid-level IR (MIR) and ownership-naive optimization passes for the Smelt transpiler."
+keywords = ["smelt", "mir", "compiler", "ir", "transpiler"]
+categories = ["compilers", "development-tools"]
 
 [lints]
 workspace = true
 
 [dependencies]
 serde = { workspace = true }
-smelt-hir = { path = "../smelt-hir" }
+smelt-hir = { path = "../smelt-hir", version = "0.1.0" }
 
 [dev-dependencies]
 smelt-frontend-ts = { path = "../smelt-frontend-ts" }

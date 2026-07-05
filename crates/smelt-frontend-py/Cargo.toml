@@ -3,6 +3,13 @@ name = "smelt-frontend-py"
 version.workspace = true
 edition.workspace = true
 autoexamples = false
+# NOT published to crates.io: this crate depends on the Ruff parser via a git
+# dependency (only empty 0.0.3 placeholders of `ruff_python_parser` et al. exist
+# on crates.io), which crates.io forbids. Consumers of the published
+# `smelt-transpiler`/`smelt-gui` get a TypeScript-only build; build from a
+# source checkout with `--features python` for the Python frontend. Revisit once
+# astral-sh/ruff#43 publishes real component-crate releases.
+publish = false
 
 [lints]
 workspace = true

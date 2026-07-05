@@ -6600,28 +6600,6 @@ name = "smelt-asyncio"
 version = "0.1.0"
 
 [[package]]
-name = "smelt-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "hex",
- "oxc_resolver",
- "schemars",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "smelt-codegen-rust",
- "smelt-frontend-py",
- "smelt-frontend-ts",
- "smelt-hir",
- "smelt-mir",
- "smelt-specialize",
- "smelt-stdlib",
- "tempfile",
- "toml 1.1.2+spec-1.1.0",
-]
-
-[[package]]
 name = "smelt-codegen-rust"
 version = "0.1.0"
 dependencies = [
@@ -6740,6 +6718,28 @@ dependencies = [
 [[package]]
 name = "smelt-test"
 version = "0.1.0"
+
+[[package]]
+name = "smelt-transpiler"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hex",
+ "oxc_resolver",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "smelt-codegen-rust",
+ "smelt-frontend-py",
+ "smelt-frontend-ts",
+ "smelt-hir",
+ "smelt-mir",
+ "smelt-specialize",
+ "smelt-stdlib",
+ "tempfile",
+ "toml 1.1.2+spec-1.1.0",
+]
 
 [[package]]
 name = "smol"

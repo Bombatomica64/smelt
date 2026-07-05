@@ -136,23 +136,42 @@ pub(super) fn compile_report(ts_source: &str, py_source: &str) -> CompileReport 
     }
 
     // ── Stage 2: Python lowering ────────────────────────────────────
+    // The Python frontend lives behind the `python` feature (see Cargo.toml):
+    // it pulls the Ruff parser from a git dependency crates.io forbids, so the
+    // published build is TypeScript-only. A TS-only build reports Python input
+    // as a stage failure rather than lowering it.
     let krate = if py_has {
-        let mut py_ctx = smelt_frontend_py::HirCtx {
-            krate: ts_ctx.krate,
-            module_namespaces: std::collections::HashMap::new(),
-            enum_members: std::collections::HashMap::new(),
-        };
-        match smelt_frontend_py::to_hir_with_path(py_source, FileId(1), PY_PATH, &mut py_ctx) {
-            Ok(module) => {
-                rename_module(&mut py_ctx.krate, module, "main");
-                stages.push(passed(1));
-                py_ctx.krate
+        #[cfg(feature = "python")]
+        {
+            let mut py_ctx = smelt_frontend_py::HirCtx {
+                krate: ts_ctx.krate,
+                module_namespaces: std::collections::HashMap::new(),
+                enum_members: std::collections::HashMap::new(),
+            };
+            match smelt_frontend_py::to_hir_with_path(py_source, FileId(1), PY_PATH, &mut py_ctx) {
+                Ok(module) => {
+                    rename_module(&mut py_ctx.krate, module, "main");
+                    stages.push(passed(1));
+                    py_ctx.krate
+                }
+                Err(errors) => {
+                    push_debug_diags(&mut diagnostics, STAGE_NAMES[1], errors);
+                    stages.push(failed(1));
+                    return bail(stages, diagnostics, 2, start);
+                }
             }
-            Err(errors) => {
-                push_debug_diags(&mut diagnostics, STAGE_NAMES[1], errors);
-                stages.push(failed(1));
-                return bail(stages, diagnostics, 2, start);
-            }
+        }
+        #[cfg(not(feature = "python"))]
+        {
+            diagnostics.push(DiagnosticMessage {
+                stage: STAGE_NAMES[1],
+                message: "Python support is not compiled into this build of smelt. \
+                          Rebuild from a source checkout with `--features python` to \
+                          compile Python source."
+                    .to_owned(),
+            });
+            stages.push(failed(1));
+            return bail(stages, diagnostics, 2, start);
         }
     } else {
         stages.push(skipped(1));

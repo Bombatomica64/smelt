@@ -44,6 +44,7 @@ mod lowering;
 mod manifest;
 mod pipeline;
 mod probe;
+mod python;
 mod specialization;
 pub mod stubs;
 mod test_report;
