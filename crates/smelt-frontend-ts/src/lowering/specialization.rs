@@ -374,12 +374,14 @@ impl ModuleBuilder<'_> {
         let Item::Class(class) = self.item_ref(class_item) else {
             return Ok(None);
         };
+        // Static field names are interned through the source-name path, which
+        // case-folds camelCase to snake_case (`PI` -> `pi`). Compare against the
+        // same folded spelling so qualified reads like `Class.PI` resolve.
+        let member_symbol = crate::camel_to_snake(member.property.name.as_str());
         let Some(field) = class
             .static_fields
             .iter()
-            .find(|field| {
-                self.ctx.krate.symbols.get(field.name) == Some(member.property.name.as_str())
-            })
+            .find(|field| self.ctx.krate.symbols.get(field.name) == Some(member_symbol.as_str()))
             .cloned()
         else {
             return Ok(None);

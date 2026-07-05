@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::lowering::{ModuleBuilder, is_static_property_key};
+use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{
     Expression, TSSignature, TSTupleElement, TSType, TSTypeName, TSTypeQueryExprName,
@@ -627,7 +627,10 @@ return_ty: function.return_ty,
             let TSSignature::TSPropertySignature(prop) = member else {
                 continue;
             };
-            if prop.computed && !is_static_property_key(&prop.key) {
+            // A computed field keeps its declared name when the key statically
+            // resolves (`[K]`, `[E.Member]`, `[Symbol.iterator]`); a genuinely
+            // dynamic key names no static field and is skipped.
+            if prop.computed && !self.is_resolvable_property_key(&prop.key) {
                 continue;
             }
             let Ok(name) = self.property_key_symbol(&prop.key) else {
@@ -2019,12 +2022,20 @@ return_ty: function.return_ty,
                         .map(|item| (item.ty, item.optional));
                     field_data.map(|(ty, optional)| self.field_type_with_optional(ty, optional))
                 };
+                // A class string/number index signature contributes a keyed
+                // store whose value type is statically known. When no declared
+                // named field or method matches, resolve the access through the
+                // index signature's value type instead of erasing it. Named
+                // members are tried first (above) so declared fields keep their
+                // concrete types; this is only the dynamic-keyed fallback.
+                let class_index_field = self.class_index_values.get(&name).copied();
                 if let Some(ty) = class_field
                     .or(sidecar_field)
                     .or(sidecar_method)
                     .or(interface_field)
                     .or(interface_method)
                     .or(alias_field)
+                    .or(class_index_field)
                 {
                     return Ok(ty);
                 }
@@ -2439,12 +2450,34 @@ return_ty: function.return_ty,
             if let Item::Function(function) = self.item_ref(*item)
                 && function.name == method
             {
-                return Ok((function.return_ty, *item));
+                // A generic class receiver such as `Box<number>` instantiates the
+                // method's declared type parameters. `get(): T` on `Box<number>`
+                // returns `number`, not the bare parameter `T`, so the call
+                // expression is typed with the receiver's concrete arguments
+                // substituted in. Without this, the method result stays a
+                // `TypeParam` and erases to `SmeltUnknown` at use sites even
+                // though the emitted `impl<T> Box<T>` method already returns `T`.
+                let return_ty = function.return_ty;
+                let item_id = *item;
+                let substitutions = self.type_argument_substitution(
+                    &class.type_params,
+                    &args,
+                    self.span(span.start, span.end),
+                )?;
+                let substituted_return = self.substitute_type_params(return_ty, &substitutions);
+                return Ok((substituted_return, item_id));
             }
         }
         for abstract_method in &class.abstract_methods {
             if abstract_method.name == method {
-                return Ok((abstract_method.return_ty, smelt_hir::ItemId(u32::MAX)));
+                let return_ty = abstract_method.return_ty;
+                let substitutions = self.type_argument_substitution(
+                    &class.type_params,
+                    &args,
+                    self.span(span.start, span.end),
+                )?;
+                let substituted_return = self.substitute_type_params(return_ty, &substitutions);
+                return Ok((substituted_return, smelt_hir::ItemId(u32::MAX)));
             }
         }
         if let Some(base) = class.base {
@@ -2538,6 +2571,22 @@ return_ty: function.return_ty,
             Some(Type::Class { name, .. }) if self.match_stdlib_class(*name).is_some() => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 Ok(self.ctx.krate.types.intern(Type::Optional(string_ty)))
+            }
+            // A class with a declared string/number index signature keeps a keyed
+            // store whose value type `T` is statically known. A dynamic keyed read
+            // `instance[key]` may name a missing key, so — following JavaScript's
+            // missing-key-is-`undefined` semantics — the honest element type is
+            // `Optional<T>` rather than the erased `Unknown` boundary. Classes with
+            // no index signature still fall through to `Unknown` below.
+            Some(Type::Class { name, .. })
+                if self.class_index_values.contains_key(name) =>
+            {
+                let value_ty = self
+                    .class_index_values
+                    .get(name)
+                    .copied()
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                Ok(self.optional_chain_result_type(value_ty))
             }
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))

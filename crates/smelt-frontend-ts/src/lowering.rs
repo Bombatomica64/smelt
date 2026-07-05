@@ -10,9 +10,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::Path,
 };
-use support::{
-    is_static_property_key, unknown_kind_from_typeof,
-};
+use support::unknown_kind_from_typeof;
 
 use crate::{
     HirCtx, ObjectConst,
@@ -71,6 +69,28 @@ pub struct ConstLiteral {
     literal: Literal,
     /// HIR type of the literal.
     ty: smelt_hir::TypeId,
+}
+
+impl ConstLiteral {
+    /// Return the JavaScript property-member name this constant would name when
+    /// used as a computed key (`{ [K]: v }` / `class C { [K]: T }`).
+    ///
+    /// JavaScript coerces a computed key to a string member name, so only string
+    /// and numeric constants resolve to a stable static identifier here. A whole
+    /// finite number is rendered without a fractional part (`0` -> "0") to match
+    /// the numeric-literal key spelling. Boolean/null/symbol constants have no
+    /// well-defined static member spelling for Smelt's named-field model and
+    /// return `None`, leaving genuinely dynamic keys on the runtime-keyed path.
+    fn computed_member_name(&self) -> Option<String> {
+        match &self.literal {
+            Literal::String(value) => Some(value.clone()),
+            Literal::Int(value) => Some(value.to_string()),
+            Literal::Float(value) => {
+                Some(ModuleBuilder::numeric_property_key_name(*value))
+            }
+            Literal::Bool(_) | Literal::Symbol(_) | Literal::Undefined | Literal::None => None,
+        }
+    }
 }
 
 /// Constant collection element visible to nested function bodies.
@@ -387,6 +407,13 @@ struct ModuleBuilder<'ctx> {
     interface_extends: HashMap<smelt_hir::Symbol, Vec<InterfaceHeritageRef>>,
     /// Value types declared by interface string index signatures.
     interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    /// Value types declared by class string index signatures (`[k: string]: T`).
+    ///
+    /// Mirrors `interface_index_values` for classes: keyed by class name symbol,
+    /// this records the value type of a class's `[key: string]: T` index
+    /// signature so member and computed access can fall back to it when no
+    /// declared named field or method matches.
+    class_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     /// Interface call signatures for callable interface types.
     interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Interface construct signatures (`new (): T`) for constructor-slot types.

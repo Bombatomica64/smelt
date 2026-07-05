@@ -330,6 +330,23 @@ impl FunctionEmitter<'_> {
                     ));
                     return Ok(());
                 }
+                // A dotted write to an UNDECLARED member on an index-signature
+                // class (`bag.name = value`) inserts into the runtime store
+                // (issue #84), mirroring the computed `bag[k] = value` write, so
+                // it round-trips to a later read. Declared fields keep their
+                // concrete struct-field assignment via the tail path below.
+                if let Some((_key_ty, value_ty)) = self.class_index_store_types(base_ty)
+                    && !self.class_has_named_field(base_ty, *field)
+                {
+                    let rendered_value = self.rvalue_text_for_dest(value, value_ty)?;
+                    out.push_str(&format!(
+                        "    {}.{}.insert({:?}.to_owned(), {rendered_value});\n",
+                        self.local_mut_value_text(*base)?,
+                        smelt_hir::CLASS_INDEX_STORE_FIELD,
+                        self.symbol_source_name(*field)?,
+                    ));
+                    return Ok(());
+                }
             }
             Place::Index { base, index } => {
                 let base_ty = self.local_decl(*base)?.ty;
@@ -387,6 +404,36 @@ impl FunctionEmitter<'_> {
                         out.push_str(&format!(
                             "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; match &mut {} {{ SmeltUnknown::Object(map) => {{ map.insert(smelt_key, smelt_value); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert(smelt_key, smelt_value); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }} }}\n",
                             self.local_mut_value_text(*base)?
+                        ));
+                        return Ok(());
+                    }
+                    // A class with an index signature backs keyed writes with a
+                    // real store field (issue #84): `bag[key] = value` inserts
+                    // into `bag.__smelt_index_store` so the write round-trips to a
+                    // later `bag[key]` read. The value is rendered at the store's
+                    // declared value type, keeping `T` concrete.
+                    Some(Type::Class { .. })
+                        if self.class_index_store_types(base_ty).is_some() =>
+                    {
+                        let (key_ty, value_ty) = self
+                            .class_index_store_types(base_ty)
+                            .ok_or_else(|| EmitError::new("class index store types missing"))?;
+                        let rendered_value = self.rvalue_text_for_dest(value, value_ty)?;
+                        let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
+                            let index_ty = self.operand_ty(index)?;
+                            if index_ty == key_ty {
+                                self.value_at_type(index, key_ty)?
+                            } else {
+                                let index_text = self.operand_text(index)?;
+                                self.property_key_to_string_text(&index_text, index_ty)?
+                            }
+                        } else {
+                            self.value_at_type(index, key_ty)?
+                        };
+                        out.push_str(&format!(
+                            "    {}.{}.insert({key_text}, {rendered_value});\n",
+                            self.local_mut_value_text(*base)?,
+                            smelt_hir::CLASS_INDEX_STORE_FIELD,
                         ));
                         return Ok(());
                     }

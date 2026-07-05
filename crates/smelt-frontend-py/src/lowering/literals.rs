@@ -128,6 +128,9 @@ impl ModuleBuilder<'_> {
                 if let Some(member_expr) = self.enum_member_expression(attr, body)? {
                     return Ok(member_expr);
                 }
+                if let Some(member_expr) = self.class_static_member_expression(attr, body)? {
+                    return Ok(member_expr);
+                }
                 if let Some(member_expr) = self.module_member_expression(attr, body)? {
                     return Ok(member_expr);
                 }
@@ -272,8 +275,12 @@ impl ModuleBuilder<'_> {
             Expr::DictComp(c) => self.dict_comprehension(c, body),
             Expr::Generator(c) => self.generator_expression(c, body),
 
+            // `lambda a, b: expr` — a first-class closure value. Parameter types
+            // come from an expected `Callable`/function `type_hint`; without one
+            // the parameters must be individually annotated.
+            Expr::Lambda(lambda) => self.lambda_expression(lambda, body, type_hint),
+
             Expr::Named(_)
-            | Expr::Lambda(_)
             | Expr::Yield(_)
             | Expr::YieldFrom(_)
             | Expr::TString(_)
@@ -286,6 +293,53 @@ impl ModuleBuilder<'_> {
                 format!("unsupported expression: {}", expr_kind_name(expr)),
             )),
         }
+    }
+
+    /// Lower a Python `lambda` expression as a first-class closure value.
+    ///
+    /// A lambda is lowered through the same compact callback IR the frontend
+    /// already uses for `map`/`filter`/`sorted(key=...)` lambdas: the body is
+    /// classified into a [`CallbackExpr`] tree by [`Self::lambda_callback`], then
+    /// materialized into a real [`ExprKind::Closure`] CFG body by
+    /// [`Self::callback_expr_to_closure`]. The resulting closure value can be
+    /// stored in a local, passed to a call argument, or returned.
+    ///
+    /// Python lambda parameters never carry type annotations, so their types can
+    /// only come from an expected `Callable[...]`/function `type_hint` supplied
+    /// by the surrounding context (an annotated assignment, an annotated call
+    /// parameter, a typed return). When no function-typed hint is available the
+    /// lambda's parameter types are unknowable and the construct is rejected with
+    /// a specific message rather than routed through an erased ABI — keeping the
+    /// static-shape-first policy. (Bare `x = lambda ...` without an annotation is
+    /// the documented deferral; annotate the target with `Callable[...]`.)
+    fn lambda_expression(
+        &mut self,
+        lambda: &ruff_python_ast::ExprLambda,
+        body: &mut Body,
+        type_hint: Option<TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let Some(hint) = type_hint else {
+            return Err(SmeltError::unsupported(
+                self.span(lambda.range),
+                "lambda expressions need an expected `Callable[...]` type from their context \
+                 (annotate the assignment target or call parameter)",
+            ));
+        };
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(hint).cloned() else {
+            return Err(SmeltError::unsupported(
+                self.span(lambda.range),
+                "lambda expressions require a `Callable[...]`/function-typed context",
+            ));
+        };
+
+        let callback = self.lambda_callback(lambda, &function.params, body)?;
+        if callback.ty != function.return_ty {
+            return Err(SmeltError::unsupported(
+                self.span(lambda.range),
+                "lambda return type does not match its expected callable annotation",
+            ));
+        }
+        self.callback_expr_to_closure(&callback, &function.params, self.span(lambda.range), body)
     }
 
     /// Lower a Python f-string (`f"a{expr}b"`) as runtime string concatenation.

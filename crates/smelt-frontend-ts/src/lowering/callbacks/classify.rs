@@ -489,85 +489,15 @@ impl ModuleBuilder<'_> {
                 return self.function_callback_from_params(function, expected_param_tys, body);
             }
             if let Argument::Identifier(identifier) = argument
-                && let Some(item) = self.items.get(identifier.name.as_str()).copied()
+                && let Some(callback) = self.named_callback_reference(
+                    identifier.name.as_str(),
+                    identifier.span.start,
+                    identifier.span.end,
+                    expected_param_tys,
+                    body,
+                )?
             {
-                let span = self.span(identifier.span.start, identifier.span.end);
-                let Item::Function(function) = self.item_ref(item) else {
-                    return Err(SmeltError::unsupported(
-                        span,
-                        "array callback function references must resolve to functions",
-                    ));
-                };
-                let function_name = function.name;
-                let function_params_len = function.params.len();
-                let function_return_ty = function.return_ty;
-                let function_ty = self.item_expr_type(item, span)?;
-                if function_params_len < expected_param_tys.len().min(1) {
-                    return Err(SmeltError::unsupported(
-                        span,
-                        "array callback function reference has too few parameters",
-                    ));
-                }
-                let args = expected_param_tys
-                    .iter()
-                    .copied()
-                    .take(function_params_len)
-                    .enumerate()
-                    .map(|(index, ty)| CallbackCallArg {
-                        expr: CallbackExpr {
-                            kind: CallbackExprKind::Param(index),
-                            ty,
-                        },
-                        spread: false,
-                    })
-                    .collect();
-                return Ok(CallbackExpr {
-                    kind: CallbackExprKind::Call {
-                        callee: Box::new(CallbackExpr {
-                            kind: CallbackExprKind::Function(function_name),
-                            ty: function_ty,
-                        }),
-                        args,
-                    },
-                    ty: function_return_ty,
-                });
-            }
-            if let Argument::Identifier(identifier) = argument
-                && let Some(local) = self.locals.get(identifier.name.as_str()).copied()
-            {
-                let local_ty = Self::local_ty(body, local);
-                if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned()
-                {
-                    if function.params.len() < expected_param_tys.len().min(1) {
-                        return Err(SmeltError::unsupported(
-                            self.span(identifier.span.start, identifier.span.end),
-                            "array callback function reference has too few parameters",
-                        ));
-                    }
-                    let args = expected_param_tys
-                        .iter()
-                        .copied()
-                        .take(function.params.len())
-                        .enumerate()
-                        .map(|(index, ty)| CallbackCallArg {
-                            expr: CallbackExpr {
-                                kind: CallbackExprKind::Param(index),
-                                ty,
-                            },
-                            spread: false,
-                        })
-                        .collect();
-                    return Ok(CallbackExpr {
-                        kind: CallbackExprKind::Call {
-                            callee: Box::new(CallbackExpr {
-                                kind: CallbackExprKind::Capture(local),
-                                ty: local_ty,
-                            }),
-                            args,
-                        },
-                        ty: function.return_ty,
-                    });
-                }
+                return Ok(callback);
             }
             if let Argument::StaticMemberExpression(_member) = argument {
                 return Ok(self.opaque_member_callback(expected_param_tys));
@@ -584,11 +514,6 @@ impl ModuleBuilder<'_> {
             ) {
                 return Ok(self.opaque_member_callback(expected_param_tys));
             }
-            if let Argument::Identifier(identifier) = argument
-                && self.is_opaque_callback_value(identifier.name.as_str())
-            {
-                return Ok(self.opaque_member_callback(expected_param_tys));
-            }
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "array callback methods currently require arrow function callbacks",
@@ -601,6 +526,111 @@ impl ModuleBuilder<'_> {
             ));
         }
         self.arrow_callback_from_params(arrow, expected_param_tys, body)
+    }
+
+    /// Resolve a bare identifier callback (`xs.map(fn)`) to a typed callback
+    /// expression tree, if the name statically names a callable value.
+    ///
+    /// Handles, in resolution order:
+    /// - a module-level function item, called by name through
+    ///   [`CallbackExprKind::Function`];
+    /// - a local/parameter binding whose static type is a `Type::Function`,
+    ///   called through a captured [`CallbackExprKind::Capture`];
+    /// - an opaque callable value — an import or forward-declared function whose
+    ///   body is not visible here — modeled as an [`Self::opaque_member_callback`].
+    ///
+    /// Returns `Ok(None)` when the name is not a resolvable callable so the
+    /// caller can fall through to its remaining forms (or raise its own error).
+    /// Typed function signatures and receiver element arguments are preserved so
+    /// the generated call keeps its concrete parameter/return types.
+    pub(in crate::lowering) fn named_callback_reference(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        expected_param_tys: &[smelt_hir::TypeId],
+        body: &Body,
+    ) -> Result<Option<CallbackExpr>, SmeltError> {
+        if let Some(item) = self.items.get(name).copied() {
+            let span = self.span(start, end);
+            let Item::Function(function) = self.item_ref(item) else {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "array callback function references must resolve to functions",
+                ));
+            };
+            let function_name = function.name;
+            let function_params_len = function.params.len();
+            let function_return_ty = function.return_ty;
+            let function_ty = self.item_expr_type(item, span)?;
+            if function_params_len < expected_param_tys.len().min(1) {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "array callback function reference has too few parameters",
+                ));
+            }
+            let args = expected_param_tys
+                .iter()
+                .copied()
+                .take(function_params_len)
+                .enumerate()
+                .map(|(index, ty)| CallbackCallArg {
+                    expr: CallbackExpr {
+                        kind: CallbackExprKind::Param(index),
+                        ty,
+                    },
+                    spread: false,
+                })
+                .collect();
+            return Ok(Some(CallbackExpr {
+                kind: CallbackExprKind::Call {
+                    callee: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Function(function_name),
+                        ty: function_ty,
+                    }),
+                    args,
+                },
+                ty: function_return_ty,
+            }));
+        }
+        if let Some(local) = self.locals.get(name).copied() {
+            let local_ty = Self::local_ty(body, local);
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
+                if function.params.len() < expected_param_tys.len().min(1) {
+                    return Err(SmeltError::unsupported(
+                        self.span(start, end),
+                        "array callback function reference has too few parameters",
+                    ));
+                }
+                let args = expected_param_tys
+                    .iter()
+                    .copied()
+                    .take(function.params.len())
+                    .enumerate()
+                    .map(|(index, ty)| CallbackCallArg {
+                        expr: CallbackExpr {
+                            kind: CallbackExprKind::Param(index),
+                            ty,
+                        },
+                        spread: false,
+                    })
+                    .collect();
+                return Ok(Some(CallbackExpr {
+                    kind: CallbackExprKind::Call {
+                        callee: Box::new(CallbackExpr {
+                            kind: CallbackExprKind::Capture(local),
+                            ty: local_ty,
+                        }),
+                        args,
+                    },
+                    ty: function.return_ty,
+                }));
+            }
+        }
+        if self.is_opaque_callback_value(name) {
+            return Ok(Some(self.opaque_member_callback(expected_param_tys)));
+        }
+        Ok(None)
     }
 
     /// Lower common lodash/fp predicate factories when they are passed as array callbacks.
@@ -813,6 +843,24 @@ impl ModuleBuilder<'_> {
             Expression::ConditionalExpression(_) | Expression::LogicalExpression(_) => {
                 Ok(self.opaque_member_callback(expected_param_tys))
             }
+            // A bare identifier inside an assertion (`(fn as Fn)`, `fn!`) that
+            // statically names a function item, a function-typed local, or an
+            // opaque imported callable. Resolve it the same way the unwrapped
+            // `xs.map(fn)` form does so the assertion is transparent.
+            Expression::Identifier(identifier) => self
+                .named_callback_reference(
+                    identifier.name.as_str(),
+                    identifier.span.start,
+                    identifier.span.end,
+                    expected_param_tys,
+                    body,
+                )?
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(identifier.span.start, identifier.span.end),
+                        "array callback methods currently require arrow function callbacks",
+                    )
+                }),
             _ => Err(SmeltError::unsupported(
                 self.span(expression.span().start, expression.span().end),
                 "array callback methods currently require arrow function callbacks",

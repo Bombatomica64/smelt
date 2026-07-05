@@ -12,10 +12,10 @@ use std::convert::TryFrom;
 use std::path::Path;
 
 use ruff_python_ast::{
-    BoolOp, CmpOp, ElifElseClause, Expr, ModModule, Number, Operator, Pattern as RuffPattern,
-    PatternMatchAs, Singleton, Stmt, StmtAnnAssign, StmtAssert, StmtAugAssign, StmtClassDef,
-    StmtFor, StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StmtMatch, StmtWith,
-    UnaryOp as RuffUnaryOp,
+    BoolOp, CmpOp, ElifElseClause, ExceptHandler, Expr, ModModule, Number, Operator,
+    Pattern as RuffPattern, PatternMatchAs, Singleton, Stmt, StmtAnnAssign, StmtAssert, StmtAssign,
+    StmtAugAssign, StmtClassDef, StmtFor, StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom,
+    StmtMatch, StmtTry, StmtWith, UnaryOp as RuffUnaryOp,
 };
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
@@ -66,8 +66,20 @@ pub(crate) struct ModuleBuilder<'ctx> {
     exports: HashMap<String, ItemId>,
     /// Integer enum members keyed by class name, then member name.
     enum_members: HashMap<String, HashMap<String, i64>>,
-    /// Class method items keyed by class name, then method name.
+    /// Instance-method items keyed by class name, then method name.
+    ///
+    /// Populated by a per-class pre-pass ([`Self::reserve_class_method_slots`])
+    /// *before* any method body is lowered, so a method that calls an instance
+    /// sibling declared later (`self.helper()`) can still resolve it.
     class_methods: HashMap<String, HashMap<String, ItemId>>,
+    /// Class `@staticmethod` and `@classmethod` items keyed by class name, then
+    /// method name.
+    ///
+    /// Both dispatch receiver-free (`Class::method(args)`), so they are kept
+    /// separate from the instance-method [`Self::class_methods`] registry. This
+    /// also lets a forward `cls.helper()` / `Class.helper()` call resolve the
+    /// method before the class item's `static_methods` field is finalized.
+    class_static_methods: HashMap<String, HashMap<String, ItemId>>,
     /// Class fields keyed by class name while a class body is being lowered.
     class_fields: HashMap<String, Vec<Field>>,
     /// Imported module/package namespaces available by local module name.
@@ -84,6 +96,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     function_variadics: HashMap<String, FunctionVariadics>,
     /// Materialized final bindings for this source module.
     specialization: Option<SpecializationData>,
+    /// `ty`-resolved types for this module (empty unless the `ty` feature is on).
+    resolved_types: crate::ty_resolve::ResolvedTypes,
 }
 
 /// A local Python lambda value that can be consumed by callback APIs without escaping.
@@ -213,6 +227,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let items = visible_items(ctx);
         let enum_members = ctx.enum_members.clone();
         let class_methods = visible_class_methods(ctx);
+        let class_static_methods = visible_class_static_methods(ctx);
         let module_namespaces = ctx.module_namespaces.clone();
         Self {
             file_id,
@@ -224,6 +239,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             exports: HashMap::new(),
             enum_members,
             class_methods,
+            class_static_methods,
             class_fields: HashMap::new(),
             module_namespaces,
             pytest_fixtures: HashMap::new(),
@@ -231,7 +247,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             local_callbacks: HashMap::new(),
             function_variadics: HashMap::new(),
             specialization,
+            resolved_types: crate::ty_resolve::ResolvedTypes::disabled(),
         }
+    }
+
+    /// Install the `ty`-resolved module types used to fill in missing
+    /// annotations. Called once, immediately after construction.
+    pub(crate) fn set_resolved_types(&mut self, resolved: crate::ty_resolve::ResolvedTypes) {
+        self.resolved_types = resolved;
     }
 
     // -----------------------------------------------------------------------

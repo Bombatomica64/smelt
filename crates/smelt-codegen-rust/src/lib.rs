@@ -2096,7 +2096,9 @@ fn emit_source_with_free_function_router(
     for function in &mir.functions {
         if matches!(
             function.origin,
-            HirOrigin::ClassConstructor { .. } | HirOrigin::ClassMethod { .. }
+            HirOrigin::ClassConstructor { .. }
+                | HirOrigin::ClassMethod { .. }
+                | HirOrigin::ClassStaticMethod { .. }
         ) {
             continue;
         }
@@ -2163,6 +2165,15 @@ fn emit_source_with_free_function_router(
                 .functions
                 .get(id_index(method.0, "method index does not fit usize")?)
             {
+                let mut emitter = FunctionEmitter::new(mir, &context, function)?;
+                emitter.emit_method(&mut out)?;
+            }
+        }
+        for static_method in &class.static_methods {
+            if let Some(function) = mir.functions.get(id_index(
+                static_method.0,
+                "static method index does not fit usize",
+            )?) {
                 let mut emitter = FunctionEmitter::new(mir, &context, function)?;
                 emitter.emit_method(&mut out)?;
             }

@@ -190,6 +190,8 @@ pub struct MirClass {
     pub constructor: Option<FuncId>,
     /// Method function IDs.
     pub methods: Vec<FuncId>,
+    /// Static method function IDs (receiver-free associated functions).
+    pub static_methods: Vec<FuncId>,
     /// Abstract method signatures required by this class.
     pub abstract_methods: Vec<smelt_hir::MethodSig>,
     /// Interfaces this class implements.
@@ -368,6 +370,15 @@ pub enum HirOrigin {
     /// A class method.
     ClassMethod {
         /// The class containing the method.
+        class: Symbol,
+        /// The method name.
+        method: Symbol,
+        /// The method body.
+        body: BodyId,
+    },
+    /// A `static` class method (associated function, no receiver).
+    ClassStaticMethod {
+        /// The class containing the static method.
         class: Symbol,
         /// The method name.
         method: Symbol,

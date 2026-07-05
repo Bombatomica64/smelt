@@ -185,8 +185,10 @@ impl ModuleBuilder<'_> {
             // `del target[, target]...` — currently only `del dict[key]` is lowered.
             Stmt::Delete(delete_stmt) => self.delete_statement(delete_stmt, body, block),
 
+            // `try: … except …: … else: … finally: …`
+            Stmt::Try(try_stmt) => self.try_statement(try_stmt, body, block),
+
             Stmt::TypeAlias(_)
-            | Stmt::Try(_)
             | Stmt::Global(_)
             | Stmt::Nonlocal(_)
             | Stmt::IpyEscapeCommand(_) => Err(SmeltError::unsupported(
@@ -194,6 +196,112 @@ impl ModuleBuilder<'_> {
                 format!("unsupported statement: {}", stmt_kind_name(stmt)),
             )),
         }
+    }
+
+    /// Lower a Python `try/except/finally` statement to [`HirStmt::TryCatch`].
+    ///
+    /// The mapping onto Smelt's error model (a thrown value is a string message,
+    /// mirroring the pytest.raises lowering and the TypeScript `try`/`catch`
+    /// lowering) is:
+    ///
+    /// * The `try:` suite becomes the protected `body` block. A trailing
+    ///   `else:` suite (which Python runs only when the `try` body did not
+    ///   raise) is appended to the end of that same block — semantically the
+    ///   no-exception continuation.
+    /// * A single `except [E [as name]]:` handler becomes the `catch_body`
+    ///   block. When the handler binds `as name`, a fresh string local named
+    ///   `name` is introduced as the `catch_binding` so the handler body can
+    ///   reference the caught message.
+    /// * A `finally:` suite becomes the `finally_body` block.
+    ///
+    /// Smelt's HIR models a single catch handler, so shapes that need
+    /// per-exception-type dispatch are rejected with a specific message rather
+    /// than silently collapsing distinct handlers: multiple `except` clauses and
+    /// `except*` (exception groups) remain explicit deferrals. Filtering on the
+    /// caught exception *type* is likewise not modelled — every handler catches
+    /// all thrown values — so the exception type expression is accepted but does
+    /// not narrow the catch, matching how the rest of the error model treats
+    /// thrown values as opaque strings.
+    fn try_statement(
+        &mut self,
+        try_stmt: &StmtTry,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        if try_stmt.is_star {
+            return Err(SmeltError::unsupported(
+                self.span(try_stmt.range),
+                "`except*` exception groups are not supported",
+            ));
+        }
+        if try_stmt.handlers.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(try_stmt.range),
+                "multiple `except` clauses are not supported; Smelt models a single catch handler",
+            ));
+        }
+
+        // The protected block holds the `try:` suite followed by any `else:`
+        // suite (the else suite only runs when the try suite did not raise, so
+        // appending it to the same block keeps that ordering).
+        let try_block = self.block_from_stmts(&try_stmt.body, body)?;
+        for stmt in &try_stmt.orelse {
+            self.statement_in_block(stmt, body, try_block)?;
+        }
+
+        // At most one handler reaches here (the multi-handler case is rejected
+        // above), so lowering the first handler covers every accepted shape.
+        let (catch_binding, catch_body) = match try_stmt.handlers.first() {
+            None => (None, None),
+            Some(ExceptHandler::ExceptHandler(handler)) => {
+                // Bindings and body locals introduced by the handler must not
+                // leak into the surrounding scope, matching the TypeScript
+                // `catch` lowering.
+                let previous_locals = self.locals.clone();
+                let catch_binding = handler
+                    .name
+                    .as_ref()
+                    .map(|name| self.except_binding(name.as_str(), name.range, body));
+                let catch_block = self.block_from_stmts(&handler.body, body)?;
+                self.locals = previous_locals;
+                (catch_binding, Some(catch_block))
+            }
+        };
+
+        let finally_body = if try_stmt.finalbody.is_empty() {
+            None
+        } else {
+            Some(self.block_from_stmts(&try_stmt.finalbody, body)?)
+        };
+
+        body.push_stmt_to_block(
+            block,
+            HirStmt::TryCatch {
+                body: try_block,
+                catch_binding,
+                catch_body,
+                finally_body,
+            },
+        );
+        Ok(())
+    }
+
+    /// Introduce the `except … as name` binding as a fresh string local.
+    ///
+    /// Smelt's error model represents a thrown value as a string message (see
+    /// the pytest.raises lowering), so the caught exception name is bound to a
+    /// `String` local and registered in the local scope for the handler body.
+    fn except_binding(&mut self, name: &str, range: TextRange, body: &mut Body) -> smelt_hir::LocalId {
+        let ty = self.intern_type(Type::String);
+        let symbol = self.intern_name(name);
+        let local = body.push_local(LocalDecl {
+            name: Some(symbol),
+            ty,
+            mutable: false,
+            span: self.span(range),
+        });
+        self.locals.insert(name.to_owned(), local);
+        local
     }
 
     /// Lower a Python `del target[, target]...` statement.

@@ -277,6 +277,100 @@ const missing = values[-1];
 }
 
 #[test]
+fn coerces_optional_numeric_at_index() -> Result<(), String> {
+    // `.at(index)` where `index` is `number | undefined` is statically
+    // numeric-compatible: JavaScript runs `ToInteger` on the argument, treating
+    // `undefined` as `0`. The frontend must coerce such an optional-numeric index
+    // to the runtime `Float` the optional-indexing path expects (via a
+    // `Number(...)` primitive cast) instead of rejecting it.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function pick(values: number[], index: number | undefined): number | undefined {
+  return values.at(index);
+}
+"#),
+        &mut ctx,
+    )?;
+    // The `.at` call lives in the `pick` function body, so scan every body.
+    let _ = module_id;
+    let has_optional_index = ctx
+        .krate
+        .bodies
+        .iter()
+        .any(|body| body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::OptionalIndex { .. })
+        }));
+    ensure!(
+        has_optional_index,
+        "array .at with optional-numeric index should lower to optional indexing"
+    );
+    let has_number_cast = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToJsNumber,
+                    ..
+                }
+            )
+        })
+    });
+    ensure!(
+        has_number_cast,
+        "optional-numeric .at index should be coerced with a Number(...) cast"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn coerces_numeric_type_param_at_index() -> Result<(), String> {
+    // A generic index constrained to `number` is numeric-like through its type
+    // parameter constraint, so `.at` must coerce rather than reject it.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function pickAt<T extends number>(values: string[], index: T): string | undefined {
+  return values.at(index);
+}
+"#),
+        &mut ctx,
+    )?;
+    // Lowering succeeded (`lower_ok`); confirm the `.at` call became optional
+    // indexing across the lowered function bodies.
+    let _ = module_id;
+    let has_optional_index = ctx
+        .krate
+        .bodies
+        .iter()
+        .any(|body| body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::OptionalIndex { .. })
+        }));
+    ensure!(
+        has_optional_index,
+        "array .at with a numeric type-param index should lower to optional indexing"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn rejects_non_numeric_at_index() -> Result<(), String> {
+    // A genuinely non-numeric index (here a string) is not coercible and must
+    // stay an explicit unsupported diagnostic rather than being silently coerced.
+    let errors = lowering_errors(
+        ts!(r#"
+function pick(values: number[], key: string): number | undefined {
+  return values.at(key);
+}
+"#),
+        &mut HirCtx::new(),
+    )?;
+    assert_unsupported_ts(&errors, "array/string at index must be a number")
+}
+
+#[test]
 fn lowers_math_abs_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

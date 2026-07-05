@@ -140,7 +140,7 @@ impl ModuleBuilder<'_> {
     /// initialization order.
     fn constructed_constant_assign(
         &mut self,
-        assign: &ruff_python_ast::StmtAssign,
+        assign: &StmtAssign,
         hir_module: &mut Module,
     ) -> Result<(), SmeltError> {
         let Some((name, call)) = Self::constructed_constant_shape(assign) else {
@@ -205,7 +205,7 @@ impl ModuleBuilder<'_> {
 
     /// Extract the direct `NAME = ClassName(...)` constructed-constant shape.
     fn constructed_constant_shape(
-        assign: &ruff_python_ast::StmtAssign,
+        assign: &StmtAssign,
     ) -> Option<(&str, &ruff_python_ast::ExprCall)> {
         let [target] = assign.targets.as_slice() else {
             return None;

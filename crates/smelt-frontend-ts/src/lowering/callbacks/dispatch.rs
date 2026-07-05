@@ -255,13 +255,10 @@ impl ModuleBuilder<'_> {
             }
             Err(error)
                 if Self::should_fallback_to_closure_body_for_callback(&error)
-                    && matches!(argument, Argument::ArrowFunctionExpression(_)) =>
+                    && Self::is_closure_body_fallback_argument(argument) =>
             {
-                let Argument::ArrowFunctionExpression(arrow) = argument else {
-                    return Err(error);
-                };
                 let expr =
-                    self.arrow_closure_body_expr(arrow, expected_param_tys, bool_ty, body)?;
+                    self.callback_closure_body_expr(argument, expected_param_tys, bool_ty, body)?;
                 Ok(ClosureCallback {
                     expr,
                     return_ty: bool_ty,
@@ -391,13 +388,10 @@ impl ModuleBuilder<'_> {
             Ok(callback) => Ok(callback),
             Err(error)
                 if Self::should_fallback_to_closure_body_for_callback(&error)
-                    && matches!(argument, Argument::ArrowFunctionExpression(_)) =>
+                    && Self::is_closure_body_fallback_argument(argument) =>
             {
-                let Argument::ArrowFunctionExpression(arrow) = argument else {
-                    return Err(error);
-                };
-                let expr = self.arrow_closure_body_expr(
-                    arrow,
+                let expr = self.callback_closure_body_expr(
+                    argument,
                     expected_param_tys,
                     fallback_return_ty,
                     body,
@@ -409,6 +403,49 @@ impl ModuleBuilder<'_> {
                 Ok(ClosureCallback { expr, return_ty })
             }
             Err(error) => Err(error),
+        }
+    }
+
+    /// Return whether an argument is a callback literal (arrow or `function`
+    /// expression) whose body can be retried through full closure-body lowering.
+    ///
+    /// Both inline callback forms carry a body the compact callback IR may fail
+    /// to model; when that happens the caller retries via
+    /// [`Self::callback_closure_body_expr`]. Named/opaque callback identifiers
+    /// have no local body to retry, so they are excluded here.
+    pub(in crate::lowering) fn is_closure_body_fallback_argument(argument: &Argument<'_>) -> bool {
+        matches!(
+            argument,
+            Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
+        )
+    }
+
+    /// Lower an inline callback literal through a real HIR closure body.
+    ///
+    /// Dispatches to the arrow or `function` expression closure-body lowering
+    /// depending on the callback form, so both are retried identically when the
+    /// compact callback IR rejects a body it cannot model.
+    pub(in crate::lowering) fn callback_closure_body_expr(
+        &mut self,
+        argument: &Argument<'_>,
+        expected_param_tys: &[smelt_hir::TypeId],
+        fallback_return_ty: smelt_hir::TypeId,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match argument {
+            Argument::ArrowFunctionExpression(arrow) => {
+                self.arrow_closure_body_expr(arrow, expected_param_tys, fallback_return_ty, body)
+            }
+            Argument::FunctionExpression(function) => self.function_closure_body_expr(
+                function,
+                expected_param_tys,
+                fallback_return_ty,
+                body,
+            ),
+            _ => Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "callback closure-body lowering requires an arrow or function expression",
+            )),
         }
     }
 

@@ -2436,6 +2436,34 @@ impl<'mir> FunctionEmitter<'mir> {
                     self.return_type_text(self.function.return_ty)?
                 ));
             }
+            HirOrigin::ClassStaticMethod { method, .. } => {
+                // A static method takes no receiver: emit every parameter and no
+                // `self`, producing an associated function `Class::name(..)`.
+                let name = sanitize_ident(self.symbol_name(method)?);
+                let method_params = self
+                    .function
+                    .params
+                    .iter()
+                    .map(|param| {
+                        let mutability = if self.local_binding_needs_mut(*param) {
+                            "mut "
+                        } else {
+                            ""
+                        };
+                        Ok(format!(
+                            "{mutability}{}: {}",
+                            self.local_name(*param)?,
+                            self.parameter_decl_type_text(*param)?
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ");
+                out.push_str(&format!(
+                    "    {}fn {name}({method_params}) -> {} {{\n",
+                    if self.function.is_async { "async " } else { "" },
+                    self.return_type_text(self.function.return_ty)?
+                ));
+            }
             HirOrigin::Body(_) => return self.emit(out),
         }
         self.emit_block(self.entry_block()?, out)?;
@@ -4003,6 +4031,54 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Class { .. }) => self.is_erased_class_type(item_ty),
             _ => false,
         }
+    }
+
+    /// Return the key/value types of a class's index-signature store field.
+    ///
+    /// A class declaring `[key: string]: T` (issue #84) carries a synthesized
+    /// private `Dict` field (named [`smelt_hir::CLASS_INDEX_STORE_FIELD`]) that
+    /// backs dynamic keyed reads/writes at runtime. When `ty` is such a class,
+    /// this returns the store `Dict`'s `(key_ty, value_ty)` so keyed access can
+    /// be routed to `base.__smelt_index_store` instead of erased to a stub.
+    /// Named fields are unaffected; only genuinely dynamic keyed access uses it.
+    pub(super) fn class_index_store_types(&self, ty: TypeId) -> Option<(TypeId, TypeId)> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        let class = self.mir.classes.iter().find(|class| class.name == *name)?;
+        let store_field = crate::classes::effective_class_fields(self.mir, class)
+            .into_iter()
+            .find(|field| {
+                self.symbol_source_name(field.name)
+                    .is_ok_and(|source| source == smelt_hir::CLASS_INDEX_STORE_FIELD)
+            })?;
+        match self.mir.types.get(store_field.ty) {
+            Some(Type::Dict(key_ty, value_ty)) => Some((*key_ty, *value_ty)),
+            _ => None,
+        }
+    }
+
+    /// Return whether a class type declares a named struct field.
+    ///
+    /// Used to distinguish a declared field access (`x.size`, concrete struct
+    /// field) from an undeclared member access that must route to the class
+    /// index-signature store (`x.dynamicName`). The synthesized store field
+    /// itself is not treated as a named member here.
+    pub(super) fn class_has_named_field(&self, ty: TypeId, field: Symbol) -> bool {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return false;
+        };
+        let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) else {
+            return false;
+        };
+        crate::classes::effective_class_fields(self.mir, class)
+            .iter()
+            .any(|candidate| {
+                candidate.name == field
+                    && self
+                        .symbol_source_name(candidate.name)
+                        .is_ok_and(|source| source != smelt_hir::CLASS_INDEX_STORE_FIELD)
+            })
     }
 
     /// Returns whether a class symbol names the stdlib `RegExp` class.

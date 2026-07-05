@@ -51,6 +51,11 @@ use smelt_codegen_rust::{CrateKind, EmitOptions, emit_crate};
 use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::FileId;
 
+// The Python corpus is only built with the `ty` feature, where annotation-free
+// Python resolves its types via `ty` (issue #93).
+#[cfg(feature = "ty")]
+use smelt_frontend_py::{HirCtx as PyHirCtx, to_hir_with_path as py_to_hir_with_path};
+
 /// A recorded corpus failure: `(area, case name, captured error text)`.
 type CorpusFailure = (String, String, String);
 
@@ -219,6 +224,49 @@ function normalize(values: number[]): number[][] {
 }
 "#,
         },
+        Case {
+            name: "non_arrow_array_callbacks",
+            area: "closures",
+            // Array methods must accept non-arrow callback forms (issue #86):
+            // a `function` expression callback (`mapped`), a `function`
+            // expression whose body needs full closure-body lowering because it
+            // uses a statement form the compact callback IR cannot model
+            // (`fallback`, a `try/catch`), a named function-item reference
+            // (`byRef` calling `square`), and a local function-typed variable
+            // handed to the method (`byLocal`). Each must lower into the callback
+            // closure with its typed signature preserved, and the emitted Rust
+            // must compile.
+            source: r#"
+function square(value: number): number {
+  return value * 2;
+}
+
+function mapped(values: number[]): number[] {
+  return values.map(function (value) {
+    return value + 1;
+  });
+}
+
+function fallback(values: string[]): Array<string | undefined> {
+  return values.map(function (value) {
+    try {
+      return value;
+    } catch (error) {
+      return undefined;
+    }
+  });
+}
+
+function byRef(values: number[]): number[] {
+  return values.map(square);
+}
+
+function byLocal(values: number[]): number[] {
+  const transform = (value: number): number => value * 3;
+  return values.map(transform);
+}
+"#,
+        },
         // --- string / list operations ----------------------------------------
         Case {
             name: "list_collection",
@@ -361,6 +409,23 @@ export function containsWhole(haystack: string, needle: string): boolean {
 }
 ",
         },
+        Case {
+            // Issue #87: `.at(index)` accepts statically numeric-compatible index
+            // types beyond an exact `number`. An optional-numeric index
+            // (`number | undefined`) is coerced to the runtime `Float` the
+            // optional-index path expects, and the emitted normalized-index
+            // arithmetic must compile for both array and string receivers.
+            name: "at_index_coercion",
+            area: "collections",
+            source: r"
+export function pickOptional(values: number[], index: number | undefined): number | undefined {
+  return values.at(index);
+}
+export function pickChar(text: string, index: number | undefined): string | undefined {
+  return text.at(index);
+}
+",
+        },
         // --- async / Promise lowering ----------------------------------------
         Case {
             name: "async_await",
@@ -419,6 +484,166 @@ export const UPPER_LIMIT = limits.upper;
 ",
         },
         Case {
+            // Issue #84: class string index signatures `[key: string]: T`. A
+            // class that is purely an index signature (`StringBag`) carries a
+            // real runtime keyed store whose statically known value type drives
+            // dynamic reads AND writes; a mixed class (`MixedBag`) keeps its
+            // declared named field concretely typed alongside the index
+            // signature. Keyed reads return the honest `Option<T>` (missing key
+            // -> undefined), keyed writes insert into the store, and named access
+            // stays concrete. The emitted Rust must compile. (The runtime
+            // round-trip is asserted end-to-end by the CLI test
+            // `build_round_trips_class_index_signature_keyed_store`.) Value types
+            // here are concrete (`string`/`number`); a union index value type is
+            // subject to the pre-existing union-field `Debug`/`Default` derive
+            // gap that also affects plain union class fields.
+            name: "class_index_signature",
+            area: "classes",
+            source: r#"
+class StringBag {
+  [key: string]: string;
+}
+
+class MixedBag {
+  size: number = 0;
+  [key: string]: number;
+}
+
+export function readBag(bag: StringBag, key: string): string | undefined {
+  return bag[key];
+}
+
+export function writeBag(bag: StringBag, key: string, value: string): void {
+  bag[key] = value;
+}
+
+export function mixedSize(bag: MixedBag): number {
+  return bag.size;
+}
+
+export function readMixed(bag: MixedBag, key: string): number | undefined {
+  return bag[key];
+}
+"#,
+        },
+        Case {
+            // Issue #96: statically-resolvable computed property names. A
+            // `const`-keyed class field (`[TAG]`) folds to the const's string
+            // value as a named field; an enum-member-keyed interface field
+            // (`[Kind.First]`) folds to the enum member's value; a well-known
+            // `[Symbol.iterator]` interface method resolves to the stable
+            // synthetic member spelling. All three become ordinary named
+            // members so the emitted Rust compiles, and reading the folded
+            // class field back through its concrete member type stays concrete.
+            name: "computed_property_names",
+            area: "interfaces",
+            source: r#"
+const TAG = "tag";
+
+enum Kind {
+  First = "first",
+}
+
+class Tagged {
+  [TAG]: string = "leaf";
+  value: number = 0;
+}
+
+interface ByKind {
+  [Kind.First]: number;
+}
+
+interface Seq {
+  [Symbol.iterator](): number;
+}
+
+export function makeTagged(): Tagged {
+  return new Tagged();
+}
+
+export function taggedValue(node: Tagged): number {
+  return node.value;
+}
+
+export function firstOf(record: ByKind): number {
+  return record.first;
+}
+"#,
+        },
+        Case {
+            // Issue #98: static methods lower to receiver-free associated
+            // functions (`Class::method(..)`) and static class constants lower
+            // to materialized static fields resolvable via `Class.CONST`. Both
+            // must round-trip through the pipeline and compile as Rust. The
+            // static method is called qualified, and the static constants are
+            // read qualified in a free function, exercising both the emitted
+            // associated function and the concrete literal read paths.
+            name: "class_static_members",
+            area: "classes",
+            source: r#"
+class MathUtils {
+  static readonly PI: number = 3.14;
+  static readonly NAME: string = "math";
+
+  static square(value: number): number {
+    return value * value;
+  }
+
+  static clamp(value: number, low: number, high: number): number {
+    if (value < low) return low;
+    if (value > high) return high;
+    return value;
+  }
+}
+
+export function circleArea(radius: number): number {
+  return MathUtils.square(radius) * MathUtils.PI;
+}
+
+export function boundedSquare(value: number): number {
+  return MathUtils.clamp(MathUtils.square(value), 0, 100);
+}
+
+export function utilName(): string {
+  return MathUtils.NAME;
+}
+"#,
+        },
+        Case {
+            // Issue #97 / #18: optional class/data fields lower to `Option<T>`
+            // with explicit construction. The optional field (`y?: number`)
+            // becomes an `Option<f64>` struct slot; construction that supplies
+            // the field passes `Some(..)` and construction that omits it passes
+            // `None`, while the required field (`x`) stays concrete. Reading the
+            // optional field through `??` consumes the `Option` directly. The
+            // emitted Rust must compile. (The runtime round-trip is asserted
+            // end-to-end by the CLI test `build_round_trips_optional_class_field`
+            // and by the frontend/codegen regression tests.)
+            name: "optional_class_field",
+            area: "classes",
+            source: r"
+class Point {
+  x: number;
+  y?: number;
+  constructor(x: number, y?: number) {
+    this.x = x;
+    this.y = y;
+  }
+  readY(): number {
+    return this.y ?? -1;
+  }
+}
+
+export function makePresent(): number {
+  return new Point(1, 2).readY();
+}
+
+export function makeAbsent(): number {
+  return new Point(3).readY();
+}
+",
+        },
+        Case {
             name: "interface_method_call",
             area: "interfaces",
             source: r"
@@ -438,6 +663,56 @@ export function sum(adder: Adder): number {
   return adder.add(1, 2);
 }
 ",
+        },
+        Case {
+            // Issue #99: generic classes and interfaces lower to real Rust
+            // generics rather than erasing their instantiations to
+            // `SmeltUnknown`. `Container<T>` emits `struct Container<T>` with an
+            // `impl<T: ..> Container<T>` whose methods return the parameter;
+            // `Pair<A, B>` exercises multi-parameter generics; `Outcome<T, E>`
+            // is a generic interface used at a concrete return position. The use
+            // sites (`new Container<number>(3)`, `b.get()`, `p.getSecond()`)
+            // must instantiate the class concretely (`Container<f64>`) and pass
+            // arguments through so Rust monomorphizes, all of which must compile.
+            name: "generic_classes_and_interfaces",
+            area: "generics",
+            source: r#"
+class Container<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  get(): T { return this.value; }
+  set(value: T): void { this.value = value; }
+}
+
+class Pair<A, B> {
+  first: A;
+  second: B;
+  constructor(first: A, second: B) { this.first = first; this.second = second; }
+  getFirst(): A { return this.first; }
+  getSecond(): B { return this.second; }
+}
+
+interface Outcome<T, E> {
+  ok: boolean;
+  value: T;
+  error: E;
+}
+
+export function useContainer(): number {
+  const b = new Container<number>(3);
+  b.set(5);
+  return b.get();
+}
+
+export function usePair(): string {
+  const p = new Pair<number, string>(1, "x");
+  return p.getSecond();
+}
+
+export function makeOk(v: number): Outcome<number, string> {
+  return { ok: true, value: v, error: "" };
+}
+"#,
         },
         Case {
             // Issue #78: `switch` over non-literal case labels. Enum-member and
@@ -559,6 +834,55 @@ export function unionMethod(value: string | number): number {
 }
 "#,
         },
+        Case {
+            // Issue #83: field access beyond Record/class/interface. Driving an
+            // erased `Iterable<unknown>` through the manual iterator protocol
+            // reads `.done`/`.value` off the dynamic iterator result
+            // (`iterator.next()`), whose element type is never statically
+            // resolved. These reads route through the erased object-field
+            // boundary rather than the field-access gate, and the emitted Rust
+            // must compile (es-toolkit `fp/pipe.ts` shape).
+            name: "erased_iterator_field_access",
+            area: "field_access",
+            source: r"
+export function drive(data: Iterable<unknown>): unknown[] {
+  const result: unknown[] = [];
+  const iterator = data[Symbol.iterator]();
+  let step = iterator.next();
+  while (!step.done) {
+    result.push(step.value);
+    step = iterator.next();
+  }
+  return result;
+}
+",
+        },
+        // --- array literals with function / this / class elements ------------
+        Case {
+            name: "array_literal_expr_elements",
+            area: "array_elements",
+            // Array literal elements that are function expressions, `this`, and
+            // class expressions (named and anonymous) route through the shared
+            // expression lowering path. Function expressions become closure
+            // values, `this` resolves to the method receiver, and class
+            // expressions register a class and yield a class value.
+            source: r"
+export function funcElements(): unknown[] {
+  return [function () { return 1; }, function () { return 2; }];
+}
+
+export function classElements(): unknown[] {
+  return [class Named { value: number = 0; }, class { flag: boolean = false; }];
+}
+
+class Registry {
+  id: number = 0;
+  entries(): unknown[] {
+    return [function () { return 0; }, this, class Entry { key: number = 0; }];
+  }
+}
+",
+        },
     ]
 }
 
@@ -571,6 +895,127 @@ fn emit_case_crate(case: &Case, crate_dir: &Path) -> Result<(), String> {
     let mut ctx = HirCtx::new();
     to_hir(case.source, FileId(0), &mut ctx)
         .map_err(|err| format!("HIR lowering failed: {err:?}"))?;
+    let mut mir =
+        smelt_mir::lower_hir(&ctx.krate).map_err(|err| format!("MIR lowering failed: {err:?}"))?;
+    smelt_mir::opt::optimize(&mut mir);
+    let options = EmitOptions::new(format!("smelt_corpus_{}", case.name))
+        .with_crate_kind(CrateKind::Program);
+    emit_crate(&mir, crate_dir, &options).map_err(|err| format!("crate emission failed: {err}"))
+}
+
+/// Python corpus: annotation-free source that only lowers because `ty`
+/// resolves the return types (issue #93).
+///
+/// Each function omits its `-> T` return annotation; without the `ty` feature
+/// the Python frontend would reject these with "must have an explicit return
+/// type annotation". With `ty`, the return type is inferred from the body and
+/// the program lowers and compiles.
+#[cfg(feature = "ty")]
+fn python_corpus() -> Vec<Case> {
+    vec![
+        Case {
+            name: "py_inferred_returns",
+            area: "py_ty_return_inference",
+            // No function carries a `-> T`; `ty` infers int/str/bool from the
+            // bodies. Parameters keep annotations (unannotated params stay an
+            // explicit boundary — a documented deferral).
+            source: r"
+def inc(x: int):
+    return x + 1
+
+def label(name: str):
+    return 'hi ' + name
+
+def at_least_ten(n: int):
+    return n >= 10
+
+def total(values: list[int]):
+    result = 0
+    for value in values:
+        result = result + value
+    return result
+",
+        },
+        Case {
+            // Issue #94: method and non-top-level calls. `Counter.total`
+            // (instance method) calls `self.doubled()`, a sibling declared
+            // *later* in the class body — resolvable only because method items
+            // are pre-registered before any body is lowered. `Counter.make` is a
+            // `@classmethod` that constructs the class through the implicit `cls`
+            // receiver (`cls(start)`) and calls the sibling `@staticmethod`
+            // `origin()` via `cls.origin()`. `use_counter` drives an instance
+            // method on a local, and `via_factory` calls the classmethod
+            // qualified (`Counter.make(..)`). Every dispatch must lower to the
+            // right shape (receiver method vs receiver-free associated call) and
+            // the emitted Rust must compile.
+            name: "py_method_calls",
+            area: "py_method_dispatch",
+            source: r#"
+class Counter:
+    value: int
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def total(self) -> int:
+        return self.doubled() + Counter.origin()
+
+    def doubled(self) -> int:
+        return self.value * 2
+
+    @classmethod
+    def make(cls, start: int) -> "Counter":
+        base = cls(start)
+        return cls(base.value + cls.origin())
+
+    @staticmethod
+    def origin() -> int:
+        return 0
+
+def use_counter(start: int) -> int:
+    counter = Counter(start)
+    return counter.total()
+
+def via_factory(start: int) -> int:
+    return Counter.make(start).total()
+"#,
+        },
+        Case {
+            name: "py_lang_features",
+            area: "py_try_lambda_classbody",
+            // Issue #95: try/except/finally lowers to TryCatch, a lambda call
+            // argument recovers its `Callable[...]` type and lowers to a
+            // closure, and a class-body `...` placeholder is a no-op.
+            source: r#"
+from typing import Callable
+
+class Marker:
+    """A placeholder class."""
+    ...
+
+def apply(f: Callable[[int], int], value: int) -> int:
+    return f(value)
+
+def guarded(value: int) -> int:
+    try:
+        return apply(lambda x: x + 1, value)
+    except ValueError as error:
+        print(error)
+        return 0
+    finally:
+        print("done")
+"#,
+        },
+    ]
+}
+
+/// Lowers a Python corpus `case` through the real Python pipeline (with `ty`
+/// type resolution) and emits a full program crate into `crate_dir`.
+#[cfg(feature = "ty")]
+fn emit_python_case_crate(case: &Case, crate_dir: &Path) -> Result<(), String> {
+    let mut ctx = PyHirCtx::new();
+    py_to_hir_with_path(case.source, FileId(0), "corpus/main.py", &mut ctx)
+        .map_err(|err| format!("Python HIR lowering failed: {err:?}"))?;
     let mut mir =
         smelt_mir::lower_hir(&ctx.krate).map_err(|err| format!("MIR lowering failed: {err:?}"))?;
     smelt_mir::opt::optimize(&mut mir);
@@ -631,12 +1076,40 @@ fn corpus_emitted_rust_compiles() {
 
     let mut failures: Vec<CorpusFailure> = Vec::new();
 
+    // Optional single-case filter for local verification of one corpus entry
+    // without checking the whole corpus. Unset in CI, which runs everything.
+    let only = std::env::var("SMELT_CORPUS_ONLY").ok();
+
     for case in corpus() {
+        if let Some(only_name) = &only
+            && case.name != only_name
+        {
+            continue;
+        }
         if KNOWN_COMPILE_FAILURES.contains(&case.name) {
             continue;
         }
         let crate_dir = crates_dir.join(case.name);
         if let Err(err) = emit_case_crate(&case, &crate_dir) {
+            failures.push((case.area.to_owned(), case.name.to_owned(), err));
+            continue;
+        }
+        if let Err(err) = cargo_check(&crate_dir, &target_dir) {
+            failures.push((case.area.to_owned(), case.name.to_owned(), err));
+        }
+    }
+
+    // Python corpus (only when built with `--features ty`): annotation-free
+    // Python whose return types are resolved by `ty` (issue #93).
+    #[cfg(feature = "ty")]
+    for case in python_corpus() {
+        if let Some(only_name) = &only
+            && case.name != only_name
+        {
+            continue;
+        }
+        let crate_dir = crates_dir.join(case.name);
+        if let Err(err) = emit_python_case_crate(&case, &crate_dir) {
             failures.push((case.area.to_owned(), case.name.to_owned(), err));
             continue;
         }

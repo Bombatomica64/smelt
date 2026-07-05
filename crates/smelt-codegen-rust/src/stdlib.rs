@@ -192,10 +192,24 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
     // is present. A union-valued `Map`/dict literal is exactly such a case: the
     // dict-literal emitter erases each entry inline without materializing a
     // `Type::Unknown` in the table. Emit the carrier for unions too.
-    mir.types
-        .all()
+    // A generic class or interface emits inherent/impl blocks whose type
+    // parameters are bounded by `IntoSmeltUnknown + SmeltFromUnknown` (see
+    // `classes::class_impl_generics_text`). Those bounds reference the erasure
+    // traits, so the carrier and its traits must be emitted even when a program
+    // has no explicit `unknown`/union value of its own — otherwise the generic
+    // `impl` block names traits that were never declared.
+    mir.classes
         .iter()
-        .any(|ty| matches!(ty, Type::Unknown | Type::Never | Type::Union(_)))
+        .any(|class| !class.type_params.is_empty())
+        || mir
+            .interfaces
+            .iter()
+            .any(|interface| !interface.type_params.is_empty())
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::Unknown | Type::Never | Type::Union(_)))
         || mir.functions.iter().any(|function| {
             function.blocks.iter().any(|block| {
                 block.statements.iter().any(|statement| {

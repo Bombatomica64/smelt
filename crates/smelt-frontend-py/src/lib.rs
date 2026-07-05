@@ -374,7 +374,15 @@ pub fn to_hir_with_options(
     }
     let module_ast = parse_module(source, file_id)?;
     let specialization = lowering::specialization_for_path(path, options.specialization);
+    // Resolve Python types via `ty` (no-op unless the `ty` feature is enabled).
+    // The stem only names `ty`'s temporary module; lookups are keyed by offset.
+    let stem = Path::new(path)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("smelt_module");
+    let resolved_types = ty_resolve::ResolvedTypes::resolve(source, stem);
     let mut builder = ModuleBuilder::new(file_id, path.to_owned(), ctx, specialization);
+    builder.set_resolved_types(resolved_types);
     builder.module(&module_ast)
 }
 
@@ -390,6 +398,7 @@ pub(crate) mod helpers;
 pub(crate) mod lowering;
 #[doc(hidden)]
 pub mod test_support;
+pub(crate) mod ty_resolve;
 
 #[cfg(test)]
 mod tests;

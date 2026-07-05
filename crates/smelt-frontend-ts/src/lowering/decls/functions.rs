@@ -3,10 +3,7 @@
 
 use std::collections::HashSet;
 
-use crate::lowering::support::{
-    is_static_property_key,
-    visibility,
-};
+use crate::lowering::support::visibility;
 use crate::lowering::{
     AssertionNarrowing, GeneratorYieldAccumulator,
     ModuleBuilder, RestParam, specialization,
@@ -18,8 +15,8 @@ use oxc::ast::ast::{
 };
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, Class, Expr, ExprKind,
-    Field, Function, FunctionOwner, FunctionType, Item, LocalDecl, MethodSig, Param,
+    Body, CLASS_INDEX_STORE_FIELD, Class, Expr, ExprKind,
+    Field, Function, FunctionOwner, FunctionType, Item, Literal, LocalDecl, MethodSig, Param,
     ParamSig, Pattern, Span, Stmt, Type, Visibility,
 };
 
@@ -789,18 +786,35 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Build a deterministic synthetic name for an anonymous class expression.
+    ///
+    /// Anonymous classes have no source identifier, but the rest of the class
+    /// lowering pipeline keys every class on a name (`self.classes`, the interned
+    /// `Type::Class` symbol, field/method metadata). The class span start offset
+    /// is unique within a module, so `__smelt_anon_class_<offset>` gives a stable,
+    /// collision-free name without threading a mutable counter through lowering.
+    fn anonymous_class_name(class: &oxc::ast::ast::Class<'_>) -> String {
+        format!("__smelt_anon_class_{}", class.span.start)
+    }
+
     /// Lower a class declaration to HIR.
+    ///
+    /// Anonymous classes (`class {}` in an expression position) are named with a
+    /// deterministic synthetic identifier so they register like a declared class
+    /// and can be referenced as a class value; see [`Self::anonymous_class_name`].
     pub(in crate::lowering) fn class_declaration(
         &mut self,
         class: &oxc::ast::ast::Class<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let id = class.id.as_ref().ok_or_else(|| {
-            SmeltError::unsupported(
-                self.span(class.span.start, class.span.end),
-                "anonymous classes are not lowered yet",
-            )
-        })?;
-        let class_text = id.name.as_str();
+        // Named classes use their source identifier; anonymous class expressions
+        // fall back to a synthetic name so the class still registers and can be
+        // referenced as a value. The name is owned here and borrowed as
+        // `class_text` for the rest of lowering.
+        let class_name_owned = class.id.as_ref().map_or_else(
+            || Self::anonymous_class_name(class),
+            |id| id.name.to_string(),
+        );
+        let class_text = class_name_owned.as_str();
         let class_span = self.span(class.span.start, class.span.end);
         let materialized = self.materialized_class(class_text).cloned();
         if !class.decorators.is_empty() && materialized.is_none() {
@@ -836,8 +850,16 @@ impl ModuleBuilder<'_> {
         let mut field_initializers = Vec::new();
         let mut constructor = None;
         let mut methods = Vec::new();
+        let mut static_methods = Vec::new();
+        // Static class constants declared directly in source (`static NAME =
+        // <literal>`), as opposed to `static_fields` merged from specialization.
+        let mut source_static_fields: Vec<smelt_hir::StaticField> = Vec::new();
         let mut abstract_methods = Vec::new();
         let mut descriptor_accessors = Vec::new();
+        // Value type declared by a class string/number index signature, if any.
+        // Recorded from the `TSIndexSignature` element below and published to the
+        // index-value maps after the class is fully lowered.
+        let mut class_index_value_ty = None;
 
         for element in &class.body.body {
             match element {
@@ -848,7 +870,7 @@ impl ModuleBuilder<'_> {
                             class_text,
                         ));
                     }
-                    if property.computed && !is_static_property_key(&property.key) {
+                    if property.computed && !self.is_resolvable_property_key(&property.key) {
                         return Err(SmeltError::unsupported(
                             self.span(property.span.start, property.span.end),
                             "dynamic computed property names are not lowered yet",
@@ -858,9 +880,17 @@ impl ModuleBuilder<'_> {
                         if materialized.is_some() {
                             continue;
                         }
+                        // A `static NAME: T = <literal>` declares a class-level
+                        // constant resolvable via `Class.NAME`. Lower it to a
+                        // materialized static field (issue #98). Non-literal or
+                        // untyped static initializers are not yet lowered.
+                        if let Some(static_field) = self.class_static_field(property)? {
+                            source_static_fields.push(static_field);
+                            continue;
+                        }
                         return Err(SmeltError::unsupported(
                             self.span(property.span.start, property.span.end),
-                            "static fields are not lowered yet",
+                            "static fields require a concrete literal initializer",
                         ));
                     }
                     let name = self.property_key_symbol(&property.key)?;
@@ -914,7 +944,7 @@ impl ModuleBuilder<'_> {
                             class_text,
                         ));
                     }
-                    if method.computed && !is_static_property_key(&method.key) {
+                    if method.computed && !self.is_resolvable_property_key(&method.key) {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
                             "dynamic computed method names are not lowered yet",
@@ -924,9 +954,12 @@ impl ModuleBuilder<'_> {
                         if materialized.is_some() {
                             continue;
                         }
+                        // Static getters need associated-accessor lowering that
+                        // is not implemented yet; static *methods* are handled in
+                        // the method-lowering pass below.
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
-                            "static methods are not lowered yet",
+                            "static accessors are not lowered yet",
                         ));
                     }
                     let name = self.property_key_symbol(&method.key)?;
@@ -944,6 +977,21 @@ impl ModuleBuilder<'_> {
                         optional: false,
                         span: self.span(method.span.start, method.span.end),
                     });
+                }
+                ClassElement::TSIndexSignature(sig) => {
+                    // A class string/number index signature `[key: string]: T`
+                    // (or `[key: number]: T`) declares a keyed store whose value
+                    // type is the statically known `T`. Record `T` here (in the
+                    // field-collection pass, before the index-value maps are
+                    // published below) so member and computed access can fall
+                    // back to it when no declared named field or method matches.
+                    // Declared named fields are collected separately and keep
+                    // their concrete types; the index value is only the
+                    // dynamic-keyed fallback shape, never a replacement for named
+                    // members.
+                    let value_ty =
+                        self.ts_type_to_hir(&sig.type_annotation.type_annotation)?;
+                    class_index_value_ty = Some(value_ty);
                 }
                 _ => {}
             }
@@ -985,19 +1033,80 @@ impl ModuleBuilder<'_> {
                 });
             }
         }
-        let static_fields = materialized
+        let mut static_fields = materialized
             .as_ref()
             .map_or_else(Vec::new, |materialized_class| {
                 self.merge_materialized_class_members(materialized_class, &mut fields, class_span)
             });
+        // Source-declared `static NAME = <literal>` constants extend the
+        // materialized set; a materialized value takes precedence when a member
+        // is named by both, so only append source statics not already present.
+        for static_field in source_static_fields {
+            if !static_fields
+                .iter()
+                .any(|existing| existing.name == static_field.name)
+            {
+                static_fields.push(static_field);
+            }
+        }
         let method_sigs = self.class_method_signatures(&class.body.body)?;
         let virtual_method_fields =
             self.virtual_method_field_names(&class.body.body, class.r#abstract);
         self.add_virtual_class_method_fields(&mut fields, &method_sigs, &virtual_method_fields);
+        // Runtime keyed store for a class index signature (issue #84 / #18).
+        //
+        // A class declaring `[key: string]: T` (or `[key: number]: T`) needs a
+        // real backing store so dynamic keyed writes round-trip at runtime:
+        // `x[k] = v; x[k]` must return `v`, and a missing key must read as
+        // `undefined`. The store is a synthesized private `Record<string, T>`
+        // field that sits ALONGSIDE the declared named fields (which stay
+        // concrete). It is added to the class field list here, so it flows
+        // through MIR, struct emission, the `Default`/`Clone` derives, and the
+        // constructor's default struct literal automatically; codegen only has
+        // to route keyed access to it. The field is `Private` so it is excluded
+        // from erased object projection. Number-keyed signatures still use a
+        // string-keyed store because JavaScript object property keys are strings.
+        //
+        // Value type `T` stays concrete (`string`, `number`, a class, ...). A
+        // union index value type (`[key: string]: string | number`) is subject
+        // to the SAME pre-existing limitation as a plain union-typed class field:
+        // the generated union enum lacks `Debug`/`Default`, so a struct storing
+        // it does not derive them. That is an orthogonal codegen gap tracked
+        // separately, not specific to the index store.
+        if let Some(value_ty) = class_index_value_ty {
+            let store_name = self.intern_source_name(CLASS_INDEX_STORE_FIELD);
+            let key_ty = self.ctx.krate.types.intern(Type::String);
+            let store_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+            if !fields.iter().any(|field| field.name == store_name) {
+                fields.push(Field {
+                    name: store_name,
+                    ty: store_ty,
+                    visibility: Visibility::Private,
+                    optional: false,
+                    span: class_span,
+                });
+            }
+        }
         self.class_fields
             .insert(class_text.to_owned(), fields.clone());
         self.class_methods
             .insert(class_text.to_owned(), method_sigs.clone());
+        // Publish the class index-signature value type (if any) so member and
+        // computed access can resolve keyed reads/writes through it while the
+        // class's own method bodies are still being lowered, and so later
+        // modules see it too. Named fields resolve first; this is the fallback.
+        //
+        // This drives the *type* level of the index signature (issue #84): the
+        // statically known value type `T` types keyed reads as `Optional<T>`
+        // (missing key -> undefined) and undeclared member reads as `T`, while
+        // declared named fields keep their concrete types. The matching runtime
+        // keyed *store* — the synthesized `__smelt_index_store` field added above
+        // — makes dynamic writes round-trip: codegen routes `x[k] = v` to
+        // `x.__smelt_index_store.insert(k, v)` and `x[k]` to a store lookup.
+        if let Some(value_ty) = class_index_value_ty {
+            self.class_index_values.insert(class_name, value_ty);
+            self.ctx.class_index_values.insert(class_name, value_ty);
+        }
         self.add_overridden_base_method_fields(base, &method_sigs);
 
         for element in &class.body.body {
@@ -1019,7 +1128,7 @@ impl ModuleBuilder<'_> {
                             "getters and setters are not lowered yet",
                         ));
                     }
-                    if method.computed && !is_static_property_key(&method.key) {
+                    if method.computed && !self.is_resolvable_property_key(&method.key) {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
                             "dynamic computed method names are not lowered yet",
@@ -1029,10 +1138,22 @@ impl ModuleBuilder<'_> {
                         if materialized.is_some() {
                             continue;
                         }
-                        return Err(SmeltError::unsupported(
-                            self.span(method.span.start, method.span.end),
-                            "static methods are not lowered yet",
-                        ));
+                        // Only plain `static foo(..)` methods are lowered as
+                        // receiver-free associated functions (issue #98). Static
+                        // getters/setters and computed static keys are deferred.
+                        if method.kind != MethodDefinitionKind::Method {
+                            return Err(SmeltError::unsupported(
+                                self.span(method.span.start, method.span.end),
+                                "static accessors are not lowered yet",
+                            ));
+                        }
+                        let item = self.class_static_function(
+                            class_text,
+                            class_name,
+                            method,
+                        )?;
+                        static_methods.push(item);
+                        continue;
                     }
                     if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition {
                         if !matches!(method.kind, MethodDefinitionKind::Method) {
@@ -1119,11 +1240,11 @@ impl ModuleBuilder<'_> {
                         "static blocks are not lowered yet",
                     ));
                 }
-                ClassElement::TSIndexSignature(sig) => {
-                    return Err(SmeltError::unsupported(
-                        self.span(sig.span.start, sig.span.end),
-                        "class index signatures are not lowered yet",
-                    ));
+                ClassElement::TSIndexSignature(_) => {
+                    // The class index signature's value type is collected in the
+                    // field-collection pass above and published to the
+                    // index-value maps; nothing further is emitted for the
+                    // signature member itself here.
                 }
             }
         }
@@ -1254,6 +1375,7 @@ impl ModuleBuilder<'_> {
             descriptors,
             constructor,
             methods,
+            static_methods,
             abstract_methods,
             implements,
         }));
@@ -1261,6 +1383,40 @@ impl ModuleBuilder<'_> {
         self.classes.insert(class_text.to_owned(), item);
         self.validate_implements(item)?;
         Ok(item)
+    }
+
+    /// Lower a class *expression* used in value position into a class value.
+    ///
+    /// A class expression (`class Foo {}` or anonymous `class {}` used as an
+    /// operand, e.g. an array element `[class {}]`) evaluates to the class
+    /// constructor. We lower it through the same [`Self::class_declaration`]
+    /// pipeline so the class is registered (fields, methods, constructor, and a
+    /// `Type::Class` symbol) exactly like a declared class, then materialize the
+    /// class value the same way a bare class-name identifier does in
+    /// `identifier_expression`: a `Literal::None` placeholder typed as the class
+    /// so downstream code carries the class identity through the type.
+    pub(in crate::lowering) fn class_expression_value(
+        &mut self,
+        class: &oxc::ast::ast::Class<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let item = self.class_declaration(class)?;
+        let Item::Class(lowered) = self.item_ref(item) else {
+            return Err(SmeltError::unsupported(
+                self.span(class.span.start, class.span.end),
+                "class expression did not lower to a class item",
+            ));
+        };
+        let name = lowered.name;
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty,
+            span: self.span(class.span.start, class.span.end),
+        }))
     }
 
     /// Collect class method signatures before lowering method bodies.
@@ -1854,6 +2010,93 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a class method or constructor to HIR.
+    /// Lower a `static NAME: T = <literal>` class field to a static field.
+    ///
+    /// Returns `None` when the initializer is missing or is not a concrete
+    /// literal, so the caller can reject unsupported static-field forms. The
+    /// field's type comes from the annotation when present, otherwise it is
+    /// inferred from the literal. It is resolvable via `Class.NAME` and lowers to
+    /// a receiver-free associated accessor in Rust codegen.
+    pub(in crate::lowering) fn class_static_field(
+        &mut self,
+        property: &oxc::ast::ast::PropertyDefinition<'_>,
+    ) -> Result<Option<smelt_hir::StaticField>, SmeltError> {
+        let name = self.property_key_symbol(&property.key)?;
+        let Some(value_expr) = &property.value else {
+            return Ok(None);
+        };
+        // The field type is taken from the materialized literal so the emitted
+        // accessor return type always matches the concrete value's Rust type.
+        let Some((literal, ty)) = self.static_field_literal(value_expr)? else {
+            return Ok(None);
+        };
+        let visibility = if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
+            Visibility::Private
+        } else {
+            visibility(property.accessibility)
+        };
+        Ok(Some(smelt_hir::StaticField {
+            name,
+            ty,
+            visibility,
+            value: Some(literal),
+            span: self.span(property.span.start, property.span.end),
+        }))
+    }
+
+    /// Convert a static-field initializer expression to a concrete literal and
+    /// its inferred type.
+    ///
+    /// Numeric literals lower to `Float`, mirroring JavaScript's single `number`
+    /// type (TypeScript has no `int` spelling), so an annotated `number` static
+    /// and its value agree. Returns `None` when the expression is not a
+    /// supported literal form.
+    fn static_field_literal(
+        &mut self,
+        expr: &Expression<'_>,
+    ) -> Result<Option<(Literal, smelt_hir::TypeId)>, SmeltError> {
+        let pair = match expr {
+            Expression::StringLiteral(literal) => (
+                Literal::String(literal.value.to_string()),
+                self.ctx.krate.types.intern(Type::String),
+            ),
+            Expression::BooleanLiteral(literal) => (
+                Literal::Bool(literal.value),
+                self.ctx.krate.types.intern(Type::Bool),
+            ),
+            Expression::NumericLiteral(literal) => (
+                Literal::Float(literal.value),
+                self.ctx.krate.types.intern(Type::Float),
+            ),
+            _ => return Ok(None),
+        };
+        Ok(Some(pair))
+    }
+
+    /// Lower a `static foo(..)` class method to a receiver-free HIR function.
+    ///
+    /// This is the static counterpart to [`Self::class_function`]: the resulting
+    /// function has no `this` parameter and is owned by
+    /// [`FunctionOwner::ClassStaticMethod`], so codegen emits an associated
+    /// function `Class::foo(..)` resolvable via qualified access `Class.foo(..)`.
+    pub(in crate::lowering) fn class_static_function(
+        &mut self,
+        class_text: &str,
+        class_name: smelt_hir::Symbol,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let class_ty = self.ctx.krate.types.intern(Type::Class {
+            name: class_name,
+            args: Vec::new(),
+        });
+        self.class_function_impl(class_text, class_name, class_ty, method, false, true, &[])
+    }
+
+    /// Lower an instance method or constructor of a class to a HIR function.
+    ///
+    /// Non-constructor methods take an implicit leading `this` receiver;
+    /// constructors run field and parameter-property initializers. Static
+    /// methods use [`Self::class_static_function`] instead.
     pub(in crate::lowering) fn class_function(
         &mut self,
         class_text: &str,
@@ -1861,6 +2104,34 @@ impl ModuleBuilder<'_> {
         class_ty: smelt_hir::TypeId,
         method: &oxc::ast::ast::MethodDefinition<'_>,
         is_constructor: bool,
+        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.class_function_impl(
+            class_text,
+            class_name,
+            class_ty,
+            method,
+            is_constructor,
+            false,
+            field_initializers,
+        )
+    }
+
+    /// Shared implementation for instance, constructor, and static class
+    /// functions. `is_static` suppresses the implicit `this` receiver and routes
+    /// ownership to [`FunctionOwner::ClassStaticMethod`].
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "class function lowering threads the receiver/constructor flags through one shared body"
+    )]
+    fn class_function_impl(
+        &mut self,
+        class_text: &str,
+        class_name: smelt_hir::Symbol,
+        class_ty: smelt_hir::TypeId,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+        is_constructor: bool,
+        is_static: bool,
         field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &method.value.body else {
@@ -1946,15 +2217,20 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span: self.span(method.span.start, method.span.start),
         });
-        self.locals.insert("this".to_owned(), this_local);
-        if !is_constructor {
-            body.params.push(this_local);
-            params.push(Param {
-                name: this_symbol,
-                local: this_local,
-                ty: class_ty,
-                span: self.span(method.span.start, method.span.start),
-            });
+        // A static method has no `this` receiver: it must not bind `this` and
+        // must not carry a receiver parameter, so it lowers to a receiver-free
+        // associated function.
+        if !is_static {
+            self.locals.insert("this".to_owned(), this_local);
+            if !is_constructor {
+                body.params.push(this_local);
+                params.push(Param {
+                    name: this_symbol,
+                    local: this_local,
+                    ty: class_ty,
+                    span: self.span(method.span.start, method.span.start),
+                });
+            }
         }
 
         let mut destructured_params = Vec::new();
@@ -2080,6 +2356,11 @@ impl ModuleBuilder<'_> {
             body: Some(body_id),
             owner: if is_constructor {
                 FunctionOwner::Constructor { class: class_name }
+            } else if is_static {
+                FunctionOwner::ClassStaticMethod {
+                    class: class_name,
+                    method: method_name,
+                }
             } else {
                 FunctionOwner::ClassMethod {
                     class: class_name,

@@ -425,6 +425,7 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("call references an unknown function"))?;
                 if let HirOrigin::ClassConstructor { class, .. } = function.origin {
                     let class_name = sanitize_ident(self.symbol_name(class)?);
+                    let class_type_params = self.callee_class_type_params(function);
                     let mut rendered_args = args
                         .iter()
                         .enumerate()
@@ -433,7 +434,12 @@ impl FunctionEmitter<'_> {
                                 return self.operand_text(arg);
                             };
                             let target_ty = self.function_local_decl(function, param)?.ty;
-                            self.value_at_type(arg, target_ty)
+                            self.callee_generic_argument_text(
+                                arg,
+                                function,
+                                target_ty,
+                                &class_type_params,
+                            )
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                     for param in function.params.iter().skip(args.len()) {
@@ -486,6 +492,7 @@ impl FunctionEmitter<'_> {
                         };
                         return self.list_concat_text(receiver, first_rest);
                     }
+                    let class_type_params = self.callee_class_type_params(function);
                     let arg_values = rest
                         .iter()
                         .enumerate()
@@ -497,7 +504,12 @@ impl FunctionEmitter<'_> {
                                 return self.operand_text(arg);
                             };
                             let target_ty = self.function_local_decl(function, param)?.ty;
-                            self.value_at_type(arg, target_ty)
+                            self.callee_generic_argument_text(
+                                arg,
+                                function,
+                                target_ty,
+                                &class_type_params,
+                            )
                         })
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
@@ -512,6 +524,34 @@ impl FunctionEmitter<'_> {
                             self.throwing_call_suffix(function)
                         ))
                     };
+                }
+                if let HirOrigin::ClassStaticMethod { class, method, .. } = function.origin {
+                    // `Class.staticMethod(args)` lowers to the receiver-free
+                    // associated function `Class::staticMethod(args)`. Arguments
+                    // are coerced to the emitted parameter types like any other
+                    // static call, and missing trailing parameters default.
+                    let class_name = sanitize_ident(self.symbol_name(class)?);
+                    let method_name = sanitize_ident(self.symbol_name(method)?);
+                    let mut rendered_args = args
+                        .iter()
+                        .enumerate()
+                        .map(|(index, arg)| {
+                            let Some(param) = function.params.get(index).copied() else {
+                                return self.operand_text(arg);
+                            };
+                            let target_ty = self.function_local_decl(function, param)?.ty;
+                            self.value_at_type(arg, target_ty)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    for param in function.params.iter().skip(args.len()) {
+                        let target_ty = self.function_local_decl(function, *param)?.ty;
+                        rendered_args.push(self.default_value(target_ty)?);
+                    }
+                    let arg_values = rendered_args.join(", ");
+                    return Ok(format!(
+                        "{class_name}::{method_name}({arg_values}){}",
+                        self.throwing_call_suffix(function)
+                    ));
                 }
                 let rust_function_name = self.function_rust_name(function)?;
                 let emitted_params = self.emitted_function_param_types(&rust_function_name)?;
@@ -727,6 +767,81 @@ impl FunctionEmitter<'_> {
             .map(|rendered_args| rendered_args.join(", "))
     }
 
+    /// Return the generic type parameters declared by the class that owns
+    /// `function`, when `function` is a class method or constructor.
+    ///
+    /// Methods and constructors of a generic class are emitted inside an
+    /// `impl<T> Class<T>` block, so their signatures reference the class type
+    /// parameters `T` directly. Callers use this to detect arguments whose
+    /// target parameter is one of those class-level type parameters.
+    fn callee_class_type_params(&self, function: &MirFunction) -> HashSet<Symbol> {
+        let class_name = match function.origin {
+            HirOrigin::ClassConstructor { class, .. } | HirOrigin::ClassMethod { class, .. } => {
+                class
+            }
+            // Static methods are emitted as receiver-free associated functions and
+            // do not participate in the receiver's generic instantiation (static
+            // members on generic classes are deferred, see #98), so they carry no
+            // class type parameters relevant to argument pass-through here.
+            HirOrigin::Body(_) | HirOrigin::ClassStaticMethod { .. } => return HashSet::new(),
+        };
+        self.mir
+            .classes
+            .iter()
+            .find(|class| class.name == class_name)
+            .map(|class| class.type_params.iter().map(|param| param.name).collect())
+            .unwrap_or_default()
+    }
+
+    /// Return whether `function`'s declared return type is a generic type
+    /// parameter of the class that owns it.
+    ///
+    /// Used to detect method calls such as `Box<number>::get(): T`, whose result
+    /// is the receiver's concrete class argument at the call site rather than an
+    /// erased `SmeltUnknown`. Nested shapes built from the parameter (for example
+    /// `T[]`) are intentionally excluded here; only a bare `TypeParam` return is
+    /// handled, matching the argument pass-through rule and keeping the concrete
+    /// increment narrow and correct.
+    fn method_returns_class_type_param(&self, function: &MirFunction) -> bool {
+        matches!(
+            self.mir.types.get(function.return_ty),
+            Some(Type::TypeParam { name }) if self.callee_class_type_params(function).contains(name)
+        )
+    }
+
+    /// Render a constructor or method argument against a callee parameter type,
+    /// keeping the value concrete when the parameter is one of the callee
+    /// class's own generic type parameters.
+    ///
+    /// A call such as `new Box<number>(3)` monomorphizes the emitted
+    /// `impl<T> Box<T>` to `Box<f64>`, so the constructor parameter `value: T`
+    /// resolves to `f64` at this site. Coercing the argument against the bare
+    /// `TypeParam` target would erase it to `SmeltUnknown` (the calling function
+    /// has no `T` in scope), producing a type mismatch against the generic
+    /// parameter. Instead the argument is passed through at its own concrete
+    /// type and Rust infers the class type argument from the value, which is the
+    /// point of emitting real generics rather than erasing them.
+    fn callee_generic_argument_text(
+        &self,
+        arg: &Operand,
+        function: &MirFunction,
+        target_ty: TypeId,
+        class_type_params: &HashSet<Symbol>,
+    ) -> Result<String, EmitError> {
+        if let Some(Type::TypeParam { name }) = self.mir.types.get(target_ty)
+            && class_type_params.contains(name)
+        {
+            let source_ty = self.operand_ty(arg)?;
+            // A `TypeParam` source is already the class generic itself (e.g. one
+            // generic method forwarding to another); pass it straight through.
+            // Any concrete source is bound to the class type argument by Rust
+            // inference, so rendering it at its own type keeps it concrete.
+            let _ = function;
+            return self.value_at_type(arg, source_ty);
+        }
+        self.value_at_type(arg, target_ty)
+    }
+
     /// Emits an optional first-class function call as an optional return value.
     fn optional_indirect_call_text_for_dest(
         &self,
@@ -828,6 +943,18 @@ impl FunctionEmitter<'_> {
                     .get(id_index(func.0, "function index does not fit usize")?)
                     .ok_or_else(|| EmitError::new("call references an unknown function"))?;
                 if matches!(function.origin, HirOrigin::ClassConstructor { .. }) {
+                    dest_ty
+                } else if matches!(function.origin, HirOrigin::ClassMethod { .. })
+                    && self.method_returns_class_type_param(function)
+                {
+                    // A method of a generic class whose declared return type is
+                    // one of the class type parameters (e.g. `get(): T`) returns
+                    // the receiver's concrete instantiation at this call site
+                    // (`Box<f64>::get` yields `f64`). The dest local already
+                    // carries that substituted type from the frontend, so use it
+                    // as the source type: the call value is concrete and needs no
+                    // `SmeltUnknown` extraction. Erasing here would emit an
+                    // extraction match against a value that is not `SmeltUnknown`.
                     dest_ty
                 } else if function.is_async {
                     self.type_id(Type::Future(function.return_ty))?

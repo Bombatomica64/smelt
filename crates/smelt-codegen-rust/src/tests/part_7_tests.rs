@@ -62,6 +62,73 @@ function read(value: Left | Right): string {
     assert!(source.contains("matches!(value.clone(), SmeltUnion"), "{source}");
 }
 
+/// Issue #84: a class string index signature `[key: string]: T` emits Rust that
+/// compiles and carries a real runtime keyed store. A pure-index class
+/// (`StringBag`) exposes keyed access whose value type drives an honest
+/// `Option<T>` read; a mixed class (`MixedBag`) keeps its declared named field
+/// concretely typed (`size: f64`) alongside the index signature. The index
+/// signature's value type stays concrete, never erased to `SmeltUnknown`.
+///
+/// The backing store is a synthesized private `__smelt_index_store` field: a
+/// keyed write inserts into it and a keyed read looks it up, so `x[k] = v; x[k]`
+/// round-trips at runtime (asserted end-to-end by the CLI integration test
+/// `build_round_trips_class_index_signature_keyed_store`).
+#[test]
+fn emits_class_index_signature_named_fields_and_keyed_store() {
+    let source = source_for(
+        r#"
+class StringBag {
+  [key: string]: string;
+}
+
+class MixedBag {
+  size: number = 0;
+  [key: string]: number;
+}
+
+export function readBag(bag: StringBag, key: string): string | undefined {
+  return bag[key];
+}
+
+export function writeBag(bag: StringBag, key: string, value: string): void {
+  bag[key] = value;
+}
+
+export function mixedSize(bag: MixedBag): number {
+  return bag.size;
+}
+"#,
+    );
+
+    // Both classes emit concrete Rust structs.
+    assert!(source.contains("struct StringBag"), "{source}");
+    assert!(source.contains("struct MixedBag"), "{source}");
+    // The mixed class keeps its named field concretely typed.
+    assert!(source.contains("size: f64"), "{source}");
+    // Each index-signature class carries the synthesized backing store field.
+    assert!(source.contains("__smelt_index_store"), "{source}");
+    // The keyed read is the honest `Option<String>`, not an erased value.
+    assert!(
+        source.contains("fn read_bag") && source.contains("-> Option<String>"),
+        "{source}"
+    );
+    // The keyed read routes to the store lookup.
+    assert!(
+        source.contains(".__smelt_index_store.get(&"),
+        "{source}"
+    );
+    // The keyed write routes to a store insert so it round-trips.
+    assert!(
+        source.contains(".__smelt_index_store.insert("),
+        "{source}"
+    );
+    // Named-field access on the mixed class stays a concrete `f64` field read.
+    assert!(
+        source.contains("fn mixed_size") && source.contains("-> f64"),
+        "{source}"
+    );
+}
+
 #[test]
 fn injects_url_dependency_for_url_mapping() {
     let manifest = deps::cargo_toml(
@@ -5873,4 +5940,271 @@ function opt(record: Record<string, unknown>): boolean | number {
         source.contains("::from_smelt_unknown("),
         "an erased value flowing into a concrete-union sink must be reconstructed: {source}"
     );
+}
+
+#[test]
+fn lowers_function_expression_array_callback() {
+    // A `function (...) { ... }` expression callback (issue #86) must lower into
+    // the array method's callback closure just like the equivalent arrow, rather
+    // than being rejected with "array callback methods currently require arrow
+    // function callbacks". `source_for` panics on any blocker, so reaching
+    // codegen proves the non-arrow form was accepted.
+    let source = source_for(
+        r#"
+function increment(values: number[]): number[] {
+  return values.map(function (value) {
+    return value + 1;
+  });
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+}
+
+#[test]
+fn falls_back_to_closure_body_for_function_expression_callback() {
+    // A `function`-expression callback whose body uses a statement form the
+    // compact callback IR cannot represent (here `try`/`catch`) must retry
+    // through full closure-body lowering, exactly as the arrow form does. Before
+    // issue #86 the closure-body fallback was gated on the argument being an
+    // arrow, so this rejected the file.
+    let source = source_for(
+        r#"
+function run(values: string[]): Array<string | undefined> {
+  return values.map(function (value) {
+    try {
+      return value;
+    } catch (error) {
+      return undefined;
+    }
+  });
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+}
+
+#[test]
+fn lowers_named_function_item_array_callback() {
+    // A bare identifier naming a module-level function item (`values.map(square)`)
+    // must lower into the callback closure by calling the function by name, with
+    // its typed signature preserved (issue #86).
+    let source = source_for(
+        r#"
+function square(value: number): number {
+  return value * value;
+}
+
+function squares(values: number[]): number[] {
+  return values.map(square);
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+    assert!(source.contains("square"), "{source}");
+}
+
+#[test]
+fn lowers_local_function_variable_array_callback() {
+    // A local/parameter binding whose static type is a `Type::Function`, handed
+    // to an array method by name (`values.map(transform)`), must lower into the
+    // callback closure by calling the captured local (issue #86).
+    let source = source_for(
+        r#"
+function scale(values: number[]): number[] {
+  const transform = (value: number): number => value * 3;
+  return values.map(transform);
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+}
+
+#[test]
+fn lowers_asserted_identifier_array_callback() {
+    // A named callback wrapped in an erased TypeScript assertion
+    // (`values.map(square as (value: number) => number)`) must resolve through
+    // the same named-reference path as the unwrapped form, so the assertion is
+    // transparent instead of hitting the arrow-only gate (issue #86).
+    let source = source_for(
+        r#"
+function square(value: number): number {
+  return value * value;
+}
+
+function squares(values: number[]): number[] {
+  return values.map(square as (value: number) => number);
+}
+"#,
+    );
+
+    assert!(source.contains(".map("), "{source}");
+    assert!(source.contains("square"), "{source}");
+}
+
+#[test]
+fn lowers_optional_class_field_to_option_with_explicit_construction() {
+    // An optional TypeScript class field (`y?: number`) must lower to a concrete
+    // `Option<f64>` struct slot. Construction that supplies the field passes
+    // `Some(..)`; construction that omits it passes `None::<f64>`, mirroring how
+    // optional interface fields already lower. The named non-optional field
+    // (`x: number`) stays concrete `f64` with no `Option` wrapper.
+    let source = source_for(
+        r#"
+class Point {
+  x: number;
+  y?: number;
+  constructor(x: number, y?: number) {
+    this.x = x;
+    this.y = y;
+  }
+  total(): number {
+    return this.x + (this.y ?? 0);
+  }
+}
+
+function make(): number {
+  const a = new Point(1, 2);
+  const b = new Point(3);
+  return a.total() + b.total();
+}
+"#,
+    );
+
+    assert!(source.contains("struct Point"), "{source}");
+    assert!(source.contains("x: f64,"), "{source}");
+    assert!(source.contains("y: Option<f64>,"), "{source}");
+    // Construction with the field present wraps the value in `Some(..)`.
+    assert!(source.contains("Point::new(1.0, Some(2.0))"), "{source}");
+    // Construction that omits the trailing optional field supplies a typed `None`.
+    assert!(source.contains("Point::new(3.0, None::<f64>)"), "{source}");
+    // Reading the field through `??` consumes the `Option<f64>` directly.
+    assert!(source.contains("unwrap_or(0.0)"), "{source}");
+}
+
+#[test]
+fn lowers_optional_dataclass_field_to_option_with_explicit_construction() {
+    // A Python dataclass field annotated `Optional[int]` (with a `None` default)
+    // must lower to a concrete `Option<i64>` struct slot, and construction that
+    // omits the field must synthesize the typed `None` default while a present
+    // argument is wrapped as `Some(..)`. The required `int` field stays concrete.
+    let source = source_for_py(
+        r#"
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class Point:
+    x: int
+    y: Optional[int] = None
+
+
+def make() -> Optional[int]:
+    a = Point(1, 2)
+    b = Point(3)
+    return a.y
+"#,
+    );
+
+    assert!(source.contains("struct Point"), "{source}");
+    assert!(source.contains("x: i64,"), "{source}");
+    assert!(source.contains("y: Option<i64>,"), "{source}");
+    assert!(source.contains("Point::new(1, Some(2))"), "{source}");
+    assert!(source.contains("Point::new(3, None::<i64>)"), "{source}");
+    // Reading the optional field yields the `Option<i64>` value unchanged.
+    assert!(source.contains("a.y.clone()"), "{source}");
+}
+
+/// Issue #98: a TypeScript `static` method lowers to a receiver-free associated
+/// function and a qualified static call resolves to `Class::method(..)`.
+#[test]
+fn emits_typescript_static_method_as_associated_function() {
+    let source = source_for(
+        r#"
+class MathUtils {
+  static square(value: number): number {
+    return value * value;
+  }
+}
+export function area(radius: number): number {
+  return MathUtils.square(radius);
+}
+"#,
+    );
+
+    // The static method is emitted inside the class impl with no `self`.
+    assert!(source.contains("fn square(value: f64) -> f64"), "{source}");
+    assert!(
+        !source.contains("fn square(&self") && !source.contains("fn square(&mut self"),
+        "static method must not take a receiver: {source}"
+    );
+    // The qualified call resolves to the associated function.
+    assert!(source.contains("MathUtils::square("), "{source}");
+}
+
+/// Issue #98: a TypeScript `static` class constant lowers to a materialized
+/// static field and a qualified read resolves to its concrete literal value.
+#[test]
+fn emits_typescript_static_const_read() {
+    let source = source_for(
+        r#"
+class Config {
+  static readonly LIMIT: number = 42;
+  static readonly NAME: string = "smelt";
+}
+export function limit(): number {
+  return Config.LIMIT;
+}
+export function label(): string {
+  return Config.NAME;
+}
+"#,
+    );
+
+    // Static constants become receiver-free associated accessors.
+    assert!(
+        source.contains("fn __smelt_static_limit() -> f64"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn __smelt_static_name() -> String"),
+        "{source}"
+    );
+    // Qualified reads resolve to the concrete literal values.
+    assert!(source.contains("return 42"), "{source}");
+    assert!(source.contains(r#""smelt".to_owned()"#), "{source}");
+}
+
+/// Issue #98: a Python `@staticmethod` lowers to a receiver-free associated
+/// function and a class-level variable lowers to a static field read.
+#[test]
+fn emits_python_static_method_and_class_var() {
+    let source = source_for_py(
+        r#"
+class MathUtils:
+    PI = 3
+
+    @staticmethod
+    def square(value: float) -> float:
+        return value * value
+
+def area(radius: float) -> float:
+    return MathUtils.square(radius) * MathUtils.PI
+"#,
+    );
+
+    assert!(source.contains("fn square(value: f64) -> f64"), "{source}");
+    assert!(
+        !source.contains("fn square(&self") && !source.contains("fn square(&mut self"),
+        "static method must not take a receiver: {source}"
+    );
+    assert!(source.contains("MathUtils::square("), "{source}");
+    // The class variable `PI = 3` reads back as its concrete integer literal.
+    assert!(source.contains("fn __smelt_static_PI"), "{source}");
+    assert!(source.contains(" 3"), "{source}");
 }

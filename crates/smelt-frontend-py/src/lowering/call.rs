@@ -23,6 +23,9 @@ impl ModuleBuilder<'_> {
         if let Some(error) = self.unsupported_deferred_stdlib_call(call) {
             return Err(error);
         }
+        if let Some(expr) = self.cls_receiver_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.protocol_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -59,6 +62,9 @@ impl ModuleBuilder<'_> {
             return Ok(Some(expr));
         }
         if let Some(expr) = self.int_new_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.class_static_method_call_expression(call, body)? {
             return Ok(Some(expr));
         }
         if let Some(expr) = self.class_method_call_expression(call, body)? {
@@ -516,12 +522,20 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         }
+        // Positional arguments are lowered with the corresponding parameter
+        // type as an expected-type hint. This is what lets a `lambda` argument
+        // recover its parameter/return types from a `Callable[...]` parameter
+        // (a bare lambda has no annotations of its own); it is otherwise inert
+        // because the argument type is re-checked against the parameter below.
         let mut args = call
             .arguments
             .args
             .iter()
             .take(packed_param_start)
-            .map(|arg| self.expression(arg, body))
+            .enumerate()
+            .map(|(index, arg)| {
+                self.expression_with_hint(arg, body, signature.params.get(index).copied())
+            })
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..packed_param_start {
             let Some(default) = signature.defaults.get(index).and_then(|default| *default) else {
@@ -637,9 +651,20 @@ impl ModuleBuilder<'_> {
 
     /// Lower calls to statically-known Python protocol/class methods.
     ///
-    /// The dispatch remains intentionally static: the receiver's HIR type must
-    /// be a known class and the method must be declared on that class.  `str(x)`
-    /// is mapped to `x.__str__()` for class values that provide `__str__`.
+    /// The receiver's HIR type must be a known class and the method must be
+    /// declared on that class. Dispatch stays static and mirrors Python method
+    /// binding:
+    ///
+    /// * instance methods lower to [`ExprKind::Method`] (`receiver.method(..)`);
+    /// * `@classmethod` / `@staticmethod` members lower to a receiver-free
+    ///   associated call [`ExprKind::Call`] (`Class::method(..)`), because the
+    ///   implicit `cls` (or no receiver) is erased in the lowered signature.
+    ///
+    /// Because Python's `cls`/`self`/instance bindings all carry the same
+    /// `Type::Class` HIR type, whether the method dispatches receiver-free is
+    /// decided by the *method kind* (looked up in the classmethod/staticmethod
+    /// registries), not by the receiver expression. `str(x)` is mapped to
+    /// `x.__str__()` for class values that provide `__str__`.
     fn protocol_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,
@@ -651,7 +676,10 @@ impl ModuleBuilder<'_> {
             && call.arguments.keywords.is_empty()
         {
             let receiver = self.expression(&call.arguments.args[0], body)?;
-            if self.class_has_method(Self::expr_ty(body, receiver), "__str__") {
+            if self
+                .class_method_dispatch(Self::expr_ty(body, receiver), "__str__")
+                .is_some()
+            {
                 return self
                     .protocol_method_expr(
                         ProtocolMethodCall {
@@ -678,7 +706,7 @@ impl ModuleBuilder<'_> {
         let receiver = self.expression(&attr.value, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
         let method = attr.attr.as_str();
-        if !self.class_has_method(receiver_ty, method) {
+        if self.class_method_dispatch(receiver_ty, method).is_none() {
             return Ok(None);
         }
         let args = call
@@ -698,7 +726,60 @@ impl ModuleBuilder<'_> {
         .map(Some)
     }
 
-    /// Create a HIR method call for a statically-known class method.
+    /// Lower a `cls(...)` construction inside a `@classmethod` body.
+    ///
+    /// Inside a `@classmethod` the implicit `cls` receiver is a local bound to
+    /// the owning class's `Type::Class`, so `cls(args)` constructs that class
+    /// ([`ExprKind::New`]) — the alternate-constructor idiom common in
+    /// `result`/`returns`. `cls.helper(args)` is handled by the general method
+    /// dispatch in [`Self::protocol_call_expression`] (the `cls` local is a class
+    /// value with the method resolved via [`Self::class_method_dispatch`]).
+    ///
+    /// Returns `None` when the callee is not a `cls` name, so the ordinary call
+    /// handlers still run.
+    fn cls_receiver_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let span = self.span(call.range);
+        // `cls(args)` — construct the owning class. `cls` is the class-method
+        // receiver local bound to `Type::Class`; keying on the `cls` binding
+        // name distinguishes the class object from an instance value (both carry
+        // the same `Type::Class` and only the classmethod receiver is callable).
+        if let Expr::Name(name) = call.func.as_ref()
+            && name.id.as_str() == "cls"
+            && let Some(&local) = self.locals.get("cls")
+            && let Some(Type::Class { name: class_sym, .. }) =
+                self.ctx.krate.types.get(Self::local_ty(body, local)).cloned()
+        {
+            let class_ty = self.intern_type(Type::Class {
+                name: class_sym,
+                args: vec![],
+            });
+            let args = call
+                .arguments
+                .args
+                .iter()
+                .map(|arg| self.expression(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::New {
+                    class: class_sym,
+                    args,
+                },
+                ty: class_ty,
+                span,
+            })));
+        }
+        Ok(None)
+    }
+
+    /// Create a HIR call/method expression for a statically-known class method.
+    ///
+    /// The [`ClassMethodDispatch`] resolved from the receiver type and method
+    /// name decides the shape: an associated call for classmethods/staticmethods
+    /// (the receiver is dropped) or a receiver method call for instance methods.
     fn protocol_method_expr(
         &mut self,
         call: ProtocolMethodCall,
@@ -708,14 +789,36 @@ impl ModuleBuilder<'_> {
         let method = call.method;
         let receiver_ty = Self::expr_ty(body, receiver);
         let span = Self::expr_span(body, receiver);
-        let return_ty = self
-            .class_method_return_ty(receiver_ty, &method)
-            .ok_or_else(|| {
-                SmeltError::unsupported(
-                    span,
-                    format!("class method '{method}' is not statically known"),
-                )
-            })?;
+        let dispatch = self.class_method_dispatch(receiver_ty, &method).ok_or_else(|| {
+            SmeltError::unsupported(
+                span,
+                format!("class method '{method}' is not statically known"),
+            )
+        })?;
+        let Item::Function(function) = self.item_ref(dispatch.item) else {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("class method '{method}' is not a function item"),
+            ));
+        };
+        let return_ty = function.return_ty;
+        if dispatch.receiver_free {
+            // Classmethod/staticmethod: drop the receiver and call the
+            // associated function directly (`Class::method(args)`).
+            let callee = body.push_expr(HirExpr {
+                kind: ExprKind::Item(dispatch.item),
+                ty: self.item_expr_type(dispatch.item),
+                span,
+            });
+            return Ok(body.push_expr(HirExpr {
+                kind: ExprKind::Call {
+                    callee,
+                    args: call.args,
+                },
+                ty: return_ty,
+                span,
+            }));
+        }
         let method_sym = self.intern_name(&method);
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::Method {
@@ -728,30 +831,50 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Return whether a type is a class that declares `method`.
-    fn class_has_method(&self, receiver_ty: TypeId, method: &str) -> bool {
-        self.class_method_item(receiver_ty, method).is_some()
-    }
-
-    /// Return a statically-known class method's return type.
-    fn class_method_return_ty(&self, receiver_ty: TypeId, method: &str) -> Option<TypeId> {
-        let item = self.class_method_item(receiver_ty, method)?;
-        let Item::Function(function) = self.item_ref(item) else {
-            return None;
-        };
-        Some(function.return_ty)
-    }
-
-    /// Resolve a method item by receiver class type and source method name.
-    fn class_method_item(&self, receiver_ty: TypeId, method: &str) -> Option<ItemId> {
+    /// Resolve a class method by receiver type and name, classifying its
+    /// dispatch shape (instance vs receiver-free associated call).
+    ///
+    /// `@staticmethod` and `@classmethod` members live in
+    /// [`Self::class_static_methods`] and dispatch receiver-free; instance
+    /// methods live in [`Self::class_methods`] and dispatch through the receiver.
+    /// Returns `None` when the receiver type is not a known class or the class
+    /// declares no such method.
+    fn class_method_dispatch(&self, receiver_ty: TypeId, method: &str) -> Option<ClassMethodDispatch> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
             return None;
         };
         let class_name = self.ctx.krate.symbols.get(*name)?;
-        self.class_methods
+        // Static methods and classmethods dispatch receiver-free.
+        if let Some(item) = self
+            .class_static_methods
             .get(class_name)
             .and_then(|methods| methods.get(method))
             .copied()
-            .or_else(|| self.class_method_item_by_name(class_name, method))
+        {
+            return Some(ClassMethodDispatch {
+                item,
+                receiver_free: true,
+            });
+        }
+        // Instance methods dispatch through the receiver.
+        let item = self
+            .class_methods
+            .get(class_name)
+            .and_then(|methods| methods.get(method))
+            .copied()
+            .or_else(|| self.class_method_item_by_name(class_name, method))?;
+        Some(ClassMethodDispatch {
+            item,
+            receiver_free: false,
+        })
     }
+}
+
+/// A resolved class-method call target plus its dispatch shape.
+struct ClassMethodDispatch {
+    /// The resolved method function item.
+    item: ItemId,
+    /// Whether the method dispatches receiver-free (`@classmethod`/`@staticmethod`),
+    /// i.e. lowers to `Class::method(args)` rather than `receiver.method(args)`.
+    receiver_free: bool,
 }

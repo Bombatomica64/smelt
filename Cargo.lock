@@ -6645,6 +6645,7 @@ dependencies = [
  "ruff_text_size",
  "smelt-asyncio",
  "smelt-hir",
+ "smelt-py-types",
  "smelt-specialize",
  "smelt-stdlib",
 ]
@@ -6696,6 +6697,19 @@ dependencies = [
  "anyhow",
  "ruff_db",
  "ruff_python_ast",
+ "ty_project",
+ "ty_python_semantic",
+]
+
+[[package]]
+name = "smelt-py-types"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ruff_db",
+ "ruff_python_ast",
+ "ruff_python_parser",
+ "ruff_text_size",
  "ty_project",
  "ty_python_semantic",
 ]

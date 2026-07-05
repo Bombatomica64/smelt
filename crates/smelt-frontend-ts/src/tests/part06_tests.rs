@@ -55,20 +55,12 @@ class User implements Entity {
     Ok(())
 }
 
-#[test]
-fn rejects_dynamic_computed_property_names() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
-        ts!("const key = \"id\";
-class User {
-  [key]: string;
-  constructor() {}
-}
-"),
-        &mut ctx,
-    )?;
-    assert_unsupported_ts(&errors, "dynamic computed property")
-}
+// NOTE: the former `rejects_dynamic_computed_property_names` test asserted that a
+// `const`-keyed computed class field (`const key = "id"; [key]: string`) was
+// rejected. Issue #96 intentionally made statically-resolvable computed keys fold
+// to named members, so that case now lowers. Coverage moved to
+// `class_module_tests`: `lowers_const_keyed_computed_class_field` (resolution) and
+// `rejects_dynamic_computed_class_property_name` (`[Math.random()]`, still rejected).
 
 #[test]
 fn optional_interface_fields_may_be_absent() -> Result<(), String> {
@@ -103,15 +95,51 @@ class User implements Named {
 
 #[test]
 fn lowers_optional_class_fields() -> Result<(), String> {
+    // An optional class field (`name?: string`) records `optional: true` and
+    // interns its type as `Type::Optional`, while a required field stays
+    // concrete. Rust codegen relies on the `Type::Optional` wrapper to emit
+    // `Option<T>` for the optional slot only.
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!("class User {
+  id: string;
   name?: string;
-  constructor() {}
+  constructor(id: string) {
+    this.id = id;
+  }
 }
 "),
         &mut ctx,
     )?;
+    let class = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Class(class) => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| "missing class item".to_owned())?;
+    let id_field = class
+        .fields
+        .iter()
+        .find(|field| ctx.krate.symbols.get(field.name) == Some("id"))
+        .ok_or_else(|| "missing field id".to_owned())?;
+    let name_field = class
+        .fields
+        .iter()
+        .find(|field| ctx.krate.symbols.get(field.name) == Some("name"))
+        .ok_or_else(|| "missing field name".to_owned())?;
+    ensure!(!id_field.optional);
+    ensure!(!matches!(
+        ctx.krate.types.get(id_field.ty),
+        Some(Type::Optional(_))
+    ));
+    ensure!(name_field.optional);
+    ensure!(matches!(
+        ctx.krate.types.get(name_field.ty),
+        Some(Type::Optional(_))
+    ));
     Ok(())
 }
 
@@ -158,7 +186,10 @@ fn lowers_generic_classes() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_static_members() -> Result<(), String> {
+fn rejects_uninitialized_static_field_but_lowers_static_members() -> Result<(), String> {
+    // A `static` field without a concrete literal initializer is still rejected:
+    // there is no materializable value to resolve `Class.role` to (issue #98
+    // lowers only literal-initialized static constants).
     let mut field_ctx = HirCtx::new();
     let field_errors = lowering_errors(
         ts!("class User {
@@ -168,17 +199,22 @@ fn rejects_static_members() -> Result<(), String> {
 "),
         &mut field_ctx,
     )?;
-    assert_unsupported_ts(&field_errors, "static fields")?;
+    assert_unsupported_ts(&field_errors, "static fields require a concrete literal initializer")?;
 
-    let mut method_ctx = HirCtx::new();
-    let method_errors = lowering_errors(
+    // A literal-initialized `static` constant and a `static` method now lower
+    // successfully (issue #98): the constant becomes a materialized static field
+    // and the method a receiver-free associated function.
+    let mut ok_ctx = HirCtx::new();
+    lower_ok(
         ts!("class User {
-  static role(): string { return \"admin\"; }
+  static readonly ROLE: string = \"admin\";
+  static greeting(): string { return \"hi\"; }
 }
 "),
-        &mut method_ctx,
+        &mut ok_ctx,
     )?;
-    assert_unsupported_ts(&method_errors, "static methods")
+    ensure!(smelt_hir::validate(&ok_ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]

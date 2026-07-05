@@ -33,11 +33,133 @@ impl ModuleBuilder<'_> {
                     .as_ref().map_or_else(|| Self::numeric_property_key_name(lit.value), ToString::to_string);
                 Ok(self.intern_source_name(&name))
             }
-            _ => Err(SmeltError::unsupported(
-                self.span(key.span().start, key.span().end),
-                "property names must be static identifiers or string literals",
-            )),
+            // A computed key such as `[SOME_CONST]`, `[MyEnum.Member]`, or a
+            // well-known `[Symbol.iterator]` names a *static* member once the
+            // constant/enum/symbol is resolved. Fold it to that member name so
+            // it lowers exactly like the equivalent spelled-out key instead of
+            // being rejected. Genuinely dynamic keys still fail below and stay
+            // on the explicit runtime-keyed path.
+            _ => {
+                if let Some((name, is_symbol)) = self.resolve_static_computed_key_name(key) {
+                    // Well-known symbol keys use a stable synthetic spelling
+                    // (`__smelt_symbol_iterator`) that member access already
+                    // reads, so intern it verbatim; folded string/numeric keys
+                    // follow the ordinary source-name interning path.
+                    return Ok(if is_symbol {
+                        self.intern_exact_source_name(&name)
+                    } else {
+                        self.intern_source_name(&name)
+                    });
+                }
+                Err(SmeltError::unsupported(
+                    self.span(key.span().start, key.span().end),
+                    "property names must be static identifiers or string literals",
+                ))
+            }
         }
+    }
+
+    /// Resolve a computed property key to its static string member name.
+    ///
+    /// Returns `Some((name, is_well_known_symbol))` when the key is a
+    /// statically-resolvable computed key:
+    /// * a const reference whose value folds to a string/number literal
+    ///   (`const K = "id"; { [K]: v }`),
+    /// * an enum member (`enum E { A = "a" }; { [E.A]: v }`) or a foldable
+    ///   `Number`/`Math` numeric constant, or
+    /// * a well-known symbol member (`[Symbol.iterator]`), which maps to a stable
+    ///   synthetic member spelling that member access already understands.
+    ///
+    /// Returns `None` for genuinely dynamic keys (arbitrary expressions, opaque
+    /// `Symbol(...)` brands, boolean/null constants), leaving them on the
+    /// explicit runtime-keyed path.
+    pub(in crate::lowering) fn resolve_static_computed_key_name(
+        &mut self,
+        key: &PropertyKey<'_>,
+    ) -> Option<(String, bool)> {
+        match key {
+            // A well-known `Symbol.<name>` key names a stable synthetic member.
+            PropertyKey::StaticMemberExpression(member) => {
+                if let Expression::Identifier(object) = &member.object
+                    && object.name == "Symbol"
+                    && member.property.name == "iterator"
+                {
+                    return Some((Self::SYMBOL_ITERATOR_KEY.to_owned(), true));
+                }
+                let literal = self.member_literal_const_expression(member).ok()?;
+                literal.computed_member_name().map(|name| (name, false))
+            }
+            // A bare identifier reference folds to its const value when known.
+            PropertyKey::Identifier(identifier) => self
+                .resolve_const_literal_by_name(identifier.name.as_str())
+                .and_then(|literal| literal.computed_member_name())
+                .map(|name| (name, false)),
+            // Erased type-level wrappers around any of the above still name the
+            // inner static key (`[K as const]`, `[(K)]`, `[K!]`).
+            PropertyKey::ParenthesizedExpression(inner) => {
+                self.resolve_static_computed_key_name_expr(&inner.expression)
+            }
+            PropertyKey::TSAsExpression(inner) => {
+                self.resolve_static_computed_key_name_expr(&inner.expression)
+            }
+            PropertyKey::TSSatisfiesExpression(inner) => {
+                self.resolve_static_computed_key_name_expr(&inner.expression)
+            }
+            PropertyKey::TSNonNullExpression(inner) => {
+                self.resolve_static_computed_key_name_expr(&inner.expression)
+            }
+            _ => None,
+        }
+    }
+
+    /// Resolve a computed-key expression (after unwrapping erased assertions) to
+    /// its static string member name, mirroring
+    /// [`Self::resolve_static_computed_key_name`] for bare `Expression`s.
+    fn resolve_static_computed_key_name_expr(
+        &mut self,
+        expression: &Expression<'_>,
+    ) -> Option<(String, bool)> {
+        match expression {
+            Expression::StaticMemberExpression(member) => {
+                if let Expression::Identifier(object) = &member.object
+                    && object.name == "Symbol"
+                    && member.property.name == "iterator"
+                {
+                    return Some((Self::SYMBOL_ITERATOR_KEY.to_owned(), true));
+                }
+                let literal = self.member_literal_const_expression(member).ok()?;
+                literal.computed_member_name().map(|name| (name, false))
+            }
+            Expression::Identifier(identifier) => self
+                .resolve_const_literal_by_name(identifier.name.as_str())
+                .and_then(|literal| literal.computed_member_name())
+                .map(|name| (name, false)),
+            Expression::StringLiteral(literal) => Some((literal.value.to_string(), false)),
+            Expression::ParenthesizedExpression(inner) => {
+                self.resolve_static_computed_key_name_expr(&inner.expression)
+            }
+            Expression::TSAsExpression(inner) => {
+                self.resolve_static_computed_key_name_expr(&inner.expression)
+            }
+            Expression::TSSatisfiesExpression(inner) => {
+                self.resolve_static_computed_key_name_expr(&inner.expression)
+            }
+            Expression::TSNonNullExpression(inner) => {
+                self.resolve_static_computed_key_name_expr(&inner.expression)
+            }
+            _ => None,
+        }
+    }
+
+    /// Return whether a computed property key resolves to a static member name.
+    ///
+    /// Combines the plain static-key check (`is_static_property_key`) with the
+    /// const/enum/symbol folding of [`Self::resolve_static_computed_key_name`],
+    /// so class/interface member gates route resolvable computed keys through the
+    /// named-member path instead of rejecting them as dynamic.
+    pub(in crate::lowering) fn is_resolvable_property_key(&mut self, key: &PropertyKey<'_>) -> bool {
+        crate::lowering::support::is_static_property_key(key)
+            || self.resolve_static_computed_key_name(key).is_some()
     }
 
     /// Render a numeric property-key value as the string member name JavaScript

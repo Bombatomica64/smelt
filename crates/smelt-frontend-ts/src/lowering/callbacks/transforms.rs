@@ -4,7 +4,7 @@
 use crate::lowering::{
     Argument, BinOp, BinaryOperator, BindingPattern, Body, CallbackCallArg, CallbackExpr,
     CallbackExprKind, Expr, ExprKind, Expression, HashMap, ListSearchOp, Literal, ModuleBuilder,
-    SmeltError, Type, UnaryOp, UnaryOperator, UnknownKind, unknown_kind_from_typeof,
+    PrimitiveCastOp, SmeltError, Type, UnaryOp, UnaryOperator, UnknownKind, unknown_kind_from_typeof,
 };
 use oxc::span::GetSpan;
 
@@ -646,17 +646,52 @@ impl ModuleBuilder<'_> {
             _ => return Ok(None),
         };
         let index = self.argument(index_argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, index)) != Some(&Type::Float) {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "array/string at index must be a number",
-            ));
-        }
+        let index = self.coerce_at_index_operand(index, call.span.start, call.span.end, body)?;
         let ty = self.ctx.krate.types.intern(Type::Optional(item_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::OptionalIndex { receiver, index },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Coerce a `.at(index)` argument to the `Float` runtime type the optional
+    /// indexing path expects, or reject a genuinely non-numeric index.
+    ///
+    /// JavaScript's `Array.prototype.at`/`String.prototype.at` run `ToInteger`
+    /// on the argument, so any statically numeric-compatible index is valid even
+    /// when its Smelt type is not exactly `Float`. An index already typed `Float`
+    /// is returned unchanged (the common case). A numeric-like index (`Int`, a
+    /// numeric type-parameter constraint, or a union whose arms are all numeric),
+    /// or an optional-numeric surface (`number | undefined`), is converted with a
+    /// JS `Number(...)` cast so the emitted normalized-index arithmetic sees a
+    /// concrete `f64`. Anything else stays an explicit error: `.at` on a genuinely
+    /// non-numeric index (a string, object, or opaque `unknown`) is unsupported.
+    fn coerce_at_index_operand(
+        &mut self,
+        index: smelt_hir::ExprId,
+        span_start: u32,
+        span_end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let index_ty = Self::expr_ty(body, index);
+        if self.ctx.krate.types.get(index_ty) == Some(&Type::Float) {
+            return Ok(index);
+        }
+        if self.is_numeric_like_type(index_ty) || self.optional_numeric_surface(index_ty) {
+            let float_ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToJsNumber,
+                    operand: index,
+                },
+                ty: float_ty,
+                span: self.span(span_start, span_end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(span_start, span_end),
+            "array/string at index must be a number",
+        ))
     }
 }

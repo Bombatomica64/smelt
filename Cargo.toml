@@ -13,6 +13,7 @@ members = [
     "crates/smelt-cli",
     "crates/smelt-gui",
     "crates/smelt-py-ty-spike",
+    "crates/smelt-py-types",
 ]
 default-members = [
     "crates/smelt-frontend-ts",

@@ -36,6 +36,10 @@ def find(x: int) -> str | None:
     Ok(())
 }
 
+/// Without the `ty` feature, an omitted return annotation is a hard error.
+/// With `ty` on, it is resolved from the body instead (see
+/// `ty_resolution_tests`).
+#[cfg(not(feature = "ty"))]
 #[test]
 fn missing_return_annotation_is_error() -> TestResult {
     let source = py!("def bad(x: int):\n    return x\n");

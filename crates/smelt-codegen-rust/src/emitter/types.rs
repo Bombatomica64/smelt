@@ -384,7 +384,13 @@ impl FunctionEmitter<'_> {
                         };
                         match field_ty {
                             Some(ty) => Ok(ty),
-                            None => self.type_id(Type::Unknown),
+                            // An undeclared member on an index-signature class is
+                            // a keyed store read; its type is the store's value
+                            // type `T` (issue #84), not an erased `Unknown`.
+                            None => match self.class_index_store_types(base_ty) {
+                                Some((_key_ty, value_ty)) => Ok(value_ty),
+                                None => self.type_id(Type::Unknown),
+                            },
                         }
                     }
                     _ => self.type_id(Type::Unknown),
@@ -583,9 +589,9 @@ impl FunctionEmitter<'_> {
     /// Return type parameters declared by the current class function scope.
     fn current_function_type_params(&self) -> HashSet<Symbol> {
         let class_name = match self.function.origin {
-            HirOrigin::ClassConstructor { class, .. } | HirOrigin::ClassMethod { class, .. } => {
-                class
-            }
+            HirOrigin::ClassConstructor { class, .. }
+            | HirOrigin::ClassMethod { class, .. }
+            | HirOrigin::ClassStaticMethod { class, .. } => class,
             HirOrigin::Body(_) => return HashSet::new(),
         };
         self.mir

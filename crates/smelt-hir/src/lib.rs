@@ -82,8 +82,8 @@ pub use item::{
     TypeParamDef, Visibility,
 };
 pub use krate::{
-    CONSOLE_ERROR_WRITE_SYMBOL, CONSOLE_LOG_SYMBOL, CONSOLE_WRITE_SYMBOL, Crate, Import, Language,
-    Module, SourceFile,
+    CLASS_INDEX_STORE_FIELD, CONSOLE_ERROR_WRITE_SYMBOL, CONSOLE_LOG_SYMBOL, CONSOLE_WRITE_SYMBOL,
+    Crate, Import, Language, Module, SourceFile,
 };
 pub use symbol::{OriginalNameTable, SymbolInterner};
 pub use ty::{FunctionType, Type, TypeInterner};
