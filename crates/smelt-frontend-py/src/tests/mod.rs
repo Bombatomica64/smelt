@@ -152,6 +152,7 @@ mod collections_a_tests;
 mod collections_b_tests;
 mod collections_reject_a_tests;
 mod collections_reject_b_tests;
+mod lang_features_tests;
 mod packages_tests;
 mod pytest_tests;
 mod specialization_tests;

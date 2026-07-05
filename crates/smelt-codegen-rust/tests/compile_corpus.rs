@@ -980,6 +980,32 @@ def via_factory(start: int) -> int:
     return Counter.make(start).total()
 "#,
         },
+        Case {
+            name: "py_lang_features",
+            area: "py_try_lambda_classbody",
+            // Issue #95: try/except/finally lowers to TryCatch, a lambda call
+            // argument recovers its `Callable[...]` type and lowers to a
+            // closure, and a class-body `...` placeholder is a no-op.
+            source: r#"
+from typing import Callable
+
+class Marker:
+    """A placeholder class."""
+    ...
+
+def apply(f: Callable[[int], int], value: int) -> int:
+    return f(value)
+
+def guarded(value: int) -> int:
+    try:
+        return apply(lambda x: x + 1, value)
+    except ValueError as error:
+        print(error)
+        return 0
+    finally:
+        print("done")
+"#,
+        },
     ]
 }
 

@@ -522,12 +522,20 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         }
+        // Positional arguments are lowered with the corresponding parameter
+        // type as an expected-type hint. This is what lets a `lambda` argument
+        // recover its parameter/return types from a `Callable[...]` parameter
+        // (a bare lambda has no annotations of its own); it is otherwise inert
+        // because the argument type is re-checked against the parameter below.
         let mut args = call
             .arguments
             .args
             .iter()
             .take(packed_param_start)
-            .map(|arg| self.expression(arg, body))
+            .enumerate()
+            .map(|(index, arg)| {
+                self.expression_with_hint(arg, body, signature.params.get(index).copied())
+            })
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..packed_param_start {
             let Some(default) = signature.defaults.get(index).and_then(|default| *default) else {
