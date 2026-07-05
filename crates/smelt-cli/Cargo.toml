@@ -7,10 +7,11 @@ edition.workspace = true
 workspace = true
 
 [features]
+default = ["ty"]
 # Resolve Python types via Astral's `ty` instead of requiring explicit
-# annotations (issue #93). OFF by default so `cargo build`/`cargo install`
-# stay lean; build the CLI with `--features ty` to enable ty-backed Python
-# type resolution end to end.
+# annotations (issue #93). ON by default so the CLI resolves Python types via
+# ty end to end out of the box. Build with `--no-default-features` for a lean
+# CLI that requires explicit annotations instead.
 ty = ["smelt-frontend-py/ty"]
 
 [[bin]]

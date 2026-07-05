@@ -8,11 +8,13 @@ autoexamples = false
 workspace = true
 
 [features]
+default = ["ty"]
 # Resolve Python function/method/parameter/closure types via Astral's `ty`
-# instead of requiring explicit source annotations (issue #93). OFF by default:
-# it pulls in the heavy `ty` dependency tree (salsa + vendored typeshed) through
-# `smelt-py-types`, so a lean `cargo build` never pays for it. The central
-# pipeline and CI probes enable `--features ty`.
+# instead of requiring explicit source annotations (issue #93). ON by default:
+# ty-backed resolution is now the standard Python type source, so it is enabled
+# out of the box (this pulls in the `ty` dependency tree — salsa + vendored
+# typeshed — through `smelt-py-types`). Disable with `--no-default-features` for
+# a lean build that requires explicit annotations instead.
 ty = ["dep:smelt-py-types"]
 
 [dependencies]
