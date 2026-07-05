@@ -76,7 +76,7 @@ function read(value: Left | Right): string {
 #[test]
 fn emits_class_index_signature_named_fields_and_keyed_store() {
     let source = source_for(
-        r#"
+        r"
 class StringBag {
   [key: string]: string;
 }
@@ -97,7 +97,7 @@ export function writeBag(bag: StringBag, key: string, value: string): void {
 export function mixedSize(bag: MixedBag): number {
   return bag.size;
 }
-"#,
+",
     );
 
     // Both classes emit concrete Rust structs.
@@ -295,12 +295,12 @@ const iso = result.toISOString();
 #[test]
 fn preserves_erased_date_metadata_across_setters() {
     let source = source_for(
-        r#"
+        r"
 declare const value: unknown;
 const date = new Date(value);
 date.setFullYear(2024);
 const iso = date.toISOString();
-"#,
+",
     );
 
     assert!(
@@ -316,13 +316,13 @@ const iso = date.toISOString();
 #[test]
 fn hides_internal_metadata_from_erased_object_projection() {
     let source = source_for(
-        r#"
+        r"
 function keyCount(value: unknown): number {
   return Object.keys(value).length;
 }
 const dateCount = keyCount(new Date(0));
 const regexpCount = keyCount(/abc/u);
-"#,
+",
     );
 
     assert!(
@@ -412,10 +412,10 @@ const isoFromFormatter = formatter.format(value);
 #[test]
 fn emits_to_iso_string_on_erased_callback_items() {
     let source = source_for(
-        r#"
+        r"
 declare const values: unknown[];
 const isoValues = values.map((value) => value.toISOString());
-"#,
+",
     );
 
     assert!(
@@ -431,13 +431,13 @@ const isoValues = values.map((value) => value.toISOString());
 #[test]
 fn emits_total_unknown_primitive_and_object_extraction() {
     let source = source_for(
-        r#"
+        r"
 declare const value: unknown;
 const text: string = value as string;
 const count: number = value as number;
 const flag: boolean = value as boolean;
 const bag: Record<string, unknown> = value as Record<string, unknown>;
-"#,
+",
     );
 
     assert!(
@@ -496,11 +496,11 @@ const value = record[key];
 #[test]
 fn preserves_order_when_casting_unknown_objects_to_records() {
     let source = source_for(
-        r#"
+        r"
 declare const value: unknown;
 const bag: Record<string, unknown> = value as Record<string, unknown>;
 const entries = Object.entries(bag);
-"#,
+",
     );
 
     assert!(
@@ -541,13 +541,13 @@ const entries = value as Entry<string>[];
 #[test]
 fn emits_first_class_object_entries_as_real_projection() {
     let source = source_for(
-        r#"
+        r"
 declare function purry(fn: (value: unknown) => unknown, args: readonly unknown[]): unknown;
 
 export function entries(...args: readonly unknown[]): unknown {
   return purry(Object.entries, args);
 }
-"#,
+",
     );
 
     assert!(
@@ -570,13 +570,13 @@ export function entries(...args: readonly unknown[]): unknown {
 #[test]
 fn emits_first_class_object_from_entries_as_real_conversion() {
     let source = source_for(
-        r#"
+        r"
 declare function purry(fn: (value: unknown) => unknown, args: readonly unknown[]): unknown;
 
 export function fromEntries(...args: readonly unknown[]): unknown {
   return purry(Object.fromEntries, args);
 }
-"#,
+",
     );
 
     assert!(
@@ -678,7 +678,7 @@ const yes = value instanceof Error;
 #[test]
 fn copies_erased_object_rest_destructuring_properties() {
     let source = source_for(
-        r#"
+        r"
 declare function getValue(): unknown;
 declare function makeCall(): (...args: unknown[]) => void;
 
@@ -688,7 +688,7 @@ const callable = makeCall();
 const merged = Object.assign(callable, rest);
 merged.cancel();
 merged.flush();
-"#,
+",
     );
 
     assert!(
@@ -703,12 +703,12 @@ merged.flush();
 #[test]
 fn dynamic_object_destructuring_defaults_do_not_require_missing_fields() {
     let source = source_for(
-        r#"
+        r"
 export function pick(options: Record<string, unknown>): unknown {
   const { leading = false, trailing = true, maxWait } = options;
   return [leading, trailing, maxWait];
 }
-"#,
+",
     );
 
     assert!(
@@ -729,7 +729,7 @@ export function pick(options: Record<string, unknown>): unknown {
 #[test]
 fn typed_option_bag_parameter_defaults_do_not_require_missing_fields() {
     let source = source_for(
-        r#"
+        r"
 export function pick(
   {
     leading = false,
@@ -743,7 +743,7 @@ export function pick(
 ): unknown {
   return [leading, trailing, maxWait];
 }
-"#,
+",
     );
 
     assert!(
@@ -764,7 +764,7 @@ export function pick(
 #[test]
 fn emits_runtime_sized_numeric_typed_array_constructors() {
     let source = source_for(
-        r#"
+        r"
 export function make(count: number): number[] {
   const output = new Uint8Array(count);
   for (let index = 0; index < count; index += 1) {
@@ -772,7 +772,7 @@ export function make(count: number): number[] {
   }
   return output;
 }
-"#,
+",
     );
 
     assert!(source.contains("vec![0.0; smelt_repeat_count]"), "{source}");
@@ -782,7 +782,7 @@ export function make(count: number): number[] {
 #[test]
 fn inserts_unknown_iterable_values_into_typed_sets() {
     let source = source_for(
-        r#"
+        r"
 declare function values(): unknown;
 
 export function collect(): Set<number> {
@@ -792,7 +792,7 @@ export function collect(): Set<number> {
   }
   return results;
 }
-"#,
+",
     );
 
     assert!(
@@ -898,10 +898,10 @@ const locale: Locale = { formatDistance: localizeDistance };
 #[test]
 fn emits_js_numeric_conversion_for_erased_unary_plus() {
     let source = source_for(
-        r#"
+        r"
 declare const value: unknown;
 const number = +value;
-"#,
+",
     );
 
     assert!(
@@ -1004,7 +1004,7 @@ export function run(formatLong: FormatLong): string {
 #[test]
 fn emits_empty_object_literal_as_optional_interface_record_defaults() {
     let source = source_for(
-        r#"
+        r"
 interface Duration {
   years?: number;
   months?: number;
@@ -1013,7 +1013,7 @@ interface Duration {
 export function make(): Duration {
   return {};
 }
-"#,
+",
     );
 
     assert!(
@@ -1029,7 +1029,7 @@ export function make(): Duration {
 #[test]
 fn preserves_optional_record_arguments_and_defaults_missing_fields() {
     let source = source_for(
-        r#"
+        r"
 function throttle(
   callback: () => void,
   wait = 0,
@@ -1041,7 +1041,7 @@ function throttle(
 
 const explicit = throttle(() => {}, 1, { leading: false });
 const defaulted = throttle(() => {});
-"#,
+",
     );
 
     assert!(
@@ -1320,7 +1320,7 @@ obj: Obj = Obj("a")
 #[test]
 fn emits_manual_default_for_function_field_interfaces() {
     let source = source_for(
-        r#"
+        r"
 interface Localize<T> {
   ordinalNumber: (value: number) => string;
   value?: T;
@@ -1329,7 +1329,7 @@ interface Localize<T> {
 function read(localize: Localize<string>): string {
   return localize.ordinalNumber(1);
 }
-"#,
+",
     );
 
     assert!(
@@ -1355,7 +1355,7 @@ function read(localize: Localize<string>): string {
 #[test]
 fn flattens_interface_extends_into_generated_storage() {
     let source = source_for(
-        r#"
+        r"
 interface WeekOptions {
   weekStartsOn?: number;
 }
@@ -1369,7 +1369,7 @@ interface LocaleOptions extends WeekOptions, FirstWeekContainsDateOptions {}
 function read(options: LocaleOptions): number {
   return options.weekStartsOn ?? options.firstWeekContainsDate ?? 0;
 }
-"#,
+",
     );
 
     assert!(source.contains("struct LocaleOptions"), "{source}");
@@ -1383,7 +1383,7 @@ function read(options: LocaleOptions): number {
 #[test]
 fn projects_fields_from_optional_interface_records() {
     let source = source_for(
-        r#"
+        r"
 interface Options {
   comparison?: number;
 }
@@ -1395,7 +1395,7 @@ function read(options?: Options): number {
 function positive(options?: Options): boolean {
   return options.comparison > 0;
 }
-"#,
+",
     );
 
     assert!(
@@ -1429,7 +1429,7 @@ export function localize(enNumber: number): string {
 #[test]
 fn emits_escaping_closure_spread_calls_with_owned_callback_state() {
     let source = source_for(
-        r#"
+        r"
 export function purryOn(
   isArg: (x: unknown) => boolean,
   implementation: (data: unknown, first: unknown, ...rest: Array<unknown>) => unknown,
@@ -1439,7 +1439,7 @@ export function purryOn(
     ? (data: unknown) => implementation(data, ...args)
     : implementation(args[0], args[1], args.slice(2));
 }
-"#,
+",
     );
 
     assert!(
@@ -1466,7 +1466,7 @@ export function purryOn(
 #[test]
 fn adapts_rest_callback_shape_to_trailing_list_parameter() {
     let source = source_for(
-        r#"
+        r"
 function purryOn(
   isArg: (x: unknown) => boolean,
   implementation: (data: unknown, first: unknown, rest: Array<unknown>) => unknown,
@@ -1484,7 +1484,7 @@ function implementation(data: unknown, ...cases: Array<unknown>): unknown {
 export function conditional(args: Array<unknown>): unknown {
   return purryOn((x) => true, implementation, args);
 }
-"#,
+",
     );
 
     assert!(
@@ -1504,7 +1504,7 @@ export function conditional(args: Array<unknown>): unknown {
 #[test]
 fn spreads_trailing_rest_vectors_across_erased_function_boundaries() {
     let source = source_for(
-        r#"
+        r"
 function callConcrete(
   callback: (data: unknown, ...rest: Array<unknown>) => unknown,
   args: Array<unknown>,
@@ -1521,7 +1521,7 @@ export function wrapConcrete(): unknown {
   return callback;
 }
 
-"#,
+",
     );
 
     assert!(
@@ -1534,12 +1534,12 @@ export function wrapConcrete(): unknown {
 #[test]
 fn does_not_spread_array_parameters_across_erased_function_boundaries() {
     let source = source_for(
-        r#"
+        r"
 export function wrapArrayParam(): unknown {
   const callback: unknown = (data: unknown, values: Array<unknown>) => values;
   return callback;
 }
-"#,
+",
     );
 
     assert!(
@@ -1555,14 +1555,14 @@ export function wrapArrayParam(): unknown {
 #[test]
 fn emits_mutable_class_method_parameters_when_reassigned() {
     let source = source_for(
-        r#"
+        r"
 class Parser {
   set(date: number, value: number): number {
     date = value + 1;
     return date;
   }
 }
-"#,
+",
     );
 
     assert!(
@@ -1574,7 +1574,7 @@ class Parser {
 #[test]
 fn emits_mutable_constructor_parameters_when_reassigned() {
     let source = source_for(
-        r#"
+        r"
 class Box {
   value: number;
   constructor(value: number) {
@@ -1582,7 +1582,7 @@ class Box {
     this.value = value;
   }
 }
-"#,
+",
     );
 
     assert!(
@@ -1594,7 +1594,7 @@ class Box {
 #[test]
 fn emits_mutable_structural_parameters_when_fields_are_assigned() {
     let source = source_for(
-        r#"
+        r"
 interface Flags {
   era?: number;
 }
@@ -1608,7 +1608,7 @@ function readEra(): number {
   setEra(flags, 1);
   return flags.era!;
 }
-"#,
+",
     );
 
     assert!(
@@ -1621,7 +1621,7 @@ function readEra(): number {
 #[test]
 fn emits_mutable_function_field_parameters_for_structural_objects() {
     let source = source_for(
-        r#"
+        r"
 interface Flags {
   era?: number;
 }
@@ -1635,7 +1635,7 @@ function run(setter: Setter): number {
   setter.set(flags);
   return flags.era!;
 }
-"#,
+",
     );
 
     assert!(
@@ -1651,7 +1651,7 @@ function run(setter: Setter): number {
 #[test]
 fn preserves_mutable_structural_parameters_forwarded_to_callbacks() {
     let source = source_for(
-        r#"
+        r"
 interface Flags {
   era?: number;
 }
@@ -1669,7 +1669,7 @@ function run(setter: Setter): number {
   forward(flags, setter);
   return flags.era!;
 }
-"#,
+",
     );
 
     assert!(
@@ -1714,14 +1714,14 @@ const text = JSON.stringify(options);
 #[test]
 fn emits_interface_storage_without_json_dependency() {
     let source = source_for(
-        r#"
+        r"
 interface Options {
   flag?: boolean;
 }
 function enabled(options?: Options): boolean {
   return true;
 }
-"#,
+",
     );
 
     assert!(source.contains("struct Options"), "{source}");
@@ -1732,14 +1732,14 @@ function enabled(options?: Options): boolean {
 #[test]
 fn derives_clone_for_function_bearing_interface_storage() {
     let source = source_for(
-        r#"
+        r"
 interface Callbacks {
   run: () => number;
 }
 function copy(callbacks: Callbacks): Callbacks {
   return callbacks;
 }
-"#,
+",
     );
 
     assert!(
@@ -1751,13 +1751,13 @@ function copy(callbacks: Callbacks): Callbacks {
 #[test]
 fn emits_generic_interface_storage_with_phantom_parameter() {
     let source = source_for(
-        r#"
+        r"
 interface Boxed<T> {
   value: T;
 }
 declare const boxed: Boxed<number>;
 const copied: Boxed<number> = boxed;
-"#,
+",
     );
 
     assert!(source.contains("struct Boxed<T>"), "{source}");
@@ -1773,12 +1773,12 @@ const copied: Boxed<number> = boxed;
 #[test]
 fn emits_date_getters_and_setters_for_erased_datearg_surfaces() {
     let source = source_for(
-        r#"
+        r"
 declare const value: unknown;
 const date = new Date(value);
 const year = date.getFullYear();
 date.setFullYear(value);
-"#,
+",
     );
 
     assert!(source.contains("date.year() as f64"), "{source}");
@@ -1795,7 +1795,7 @@ date.setFullYear(value);
 #[test]
 fn keeps_date_setter_side_effects_inside_branch_blocks() {
     let source = source_for(
-        r#"
+        r"
 function apply(isTwoDigitYear: boolean, year: number, date: number): number {
   if (isTwoDigitYear) {
     const normalizedTwoDigitYear = year + 2000;
@@ -1804,7 +1804,7 @@ function apply(isTwoDigitYear: boolean, year: number, date: number): number {
   }
   return date;
 }
-"#,
+",
     );
 
     let normalized = source
@@ -1821,11 +1821,11 @@ function apply(isTwoDigitYear: boolean, year: number, date: number): number {
 #[test]
 fn emits_delete_on_erased_object_surfaces() {
     let source = source_for(
-        r#"
+        r"
 function removeKey(value: unknown, key: string): boolean {
   return delete value[key];
 }
-"#,
+",
     );
 
     assert!(
@@ -1900,7 +1900,7 @@ function isArray(value: unknown): boolean {
 #[test]
 fn emits_array_entries_for_guarded_erased_generic() {
     let source = source_for(
-        r#"
+        r"
 function copy<T>(value: T): unknown[] {
   const copied: unknown[] = [];
   if (Array.isArray(value)) {
@@ -1910,7 +1910,7 @@ function copy<T>(value: T): unknown[] {
   }
   return copied;
 }
-"#,
+",
     );
 
     assert!(
@@ -1926,11 +1926,11 @@ function copy<T>(value: T): unknown[] {
 #[test]
 fn emits_runtime_index_for_erased_string_generics() {
     let source = source_for(
-        r#"
+        r"
 function first<S extends string>(value: S): string {
   return value[0];
 }
-"#,
+",
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
@@ -1985,12 +1985,12 @@ function isEmpty(value: string | number): boolean {
 #[test]
 fn emits_erased_dict_index_assignment_with_key_coercion() {
     let source = source_for(
-        r#"
+        r"
 function assign(out: Record<string, unknown>, key: unknown, value: unknown): Record<string, unknown> {
   out[key as string] = value;
   return out;
 }
-"#,
+",
     );
 
     assert!(
@@ -2006,11 +2006,11 @@ function assign(out: Record<string, unknown>, key: unknown, value: unknown): Rec
 #[test]
 fn emits_list_operand_item_coercion() {
     let source = source_for(
-        r#"
+        r"
 function widen(values: string[]): unknown[] {
   return values;
 }
-"#,
+",
     );
 
     assert!(
@@ -2024,11 +2024,11 @@ function widen(values: string[]): unknown[] {
 #[test]
 fn emits_string_chars_into_unknown_list_destination() {
     let source = source_for(
-        r#"
+        r"
 function chars(value: string): unknown[] {
   return [...value];
 }
-"#,
+",
     );
 
     assert!(
@@ -2040,11 +2040,11 @@ function chars(value: string): unknown[] {
 #[test]
 fn emits_erased_value_wrapped_for_optional_erased_destination() {
     let source = source_for(
-        r#"
+        r"
 function maybe(value: unknown): unknown | undefined {
   return value;
 }
-"#,
+",
     );
 
     assert!(source.contains("Some(value.clone())"), "{source}");
@@ -2069,7 +2069,7 @@ function empty(flag: boolean): unknown[] | unknown {
 #[test]
 fn emits_loop_with_join_blocks_as_loop() {
     let source = source_for(
-        r#"
+        r"
 function countPresent(values: string[]): Record<string, number> {
   const out = new Map<string, number>();
   for (const value of values) {
@@ -2082,7 +2082,7 @@ function countPresent(values: string[]): Record<string, number> {
   }
   return Object.fromEntries(out);
 }
-"#,
+",
     );
 
     assert!(source.contains("loop {"), "{source}");
@@ -2092,12 +2092,12 @@ function countPresent(values: string[]): Record<string, number> {
 #[test]
 fn emits_closure_call_result_for_optional_destination() {
     let source = source_for(
-        r#"
+        r"
 function maybeCall(callback: (value: number) => number): number | undefined {
   const value: number | undefined = callback(1);
   return value;
 }
-"#,
+",
     );
 
     assert!(
@@ -2126,11 +2126,11 @@ function label(values: string[]): string[] {
 #[test]
 fn emits_case_conversion_for_erased_callback_string_indexes() {
     let source = source_for(
-        r#"
+        r"
 function initialCaps<T extends string>(values: T[]): string[] {
   return values.map((value) => value[0].toUpperCase());
 }
-"#,
+",
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
@@ -2142,12 +2142,12 @@ function initialCaps<T extends string>(values: T[]): string[] {
 #[test]
 fn emits_default_callback_for_erased_non_function_callback_cast() {
     let source = source_for(
-        r#"
+        r"
 function invoke(callback: (value: number) => number, fallback?: (value: number) => number): number {
   const chosen = (undefined as unknown) as (value: number) => number;
   return chosen(1);
 }
-"#,
+",
     );
 
     assert!(source.contains("smelt_default_callback"), "{source}");
@@ -2198,11 +2198,11 @@ function keyed(key: unknown): unknown {
 #[test]
 fn emits_tuple_into_unknown_runtime_conversion() {
     let source = source_for(
-        r#"
+        r"
 function pair(value: unknown): unknown {
   return [value, value] as [unknown, unknown];
 }
-"#,
+",
     );
 
     assert!(
@@ -2270,7 +2270,7 @@ export function read(): number {
 #[test]
 fn calls_base_typed_virtual_methods_through_stored_function_fields() {
     let source = source_for(
-        r#"
+        r"
 abstract class Setter {
   validate(value: number): boolean {
     return true;
@@ -2285,7 +2285,7 @@ class ValueSetter extends Setter {
 
 const setter: Setter = new ValueSetter();
 const accepted = setter.validate(12);
-"#,
+",
     );
 
     assert!(
@@ -2301,7 +2301,7 @@ const accepted = setter.validate(12);
 #[test]
 fn binds_stored_virtual_methods_when_reerasing_base_class_values() {
     let source = source_for(
-        r#"
+        r"
 type Result<T> = { value: T };
 
 abstract class Parser<T> {
@@ -2325,7 +2325,7 @@ class YearParser extends Parser<number> {
 }
 
 const parser: Parser<any> = new ForwardingParser(new YearParser());
-"#,
+",
     );
 
     assert!(
@@ -2343,13 +2343,13 @@ const parser: Parser<any> = new ForwardingParser(new YearParser());
 #[test]
 fn adapts_generic_record_fields_with_instantiated_payload_types() {
     let source = source_for(
-        r#"
+        r"
 type MatchFnResult<T> = { value: T; rest: string };
 
 declare const genericResult: MatchFnResult<unknown>;
 const numericResult = genericResult as MatchFnResult<number>;
 const value = numericResult.value;
-"#,
+",
     );
 
     assert!(
@@ -2362,11 +2362,11 @@ const value = numericResult.value;
 #[test]
 fn keeps_unknown_conditionals_erased_before_string_compatible_fallbacks() {
     let source = source_for(
-        r#"
+        r"
 declare const value: unknown;
 declare const fallback: Date;
 const selected: unknown = value ? value : fallback;
-"#,
+",
     );
 
     assert!(
@@ -2382,7 +2382,7 @@ const selected: unknown = value ? value : fallback;
 #[test]
 fn wraps_concrete_records_when_casting_to_erased_intersection_aliases() {
     let source = source_for(
-        r#"
+        r"
 type A = { locale?: unknown };
 type B = { weekStartsOn?: number };
 type DefaultOptions = A & B;
@@ -2392,7 +2392,7 @@ let defaultOptions: DefaultOptions = {};
 export function getDefaultOptions(): DefaultOptions {
   return defaultOptions;
 }
-"#,
+",
     );
 
     assert!(
@@ -2408,14 +2408,14 @@ export function getDefaultOptions(): DefaultOptions {
 #[test]
 fn omits_absent_optional_fields_when_erasing_structural_objects() {
     let source = source_for(
-        r#"
+        r"
 interface Flags {
   era?: number;
 }
 
 declare const flags: Flags;
 const erased: unknown = flags;
-"#,
+",
     );
 
     assert!(
@@ -2431,11 +2431,11 @@ const erased: unknown = flags;
 #[test]
 fn emits_cycle_safe_unknown_structural_equality_runtime() {
     let source = source_for(
-        r#"
+        r"
 declare const left: unknown;
 declare const right: unknown;
 const same = left === right;
-"#,
+",
     );
 
     assert!(
@@ -2456,10 +2456,10 @@ const same = left === right;
 #[test]
 fn emits_cycle_safe_unknown_structural_hash_runtime() {
     let source = source_for(
-        r#"
+        r"
 declare const value: unknown;
 const values = new Set<unknown>([value]);
-"#,
+",
     );
 
     assert!(
@@ -2476,11 +2476,11 @@ const values = new Set<unknown>([value]);
 #[test]
 fn emits_unknown_partial_ordering_runtime_support() {
     let source = source_for(
-        r#"
+        r"
 function before(left: unknown, right: unknown): boolean {
   return left < right;
 }
-"#,
+",
     );
 
     assert!(
@@ -2494,7 +2494,7 @@ function before(left: unknown, right: unknown): boolean {
 #[test]
 fn emits_numeric_binary_operands_coerced_to_destination() {
     let source = source_for(
-        r#"
+        r"
 function addUnknown(total: number, value: unknown): number {
   const narrowed = value as number;
   return total + narrowed;
@@ -2503,7 +2503,7 @@ function addUnknown(total: number, value: unknown): number {
 function truncateDifference(left: bigint, right: number): bigint {
   return left - right;
 }
-"#,
+",
     );
 
     assert!(
@@ -2515,11 +2515,11 @@ function truncateDifference(left: bigint, right: number): bigint {
 #[test]
 fn emits_numeric_not_as_parenthesized_truthiness() {
     let source = source_for(
-        r#"
+        r"
 function isZero(amount: number): boolean {
   return !amount;
 }
-"#,
+",
     );
 
     assert!(
@@ -2531,11 +2531,11 @@ function isZero(amount: number): boolean {
 #[test]
 fn emits_optional_erased_value_coerced_to_concrete_destination() {
     let source = source_for(
-        r#"
+        r"
 function read(output: Record<string, unknown[]>, key: unknown | undefined): unknown[] {
   return output[key as string];
 }
-"#,
+",
     );
 
     assert!(
@@ -2549,11 +2549,11 @@ function read(output: Record<string, unknown[]>, key: unknown | undefined): unkn
 #[test]
 fn emits_erased_nullish_coalescing_as_unknown_match() {
     let source = source_for(
-        r#"
+        r"
 function fallback<T>(value: T, fallbackValue: T): T | undefined {
   return value ?? fallbackValue;
 }
-"#,
+",
     );
 
     assert!(
@@ -2565,12 +2565,12 @@ function fallback<T>(value: T, fallbackValue: T): T | undefined {
 #[test]
 fn emits_erased_nullish_coalescing_into_concrete_destination() {
     let source = source_for(
-        r#"
+        r"
 function fallback(value: unknown): boolean {
   const result: boolean = value ?? false;
   return result;
 }
-"#,
+",
     );
 
     assert!(
@@ -2582,7 +2582,7 @@ function fallback(value: unknown): boolean {
 #[test]
 fn emits_optional_nullish_coalescing_with_erased_fallback_without_panicking() {
     let source = source_for(
-        r#"
+        r"
 declare const defaults: Record<string, unknown>;
 interface Options {
   weekStartsOn?: number;
@@ -2590,7 +2590,7 @@ interface Options {
 function read(options?: Options): number {
   return options?.weekStartsOn ?? defaults.weekStartsOn ?? 0;
 }
-"#,
+",
     );
 
     assert!(
@@ -2603,11 +2603,11 @@ function read(options?: Options): number {
 #[test]
 fn emits_boolean_cast_for_typescript_unknown() {
     let source = source_for(
-        r#"
+        r"
 function truthy(value: unknown): boolean {
   return Boolean(value);
 }
-"#,
+",
     );
 
     assert!(source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => false"));
@@ -2619,11 +2619,11 @@ function truthy(value: unknown): boolean {
 #[test]
 fn emits_nan_truthiness_without_invalid_nan_comparison() {
     let source = source_for(
-        r#"
+        r"
 function truthy(): boolean {
   return Boolean(NaN);
 }
-"#,
+",
     );
 
     assert!(source.contains("!smelt_number.is_nan()"), "{source}");
@@ -2633,12 +2633,12 @@ function truthy(): boolean {
 #[test]
 fn emits_call_bodied_local_arrow_as_real_closure_body() {
     let source = source_for(
-        r#"
+        r"
 function makeDataLast(fn: (value: number, extra: number) => number, extra: number): (value: number) => number {
   const dataLast = (data: number): number => fn(data, extra);
   return dataLast;
 }
-"#,
+",
     );
 
     assert!(
@@ -2693,7 +2693,7 @@ console.log(user.name);
 #[test]
 fn reinserts_dynamic_record_list_alias_after_push() {
     let source = source_for(
-        r#"
+        r"
 function group(values: string[]): Record<string, string[]> {
   const output: Record<string, string[]> = {};
   for (const value of values) {
@@ -2707,7 +2707,7 @@ function group(values: string[]): Record<string, string[]> {
   }
   return output;
 }
-"#,
+",
     );
 
     assert!(
@@ -2773,11 +2773,11 @@ function hasLength(value: unknown): boolean {
 #[test]
 fn projects_string_indices_when_casting_unknown_to_record() {
     let source = source_for(
-        r#"
+        r"
 function keyCount(value: unknown): number {
   return Object.keys(value).length;
 }
-"#,
+",
     );
 
     assert!(
@@ -2789,7 +2789,7 @@ function keyCount(value: unknown): number {
 #[test]
 fn erases_sets_without_dropping_items() {
     let source = source_for(
-        r#"
+        r"
 function accept(value: unknown): unknown {
   return value;
 }
@@ -2797,7 +2797,7 @@ function accept(value: unknown): unknown {
 export function run(): unknown {
   return accept(new Set([1, 2, 3]));
 }
-"#,
+",
     );
 
     assert!(
@@ -2843,7 +2843,7 @@ function assign(value: unknown): unknown {
 #[test]
 fn coerces_optional_unknown_field_to_optional_callable_destination() {
     let source = source_for(
-        r#"
+        r"
 type Context = ((value: unknown) => unknown) | undefined;
 interface Options {
   in?: Context;
@@ -2856,7 +2856,7 @@ function apply(value: unknown, context?: Context): unknown {
 function run(options?: Options): unknown {
   return apply(null, options?.in);
 }
-"#,
+",
     );
 
     assert!(
@@ -2873,7 +2873,7 @@ function run(options?: Options): unknown {
 #[test]
 fn adapts_structural_option_bags_at_call_boundaries() {
     let source = source_for(
-        r#"
+        r"
 interface IsWeekendOptions {
   in?: (value: unknown) => unknown;
 }
@@ -2889,7 +2889,7 @@ function isWeekend(date: unknown, options?: IsWeekendOptions): boolean {
 function addBusinessDays<DateType>(date: DateType, options?: AddBusinessDaysOptions<DateType>): boolean {
   return isWeekend(date, options);
 }
-"#,
+",
     );
 
     assert!(source.contains("IsWeekendOptions {"), "{source}");
@@ -3083,7 +3083,7 @@ const result = useOptions({ locale: customLocale });
 #[test]
 fn instantiates_generic_option_defaults_without_leaking_type_params() {
     let source = source_for(
-        r#"
+        r"
 interface ContextOptions<DateType extends Date = Date> {
   in?: (value: unknown) => DateType;
 }
@@ -3103,7 +3103,7 @@ function parseValue(options?: ParseOptions<unknown>): unknown {
 function isMatch(options?: IsMatchOptions): unknown {
   return parseValue(options);
 }
-"#,
+",
     );
 
     assert!(
@@ -3182,7 +3182,7 @@ console.log(user[key]);
 #[test]
 fn emits_radix_to_string_and_numeric_shift_surface() {
     let source = source_for(
-        r#"
+        r"
 const binary = (10n).toString(2);
 const left = 1n << 8n;
 const right = left >> 1n;
@@ -3190,7 +3190,7 @@ const pivot = (4 + 10) >>> 1;
 function shiftRaw(raw: bigint): bigint {
   return raw >> 1n;
 }
-"#,
+",
     );
 
     assert!(
@@ -3210,11 +3210,11 @@ function shiftRaw(raw: bigint): bigint {
 #[test]
 fn emits_array_from_length_mapper() {
     let source = source_for(
-        r#"
+        r"
 function range(start: number, length: number, step: number): number[] {
   return Array.from({ length }, (_, i) => (i === 0 ? start : start + i * step));
 }
-"#,
+",
     );
 
     assert!(source.contains("array_from_length"), "{source}");
@@ -3228,12 +3228,12 @@ function range(start: number, length: number, step: number): number[] {
 #[test]
 fn emits_callback_dynamic_index_with_non_null_assertion() {
     let source = source_for(
-        r#"
+        r"
 function sample<T>(data: readonly T[]): T[] {
   const sampleIndices = new Set<number>();
   return [...sampleIndices].sort((a, b) => a - b).map((index) => data[index]!);
 }
-"#,
+",
     );
 
     assert!(source.contains("closure_arg_0.clone() as i64"), "{source}");
@@ -3243,11 +3243,11 @@ function sample<T>(data: readonly T[]): T[] {
 #[test]
 fn emits_erased_string_key_index_reads_for_arrays_and_strings() {
     let source = source_for(
-        r#"
+        r"
 export function read(value: unknown, key: string): unknown {
   return value[key as keyof typeof value];
 }
-"#,
+",
     );
 
     assert!(source.contains("SmeltUnknown::Array(values)"), "{source}");
@@ -3260,12 +3260,12 @@ export function read(value: unknown, key: string): unknown {
 #[test]
 fn emits_sort_with_comparator_function_value() {
     let source = source_for(
-        r#"
+        r"
 const sortByImplementation = <T>(
   data: readonly T[],
   compareFn: (left: T, right: T) => number,
 ): T[] => [...data].sort(compareFn);
-"#,
+",
     );
 
     assert!(
@@ -3281,7 +3281,7 @@ const sortByImplementation = <T>(
 #[test]
 fn emits_spread_sort_for_erased_iterable_generic() {
     let source = source_for(
-        r#"
+        r"
 type IterableContainer<T> = readonly T[];
 
 const numberComparator = (a: number, b: number): number => a - b;
@@ -3289,7 +3289,7 @@ const numberComparator = (a: number, b: number): number => a - b;
 function sorted<T extends IterableContainer<number>>(data: T): unknown {
   return [...data].sort(numberComparator);
 }
-"#,
+",
     );
 
     // The spread of the erased, list-constrained `data` materializes a fresh,
@@ -3305,7 +3305,7 @@ function sorted<T extends IterableContainer<number>>(data: T): unknown {
 #[test]
 fn emits_object_symbol_iterator_generator_as_erased_iterable() {
     let source = source_for(
-        r#"
+        r"
 function count(items: Iterable<unknown>): number {
   const erased = items as unknown;
   return [...(erased as Iterable<unknown>)].length;
@@ -3317,7 +3317,7 @@ const result = count({
     yield 1;
   },
 });
-"#,
+",
     );
 
     assert!(source.contains("\"__smelt_symbol_iterator\""), "{source}");
@@ -3334,7 +3334,7 @@ const result = count({
 #[test]
 fn adapts_rest_callback_without_flattening_list_arguments() {
     let source = source_for(
-        r#"
+        r"
 function purry<T>(
   callback: (...args: unknown[]) => unknown,
 ): (data: readonly T[], compare: (left: T, right: T) => number) => unknown {
@@ -3348,7 +3348,7 @@ function wrap<T>(
   const n = 2;
   return purry((...args) => func(...args, n));
 }
-"#,
+",
     );
 
     assert!(
@@ -3391,7 +3391,7 @@ export function run(): unknown {
 #[test]
 fn emits_void_return_inside_loop_branch() {
     let source = source_for(
-        r#"
+        r"
 function stopWhenSorted(items: number[]): void {
   let index = 0;
   while (index < items.length) {
@@ -3401,7 +3401,7 @@ function stopWhenSorted(items: number[]): void {
     index += 1;
   }
 }
-"#,
+",
     );
 
     assert!(
@@ -3417,7 +3417,7 @@ function stopWhenSorted(items: number[]): void {
 #[test]
 fn emits_non_escaping_closure_that_captures_borrowed_callback_param() {
     let source = source_for(
-        r#"
+        r"
 function visit<T>(
   data: readonly T[],
   callback: (value: T, index: number, data: readonly T[]) => boolean,
@@ -3436,7 +3436,7 @@ function indicesSeen(
   });
   return indices;
 }
-"#,
+",
     );
 
     assert!(
@@ -3456,11 +3456,11 @@ function indicesSeen(
 #[test]
 fn emits_generic_iterable_spread_concat_through_unknown_lists() {
     let source = source_for(
-        r#"
+        r"
 function concatImplementation<T1, T2>(arr1: T1, arr2: T2): unknown[] {
   return [...arr1 as unknown[], ...arr2 as unknown[]];
 }
-"#,
+",
     );
 
     assert!(
@@ -3479,13 +3479,13 @@ fn emits_tuple_element_push_as_concrete_tuple_value() {
     // emits a real `(f64, String)` tuple value rather than widening the pushed
     // item to a `SmeltUnknown` list that could never re-type into the tuple.
     let source = source_for(
-        r#"
+        r"
 export function collect(value: number, key: string): Array<[number, string]> {
   const result: Array<[number, string]> = [];
   result.push([value, key]);
   return result;
 }
-"#,
+",
     );
 
     assert!(
@@ -3563,12 +3563,12 @@ export function widen(a: number[] | string[]): unknown[] {
 #[test]
 fn boxes_returned_function_values_even_when_mir_types_match() {
     let source = source_for(
-        r#"
+        r"
 function makeMapper(): (value: number) => number {
   const mapper = (value: number) => value + 1;
   return mapper;
 }
-"#,
+",
     );
 
     assert!(
@@ -3585,13 +3585,13 @@ function makeMapper(): (value: number) => number {
 #[test]
 fn coerces_function_adapter_return_values_to_target_return_type() {
     let source = source_for(
-        r#"
+        r"
 function adapt(
   callback: (value: unknown) => { next: unknown },
 ): (value: unknown, index: number, data: unknown[]) => unknown {
   return callback;
 }
-"#,
+",
     );
 
     assert!(
@@ -3625,7 +3625,7 @@ function choose(flag: boolean): unknown[] {
 #[test]
 fn emits_first_assignment_to_uninitialized_local_as_declaration() {
     let source = source_for(
-        r#"
+        r"
 function choose(flag: boolean): number {
   let result: number;
   if (flag) {
@@ -3635,7 +3635,7 @@ function choose(flag: boolean): number {
   }
   return result;
 }
-"#,
+",
     );
 
     assert!(
@@ -3648,13 +3648,13 @@ function choose(flag: boolean): number {
 #[test]
 fn coerces_function_adapter_forwarded_arguments_to_source_param_types() {
     let source = source_for(
-        r#"
+        r"
 function adapt(
   callback: (values: unknown[], index?: number) => unknown,
 ): (value: unknown, index: number, data: unknown[]) => unknown {
   return callback;
 }
-"#,
+",
     );
 
     assert!(
@@ -3667,11 +3667,11 @@ function adapt(
 #[test]
 fn emits_regex_find_with_erased_haystack_string_coercion() {
     let source = source_for(
-        r#"
+        r"
 function matchUnknown(value: unknown): string[] | undefined {
   return (value as any).match(/a+/);
 }
-"#,
+",
     );
 
     assert!(
@@ -3684,12 +3684,12 @@ function matchUnknown(value: unknown): string[] | undefined {
 #[test]
 fn emits_string_match_with_regexp_flags_preserved() {
     let source = source_for(
-        r#"
+        r"
 function parts(value: string): string[] | undefined {
   const tokens = /a+|b/g;
   return value.match(tokens);
 }
-"#,
+",
     );
 
     assert!(
@@ -3702,13 +3702,13 @@ function parts(value: string): string[] | undefined {
 #[test]
 fn emits_regexp_array_elements_with_flags_preserved() {
     let source = source_for(
-        r#"
+        r"
 const patterns = [/x/u, /x/gimu];
 const pattern = patterns[1];
 const usesGlobal = pattern.global;
 const ignoresCase = pattern.ignoreCase;
 const usesMultiline = pattern.multiline;
-"#,
+",
     );
 
     assert!(
@@ -3992,7 +3992,7 @@ if (m !== null) {
 #[test]
 fn tests_uninitialized_erased_value_presence_before_numeric_extraction() {
     let source = source_for(
-        r#"
+        r"
 function latest(flag: boolean): number | undefined {
   let found;
   if (flag) {
@@ -4000,7 +4000,7 @@ function latest(flag: boolean): number | undefined {
   }
   return found !== undefined ? found : undefined;
 }
-"#,
+",
     );
 
     assert!(source.contains("matches!(found.clone(), SmeltUnknown::Undefined)"));
@@ -4010,11 +4010,11 @@ function latest(flag: boolean): number | undefined {
 #[test]
 fn emits_javascript_any_character_regex_translation() {
     let source = source_for(
-        r#"
+        r"
 function inner(value: string): string[] | undefined {
   return value.match(/^'([^]*?)'?$/);
 }
-"#,
+",
     );
 
     assert!(source.contains("replace(\"[^]\", \"(?s:.)\")"), "{source}");
@@ -4024,14 +4024,14 @@ function inner(value: string): string[] | undefined {
 #[test]
 fn coerces_rendered_list_values_to_tuple_destinations() {
     let source = source_for(
-        r#"
+        r"
 function invoke(
   values: unknown[],
   callback: (pair: [unknown, unknown]) => unknown,
 ): unknown {
   return callback(values);
 }
-"#,
+",
     );
 
     assert!(
@@ -4045,11 +4045,11 @@ function invoke(
 #[test]
 fn wraps_function_return_values_from_unknown_adapters() {
     let source = source_for(
-        r#"
+        r"
 function outer(make: () => (value: unknown) => unknown): unknown {
   return [make];
 }
-"#,
+",
     );
 
     assert!(source.contains("SmeltUnknown::Function"), "{source}");
@@ -4059,11 +4059,11 @@ function outer(make: () => (value: unknown) => unknown): unknown {
 #[test]
 fn owns_callback_params_that_escape_through_unknown_values() {
     let source = source_for(
-        r#"
+        r"
 function expose(callback: (value: unknown) => unknown): unknown {
   return { callback };
 }
-"#,
+",
     );
 
     assert!(
@@ -4102,7 +4102,7 @@ test("rejects", async () => {
 #[test]
 fn flattens_optional_chain_over_optional_callback_field() {
     let source = source_for(
-        r#"
+        r"
 interface Options {
   cb?: (value: number) => number;
 }
@@ -4110,7 +4110,7 @@ interface Options {
 export function read(options?: Options): ((value: number) => number) | undefined {
   return options?.cb;
 }
-"#,
+",
     );
 
     assert!(source.contains(".as_ref().and_then("), "{source}");
@@ -4120,7 +4120,7 @@ export function read(options?: Options): ((value: number) => number) | undefined
 #[test]
 fn preserves_optional_callable_values_across_compatible_parameter_adaptation() {
     let source = source_for(
-        r#"
+        r"
 interface Options {
   in?: (value: unknown) => unknown;
 }
@@ -4130,7 +4130,7 @@ function consume(context?: (value: Date) => unknown): void {}
 export function run(options?: Options): void {
   consume(options?.in);
 }
-"#,
+",
     );
 
     assert!(source.contains(".map(|value|"), "{source}");
@@ -4140,11 +4140,11 @@ export function run(options?: Options): void {
 #[test]
 fn emits_optional_callable_logical_or_as_selected_unknown_value() {
     let source = source_for(
-        r#"
+        r"
 function select(value: unknown, context?: (value: unknown) => unknown): unknown {
   return context || value;
 }
-"#,
+",
     );
 
     assert!(source.contains(".map_or_else("), "{source}");
@@ -4155,12 +4155,12 @@ function select(value: unknown, context?: (value: unknown) => unknown): unknown 
 #[test]
 fn flattens_python_nested_optional_annotations() {
     let source = source_for_py(
-        r#"
+        r"
 from typing import Optional
 
 def read(value: Optional[Optional[int]]) -> Optional[int]:
     return value
-"#,
+",
     );
 
     assert!(source.contains("value: Option<i64>"), "{source}");
@@ -4188,11 +4188,11 @@ def read(values: dict[str, Optional[int]]) -> Optional[int]:
 #[test]
 fn flattens_optional_list_index_over_optional_items() {
     let source = source_for(
-        r#"
+        r"
 function read(values: Array<number | undefined>, index: number): number | undefined {
   return values?.[index];
 }
-"#,
+",
     );
 
     assert!(source.contains(".cloned().flatten()"), "{source}");
@@ -4202,7 +4202,7 @@ function read(values: Array<number | undefined>, index: number): number | undefi
 #[test]
 fn emits_optional_constructor_parameter_without_unwrapping_optional_argument() {
     let source = source_for(
-        r#"
+        r"
 class Parser {
   subPriority?: number;
   constructor() {}
@@ -4213,7 +4213,7 @@ class ValueSetter {
 function make(parser: Parser): ValueSetter {
   return new ValueSetter(parser.subPriority);
 }
-"#,
+",
     );
 
     assert!(
@@ -4231,14 +4231,14 @@ function make(parser: Parser): ValueSetter {
 #[test]
 fn emits_unknown_index_assignment_as_object_mutation() {
     let source = source_for(
-        r#"
+        r"
 function build(key: unknown, value: unknown): unknown {
   const result: unknown = {};
   // @ts-expect-error dynamic index writes are accepted at erased object boundaries.
   result[key] = value;
   return result;
 }
-"#,
+",
     );
 
     assert!(source.contains("SmeltUnknown::Object(map)"), "{source}");
@@ -4252,11 +4252,11 @@ function build(key: unknown, value: unknown): unknown {
 #[test]
 fn emits_array_destructuring_assignment_as_indexed_writes() {
     let source = source_for(
-        r#"
+        r"
 function swap(data: unknown[], i: number, j: number): void {
   [data[i], data[j]] = [data[j], data[i]];
 }
-"#,
+",
     );
 
     assert!(source.contains("let __smelt_destructure"), "{source}");
@@ -4278,11 +4278,11 @@ function swap(data: unknown[], i: number, j: number): void {
 #[test]
 fn emits_callback_typeof_unknown_as_runtime_match() {
     let source = source_for(
-        r#"
+        r"
 function mapType(values: unknown[]): string[] {
   return values.map((item) => typeof item);
 }
-"#,
+",
     );
 
     assert!(
@@ -4300,11 +4300,11 @@ function mapType(values: unknown[]): string[] {
 #[test]
 fn emits_array_for_each_with_function_callback_parameter() {
     let source = source_for(
-        r#"
+        r"
 function visit(values: number[], callback: (value: number, index: number, data: number[]) => void): void {
   values.forEach(callback);
 }
-"#,
+",
     );
 
     assert!(source.contains(".iter().enumerate().for_each"), "{source}");
@@ -4315,11 +4315,11 @@ function visit(values: number[], callback: (value: number, index: number, data: 
 #[test]
 fn emits_array_flat_map_with_function_callback_parameter() {
     let source = source_for(
-        r#"
+        r"
 function expand(values: number[], callback: (value: number, index: number, data: number[]) => number[]): number[] {
   return values.flatMap(callback);
 }
-"#,
+",
     );
 
     assert!(source.contains(".iter().enumerate().flat_map"), "{source}");
@@ -4330,7 +4330,7 @@ function expand(values: number[], callback: (value: number, index: number, data:
 #[test]
 fn ignores_unused_void_call_result_without_null_cast() {
     let source = source_for(
-        r#"
+        r"
 function wrapped(value: unknown): void;
 function wrapped(value: unknown): unknown {
   return value;
@@ -4339,7 +4339,7 @@ function wrapped(value: unknown): unknown {
 function run(value: unknown): void {
   wrapped(value);
 }
-"#,
+",
     );
 
     assert!(source.contains("let _ = wrapped"), "{source}");
@@ -4349,7 +4349,7 @@ function run(value: unknown): void {
 #[test]
 fn emits_non_destructive_object_getter_reads() {
     let source = source_for(
-        r#"
+        r"
 function makeCounter(): { readonly value: number } {
   let value = 0;
   return {
@@ -4363,7 +4363,7 @@ function makeCounter(): { readonly value: number } {
 const counter = makeCounter();
 const first = counter.value;
 const second = counter.value;
-"#,
+",
     );
 
     assert!(
@@ -4503,10 +4503,10 @@ fn set_interval_registers_repeating_timer_and_clear_interval_cancels() {
     // `setInterval`/`clearInterval` must lower onto the same virtual-time timer
     // queue as `setTimeout`, with the interval re-arming itself after each fire.
     let source = source_for(
-        r#"
+        r"
 const id = setInterval(() => {}, 10);
 clearInterval(id);
-"#,
+",
     );
 
     // The dedicated repeating-timer helper is emitted and called.
@@ -4527,9 +4527,9 @@ clearInterval(id);
 #[test]
 fn drains_virtual_timers_before_async_sleep_can_change_threads() {
     let source = source_for(
-        r#"
+        r"
 setTimeout(() => {}, 10);
-"#,
+",
     );
 
     let sleep_body = source
@@ -4624,14 +4624,14 @@ function sizeOf(value: unknown): unknown {
 #[test]
 fn writes_back_list_pushes_through_tuple_indexes() {
     let source = source_for(
-        r#"
+        r"
 function partitionLike(values: number[]): [number[], number[]] {
   const result: [number[], number[]] = [[], []];
   result[0].push(values[0]);
   result[1].push(values[1]);
   return result;
 }
-"#,
+",
     );
 
     assert!(source.contains("result.0 ="), "{source}");
@@ -4837,10 +4837,10 @@ fn reuses_a_stable_identity_when_erasing_a_source_list_local() {
     // (`SmeltList`) carries its own reference id, and a `.clone()` shares it, so
     // each erasure reuses the list's `id()` rather than an address-keyed sidecar.
     let source = source_for(
-        r#"
+        r"
 const data: number[] = [1, 2, 3];
 const same = (data as unknown) === (data as unknown);
-"#,
+",
     );
 
     let body = source
@@ -4863,9 +4863,9 @@ fn keeps_a_fresh_identity_when_erasing_a_list_literal() {
     // A fresh list expression (here a literal) must keep `SmeltArray::new` (via
     // `.into()`) so distinct array literals are never `===`, matching JS.
     let source = source_for(
-        r#"
+        r"
 const other = ([1, 2, 3] as unknown) === ([1, 2, 3] as unknown);
-"#,
+",
     );
 
     let body = source
@@ -4894,13 +4894,13 @@ fn lowers_function_expression_value_rest_parameters() {
     // top-level functions and arrow expressions do, packing trailing arguments
     // into a single list parameter instead of erroring out.
     let source = source_for(
-        r#"
+        r"
 export function nthArgValue(n: number): (...args: number[]) => number {
   return function (...args: number[]): number {
     return args[n];
   };
 }
-"#,
+",
     );
 
     // The returned closure must accept a single packed rest list
@@ -4978,11 +4978,11 @@ fn lowers_array_at_inside_callback_body() {
     // same optional-index path used in statement position (es-toolkit
     // `src/array/at.spec.ts`), rather than failing closure-body lowering.
     let source = source_for(
-        r#"
+        r"
 const data = [10, 20, 30];
 const indices = [0, 1, 2];
 const out = indices.map(i => data.at(i));
-"#,
+",
     );
 
     assert!(
@@ -5013,10 +5013,10 @@ fn lowers_array_join_default_separator_inside_callback_body() {
     // A bare `.join()` inside a callback body defaults to the `","` separator,
     // matching the statement-position lowering.
     let source = source_for(
-        r#"
+        r"
 const rows: number[][] = [[1, 2], [3, 4]];
 const joined = rows.map(parts => parts.join());
-"#,
+",
     );
 
     assert!(
@@ -5031,7 +5031,7 @@ fn lowers_map_has_inside_callback_body() {
     // same `contains_key` check the direct `map_has_call` path emits (es-toolkit
     // `src/map/every.spec.ts`).
     let source = source_for(
-        r#"
+        r"
 export function every<K, V>(
   map: Map<K, V>,
   doesMatch: (value: V, key: K, map: Map<K, V>) => boolean
@@ -5046,7 +5046,7 @@ export function every<K, V>(
 
 const m = new Map<string, number>();
 const r = every(m, (value, key, originalMap) => originalMap.has(key) && value > 0);
-"#,
+",
     );
 
     assert!(
@@ -5092,7 +5092,7 @@ const flags = values.map(value => value.endsWith("x"));
 #[test]
 fn emits_materialized_property_reads_and_writes_as_accessor_calls() {
     let mut ctx = py_frontend::HirCtx::new();
-    let source = r#"
+    let source = r"
 class Model:
     _value: int
     value: int
@@ -5109,7 +5109,7 @@ class Model:
 def update(model: Model) -> int:
     model.value = 7
     return model.value
-"#;
+";
     assert!(
         py_frontend::to_hir(source, FileId(0), &mut ctx).is_ok(),
         "HIR"
@@ -5146,7 +5146,8 @@ def update(model: Model) -> int:
         })
         .expect("value type");
     let method = |expected: &str| {
-        mir.functions
+        let function = mir
+            .functions
             .iter()
             .find(|function| {
                 matches!(
@@ -5155,8 +5156,8 @@ def update(model: Model) -> int:
                         if class == class_name && mir.symbols.get(method) == Some(expected)
                 )
             })
-            .map(|function| function.id)
-            .unwrap_or_else(|| panic!("{expected} method"))
+            .unwrap_or_else(|| panic!("{expected} method"));
+        function.id
     };
     let getter = method("__smelt_get_value");
     let setter = method("__smelt_set_value");
@@ -5247,11 +5248,11 @@ fn lowers_numeric_truthy_condition_inside_callback() {
     // `(value, index) => index ? a : b` index-guard idiom) lowers to an
     // explicit `!= 0` test rather than rejecting the callback.
     let source = source_for(
-        r#"
+        r"
 function pick(values: number[]): number[] {
   return values.map((value, index) => (index ? value * 2 : value));
 }
-"#,
+",
     );
 
     assert!(
@@ -5267,7 +5268,7 @@ fn falls_back_to_closure_body_for_try_catch_callback() {
     // closure-body lowering instead of failing the whole file. `source_for`
     // panics on any blocker, so reaching codegen proves the fallback fired.
     let source = source_for(
-        r#"
+        r"
 function run(values: string[]): Array<string | undefined> {
   return values.map((value) => {
     try {
@@ -5277,7 +5278,7 @@ function run(values: string[]): Array<string | undefined> {
     }
   });
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -5288,7 +5289,7 @@ fn falls_back_to_closure_body_for_sort_comparator_with_loop() {
     // An `Array.prototype.sort` comparator whose body uses a `for` loop must
     // retry through full closure-body lowering rather than rejecting the file.
     let source = source_for(
-        r#"
+        r"
 function order(items: number[][]): number[][] {
   return items.slice().sort((a, b) => {
     for (let i = 0; i < a.length; i++) {
@@ -5299,7 +5300,7 @@ function order(items: number[][]): number[][] {
     return 0;
   });
 }
-"#,
+",
     );
 
     assert!(source.contains("sort"), "{source}");
@@ -5312,11 +5313,11 @@ fn lowers_erased_local_value_passed_as_named_callback() {
     // a wrapper closure that calls the captured local, instead of rejecting it
     // for not being an inline arrow / not having a callback entry.
     let source = source_for(
-        r#"
+        r"
 function apply(values: string[], fn: any): string[] {
   return values.map(fn);
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -5327,7 +5328,7 @@ fn lowers_array_concat_with_multiple_arguments() {
     // `Array.prototype.concat` accepts any number of arguments; each array
     // argument is spread and each scalar is appended, chained left to right.
     let source = source_for(
-        r#"
+        r"
 export function joinAll(a: number[], b: number[], c: number[]): number[] {
   return a.concat(b, c);
 }
@@ -5337,7 +5338,7 @@ export function appendScalars(a: number[], x: number, y: number): number[] {
 export function copy(a: number[]): number[] {
   return a.concat();
 }
-"#,
+",
     );
     // Two right-arguments produce chained list concatenations (`.chain(...)`),
     // and the no-argument form is a shallow copy.
@@ -5365,12 +5366,12 @@ fn folds_number_constant_in_exported_const() {
     // An exported const aliasing a well-known numeric member constant folds to a
     // numeric literal instead of rejecting the initializer as non-foldable.
     let source = source_for(
-        r#"
+        r"
 export const SAFE = Number.MAX_SAFE_INTEGER;
 export function ceiling(): number {
   return SAFE;
 }
-"#,
+",
     );
     assert!(
         source.contains("9007199254740991") || source.contains("9_007_199_254_740_991"),
@@ -5383,14 +5384,14 @@ fn lowers_array_push_with_multiple_arguments() {
     // `Array.prototype.push` accepts any number of arguments, appending each in
     // order and returning the new length; spread arguments extend the list.
     let source = source_for(
-        r#"
+        r"
 export function appendThree(a: number[]): number {
   return a.push(1, 2, 3);
 }
 export function appendSpreadAndScalar(a: number[], b: number[]): void {
   a.push(...b, 9);
 }
-"#,
+",
     );
     // Three pushes for the scalar case, plus an extend + push for the second.
     assert!(source.matches(".push(").count() >= 4, "{source}");
@@ -5403,7 +5404,7 @@ fn lowers_array_length_from_optional_and_member_numeric() {
     // `new Array(xs.length)` where the length is a numeric member read, both
     // preallocate a list instead of rejecting the length as non-numeric.
     let source = source_for(
-        r#"
+        r"
 export function makeOptional(n?: number): number[] {
   const result = new Array(n);
   return result;
@@ -5412,7 +5413,7 @@ export function makeFromLength<T>(keys: T[]): T[] {
   const result = new Array(keys.length);
   return result;
 }
-"#,
+",
     );
     assert!(source.contains("Vec::new") || source.contains("SmeltList"), "{source}");
 }
@@ -5422,14 +5423,14 @@ fn lowers_new_set_from_optional_and_erased_iterables() {
     // `new Set(iterable)` accepts an optional array, an existing set (copy), and
     // an erased iterable surface, instead of requiring a concretely-typed array.
     let source = source_for(
-        r#"
+        r"
 export function fromOptional(xs?: string[]): Set<string> {
   return new Set(xs);
 }
 export function fromSet(s: Set<number>): Set<number> {
   return new Set(s);
 }
-"#,
+",
     );
     assert!(source.contains("HashSet") || source.contains("SmeltSet") || source.contains("Set"), "{source}");
 }
@@ -5440,7 +5441,7 @@ fn lowers_object_has_own_on_optional_array_and_generic_receivers() {
     // optional record receiver (asserted to its inner shape), and a generic
     // `T extends object` receiver (treated as a string-keyed record).
     let source = source_for(
-        r#"
+        r"
 export function indexPresent(arr: number[], i: number): boolean {
   return Object.hasOwn(arr, i);
 }
@@ -5450,7 +5451,7 @@ export function keyPresent(obj?: Record<string, number>, key?: string): boolean 
 export function genericKey<T extends object>(object: T, key: string): boolean {
   return Object.hasOwn(object, key);
 }
-"#,
+",
     );
     // Array case becomes a length-bounded comparison.
     assert!(source.contains(".len()") || source.contains("len("), "{source}");
@@ -5462,7 +5463,7 @@ fn lowers_string_methods_on_coercible_receivers() {
     // string-compatible receivers (generic `T extends string`, erased returns),
     // numeric-like length/index/count arguments, and an optional position.
     let source = source_for(
-        r#"
+        r"
 export function pad(s: string, n: number, c: string): string {
   return s.padStart(n, c);
 }
@@ -5475,7 +5476,7 @@ export function repeated(s: string, n: number): string {
 export function startsAt(s: string, t: string, p: number): boolean {
   return s.startsWith(t, p);
 }
-"#,
+",
     );
     assert!(source.contains("starts_with") || source.contains("StringAffix") || source.contains("char"), "{source}");
 }
@@ -5485,7 +5486,7 @@ fn lowers_for_in_over_generic_object_receiver() {
     // `for...in` over an unconstrained generic / erased object receiver casts to
     // a string-keyed record and iterates its keys.
     let source = source_for(
-        r#"
+        r"
 export function keysOf<T>(object: T): string[] {
   const out: string[] = [];
   for (const key in object) {
@@ -5493,7 +5494,7 @@ export function keysOf<T>(object: T): string[] {
   }
   return out;
 }
-"#,
+",
     );
     assert!(source.contains("for "), "{source}");
 }
@@ -5503,14 +5504,14 @@ fn lowers_array_fill_with_compatible_value() {
     // `Array.prototype.fill` coerces an assignment-compatible value (generic
     // element type) instead of requiring an exact element-type match.
     let source = source_for(
-        r#"
+        r"
 export function fillAll<T>(a: T[], v: T): T[] {
   return a.fill(v);
 }
 export function fillRange(a: number[]): number[] {
   return a.fill(0, 1, 2);
 }
-"#,
+",
     );
     assert!(source.contains("fill"), "{source}");
 }
@@ -5524,7 +5525,7 @@ fn lowers_truthy_guard_on_param_with_dependent_default() {
     // to "no narrowing" instead. Regression for the es-toolkit `compat/array/
     // fill.ts` frontend panic.
     let source = source_for(
-        r#"
+        r"
 export function fillRange<T>(
   array: T[] | null | undefined,
   value: T,
@@ -5541,7 +5542,7 @@ export function fillRange<T>(
   }
   return [];
 }
-"#,
+",
     );
     assert!(source.contains("fill_range"), "{source}");
 }
@@ -5553,7 +5554,7 @@ fn lowers_callback_that_reassigns_its_parameter() {
     // makes parameters mutable locals. The fallback must retry there instead of
     // failing with "callback parameter assignment is not supported yet".
     let source = source_for(
-        r#"
+        r"
 export function run(values: number[]): number[] {
   return values.map(value => {
     if (value < 0) {
@@ -5562,7 +5563,7 @@ export function run(values: number[]): number[] {
     return value + 1;
   });
 }
-"#,
+",
     );
     assert!(source.contains("fn run("), "{source}");
 }
@@ -5574,14 +5575,14 @@ fn lowers_foreach_callback_without_fixed_item_parameter() {
     // callback lowering handles them instead of failing with "array forEach
     // callbacks require an item parameter".
     let source = source_for(
-        r#"
+        r"
 export function run(sources: unknown[], apply: (...args: unknown[]) => void): void {
   sources.forEach((...args: unknown[]) => apply(...args));
 }
 export function tick(values: number[], onTick: () => void): void {
   values.forEach(() => onTick());
 }
-"#,
+",
     );
     assert!(source.contains("fn run("), "{source}");
     assert!(source.contains("fn tick("), "{source}");
@@ -5594,11 +5595,11 @@ fn lowers_named_opaque_predicate_for_array_some() {
     // accept the erased return type instead of rejecting it with "array callback
     // callback returns an unsupported type".
     let source = source_for(
-        r#"
+        r"
 export function run(values: unknown[], matchFunc: (value: unknown) => unknown): boolean {
   return values.some(matchFunc);
 }
-"#,
+",
     );
     assert!(source.contains("fn run("), "{source}");
     assert!(source.contains(".any("), "expected a some/any lowering: {source}");
@@ -5649,11 +5650,11 @@ fn lowers_compact_unsupported_method_inside_callback_through_closure_body() {
     // receiver through the general `expression` lowering and emits the real
     // `.repeat(...)` call against the closure's element-typed parameter.
     let source = source_for(
-        r#"
+        r"
 export function cbRepeat(xs: string[]): string[] {
   return xs.map(value => value.repeat(2));
 }
-"#,
+",
     );
     assert!(
         source.contains("closure_arg_0.clone().repeat("),
@@ -5753,12 +5754,12 @@ fn timer_untyped_extra_arg_keeps_erased_list_path() {
     // An `unknown`-typed extra is a genuine dynamic boundary, so the erased
     // `Vec<SmeltUnknown>` dispatch path must be preserved for it.
     let source = source_for(
-        r#"
+        r"
 function handle(value: unknown): void {}
 function fire(payload: unknown): void {
   setTimeout(handle, 10, payload);
 }
-"#,
+",
     );
 
     assert!(
@@ -5900,12 +5901,12 @@ fn erases_concrete_union_operand_before_truthiness_extraction() {
     // `match flag.clone() { SmeltUnknown::… }` would not type-check against the
     // `SmeltUnion…` storage.
     let source = source_for(
-        r#"
+        r"
 function pick(opts: { flag?: boolean | number }): boolean {
   const { flag = false } = opts;
   return !flag;
 }
-"#,
+",
     );
 
     assert!(source.contains("pub enum SmeltUnion"), "{source}");
@@ -5951,13 +5952,13 @@ fn lowers_function_expression_array_callback() {
     // function callbacks". `source_for` panics on any blocker, so reaching
     // codegen proves the non-arrow form was accepted.
     let source = source_for(
-        r#"
+        r"
 function increment(values: number[]): number[] {
   return values.map(function (value) {
     return value + 1;
   });
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -5971,7 +5972,7 @@ fn falls_back_to_closure_body_for_function_expression_callback() {
     // issue #86 the closure-body fallback was gated on the argument being an
     // arrow, so this rejected the file.
     let source = source_for(
-        r#"
+        r"
 function run(values: string[]): Array<string | undefined> {
   return values.map(function (value) {
     try {
@@ -5981,7 +5982,7 @@ function run(values: string[]): Array<string | undefined> {
     }
   });
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -5993,7 +5994,7 @@ fn lowers_named_function_item_array_callback() {
     // must lower into the callback closure by calling the function by name, with
     // its typed signature preserved (issue #86).
     let source = source_for(
-        r#"
+        r"
 function square(value: number): number {
   return value * value;
 }
@@ -6001,7 +6002,7 @@ function square(value: number): number {
 function squares(values: number[]): number[] {
   return values.map(square);
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -6014,12 +6015,12 @@ fn lowers_local_function_variable_array_callback() {
     // to an array method by name (`values.map(transform)`), must lower into the
     // callback closure by calling the captured local (issue #86).
     let source = source_for(
-        r#"
+        r"
 function scale(values: number[]): number[] {
   const transform = (value: number): number => value * 3;
   return values.map(transform);
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -6032,7 +6033,7 @@ fn lowers_asserted_identifier_array_callback() {
     // the same named-reference path as the unwrapped form, so the assertion is
     // transparent instead of hitting the arrow-only gate (issue #86).
     let source = source_for(
-        r#"
+        r"
 function square(value: number): number {
   return value * value;
 }
@@ -6040,7 +6041,7 @@ function square(value: number): number {
 function squares(values: number[]): number[] {
   return values.map(square as (value: number) => number);
 }
-"#,
+",
     );
 
     assert!(source.contains(".map("), "{source}");
@@ -6055,7 +6056,7 @@ fn lowers_optional_class_field_to_option_with_explicit_construction() {
     // optional interface fields already lower. The named non-optional field
     // (`x: number`) stays concrete `f64` with no `Option` wrapper.
     let source = source_for(
-        r#"
+        r"
 class Point {
   x: number;
   y?: number;
@@ -6073,7 +6074,7 @@ function make(): number {
   const b = new Point(3);
   return a.total() + b.total();
 }
-"#,
+",
     );
 
     assert!(source.contains("struct Point"), "{source}");
@@ -6094,7 +6095,7 @@ fn lowers_optional_dataclass_field_to_option_with_explicit_construction() {
     // omits the field must synthesize the typed `None` default while a present
     // argument is wrapped as `Some(..)`. The required `int` field stays concrete.
     let source = source_for_py(
-        r#"
+        r"
 from dataclasses import dataclass
 from typing import Optional
 
@@ -6109,7 +6110,7 @@ def make() -> Optional[int]:
     a = Point(1, 2)
     b = Point(3)
     return a.y
-"#,
+",
     );
 
     assert!(source.contains("struct Point"), "{source}");
@@ -6126,7 +6127,7 @@ def make() -> Optional[int]:
 #[test]
 fn emits_typescript_static_method_as_associated_function() {
     let source = source_for(
-        r#"
+        r"
 class MathUtils {
   static square(value: number): number {
     return value * value;
@@ -6135,7 +6136,7 @@ class MathUtils {
 export function area(radius: number): number {
   return MathUtils.square(radius);
 }
-"#,
+",
     );
 
     // The static method is emitted inside the class impl with no `self`.
@@ -6186,7 +6187,7 @@ export function label(): string {
 #[test]
 fn emits_python_static_method_and_class_var() {
     let source = source_for_py(
-        r#"
+        r"
 class MathUtils:
     PI = 3
 
@@ -6196,7 +6197,7 @@ class MathUtils:
 
 def area(radius: float) -> float:
     return MathUtils.square(radius) * MathUtils.PI
-"#,
+",
     );
 
     assert!(source.contains("fn square(value: f64) -> f64"), "{source}");

@@ -64,7 +64,7 @@ const letters = word.length;
 #[test]
 fn emits_typescript_first_class_closure_values() {
     let source = source_for(
-        r#"
+        r"
 const offset = 2;
 const addOffset = (value: number): number => value + offset;
 function apply(value: number, fn: (value: number) => number): number {
@@ -78,7 +78,7 @@ const direct = addOffset(3);
 const passed = apply(4, addOffset);
 const adder = makeAdder(5);
 const returned = adder(6);
-"#,
+",
     );
 
     assert!(source.contains("Rc<dyn Fn(f64) -> f64>"));
@@ -156,7 +156,7 @@ function collect(): string[] {
 #[test]
 fn shared_capture_borrow_never_spans_a_sibling_closure_call() {
     let source = source_for(
-        r#"
+        r"
 function run(): number {
   let count = 0;
   function bump(): number {
@@ -169,7 +169,7 @@ function run(): number {
   acc();
   return count;
 }
-"#,
+",
     );
 
     // `count` is shared through an `Rc<RefCell<f64>>` capture cell.
@@ -202,11 +202,11 @@ function run(): number {
 #[test]
 fn emits_function_array_some_without_cloning_callbacks() {
     let source = source_for(
-        r#"
+        r"
 function anyPass(data: unknown, fns: Array<(value: unknown) => boolean>): boolean {
   return fns.some((fn) => fn(data));
 }
-"#,
+",
     );
 
     assert!(source.contains("mut fns:"), "{source}");
@@ -219,14 +219,14 @@ function anyPass(data: unknown, fns: Array<(value: unknown) => boolean>): boolea
 #[test]
 fn array_callback_value_index_paths_snapshot_source_array_for_js_callback_abi() {
     let source = source_for(
-        r#"
+        r"
 function offsets(values: number[], factor: number): number[] {
   return values.map((value, index) => value * factor + index);
 }
 function positive(values: number[]): boolean {
   return values.some((value, index) => value + index > 2);
 }
-"#,
+",
     );
 
     assert!(
@@ -251,11 +251,11 @@ function positive(values: number[]): boolean {
 #[test]
 fn array_callback_third_array_parameter_snapshots_once() {
     let source = source_for(
-        r#"
+        r"
 function view(values: number[]): number[] {
   return values.map((value, index, array) => value + array[index]);
 }
-"#,
+",
     );
 
     assert!(
@@ -273,11 +273,11 @@ function view(values: number[]): number[] {
 #[test]
 fn nested_array_callbacks_borrow_each_receiver_without_double_cloning() {
     let source = source_for(
-        r#"
+        r"
 function nested(groups: number[][], limit: number): boolean[] {
   return groups.map((group) => group.filter((value) => value > limit).some((value) => value > 0));
 }
-"#,
+",
     );
 
     assert!(source.contains(".iter().enumerate().map"), "{source}");
@@ -294,12 +294,12 @@ function nested(groups: number[][], limit: number): boolean[] {
 #[test]
 fn spread_rest_callback_closure_clones_captured_callback_once() {
     let source = source_for(
-        r#"
+        r"
 type RestCallback = (...args: unknown[]) => unknown;
 function invokeAll(callbacks: RestCallback[], args: unknown[]): unknown[] {
   return callbacks.map((callback) => callback(...args));
 }
-"#,
+",
     );
 
     assert!(
@@ -317,11 +317,11 @@ function invokeAll(callbacks: RestCallback[], args: unknown[]): unknown[] {
 #[test]
 fn skips_unused_function_callback_item_bindings_in_literal_false_branch() {
     let source = source_for(
-        r#"
+        r"
 function lazy(functions: Array<(value: unknown) => unknown>): Array<unknown | null> {
   return functions.map((fn) => false ? fn(null) : null);
 }
-"#,
+",
     );
 
     assert!(source.contains(".iter().enumerate().map"), "{source}");
@@ -332,11 +332,11 @@ function lazy(functions: Array<(value: unknown) => unknown>): Array<unknown | nu
 #[test]
 fn emits_string_concat_with_optional_primitive_rhs() {
     let source = source_for(
-        r#"
+        r"
 function label(prefix: string, value: string | undefined): string {
   return prefix + value;
 }
-"#,
+",
     );
 
     assert!(
@@ -361,11 +361,11 @@ const tails = values.map((value) => value.slice(1));
 #[test]
 fn emits_typescript_generic_and_default_closure_values() {
     let source = source_for(
-        r#"
+        r"
 const bump = <T extends number>(value: number = 1): number => value + 1;
 const defaulted = bump();
 const explicit = bump(4);
-"#,
+",
     );
 
     assert!(
@@ -381,10 +381,10 @@ const explicit = bump(4);
 #[test]
 fn emits_typescript_destructured_tuple_callback() {
     let source = source_for(
-        r#"
+        r"
 const pairs: [number, number][] = [[1, 2], [3, 4]];
 const sums = pairs.map(([left, right]) => left + right);
-"#,
+",
     );
 
     assert!(source.contains("closure_arg_0.0.clone() + closure_arg_0.1.clone()"));
@@ -393,10 +393,10 @@ const sums = pairs.map(([left, right]) => left + right);
 #[test]
 fn emits_typescript_destructured_record_callback() {
     let source = source_for(
-        r#"
+        r"
 const rows: Record<string, number>[] = [];
 const doubled = rows.map(({ value }) => value * 2);
-"#,
+",
     );
 
     assert!(
@@ -408,13 +408,13 @@ const doubled = rows.map(({ value }) => value * 2);
 #[test]
 fn emits_typescript_async_closure_values() {
     let source = source_for(
-        r#"
+        r"
 async function run(): Promise<number> {
   const lift = async (value: number): Promise<number> => value + 1;
   const result = await lift(4);
   return result;
 }
-"#,
+",
     );
 
     assert!(source.contains("Box::pin(async move"));
@@ -424,10 +424,10 @@ async function run(): Promise<number> {
 #[test]
 fn emits_typescript_rest_closure_values() {
     let source = source_for(
-        r#"
+        r"
 const sum = (...values: number[]): number => values[0] + values[1];
 const total = sum(2, 3, 4);
-"#,
+",
     );
 
     assert!(
@@ -445,12 +445,12 @@ const total = sum(2, 3, 4);
 #[test]
 fn emits_typescript_top_level_rest_functions() {
     let source = source_for(
-        r#"
+        r"
 function sum(...values: number[]): number {
   return values[0] + values[1];
 }
 const total = sum(2, 3, 4);
-"#,
+",
     );
 
     assert!(source.contains("fn sum(values: SmeltList<f64>) -> f64"));
@@ -460,14 +460,14 @@ const total = sum(2, 3, 4);
 #[test]
 fn extracts_generic_spread_arrays_when_packing_rest_calls() {
     let source = source_for(
-        r#"
+        r"
 function collect(context: unknown, ...rest: unknown[]): unknown[] {
   return rest;
 }
 function call<Values extends unknown[]>(first: unknown, values: Values): unknown[] {
   return collect(undefined, first, ...values);
 }
-"#,
+",
     );
 
     assert!(
@@ -487,7 +487,7 @@ fn erases_typed_optional_struct_spread_source_to_smelt_unknown() {
     // the `Option<Struct>` value, which does not type-check. The spread source
     // must first be erased to `SmeltUnknown` through its boundary adapter.
     let source = source_for(
-        r#"
+        r"
 interface WeekOptions {
   weekStartsOn?: number;
 }
@@ -497,7 +497,7 @@ function inner(date: number, options?: WeekOptions): number {
 function outer(date: number, options?: WeekOptions): number {
   return inner(date, { ...options, weekStartsOn: 1 });
 }
-"#,
+",
     );
 
     assert!(
@@ -534,10 +534,10 @@ function isUndefined(value?: number): boolean {
 #[test]
 fn emits_math_abs_call() {
     let source = source_for(
-        r#"
+        r"
 const value = -5;
 const positive = Math.abs(value);
-"#,
+",
     );
 
     assert!(source.contains(".abs();"));
@@ -546,13 +546,13 @@ const positive = Math.abs(value);
 #[test]
 fn emits_math_rounding_calls() {
     let source = source_for(
-        r#"
+        r"
 const value = 5.5;
 const floor = Math.floor(value);
 const ceil = Math.ceil(value);
 const round = Math.round(value);
 const trunc = Math.trunc(value);
-"#,
+",
     );
 
     assert!(source.contains(".floor();"));
@@ -564,11 +564,11 @@ const trunc = Math.trunc(value);
 #[test]
 fn emits_math_trunc_on_integer_expressions_without_zeroing() {
     let source = source_for(
-        r#"
+        r"
 const value = 1234;
 const whole = Math.trunc(value / 1000);
 const text = whole.toString();
-"#,
+",
     );
 
     assert!(source.contains("value / 1000.0;"));
@@ -581,12 +581,12 @@ const text = whole.toString();
 #[test]
 fn emits_math_extrema_calls() {
     let source = source_for(
-        r#"
+        r"
 const first = 1;
 const second = 2;
 const highest = Math.max(first, second, 3);
 const lowest = Math.min(first, second, -1);
-"#,
+",
     );
 
     assert!(source.contains(".max("));
@@ -596,7 +596,7 @@ const lowest = Math.min(first, second, -1);
 #[test]
 fn emits_array_callback_methods() {
     let source = source_for(
-        r#"
+        r"
 const values: number[] = [1, 2, 3];
 const mapped = values.map(value => value + 1);
 const filtered = values.filter(value => value > 1);
@@ -619,7 +619,7 @@ const normalized = values.map(normalize);
 let mutableTotal = 0;
 values.forEach(value => mutableTotal += value);
 const noInitial = values.reduce((acc, value, index) => acc + value + index);
-"#,
+",
     );
 
     assert!(source.contains(".iter().enumerate().map(|(index, item)|"));
@@ -648,7 +648,7 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
 #[test]
 fn emits_captured_multi_argument_callback_calls_inside_array_map() {
     let source = source_for(
-        r#"
+        r"
 function zip(
   first: unknown[],
   second: unknown[],
@@ -656,7 +656,7 @@ function zip(
 ): unknown[] {
   return first.map((item, index) => fn(item, second[index], index, first));
 }
-"#,
+",
     );
 
     assert!(
@@ -672,7 +672,7 @@ function zip(
 #[test]
 fn does_not_apply_free_function_abi_to_same_named_captured_callback() {
     let source = source_for(
-        r#"
+        r"
 function fn(value: unknown[]): unknown[] {
   return value;
 }
@@ -683,7 +683,7 @@ function zip(
 ): unknown[] {
   return first.map((item, index) => fn(item, second[index], index, first));
 }
-"#,
+",
     );
 
     assert!(
@@ -719,11 +719,11 @@ for (let ch: string of word) {
 #[test]
 fn emits_callback_regex_replace_uppercase() {
     let source = source_for(
-        r#"
+        r"
 export function format(units: string[]): string[] {
   return units.map((unit) => `x${unit.replace(/(^.)/, (m) => m.toUpperCase())}` as string);
 }
-"#,
+",
     );
 
     assert!(source.contains("regex::Regex::new"));
@@ -733,11 +733,11 @@ export function format(units: string[]): string[] {
 #[test]
 fn emits_callback_string_key_record_access() {
     let source = source_for(
-        r#"
+        r"
 export function values(record: Record<string, number>, keys: string[]): number[] {
   return keys.map((key) => record[key]);
 }
-"#,
+",
     );
 
     assert!(
@@ -906,7 +906,7 @@ const code = word.charCodeAt(2);
 #[test]
 fn emits_math_sqrt_pow_sign() {
     let source = source_for(
-        r#"
+        r"
 const value = 4;
 const root = Math.sqrt(value);
 const cubeRoot = Math.cbrt(value);
@@ -925,7 +925,7 @@ const logTwo = Math.log2(value);
 const exponent = Math.exp(value);
 const distance = Math.hypot(value, 3);
 const sample = Math.random();
-"#,
+",
     );
 
     assert!(source.contains(".sqrt();"));
@@ -978,7 +978,7 @@ fn emits_captured_class_method_call_inside_map_callback() {
     // failure panics inside `source_for`). The emitted closure captures the
     // receiver and dispatches the method with the callback's element argument.
     let source = source_for(
-        r#"
+        r"
 class Counter {
   base: number;
   constructor(b: number) {
@@ -994,7 +994,7 @@ export function scaleAll(xs: number[]): number[] {
   const c = new Counter(2);
   return xs.map((x) => c.scaled(x));
 }
-"#,
+",
     );
 
     assert!(

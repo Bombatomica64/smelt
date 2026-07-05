@@ -38,11 +38,11 @@ use smelt_hir::FileId;
 
 /// A `delay` helper reused by every fixture: awaiting it advances the shared
 /// virtual-time timer queue so scheduled timers fire deterministically.
-const DELAY_HELPER: &str = r#"
+const DELAY_HELPER: &str = r"
 async function delay(ms: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
-"#;
+";
 
 /// Lowers `source` through the real pipeline and emits a runnable program crate.
 fn emit_program(source: &str, crate_name: &str, crate_dir: &Path) {

@@ -5,12 +5,12 @@ use super::*;
 #[test]
 fn emits_python_sum_builtin() {
     let source = source_for_py(
-        r#"
+        r"
 ints: list[int] = [1, 2]
 int_total: int = sum(ints)
 floats: list[float] = [1.0, 2.0]
 float_total: float = sum(floats)
-"#,
+",
     );
 
     assert!(source.contains(".iter().copied().sum::<i64>()"));
@@ -20,11 +20,11 @@ float_total: float = sum(floats)
 #[test]
 fn emits_python_all_any_builtins() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[bool] = [True, False]
 all_values: bool = all(values)
 any_values: bool = any(values)
-"#,
+",
     );
 
     assert!(source.contains(".iter().copied().all(|value| value)"));
@@ -34,12 +34,12 @@ any_values: bool = any(values)
 #[test]
 fn emits_python_map_filter_lambda_callbacks() {
     let source = source_for_py(
-        r#"
+        r"
 factor: int = 2
 values: list[int] = [1, 2, 3]
 scaled: list[int] = list(map(lambda value: value * factor, values))
 filtered: list[int] = list(filter(lambda value: value > factor, values))
-"#,
+",
     );
 
     assert!(source.contains(".iter().enumerate().map("));
@@ -51,7 +51,7 @@ filtered: list[int] = list(filter(lambda value: value > factor, values))
 #[test]
 fn emits_python_first_class_closure_values() {
     let source = source_for_py(
-        r#"
+        r"
 from typing import Callable
 
 offset: int = 2
@@ -68,7 +68,7 @@ direct: int = add_offset(3)
 passed: int = apply(4, add_offset)
 adder: Callable[[int], int] = make_adder(5)
 returned: int = adder(6)
-"#,
+",
     );
 
     assert!(source.contains("Rc<dyn Fn(i64) -> i64>"));
@@ -82,7 +82,7 @@ returned: int = adder(6)
 #[test]
 fn emits_nested_loop_inside_loop_branch_as_structured_loop() {
     let source = source_for(
-        r#"
+        r"
 export function collect(values: number[], flags: boolean[]): number {
   let total = 0;
   let index = 0;
@@ -105,7 +105,7 @@ export function collect(values: number[], flags: boolean[]): number {
 
   return total;
 }
-"#,
+",
     );
 
     assert!(
@@ -117,7 +117,7 @@ export function collect(values: number[], flags: boolean[]): number {
 #[test]
 fn keeps_continuation_after_short_circuit_call_guard() {
     let source = source_for(
-        r#"
+        r"
 function valid(value: boolean): boolean {
   return value;
 }
@@ -131,7 +131,7 @@ export function count(a: boolean, b: boolean): number {
   }
   return result;
 }
-"#,
+",
     );
 
     assert!(source.contains("return f64::NAN;"), "{source}");
@@ -142,7 +142,7 @@ export function count(a: boolean, b: boolean): number {
 #[test]
 fn emits_postfix_index_update_inside_while_loop_body() {
     let source = source_for(
-        r#"
+        r"
 export function read(values: number[]): number[] {
   const result: number[] = [];
   let index = 0;
@@ -152,7 +152,7 @@ export function read(values: number[]): number[] {
   }
   return result;
 }
-"#,
+",
     );
 
     let loop_start = source.find("loop {").expect("expected emitted loop");
@@ -175,7 +175,7 @@ export function read(values: number[]): number[] {
 #[test]
 fn emits_do_while_value_iteration_without_defaulting_after_recursive_expansion() {
     let source = source_for(
-        r#"
+        r"
 export function firstOutside(value: number): number {
   let previous = value;
   let current = value;
@@ -185,7 +185,7 @@ export function firstOutside(value: number): number {
   } while (current > 0);
   return previous;
 }
-"#,
+",
     );
 
     assert!(source.contains("loop {"), "{source}");
@@ -200,13 +200,13 @@ export function firstOutside(value: number): number {
 #[test]
 fn emits_python_default_lambda_closure_values() {
     let source = source_for_py(
-        r#"
+        r"
 from typing import Callable
 
 bump: Callable[[int], int] = lambda value=1: value + 1
 defaulted: int = bump()
 explicit: int = bump(4)
-"#,
+",
     );
 
     assert!(source.contains("(1)"));
@@ -216,7 +216,7 @@ explicit: int = bump(4)
 #[test]
 fn emits_python_nested_def_closure_values() {
     let source = source_for_py(
-        r#"
+        r"
 from typing import Callable
 
 def make_adder(base: int) -> Callable[[int], int]:
@@ -226,7 +226,7 @@ def make_adder(base: int) -> Callable[[int], int]:
 
 adder: Callable[[int], int] = make_adder(5)
 result: int = adder(6)
-"#,
+",
     );
 
     assert!(source.contains("move |"));
@@ -237,12 +237,12 @@ result: int = adder(6)
 #[test]
 fn emits_python_vararg_lambda_closure_values() {
     let source = source_for_py(
-        r#"
+        r"
 from typing import Callable
 
 sum_two: Callable[[int, int], int] = lambda *values: values[0] + values[1]
 result: int = sum_two(2, 3)
-"#,
+",
     );
 
     assert!(source.contains("|closure_arg_0: i64, closure_arg_1: i64|"));
@@ -311,12 +311,12 @@ chosen: int = pick(value=5, **extras)
 #[test]
 fn emits_python_sorted_builtin() {
     let source = source_for_py(
-        r#"
+        r"
 ints: list[int] = [2, 1]
 ordered_ints: list[int] = sorted(ints)
 floats: list[float] = [2.0, 1.0]
 ordered_floats: list[float] = sorted(floats)
-"#,
+",
     );
 
     assert!(source.contains(".clone(); sorted.sort(); sorted"));
@@ -328,11 +328,11 @@ ordered_floats: list[float] = sorted(floats)
 #[test]
 fn emits_python_sorted_key_and_reverse() {
     let source = source_for_py(
-        r#"
+        r"
 bias: int = 10
 values: list[int] = [2, 1]
 ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True)
-"#,
+",
     );
 
     assert!(source.contains("let mut smelt_sort_key ="));
@@ -343,10 +343,10 @@ ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True
 #[test]
 fn emits_python_list_sort_key() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[int] = [2, 1]
 ordered: None = values.sort(key=lambda value: value * 2)
-"#,
+",
     );
 
     assert!(source.contains("let mut smelt_sort_key ="));
@@ -357,10 +357,10 @@ ordered: None = values.sort(key=lambda value: value * 2)
 #[test]
 fn emits_python_reversed_builtin() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[int] = [1, 2]
 flipped: list[int] = reversed(values)
-"#,
+",
     );
 
     assert!(source.contains(".iter().rev().cloned().collect::<Vec<_>>()"));
@@ -440,14 +440,14 @@ as_bool: bool = bool("")
 #[test]
 fn emits_python_range_builtin() {
     let source = source_for_py(
-        r#"
+        r"
 first: list[int] = range(3)
 middle: list[int] = range(1, 4)
 stepped: list[int] = range(5, 1, -2)
 total: int = 0
 for value in range(3):
     total = total + value
-"#,
+",
     );
 
     assert!(source.contains("let mut values = Vec::new();"));
@@ -459,17 +459,17 @@ for value in range(3):
 #[test]
 fn emits_json_stringify_calls() {
     let ts_source = source_for(
-        r#"
+        r"
 const values: number[] = [1, 2];
 const text = JSON.stringify(values);
-"#,
+",
     );
     let py_source = source_for_py(
-        r#"
+        r"
 import json
 values: list[int] = [1, 2]
 text: str = json.dumps(values)
-"#,
+",
     );
 
     assert!(ts_source.contains("serde_json::to_string(&"));
@@ -591,11 +591,11 @@ const has = word.includes("mel");
 #[test]
 fn emits_string_includes_method_with_position() {
     let source = source_for(
-        r#"
+        r"
 export function containsFrom(haystack: string, needle: string, from: number): boolean {
   return haystack.includes(needle, from);
 }
-"#,
+",
     );
 
     // The `position` argument is truncated toward zero, clamped to `[0, len]`,
@@ -619,10 +619,10 @@ export function containsFrom(haystack: string, needle: string, from: number): bo
 #[test]
 fn emits_array_includes_method() {
     let source = source_for(
-        r#"
+        r"
 const values: number[] = [1, 2, 3];
 const has = values.includes(2);
-"#,
+",
     );
 
     assert!(
@@ -634,13 +634,13 @@ const has = values.includes(2);
 #[test]
 fn emits_set_constructor_and_has_method() {
     let source = source_for(
-        r#"
+        r"
 const values: Set<number> = new Set([1, 2, 3]);
 const has = values.has(2);
 const empty: Set<string> = new Set();
 const source: number[] = [1, 2, 3];
 const fromSource = new Set(source);
-"#,
+",
     );
 
     assert!(source.contains("let values: Vec<f64>"), "{source}");
@@ -656,11 +656,11 @@ const fromSource = new Set(source);
 #[test]
 fn emits_set_has_inside_callback() {
     let source = source_for(
-        r#"
+        r"
 const selected: Set<number> = new Set([1, 2]);
 const values: number[] = [1, 2, 3];
 const hits = values.filter((value) => selected.has(value));
-"#,
+",
     );
 
     assert!(
@@ -672,13 +672,13 @@ const hits = values.filter((value) => selected.has(value));
 #[test]
 fn emits_set_for_of_iteration() {
     let source = source_for(
-        r#"
+        r"
 const values: Set<number> = new Set([1, 2]);
 let total = 0;
 for (let item: number of values) {
   total = total + item;
 }
-"#,
+",
     );
 
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
@@ -740,10 +740,10 @@ for name in names:
 #[test]
 fn emits_python_pytest_function_as_rust_test() {
     let source = source_for_py_path(
-        r#"
+        r"
 def test_truth():
     assert True
-"#,
+",
         "tests/test_truth.py",
     );
 
@@ -761,7 +761,7 @@ fn lowers_bare_array_call_like_new_array() {
     // `const result = Array(total); result[i] = ...`). Both lower to a list
     // container that subsequent indexed writes fill.
     let source = source_for(
-        r#"
+        r"
 export function build(total: number): number[] {
   const result: number[] = Array(total);
   for (let i = 0; i < total; i++) {
@@ -769,7 +769,7 @@ export function build(total: number): number[] {
   }
   return result;
 }
-"#,
+",
     );
 
     // The `result` list is constructed (not a leaked `Array(...)` call) and is
@@ -789,11 +789,11 @@ fn lowers_bare_array_call_with_array_literal_argument() {
     // A single array-literal argument builds that literal directly, matching the
     // `new Array([...])` lowering.
     let source = source_for(
-        r#"
+        r"
 export function pair(): number[] {
   return Array([1, 2, 3]);
 }
-"#,
+",
     );
 
     assert!(

@@ -236,7 +236,7 @@ function normalize(values: number[]): number[][] {
             // handed to the method (`byLocal`). Each must lower into the callback
             // closure with its typed signature preserved, and the emitted Rust
             // must compile.
-            source: r#"
+            source: r"
 function square(value: number): number {
   return value * 2;
 }
@@ -265,7 +265,7 @@ function byLocal(values: number[]): number[] {
   const transform = (value: number): number => value * 3;
   return values.map(transform);
 }
-"#,
+",
         },
         // --- string / list operations ----------------------------------------
         Case {
@@ -474,14 +474,14 @@ setTimeout(note, 10, "with-optional", "extra");
             // their concrete value. All must emit Rust that compiles.
             name: "exported_const_member_expressions",
             area: "exported_consts",
-            source: r#"
+            source: r"
 export const MAX_INTEGER = Number.MAX_VALUE;
 export const arrayProto = Array.prototype;
 export const slice = Array.prototype.slice;
 export const objectProto = Object.prototype;
 const limits = { lower: 1, upper: 640 } as const;
 export const UPPER_LIMIT = limits.upper;
-"#,
+",
         },
         Case {
             // Issue #84: class string index signatures `[key: string]: T`. A
@@ -499,7 +499,7 @@ export const UPPER_LIMIT = limits.upper;
             // gap that also affects plain union class fields.
             name: "class_index_signature",
             area: "classes",
-            source: r#"
+            source: r"
 class StringBag {
   [key: string]: string;
 }
@@ -524,7 +524,7 @@ export function mixedSize(bag: MixedBag): number {
 export function readMixed(bag: MixedBag, key: string): number | undefined {
   return bag[key];
 }
-"#,
+",
         },
         Case {
             // Issue #96: statically-resolvable computed property names. A
