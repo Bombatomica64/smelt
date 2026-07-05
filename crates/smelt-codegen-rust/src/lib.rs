@@ -377,6 +377,10 @@ fn emit_source_with_free_function_router(
 ) -> Result<String, EmitError> {
     let mut writer = CodeWriter::new();
     let context = EmitContext::new(mir)?;
+    // Decide, once, which free functions emit real Rust generics (signature
+    // safety plus a body-cleanliness trial) so the definition and every call
+    // site agree on the generic-vs-erased shape.
+    context.populate_generic_functions(mir)?;
     let needs_serde_json =
         stdlib::backend_dependencies(mir).contains(&smelt_stdlib::BackendDependency::SerdeJson);
     let needs_regex =

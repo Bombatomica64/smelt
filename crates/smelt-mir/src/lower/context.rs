@@ -192,6 +192,12 @@ impl<'hir> LoweringCtx<'hir> {
         if let Some(hir_function) = function_item_for_body(shared.krate, body_id) {
             function.is_test = hir_function.is_test;
             function.rest = hir_function.rest;
+            // Propagate a generic free function's declared type parameters so
+            // codegen can emit real Rust generics rather than erasing `T` to
+            // `SmeltUnknown`.
+            function
+                .type_params
+                .clone_from(&hir_function.type_params);
         }
         let locals = build_locals(&mut function, body)?;
 

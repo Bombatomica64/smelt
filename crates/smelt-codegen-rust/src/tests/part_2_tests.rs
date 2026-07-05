@@ -171,8 +171,15 @@ function invalid<ResultDate extends Date>(value: ResultDate): boolean {
 ",
     );
 
-    assert!(source.contains(".is_nan()"), "{source}");
-    assert!(!source.contains("return false;"), "{source}");
+    // Scope the negative assertion to the generated program: a bounded generic
+    // free function now emits the `SmeltUnknown` prelude (whose `for...in`
+    // helpers legitimately contain `return false;`), so the assertion must look
+    // only at the emitted `invalid` body, not the runtime prelude.
+    let program = source
+        .split_once(crate::PRELUDE_END_MARKER)
+        .map_or(source.as_str(), |(_, program)| program);
+    assert!(program.contains(".is_nan()"), "{source}");
+    assert!(!program.contains("return false;"), "{source}");
 }
 
 #[test]
@@ -331,14 +338,21 @@ function absent<ResultDate extends Date>(
 ",
     );
 
+    // Scope assertions to the generated program: a bounded generic free
+    // function now emits the `SmeltUnknown` prelude, whose match arms mention
+    // `Some(SmeltUnknown::Number(value))`, so the negative assertion must look
+    // only at the emitted `absent` body rather than the runtime prelude.
+    let program = source
+        .split_once(crate::PRELUDE_END_MARKER)
+        .map_or(source.as_str(), |(_, program)| program);
     assert!(
-        source.contains(
+        program.contains(
             "result.clone().as_ref().map_or(true, |value| matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined))"
         ),
         "{source}"
     );
     assert!(
-        !source.contains("Some(SmeltUnknown::Number(value))"),
+        !program.contains("Some(SmeltUnknown::Number(value))"),
         "{source}"
     );
 }

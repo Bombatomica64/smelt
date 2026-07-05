@@ -576,23 +576,48 @@ impl FunctionEmitter<'_> {
         )
     }
 
-    /// Return type parameters declared by the current class function scope.
+    /// Return whether `param` is a type parameter in scope for the current
+    /// emitted function.
     ///
-    /// MIR does not model free-function generics yet, but class constructors
-    /// and methods are emitted inside `impl<T> Class<T>` blocks. Their
-    /// signatures must therefore keep class type parameters instead of erasing
-    /// them to `SmeltUnknown`.
+    /// Class constructors and methods are emitted inside `impl<T> Class<T>`
+    /// blocks, so class type parameters are in scope for them. A generic free
+    /// function (`fn identity<T>(x: T) -> T`) declares its own type parameters;
+    /// those are in scope only within that function. Either way, an in-scope
+    /// parameter keeps its generic shape instead of erasing to `SmeltUnknown`.
     pub(super) fn current_function_has_type_param(&self, param: Symbol) -> bool {
         self.current_function_type_params().contains(&param)
     }
 
-    /// Return type parameters declared by the current class function scope.
+    /// Return the type parameters in scope for the current emitted function.
+    ///
+    /// For a class member this is the owning class's generic parameters (the
+    /// member is emitted inside the class `impl<T>` block). For a module-level
+    /// free function it is the function's own declared type parameters, which
+    /// lets a generic free function emit real Rust generics rather than routing
+    /// its `T`-typed parameters and return through the runtime unknown carrier.
     fn current_function_type_params(&self) -> HashSet<Symbol> {
         let class_name = match self.function.origin {
             HirOrigin::ClassConstructor { class, .. }
             | HirOrigin::ClassMethod { class, .. }
             | HirOrigin::ClassStaticMethod { class, .. } => class,
-            HirOrigin::Body(_) => return HashSet::new(),
+            HirOrigin::Body(_) => {
+                // A free function emits real Rust generics only when its
+                // signature is generic-safe (see
+                // `classes::function_emits_rust_generics`) AND the body-cleanliness
+                // trial has not forced a fall back to erasure via
+                // `suppress_type_params`.
+                if *self.suppress_type_params.borrow()
+                    || !crate::classes::function_emits_rust_generics(self.mir, self.function)
+                {
+                    return HashSet::new();
+                }
+                return self
+                    .function
+                    .type_params
+                    .iter()
+                    .map(|param| param.name)
+                    .collect();
+            }
         };
         self.mir
             .classes

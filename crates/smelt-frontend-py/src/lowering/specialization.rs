@@ -125,6 +125,8 @@ impl ModuleBuilder<'_> {
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name: symbol,
             span,
+            // Specialized synthetic function carries no type params.
+            type_params: Vec::new(),
             params: Vec::new(),
             rest: None,
             required_params: None,

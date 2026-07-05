@@ -332,6 +332,8 @@ impl ModuleBuilder<'_> {
         let item = Item::Function(Function {
             name,
             span: func_span,
+            // Synthetic pytest wrapper carries no type params.
+            type_params: Vec::new(),
             params,
             rest: None,
             required_params: None,

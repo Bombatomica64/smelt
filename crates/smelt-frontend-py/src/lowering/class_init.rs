@@ -118,6 +118,8 @@ impl ModuleBuilder<'_> {
         let item = Item::Function(Function {
             name: init_sym,
             span,
+            // Constructors take generics from the owning class.
+            type_params: Vec::new(),
             params,
             rest: None,
             required_params: None,
@@ -164,6 +166,8 @@ return_ty: none_ty,
         self.ctx.krate.push_item(Item::Function(Function {
             name: init_sym,
             span,
+            // Constructors take generics from the owning class.
+            type_params: Vec::new(),
             params: Vec::new(),
             rest: None,
             required_params: None,

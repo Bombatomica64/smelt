@@ -979,6 +979,8 @@ impl ModuleBuilder<'_> {
             let placeholder = Item::Function(Function {
                 name: method_sym,
                 span: self.span(func.range),
+                // Methods take generics from the owning class.
+                type_params: Vec::new(),
                 params: Vec::new(),
                 rest: None,
                 required_params: None,
@@ -1177,6 +1179,8 @@ impl ModuleBuilder<'_> {
         let item = Item::Function(Function {
             name: method_sym,
             span,
+            // Methods take generics from the owning class.
+            type_params: Vec::new(),
             params,
             rest: None,
             required_params: None,

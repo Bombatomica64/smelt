@@ -333,6 +333,9 @@ impl ModuleBuilder<'_> {
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name,
             span: self.span(arrow.span.start, arrow.span.end),
+            // Generic arrow functions are deferred; a lifted arrow item declares
+            // no free-function type params in this increment.
+            type_params: Vec::new(),
             params,
             rest: rest.map(|rest| rest.index),
             required_params: Some(
@@ -607,6 +610,8 @@ return_ty: target_function.return_ty,
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name,
             span,
+            // Synthetic wrapper item carries no free-function type params.
+            type_params: Vec::new(),
             params: wrapper_params,
             rest: target_function.rest,
             required_params: None,

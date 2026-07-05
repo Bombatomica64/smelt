@@ -34,7 +34,8 @@ pub(super) fn item_text(krate: &Crate, item: ItemId) -> String {
     match item_value {
         Item::Function(function) => {
             let name = krate.symbols.get(function.name).unwrap_or("<unknown>");
-            format!("fn {name} owner {:?}", function.owner)
+            let type_params = type_params_text(krate, &function.type_params);
+            format!("fn {name}{type_params} owner {:?}", function.owner)
         }
         Item::Class(class) => class_item_text(krate, class),
         Item::Interface(interface) => interface_item_text(krate, interface),

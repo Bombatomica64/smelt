@@ -739,6 +739,43 @@ export function makeOk(v: number): Outcome<number, string> {
 "#,
         },
         Case {
+            // Issue #99 (deferred piece of #102): generic FREE functions lower to
+            // real Rust generics rather than erasing `T` to `SmeltUnknown`.
+            // `identity<T>` emits `fn identity<T: ..>(x: T) -> T`; `first<T>`
+            // exercises a type parameter nested in a `T[]` parameter; `pair<A, B>`
+            // exercises multiple type parameters. The call sites (`identity(3)`,
+            // `first([...])`, `pair(1, "x")`) pass concrete arguments through so
+            // Rust monomorphizes each call, and the concrete results bind to the
+            // callers' concrete return types — all of which must compile.
+            name: "generic_free_functions",
+            area: "generics",
+            source: r#"
+export function identity<T>(x: T): T {
+  return x;
+}
+
+export function first<T>(xs: T[]): T {
+  return xs[0];
+}
+
+export function pair<A, B>(first: A, second: B): B {
+  return second;
+}
+
+export function useIdentity(): number {
+  return identity(3);
+}
+
+export function useFirst(): number {
+  return first([1, 2, 3]);
+}
+
+export function usePair(): string {
+  return pair(1, "x");
+}
+"#,
+        },
+        Case {
             // Issue #78: `switch` over non-literal case labels. Enum-member and
             // const-reference labels const-fold to the member's numeric/string
             // literal, and the enum type resolves to its underlying primitive so
