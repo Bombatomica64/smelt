@@ -5,10 +5,10 @@ use super::*;
 #[test]
 fn emits_typescript_number_to_string_method() {
     let source = source_for(
-        r#"
+        r"
 const value = 42;
 const text = value.toString();
-"#,
+",
     );
 
     assert!(source.contains(".to_string()"));
@@ -17,11 +17,11 @@ const text = value.toString();
 #[test]
 fn emits_invalid_date_to_string_as_invalid_date_text() {
     let source = source_for(
-        r#"
+        r"
 function stringify(result: Date): string {
   return result.toString();
 }
-"#,
+",
     );
 
     assert!(source.contains("\"Invalid Date\".to_owned()"), "{source}");
@@ -57,10 +57,10 @@ fn optional_arrow_parameter_is_nullable_for_undefined_comparison() {
     // guard must compare against `None` rather than constant-folding to `false`
     // (which is what happened when the optional marker was dropped).
     let source = source_for(
-        r#"
+        r"
 const isMissing = (_: number, arg2?: number): boolean => arg2 === undefined;
 const result = isMissing(1);
-"#,
+",
     );
 
     assert!(
@@ -76,7 +76,7 @@ fn extracts_borrowed_predicate_argument_from_dynamic_spread_dispatch() {
     // callable and reborrow it, instead of substituting a no-op default predicate
     // that always returns `false`.
     let source = source_for(
-        r#"
+        r"
 const impl = (
   data: number,
   predicate: (value: number) => boolean,
@@ -87,7 +87,7 @@ function dispatch(...args: readonly unknown[]): unknown {
   // @ts-expect-error -- exercises dynamic dispatch through erased arguments
   return impl(...args);
 }
-"#,
+",
     );
 
     assert!(
@@ -103,11 +103,11 @@ function dispatch(...args: readonly unknown[]): unknown {
 #[test]
 fn emits_typescript_infinity_identifier() {
     let source = source_for(
-        r#"
+        r"
 const upper = Infinity;
 const lower = -Infinity;
 const missing = NaN;
-"#,
+",
     );
 
     assert!(source.contains("f64::INFINITY"));
@@ -117,7 +117,7 @@ const missing = NaN;
 #[test]
 fn emits_typescript_instanceof_as_class_check() {
     let source = source_for(
-        r#"
+        r"
 class Box {
   constructor() {}
 }
@@ -127,7 +127,7 @@ class Other {
 const value = new Box();
 const yes = value instanceof Box;
 const no = value instanceof Other;
-"#,
+",
     );
 
     assert!(source.contains("true"));
@@ -150,11 +150,11 @@ const floatValue = parseFloat("42.5");
 #[test]
 fn emits_number_predicate_calls() {
     let source = source_for(
-        r#"
+        r"
 const value = 4;
 const finite = Number.isFinite(value);
 const nan = Number.isNaN(value);
-"#,
+",
     );
 
     assert!(source.contains(".is_finite();"));
@@ -164,11 +164,11 @@ const nan = Number.isNaN(value);
 #[test]
 fn emits_nan_predicate_for_erased_date_numeric_getter() {
     let source = source_for(
-        r#"
+        r"
 function invalid<ResultDate extends Date>(value: ResultDate): boolean {
   return isNaN(value.getTime());
 }
-"#,
+",
     );
 
     assert!(source.contains(".is_nan()"), "{source}");
@@ -178,7 +178,7 @@ function invalid<ResultDate extends Date>(value: ResultDate): boolean {
 #[test]
 fn emits_nan_predicate_for_optional_numeric_and_date_values() {
     let source = source_for(
-        r#"
+        r"
 function numeric(value: number | undefined): boolean {
   return value != null && isNaN(value);
 }
@@ -195,7 +195,7 @@ function numericResult(): boolean {
 function dateValue(value: Date | undefined): boolean {
   return value instanceof Date && isNaN(value.getTime());
 }
-"#,
+",
     );
 
     assert!(source.contains("unwrap_or(f64::NAN)"), "{source}");
@@ -207,7 +207,7 @@ function dateValue(value: Date | undefined): boolean {
 #[test]
 fn emits_runtime_date_identity_for_unknown_instanceof_guard() {
     let source = source_for(
-        r#"
+        r"
 function isDate(value: unknown): boolean {
   return value instanceof Date;
 }
@@ -215,7 +215,7 @@ function isDate(value: unknown): boolean {
 const candidate = new Date(NaN);
 const date = isDate(candidate);
 const number = isDate(1);
-"#,
+",
     );
 
     assert!(source.contains("\"__smelt_date\".to_owned()"), "{source}");
@@ -252,7 +252,7 @@ const no = isBlob(1);
 #[test]
 fn emits_runtime_boxed_number_identity_for_unknown_instanceof_guard() {
     let source = source_for(
-        r#"
+        r"
 function isBoxedNumber(value: unknown): boolean {
   return value instanceof Number;
 }
@@ -260,7 +260,7 @@ function isBoxedNumber(value: unknown): boolean {
 const boxed = new Number(42);
 const yes = isBoxedNumber(boxed);
 const no = isBoxedNumber(42);
-"#,
+",
     );
 
     assert!(source.contains("\"__smelt_number\".to_owned()"), "{source}");
@@ -305,13 +305,13 @@ const context = tz("Asia/Singapore");
 #[test]
 fn emits_optional_date_type_parameter_or_nan_as_selected_value() {
     let source = source_for(
-        r#"
+        r"
 function select<ResultDate extends Date>(
   result: ResultDate | undefined,
 ): unknown {
   return result || NaN;
 }
-"#,
+",
     );
 
     assert!(source.contains(".map_or_else("), "{source}");
@@ -322,13 +322,13 @@ function select<ResultDate extends Date>(
 #[test]
 fn emits_negated_optional_date_type_parameter_as_presence_check() {
     let source = source_for(
-        r#"
+        r"
 function absent<ResultDate extends Date>(
   result: ResultDate | undefined,
 ): boolean {
   return !result;
 }
-"#,
+",
     );
 
     assert!(
@@ -435,10 +435,10 @@ const count = pair[1];
 #[test]
 fn emits_python_list_append_method() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[int] = [1, 2]
 result: None = values.append(3)
-"#,
+",
     );
 
     assert!(source.contains("let mut"));
@@ -450,11 +450,11 @@ result: None = values.append(3)
 #[test]
 fn emits_python_list_extend_method() {
     let source = source_for_py(
-        r#"
+        r"
 left: list[int] = [1, 2]
 right: list[int] = [3, 4]
 result: None = left.extend(right)
-"#,
+",
     );
 
     assert!(source.contains("let mut"));
@@ -466,10 +466,10 @@ result: None = left.extend(right)
 #[test]
 fn emits_python_list_insert_method() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[int] = [1, 2]
 result: None = values.insert(1, 0)
-"#,
+",
     );
 
     assert!(source.contains("let mut"));
@@ -481,10 +481,10 @@ result: None = values.insert(1, 0)
 #[test]
 fn emits_python_list_reverse_method() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[int] = [1, 2]
 result: None = values.reverse()
-"#,
+",
     );
 
     assert!(source.contains("let mut"));
@@ -495,10 +495,10 @@ result: None = values.reverse()
 #[test]
 fn emits_python_list_pop_method() {
     let source = source_for_py(
-        r#"
+        r"
 values: list[int] = [1, 2]
 item: int = values.pop()
-"#,
+",
     );
 
     assert!(source.contains("let mut"));
@@ -524,7 +524,7 @@ dict_result: None = mapping.clear()
 #[test]
 fn emits_missing_class_record_reads_as_optional_values() {
     let source = source_for(
-        r#"
+        r"
 class Parser {
   run(): number { return 1; }
 }
@@ -535,7 +535,7 @@ function read(parsers: Record<string, Parser>, key: string): number {
   }
   return 0;
 }
-"#,
+",
     );
 
     assert!(source.contains(".get(&key.clone()).cloned()"), "{source}");
@@ -552,12 +552,12 @@ function read(parsers: Record<string, Parser>, key: string): number {
 #[test]
 fn emits_nullable_module_array_reads_without_negative_index_panics() {
     let source = source_for(
-        r#"
+        r"
 const daysInMonths = [31, null, 31];
 function read(month: number): number | undefined {
   return daysInMonths[month];
 }
-"#,
+",
     );
 
     assert!(
@@ -574,11 +574,11 @@ function read(month: number): number | undefined {
 #[test]
 fn emits_array_at_as_optional_index_without_negative_index_panics() {
     let source = source_for(
-        r#"
+        r"
 function last<T>(values: readonly T[]): T | undefined {
   return values.at(-1);
 }
-"#,
+",
     );
 
     assert!(
@@ -592,7 +592,7 @@ function last<T>(values: readonly T[]): T | undefined {
 #[test]
 fn guards_callback_function_table_calls_selected_through_a_local() {
     let source = source_for(
-        r#"
+        r"
 type Formatter = (value: string) => string;
 const lower: Formatter = (value) => value.toLowerCase();
 export const table: Record<string, Formatter> = { a: lower };
@@ -606,7 +606,7 @@ export function apply(values: string[]): string[] {
     return value;
   });
 }
-"#,
+",
     );
 
     assert!(source.contains("== \"a\".to_owned()"), "{source}");

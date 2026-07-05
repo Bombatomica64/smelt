@@ -409,14 +409,14 @@ setTimeout(note, 10, "with-optional", "extra");
             // their concrete value. All must emit Rust that compiles.
             name: "exported_const_member_expressions",
             area: "exported_consts",
-            source: r#"
+            source: r"
 export const MAX_INTEGER = Number.MAX_VALUE;
 export const arrayProto = Array.prototype;
 export const slice = Array.prototype.slice;
 export const objectProto = Object.prototype;
 const limits = { lower: 1, upper: 640 } as const;
 export const UPPER_LIMIT = limits.upper;
-"#,
+",
         },
         Case {
             name: "interface_method_call",

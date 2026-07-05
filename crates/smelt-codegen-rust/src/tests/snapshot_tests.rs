@@ -10,7 +10,7 @@ use super::*;
 pub(super) fn assert_emitted_source_snapshot(name: &str, source: &str, case_start: Option<&str>) {
     let emitted = source_for(source);
     assert_no_legacy_callback_fallbacks(&emitted);
-    let emitted = case_start.map_or(emitted.clone(), |case_start| {
+    let emitted = case_start.map_or_else(|| emitted.clone(), |case_start| {
         let start = emitted
             .find(case_start)
             .unwrap_or_else(|| panic!("missing case-specific module start `{case_start}`"));
@@ -37,7 +37,7 @@ pub(super) fn assert_emitted_py_source_snapshot(
 ) {
     let emitted = source_for_py(source);
     assert_no_legacy_callback_fallbacks(&emitted);
-    let emitted = case_start.map_or(emitted.clone(), |case_start| {
+    let emitted = case_start.map_or_else(|| emitted.clone(), |case_start| {
         let start = emitted
             .find(case_start)
             .unwrap_or_else(|| panic!("missing case-specific module start `{case_start}`"));
@@ -71,12 +71,12 @@ fn assert_no_legacy_callback_fallbacks(emitted: &str) {
 fn basic_function_emission() {
     assert_emitted_source_snapshot(
         "basic_function_emission",
-        r#"
+        r"
 function add(left: number, right: number): number {
   return left + right;
 }
 const total = add(2, 3);
-"#,
+",
         Some("fn add"),
     );
 }
@@ -86,7 +86,7 @@ const total = add(2, 3);
 fn control_flow_emission() {
     assert_emitted_source_snapshot(
         "control_flow_emission",
-        r#"
+        r"
 function countPositive(values: number[]): number {
   let count = 0;
   for (const value of values) {
@@ -94,7 +94,7 @@ function countPositive(values: number[]): number {
   }
   return count;
 }
-"#,
+",
         None,
     );
 }
@@ -104,11 +104,11 @@ function countPositive(values: number[]): number {
 fn closure_capture_emission() {
     assert_emitted_source_snapshot(
         "closure_capture_emission",
-        r#"
+        r"
 function makeAdder(base: number): (value: number) => number {
   return (value: number): number => value + base;
 }
-"#,
+",
         None,
     );
 }
@@ -118,11 +118,11 @@ function makeAdder(base: number): (value: number) => number {
 fn typed_coercion_emission() {
     assert_emitted_source_snapshot(
         "typed_coercion_emission",
-        r#"
+        r"
 function asNumber(value: unknown): number {
   return value as number;
 }
-"#,
+",
         Some("fn as_number"),
     );
 }
@@ -132,11 +132,11 @@ function asNumber(value: unknown): number {
 fn erased_coercion_emission() {
     assert_emitted_source_snapshot(
         "erased_coercion_emission",
-        r#"
+        r"
 function erase(value: number): unknown {
   return value as unknown;
 }
-"#,
+",
         Some("fn erase"),
     );
 }
@@ -146,12 +146,12 @@ function erase(value: number): unknown {
 fn list_collection_emission() {
     assert_emitted_source_snapshot(
         "list_collection_emission",
-        r#"
+        r"
 function append(values: number[], value: number): number[] {
   values.push(value);
   return values;
 }
-"#,
+",
         None,
     );
 }
@@ -176,12 +176,12 @@ function lookup(): number | undefined {
 fn set_collection_emission() {
     assert_emitted_source_snapshot(
         "set_collection_emission",
-        r#"
+        r"
 function contains(): boolean {
   const values = new Set<number>([1, 2]);
   return values.has(2);
 }
-"#,
+",
         None,
     );
 }
@@ -206,11 +206,11 @@ test("adds", () => {
 fn collection_callback_emission() {
     assert_emitted_source_snapshot(
         "collection_callback_emission",
-        r#"
+        r"
 function double(values: number[]): number[] {
   return values.map((value) => value * 2);
 }
-"#,
+",
         Some("fn double"),
     );
 }
@@ -220,7 +220,7 @@ function double(values: number[]): number[] {
 fn migrated_callback_cfg_emission() {
     assert_emitted_source_snapshot(
         "migrated_callback_cfg_emission",
-        r#"
+        r"
 function plusOne(values: number[]): number[] {
   return values.map((x) => x + 1);
 }
@@ -244,7 +244,7 @@ function collectIndices(values: number[]): number[] {
 function iso(values: Date[]): string[] {
   return values.map((value: unknown) => (value as Date).toISOString());
 }
-"#,
+",
         Some("fn plus_one"),
     );
 }

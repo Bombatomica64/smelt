@@ -5,11 +5,11 @@ use super::*;
 #[test]
 fn emits_array_pop_method() {
     let source = source_for(
-        r#"
+        r"
 let values: number[] = [1, 2];
 values.pop();
 const item = values.pop();
-"#,
+",
     );
 
     assert!(source.contains("let mut"));
@@ -37,11 +37,11 @@ const item = values.shift();
 #[test]
 fn emits_array_is_array_as_static_boolean() {
     let source = source_for(
-        r#"
+        r"
 const values: number[] = [1, 2, 3];
 const yes = Array.isArray(values);
 const no = Array.isArray(1);
-"#,
+",
     );
 
     assert!(source.contains(" = true;"));
@@ -87,10 +87,10 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
 #[test]
 fn emits_object_assign_call() {
     let source = source_for(
-        r#"
+        r"
 const source: Record<string, number> = { a: 1 };
 const merged = Object.assign({}, source, { b: 2 });
-"#,
+",
     );
 
     assert!(source.contains("let mut assigned = "));
@@ -101,10 +101,10 @@ const merged = Object.assign({}, source, { b: 2 });
 #[test]
 fn emits_object_assign_call_on_callable_target() {
     let source = source_for(
-        r#"
+        r"
 const fnValue = (value: number): number => value;
 const assigned = Object.assign(fnValue, { lazy: fnValue });
-"#,
+",
     );
 
     assert!(
@@ -117,7 +117,7 @@ const assigned = Object.assign(fnValue, { lazy: fnValue });
 #[test]
 fn emits_inline_callable_object_assign_call_body() {
     let source = source_for(
-        r#"
+        r"
 function wrap(call: (...args: string[]) => void): unknown {
   let cached: string | undefined;
   return Object.assign(
@@ -128,7 +128,7 @@ function wrap(call: (...args: string[]) => void): unknown {
     { flush: () => cached },
   );
 }
-"#,
+",
     );
 
     assert!(
@@ -148,13 +148,13 @@ function wrap(call: (...args: string[]) => void): unknown {
 #[test]
 fn emits_promise_constructor_executor_result_future() {
     let source = source_for(
-        r#"
+        r"
 function makeValue(): Promise<number> {
   return new Promise<number>((resolve) => {
     resolve(1);
   });
 }
-"#,
+",
     );
 
     assert!(source.contains("smelt_promise_result"), "{source}");
@@ -169,13 +169,13 @@ fn promise_settimeout_resolving_value_threads_resolve_not_bare_sleep() {
     // Collapsing it to a bare `Sleep` (the old behavior) silently dropped `v`
     // and returned the output type's default.
     let source = source_for(
-        r#"
+        r"
 function makeValue(): Promise<number> {
   return new Promise<number>((resolve) => {
     setTimeout(() => resolve(7), 0);
   });
 }
-"#,
+",
     );
 
     assert!(source.contains("smelt_promise_result"), "{source}");
@@ -189,7 +189,7 @@ fn promise_all_flattens_erased_promise_results() {
     // flatten those to their resolved values (driving the scheduler) instead of
     // collecting the unresolved promise objects.
     let source = source_for(
-        r#"
+        r"
 function defer(value: unknown): Promise<unknown> {
   return new Promise<unknown>((resolve) => {
     setTimeout(() => resolve(value), 0);
@@ -203,7 +203,7 @@ async function makeOne(value: unknown): Promise<unknown> {
 async function run(): Promise<unknown[]> {
   return await Promise.all([makeOne(1), makeOne(2)]);
 }
-"#,
+",
     );
 
     assert!(source.contains("smelt_await_flatten"), "{source}");
@@ -216,7 +216,7 @@ fn promise_resolve_pushes_into_zero_arg_callback_queue() {
     // pattern). The emitted push wraps the 1-arg resolve closure in a 0-arg
     // adapter that forwards a default value, rather than failing the build.
     let source = source_for(
-        r#"
+        r"
 class Sema {
   private deferredTasks: Array<() => void> = [];
   acquire(): Promise<void> {
@@ -226,7 +226,7 @@ class Sema {
   }
 }
 export { Sema };
-"#,
+",
     );
 
     assert!(source.contains("smelt_promise_result"), "{source}");
@@ -240,11 +240,11 @@ fn promise_bare_delay_settimeout_lowers_to_sleep() {
     // resolves `undefined` after the delay and carries no value, so collapsing
     // it to `Sleep` stays correct (and keeps the cheap delay-shim fast path).
     let source = source_for(
-        r#"
+        r"
 function delay(): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, 5));
 }
-"#,
+",
     );
 
     assert!(source.contains("smelt_sleep_ms"), "{source}");
@@ -267,7 +267,7 @@ const second = mapping.hasOwnProperty("b");
 #[test]
 fn emits_object_prototype_has_own_call_for_erased_generics() {
     let source = source_for(
-        r#"
+        r"
 function findKey<Value, Obj extends { [key in string | number]: Value }>(
   object: Obj,
   predicate: (value: Value) => boolean,
@@ -282,7 +282,7 @@ function findKey<Value, Obj extends { [key in string | number]: Value }>(
   }
   return undefined;
 }
-"#,
+",
     );
 
     assert!(
@@ -531,7 +531,7 @@ fn injects_chrono_dependency_for_date_mapping() {
 #[test]
 fn emits_date_fns_date_parts() {
     let source = source_for(
-        r#"
+        r"
 const date = new Date(2014, 8, 2, 11, 55, 0);
 const timestamp = date.getTime();
 const year = date.getFullYear();
@@ -540,7 +540,7 @@ const day = date.getDate();
 date.setFullYear(year, month, day + 1);
 date.setMonth(0, 1);
 date.setDate(2);
-"#,
+",
     );
 
     assert!(source.contains("chrono::NaiveDate::from_ymd_opt"));
@@ -555,7 +555,7 @@ date.setDate(2);
 #[test]
 fn emits_invalid_date_parts_without_panicking() {
     let source = source_for(
-        r#"
+        r"
 export function isExists(year: number, month: number, day: number): boolean {
   const date = new Date(year, month, day);
   return (
@@ -564,7 +564,7 @@ export function isExists(year: number, month: number, day: number): boolean {
     date.getDate() === day
   );
 }
-"#,
+",
     );
 
     assert!(source.contains("unwrap_or(i64::MIN)"));
@@ -576,13 +576,13 @@ export function isExists(year: number, month: number, day: number): boolean {
 #[test]
 fn preserves_invalid_date_through_setters_and_iso_conversion() {
     let source = source_for(
-        r#"
+        r"
 export function keepInvalid(): string {
   const date = new Date(NaN);
   date.setHours(0);
   return date.toISOString();
 }
-"#,
+",
     );
 
     assert!(source.contains("timestamp_ms.is_finite()"), "{source}");
@@ -597,12 +597,12 @@ export function keepInvalid(): string {
 #[test]
 fn emits_overflowing_time_setters_as_duration_arithmetic() {
     let source = source_for(
-        r#"
+        r"
 export function nextHour(): number {
   const date = new Date(2020, 0, 1, 23, 30, 0, 0);
   return date.setHours(date.getHours() + 1);
 }
-"#,
+",
     );
 
     assert!(
