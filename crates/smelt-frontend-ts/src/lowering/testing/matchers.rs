@@ -1277,6 +1277,17 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Return a string literal's value, if the expression is one.
+    ///
+    /// Used to read `switch (typeof x)` case labels (`case 'string':`) as raw
+    /// `typeof` kind strings for per-arm narrowing.
+    pub(in crate::lowering) fn string_literal_value(expression: &Expression<'_>) -> Option<String> {
+        match expression {
+            Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+            _ => None,
+        }
+    }
+
     /// Return the identifier operand of a `typeof name` expression.
     pub(in crate::lowering) fn typeof_identifier_name(expression: &Expression<'_>) -> Option<String> {
         let Expression::UnaryExpression(unary) = expression else {
@@ -1649,6 +1660,62 @@ impl ModuleBuilder<'_> {
         })?;
         let narrowed = self.intern_filtered_union(retained)?;
         Some((name, narrowed))
+    }
+
+    /// Compute the fact proven inside a `switch (typeof x) { case 'k': … }` arm.
+    ///
+    /// A `typeof` switch discriminates the same union that a chain of
+    /// `if (typeof x === 'k')` guards would: each arm proves `x` is the
+    /// member(s) whose runtime `typeof` matches the arm's label(s). Grouped
+    /// labels (`case 'a': case 'b':`) union their matching members. When `x`'s
+    /// static type is a union (optionally wrapped in `Optional`), the members are
+    /// filtered structurally via [`Self::type_matches_typeof`] so a
+    /// `case 'object'` arm keeps the array/record/class members instead of
+    /// widening to `unknown`; a non-union local falls back to the canonical
+    /// single-kind type from [`Self::typeof_matched_type`] (a narrowing no-op
+    /// when the local already has that type). `kinds` are the arm's string
+    /// labels; an empty result (no member matches, or grouped labels we cannot
+    /// read as kinds) records no fact.
+    pub(in crate::lowering) fn switch_typeof_case_narrowing(
+        &mut self,
+        name: &str,
+        kinds: &[String],
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let local = self.locals.get(name).copied()?;
+        let current_ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        // Look through an `Optional` wrapper: a `typeof` case label never matches
+        // the absent (`undefined`) member unless it is an explicit
+        // `case 'undefined'`, handled by the single-kind fallback below.
+        let inner_ty = match self.ctx.krate.types.get(current_ty) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => current_ty,
+        };
+        if let Some(Type::Union(items)) = self.ctx.krate.types.get(inner_ty).cloned() {
+            let retained = items
+                .into_iter()
+                .filter(|item| {
+                    // `typeof null === 'object'`, so a `None` member matches the
+                    // `'object'` kind — but a value proven present enough to be
+                    // indexed/field-accessed in this arm is never nullish (that is
+                    // the null guards' domain). Drop `None` so a `case 'object'`
+                    // narrows to the real object-shaped arm, not `string[] | null`.
+                    !matches!(self.ctx.krate.types.get(*item), Some(Type::None))
+                        && kinds.iter().any(|kind| self.type_matches_typeof(*item, kind))
+                })
+                .collect::<Vec<_>>();
+            if let Some(narrowed) = self.intern_filtered_union(retained) {
+                return Some((name.to_owned(), narrowed));
+            }
+        }
+        // Non-union local (or no arm matched the label): the canonical primitive
+        // for a single kind still narrows a widened scrutinee usefully.
+        if let [kind] = kinds {
+            return self.typeof_matched_type(name, kind, body);
+        }
+        None
     }
 
     /// Recognize `value instanceof Class` and retain matching concrete class arms.
