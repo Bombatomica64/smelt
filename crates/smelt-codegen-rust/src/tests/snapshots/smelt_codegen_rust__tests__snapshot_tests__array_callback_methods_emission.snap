@@ -89,7 +89,7 @@ fn main() {
     _smelt_tmp_29 = values.iter().enumerate().fold(0.0, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = values.clone(); { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: SmeltList<f64>| {
     let _smelt_tmp_2: f64 = closure_arg_0.clone() + closure_arg_1.clone();
     _smelt_tmp_2.clone()
-    }); (smelt_callback)(acc, item, index, array) } });
+    }); (smelt_callback)(acc, item, ((index as f64 as f64).trunc() as i64), array) } });
     total = _smelt_tmp_29;
     _smelt_tmp_30 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + (closure_arg_1.clone() as f64);
@@ -104,7 +104,7 @@ fn main() {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + closure_arg_1.clone();
     let _smelt_tmp_4: f64 = _smelt_tmp_3.clone() + (closure_arg_2.clone() as f64);
     _smelt_tmp_4.clone()
-    }); (smelt_callback)(acc, item, index, array) } }) };
+    }); (smelt_callback)(acc, item, ((index as f64 as f64).trunc() as i64), array) } }) };
     no_initial = _smelt_tmp_33;
     return;
 }
