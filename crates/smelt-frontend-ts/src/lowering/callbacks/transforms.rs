@@ -490,7 +490,7 @@ impl ModuleBuilder<'_> {
             BinaryOperator::ShiftRightZeroFill => Ok(BinOp::UShr),
             _ => Err(SmeltError::unsupported(
                 self.span(start, end),
-                "callback binary operator is not supported yet",
+                format!("callback binary operator is not supported yet: {operator:?}"),
             )),
         }
     }

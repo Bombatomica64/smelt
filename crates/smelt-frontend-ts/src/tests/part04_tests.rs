@@ -8262,3 +8262,196 @@ function probe(): unknown {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+
+#[test]
+fn lowers_default_sort_on_union_element_arrays() -> Result<(), String> {
+    // JavaScript's comparator-less `sort()` compares the `ToString` coercion of
+    // each element, so mixed string/number lists (es-toolkit
+    // `values(object).sort()`) must lower to a `ListSort` instead of failing
+    // with "array sort supports boolean, number, and string arrays for now".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function sortMixed(values: Array<string | number>): Array<string | number> {
+  return values.sort();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(
+        |expr| matches!(
+            expr.kind,
+            ExprKind::ListSort {
+                comparator: None,
+                ..
+            }
+        )
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_default_sort_on_erased_element_arrays() -> Result<(), String> {
+    // Erased (`unknown`) element lists also default-sort by string coercion
+    // (es-toolkit `shuffle(object).sort()` where the element type is an
+    // indexed-access surface).
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function sortErased(values: unknown[]): unknown[] {
+  return values.sort();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(
+        |expr| matches!(
+            expr.kind,
+            ExprKind::ListSort {
+                comparator: None,
+                ..
+            }
+        )
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn concat_widens_element_type_for_null_list_argument() -> Result<(), String> {
+    // JavaScript `A[].concat(B[])` yields `Array<A | B>`. Appending a
+    // null-element list onto `number[]` (es-toolkit reverse.spec's
+    // `range(n).concat([null as any])`) must widen the result element to the
+    // nullable form (`Optional<Float>`, the same shape `[0, 1, null]` infers)
+    // instead of failing with "array concat requires an array or element
+    // argument matching the receiver".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function pad(values: number[]): unknown {
+  return values.concat([null as any]);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(ctx.krate.bodies.iter().any(|body| body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. }))));
+    let float_ty = ctx.krate.types.intern(Type::Float);
+    let optional_float = ctx.krate.types.intern(Type::Optional(float_ty));
+    let widened_list = ctx.krate.types.intern(Type::List(optional_float));
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. })
+                && expr.ty == widened_list)),
+        "concat with a null-element list should produce a List<Optional<Float>> result"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_matches_property_array_iteratee_callback() -> Result<(), String> {
+    // The lodash array iteratee shorthand `[path, srcValue]` is a
+    // matchesProperty predicate (es-toolkit memoize.spec's
+    // `lodashStable.find(this.__data__, ['key', key])`); it must classify as a
+    // callback instead of failing with "array callback methods currently
+    // require arrow function callbacks".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as utils from "./utils";
+
+function lookup(entries: Array<{ key: string; value: string }>, key: string): unknown {
+  return utils.find(entries, ['key', key]);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_builtin_as_identity_callback() -> Result<(), String> {
+    // `xs.map(Object)` boxes each element; Smelt does not model wrapper
+    // objects separately from their primitives, so the callback is the typed
+    // identity and the mapped list keeps its concrete `string` element type
+    // (es-toolkit parseInt.spec's `['6', '08', '10'].map(Object)`).
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function boxAll(values: string[]): unknown {
+  const boxed = values.map(Object);
+  return boxed;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let string_ty = ctx.krate.types.intern(Type::String);
+    let string_list = ctx.krate.types.intern(Type::List(string_ty));
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListCallback { .. })
+                && expr.ty == string_list)),
+        "map(Object) should keep the concrete string element type"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_in_operator_inside_callback_array_literal() -> Result<(), String> {
+    // Binary elements of a callback array literal route through the full
+    // callback expression dispatcher, so `in` works there just like in any
+    // other callback position (es-toolkit unset.spec's
+    // `props.map(key => [unset(object, key), toString(key) in object])`).
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function flags(keys: string[], object: { [key: string]: number }): boolean[][] {
+  return keys.map(key => [key !== '', key in object]);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn compound_member_assignment_in_callback_retries_closure_body() -> Result<(), String> {
+    // A compound member-target store inside a callback (`args[1] += ''`,
+    // es-toolkit pickBy.spec) cannot be modeled by the side-effect-free
+    // callback expression IR; it must retry through full closure-body lowering
+    // instead of failing with "callback assignment targets must be captured
+    // locals".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function tag(rows: string[][], suffix: string): string[][] {
+  return rows.map(row => {
+    row[0] += suffix;
+    return row;
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

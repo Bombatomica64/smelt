@@ -65,7 +65,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let mut ty = Self::expr_ty(body, left);
-        let item_ty = match self.ctx.krate.types.get(ty).cloned() {
+        let mut item_ty = match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::List(list_item_ty)) => list_item_ty,
             Some(Type::Optional(inner)) => {
                 let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(inner).cloned()
@@ -134,7 +134,7 @@ impl ModuleBuilder<'_> {
             return Ok(Some(left));
         }
         for right_argument in right_arguments {
-            let right = self.list_concat_argument(
+            let (right, widened_item_ty) = self.list_concat_argument(
                 call,
                 right_argument,
                 ty,
@@ -142,6 +142,23 @@ impl ModuleBuilder<'_> {
                 right_prefers_list,
                 body,
             )?;
+            // JavaScript `concat` widens: `A[].concat(B[])` yields
+            // `Array<A | B>`. When the argument's element type is not
+            // assignable to the receiver's, the result list element widens
+            // (using the same nullable/erased unification as array literals)
+            // and the accumulated left side re-types into the widened list so
+            // the emitter injects each element at use.
+            if let Some(widened) = widened_item_ty
+                && widened != item_ty
+            {
+                item_ty = widened;
+                ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                left = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: left },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                });
+            }
             left = body.push_expr(Expr {
                 kind: ExprKind::ListConcat { left, right },
                 ty,
@@ -151,12 +168,58 @@ impl ModuleBuilder<'_> {
         Ok(Some(left))
     }
 
+    /// Unify a concat argument element type with the receiver's element type
+    /// the way array-literal inference does, or `None` when the pair has no
+    /// concrete widened shape.
+    ///
+    /// JavaScript `concat` produces `Array<A | B>`; internally a `T`/`null`
+    /// mix widens to `Optional<T>`, matching how `[0, 1, null]` lowers.
+    /// Pairs that would only unify by erasing to `unknown` return `None` so
+    /// the caller keeps its explicit unsupported diagnostic instead of
+    /// silently introducing a tagged dynamic value.
+    fn concat_widened_element_type(
+        &mut self,
+        item_ty: smelt_hir::TypeId,
+        right_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        if right_ty == item_ty {
+            return Some(item_ty);
+        }
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        if right_ty == none_ty {
+            if matches!(self.ctx.krate.types.get(item_ty), Some(Type::Optional(_))) {
+                return Some(item_ty);
+            }
+            return Some(self.ctx.krate.types.intern(Type::Optional(item_ty)));
+        }
+        if item_ty == none_ty {
+            if matches!(self.ctx.krate.types.get(right_ty), Some(Type::Optional(_))) {
+                return Some(right_ty);
+            }
+            return Some(self.ctx.krate.types.intern(Type::Optional(right_ty)));
+        }
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(item_ty)
+            && *inner == right_ty
+        {
+            return Some(item_ty);
+        }
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(right_ty)
+            && *inner == item_ty
+        {
+            return Some(right_ty);
+        }
+        None
+    }
+
     /// Normalize a single `concat(...)` argument into a list of the receiver's
     /// element type so it can be appended with [`ExprKind::ListConcat`].
     ///
     /// `concat` accepts both arrays (spread) and scalar elements (wrapped into a
     /// singleton list); this picks between the two based on the argument's lowered
     /// type, matching the receiver's element type (`item_ty`) and list type (`ty`).
+    /// When the argument's element type only combines with the receiver's by
+    /// widening (e.g. appending `null` onto `number[]`), the widened element type
+    /// is returned alongside the value so the caller can re-type the result list.
     pub(in crate::lowering) fn list_concat_argument(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -165,7 +228,7 @@ impl ModuleBuilder<'_> {
         item_ty: smelt_hir::TypeId,
         right_prefers_list: bool,
         body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
+    ) -> Result<(smelt_hir::ExprId, Option<smelt_hir::TypeId>), SmeltError> {
         let mut right = self.argument(right_argument, body)?;
         let right_ty = Self::expr_ty(body, right);
         let right = if right_ty == ty {
@@ -240,12 +303,52 @@ impl ModuleBuilder<'_> {
                 span: self.span(right_argument.span().start, right_argument.span().end),
             })
         } else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "array concat requires an array or element argument matching the receiver",
-            ));
+            // The argument neither matches the receiver's element type nor is
+            // erased: JavaScript still concatenates by widening the result
+            // element type (`A[].concat(B[])` is `Array<A | B>`). Compute the
+            // widened element shape (a `T`/`null` mix widens to `Optional<T>`
+            // like array literals) and hand it back so the caller re-types the
+            // accumulated result list.
+            let right_element_ty =
+                if let Some(Type::List(right_item_ty)) = self.ctx.krate.types.get(right_ty) {
+                    Some(*right_item_ty)
+                } else {
+                    None
+                };
+            let Some(widened) =
+                self.concat_widened_element_type(item_ty, right_element_ty.unwrap_or(right_ty))
+            else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "array concat requires an array or element argument matching the receiver",
+                ));
+            };
+            let widened_list_ty = self.ctx.krate.types.intern(Type::List(widened));
+            let span = self.span(right_argument.span().start, right_argument.span().end);
+            let widened_right = if right_element_ty.is_some() {
+                // An array argument spreads into the widened result list.
+                body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: right },
+                    ty: widened_list_ty,
+                    span,
+                })
+            } else {
+                // A scalar argument appends as a singleton of the widened
+                // element type.
+                let element = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: right },
+                    ty: widened,
+                    span,
+                });
+                body.push_expr(Expr {
+                    kind: ExprKind::ListLit(vec![element]),
+                    ty: widened_list_ty,
+                    span,
+                })
+            };
+            return Ok((widened_right, Some(widened)));
         };
-        Ok(right)
+        Ok((right, None))
     }
 
     /// Lower callback-heavy TypeScript array methods.

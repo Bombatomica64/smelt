@@ -569,8 +569,25 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => Ok(format!(
                 "{{ {list_text}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); {result_text} }}"
             )),
+            // Erased and union elements follow JavaScript's default sort:
+            // compare the `ToString` coercion of each element. Concrete unions
+            // project through `into_smelt_unknown` first so the coercion match
+            // sees the erased `SmeltUnknown` shape. Rust's `sort_by` is stable,
+            // so equal-key structured values ("[object Object]") keep their
+            // original order, matching the JS default sort on objects.
+            Some(Type::Unknown | Type::Union(_) | Type::Never) => {
+                let left_key = Self::js_string_coercion_match_text(
+                    &self.erase_concrete_union_text("left.clone()", element_ty),
+                );
+                let right_key = Self::js_string_coercion_match_text(
+                    &self.erase_concrete_union_text("right.clone()", element_ty),
+                );
+                Ok(format!(
+                    "{{ {list_text}.sort_by(|left, right| ({left_key}).cmp(&({right_key}))); {result_text} }}"
+                ))
+            }
             _ => Err(EmitError::new(
-                "list sort supports bool, int, float, and string items",
+                "list sort supports bool, int, float, string, and erased items",
             )),
         }
     }

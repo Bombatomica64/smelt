@@ -65,6 +65,34 @@ impl ModuleBuilder<'_> {
                 )?;
                 return Ok(ClosureCallback { expr, return_ty });
             }
+            // The global `Object` function passed as a callback
+            // (`xs.map(Object)`) boxes each element into its wrapper object.
+            // Smelt does not model wrapper objects separately from their
+            // primitive values — a boxed string coerces back to the same
+            // string everywhere it is used — so the conversion is the identity
+            // on the receiver's element type. Lowering it as a typed identity
+            // closure keeps the mapped list's concrete element type instead of
+            // erasing it.
+            if identifier.name == "Object"
+                && !self.builtin_call_identifier_is_shadowed("Object")
+            {
+                let span = self.span(identifier.span.start, identifier.span.end);
+                let param_ty = expected_param_tys
+                    .first()
+                    .copied()
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                let expr = self.builtin_unary_closure_expression(
+                    param_ty,
+                    param_ty,
+                    span,
+                    body,
+                    |value_expr| ExprKind::TypeAssert { value: value_expr },
+                );
+                return Ok(ClosureCallback {
+                    expr,
+                    return_ty: param_ty,
+                });
+            }
             // Recognized global builtin *functions* passed as callbacks
             // (`xs.map(Number)`, `xs.filter(Boolean)`, `xs.map(parseInt)`).
             // Lower them to the same concrete single-argument closures used in
@@ -739,24 +767,13 @@ impl ModuleBuilder<'_> {
                                 ));
                             }
                         }
-                        ArrayExpressionElement::BinaryExpression(binary) => {
-                            let op = self.callback_binary_op(
-                                binary.operator,
-                                binary.span.start,
-                                binary.span.end,
-                            )?;
-                            let lhs = self.callback_expression(&binary.left, params, body)?;
-                            let rhs = self.callback_expression(&binary.right, params, body)?;
-                            let ty = self.binary_result_type(op, lhs.ty, rhs.ty);
-                            CallbackExpr {
-                                kind: CallbackExprKind::Binary {
-                                    op,
-                                    lhs: Box::new(lhs),
-                                    rhs: Box::new(rhs),
-                                },
-                                ty,
-                            }
-                        }
+                        // Binary elements deliberately have no dedicated arm:
+                        // they fall through to the `as_expression` case below so
+                        // the full callback expression dispatcher handles them.
+                        // That keeps operator forms with dedicated lowering —
+                        // `in`, `typeof` comparisons, `instanceof`, nullish
+                        // checks — working inside array literals exactly as
+                        // they do in any other callback position.
                         ArrayExpressionElement::ComputedMemberExpression(member) => {
                             let receiver =
                                 self.callback_expression(&member.object, params, body)?;
@@ -1498,15 +1515,15 @@ impl ModuleBuilder<'_> {
                         &assign.left,
                         AssignmentTarget::StaticMemberExpression(_)
                             | AssignmentTarget::ComputedMemberExpression(_)
-                    ) && assign.operator == AssignmentOperator::Assign
-                    {
-                        // A member-target store (`obj[k] = v` / `obj.k = v`) mutates the
-                        // receiver, but the side-effect-free callback expression IR cannot
-                        // represent the store — only its right-hand value. Bail so the caller
-                        // re-lowers this arrow through full closure-body lowering, which keeps
-                        // the mutation. (Previously the store was silently dropped, leaving
-                        // mutating reducers like `(acc, x) => { acc[x] = x; return acc; }` as
-                        // identity functions.)
+                    ) {
+                        // A member-target store (`obj[k] = v` / `obj.k = v`, including
+                        // compound forms like `args[1] += ''`) mutates the receiver, but
+                        // the side-effect-free callback expression IR cannot represent
+                        // the store — only its right-hand value. Bail so the caller
+                        // re-lowers this arrow through full closure-body lowering, which
+                        // keeps the mutation. (Previously the store was silently dropped,
+                        // leaving mutating reducers like `(acc, x) => { acc[x] = x;
+                        // return acc; }` as identity functions.)
                         return Err(SmeltError::unsupported(
                             self.span(assign.span.start, assign.span.end),
                             "callback member assignment needs closure-body lowering",

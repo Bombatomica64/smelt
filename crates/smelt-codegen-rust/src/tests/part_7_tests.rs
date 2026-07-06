@@ -6503,3 +6503,56 @@ export function run(values: number[]): number[] {
         "{source}"
     );
 }
+
+
+#[test]
+fn emits_string_coercion_default_sort_for_union_elements() {
+    // A comparator-less `sort()` on a union-element list follows JavaScript's
+    // default ordering: elements compare by their `ToString` coercion. The
+    // concrete union projects through `into_smelt_unknown` before the coercion
+    // match, and the sort itself is a stable `sort_by` over the coerced keys.
+    let source = source_for(
+        r#"
+function sortMixed(values: Array<string | number>): Array<string | number> {
+  return values.sort();
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".sort_by(|left, right| (match left.clone().into_smelt_unknown()"),
+        "union default sort should compare erased string coercions\n{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Number(value) => value.to_string()"),
+        "the coercion match should stringify numeric elements\n{source}"
+    );
+}
+
+#[test]
+fn emits_member_store_for_compound_callback_assignment() {
+    // `row[0] += suffix` inside a `.map` callback is a member-target compound
+    // store; the compact callback IR cannot represent it, so the arrow retries
+    // through full closure-body lowering, which emits a real indexed store
+    // instead of silently dropping the mutation (or rejecting the file with
+    // "callback assignment targets must be captured locals").
+    let source = source_for(
+        r#"
+function tag(rows: string[][], suffix: string): string[][] {
+  return rows.map(row => {
+    row[0] += suffix;
+    return row;
+  });
+}
+"#,
+    );
+
+    assert!(
+        source.contains("closure_arg_0[smelt_assign_index] ="),
+        "the compound member assignment should emit an indexed store into the row\n{source}"
+    );
+    assert!(
+        !source.contains("callback assignment targets must be captured locals"),
+        "the member-assignment blocker must be gone\n{source}"
+    );
+}
