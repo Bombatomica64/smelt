@@ -508,6 +508,17 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
+    /// Renders the JavaScript `ToString` coercion of an owned erased value.
+    ///
+    /// `scrutinee_text` must be an owned `SmeltUnknown` expression (the match
+    /// arms consume string payloads). The mapping mirrors JS primitive string
+    /// coercion; structured values use the platform object placeholder.
+    pub(super) fn js_string_coercion_match_text(scrutinee_text: &str) -> String {
+        format!(
+            "match {scrutinee_text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+        )
+    }
+
     /// Renders an operand as a Rust `String` expression for string methods.
     ///
     /// Statically known strings are emitted directly. Unknown values use the
@@ -530,9 +541,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let text = self
                     .erase_concrete_union_text(&self.operand_text(operand)?, self.operand_ty(operand)?);
-                Ok(format!(
-                    "match {text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
-                ))
+                Ok(Self::js_string_coercion_match_text(&text))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
                 Ok(format!("{}.source.clone()", self.operand_text(operand)?))

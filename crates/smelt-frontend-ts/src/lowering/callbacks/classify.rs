@@ -514,6 +514,12 @@ impl ModuleBuilder<'_> {
             ) {
                 return Ok(self.opaque_member_callback(expected_param_tys));
             }
+            if let Argument::ArrayExpression(array) = argument
+                && let Some(callback) =
+                    self.matches_property_iteratee_callback(array, expected_param_tys, body)?
+            {
+                return Ok(callback);
+            }
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "array callback methods currently require arrow function callbacks",
@@ -626,6 +632,59 @@ impl ModuleBuilder<'_> {
             return Ok(Some(self.opaque_member_callback(expected_param_tys)));
         }
         Ok(None)
+    }
+
+    /// Lower the lodash array iteratee shorthand `[path, srcValue]` passed as a
+    /// callback (`_.find(list, ['key', key])`).
+    ///
+    /// Lodash-style collection functions accept a two-element array in callback
+    /// position as a `matchesProperty(path, srcValue)` predicate: it returns
+    /// whether `element[path] === srcValue`. A callable is required in the same
+    /// position for native array methods, so an array literal reaching callback
+    /// classification can only be this iteratee form. Only a string-literal
+    /// path is modeled; other shapes return `Ok(None)` so the caller keeps its
+    /// unsupported-callback diagnostic.
+    fn matches_property_iteratee_callback(
+        &mut self,
+        array: &oxc::ast::ast::ArrayExpression<'_>,
+        expected_param_tys: &[smelt_hir::TypeId],
+        body: &Body,
+    ) -> Result<Option<CallbackExpr>, SmeltError> {
+        let [first, second] = array.elements.as_slice() else {
+            return Ok(None);
+        };
+        let oxc::ast::ast::ArrayExpressionElement::StringLiteral(path) = first else {
+            return Ok(None);
+        };
+        let Some(value_expression) = second.as_expression() else {
+            return Ok(None);
+        };
+        let item_ty = expected_param_tys
+            .first()
+            .copied()
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+        let params = HashMap::default();
+        let value = self.callback_expression(value_expression, &params, body)?;
+        let field = self.intern_source_name(path.value.as_str());
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let field_ty = self.ctx.krate.types.intern(Type::Unknown);
+        Ok(Some(CallbackExpr {
+            kind: CallbackExprKind::Binary {
+                op: BinOp::JsStrictEq,
+                lhs: Box::new(CallbackExpr {
+                    kind: CallbackExprKind::Field {
+                        receiver: Box::new(CallbackExpr {
+                            kind: CallbackExprKind::Param(0),
+                            ty: item_ty,
+                        }),
+                        field,
+                    },
+                    ty: field_ty,
+                }),
+                rhs: Box::new(value),
+            },
+            ty: bool_ty,
+        }))
     }
 
     /// Lower common lodash/fp predicate factories when they are passed as array callbacks.

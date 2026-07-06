@@ -1818,9 +1818,24 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // Comparator-less `sort()` uses JavaScript's default ordering: elements
+        // are compared by their `ToString` coercion. Scalars compare directly;
+        // erased (`unknown`) and union elements go through the emitter's
+        // string-coercion comparison, so mixed-value lists (`values(object)`,
+        // `Array<T[keyof T]>` results) sort with real JS semantics instead of
+        // being rejected. Structured concrete shapes (nested lists, records)
+        // stay unsupported because their JS `ToString` (e.g. `1,2` for arrays)
+        // is not modeled yet.
         if !matches!(
             self.ctx.krate.types.get(element_ty),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+            Some(
+                Type::Bool
+                    | Type::Int
+                    | Type::Float
+                    | Type::String
+                    | Type::Unknown
+                    | Type::Union(_)
+            )
         ) {
             return Err(SmeltError::unsupported(
                 self.span(member.object.span().start, member.object.span().end),
