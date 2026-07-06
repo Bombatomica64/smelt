@@ -6,6 +6,8 @@ mod core;
 /// Split expression kind variants.
 mod kinds;
 mod literals;
+/// Structural child-expression remapping over `ExprKind`.
+mod map;
 mod ops;
 mod types;
 

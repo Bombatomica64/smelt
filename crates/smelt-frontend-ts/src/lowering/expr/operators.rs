@@ -16,6 +16,18 @@ use crate::lowering::{
 use crate::RestParam;
 use oxc::span::GetSpan;
 
+/// One lowered element of a spread-containing array literal.
+///
+/// `array_expression_with_spread` lowers all elements before assembling the
+/// `ListLit`/`ListConcat` chain so the literal's item type can be unified from
+/// the lowered piece types.
+enum SpreadPiece {
+    /// A `...operand` spread with its lowered operand and source span.
+    Spread(smelt_hir::ExprId, oxc::span::Span),
+    /// A plain element expression.
+    Item(smelt_hir::ExprId),
+}
+
 impl ModuleBuilder<'_> {
     /// Lower static `Array.from({ length }, mapper)` calls into indexed list construction.
     pub(in crate::lowering) fn array_from_call(
@@ -2332,38 +2344,19 @@ impl ModuleBuilder<'_> {
             let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
             return self.list_expr_from_spread_value(spread_value, list_ty, spread.span, body);
         }
-        let item_ty = self.array_spread_item_type(array, type_hint);
-        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-        let mut packed = None;
-        let mut current_items = Vec::new();
+        // Two-phase lowering: first lower every element/spread operand in
+        // source order (preserving evaluation order and side effects), then
+        // unify their item types, and finally assemble the `ListLit`/
+        // `ListConcat` chain with the unified list type. Lowering before type
+        // assembly lets homogeneous literals such as `[...typedArrays,
+        // 'DataView']` keep their concrete item type instead of erasing to
+        // `List<Unknown>` and mismatching against the typed spread operand.
+        let mut pieces = Vec::new();
         for element in &array.elements {
             match element {
                 ArrayExpressionElement::SpreadElement(spread) => {
-                    if !current_items.is_empty() {
-                        let right = body.push_expr(Expr {
-                            kind: ExprKind::ListLit(std::mem::take(&mut current_items)),
-                            ty: list_ty,
-                            span: self.span(array.span.start, array.span.end),
-                        });
-                        packed = Some(packed.map_or(right, |left| {
-                            body.push_expr(Expr {
-                                kind: ExprKind::ListConcat { left, right },
-                                ty: list_ty,
-                                span: self.span(array.span.start, array.span.end),
-                            })
-                        }));
-                    }
-                    let spread_value =
-                        self.expression_with_hint(&spread.argument, body, Some(list_ty))?;
-                    let right =
-                        self.list_expr_from_spread_value(spread_value, list_ty, spread.span, body)?;
-                    packed = Some(packed.map_or(right, |left| {
-                        body.push_expr(Expr {
-                            kind: ExprKind::ListConcat { left, right },
-                            ty: list_ty,
-                            span: self.span(array.span.start, array.span.end),
-                        })
-                    }));
+                    let spread_value = self.expression(&spread.argument, body)?;
+                    pieces.push(SpreadPiece::Spread(spread_value, spread.span));
                 }
                 ArrayExpressionElement::Elision(_) => {
                     return Err(SmeltError::unsupported(
@@ -2371,7 +2364,49 @@ impl ModuleBuilder<'_> {
                         "array elisions are not lowered",
                     ));
                 }
-                _ => current_items.push(self.array_element(element, body)?),
+                _ => pieces.push(SpreadPiece::Item(self.array_element(element, body)?)),
+            }
+        }
+        let piece_exprs: Vec<(smelt_hir::ExprId, bool)> = pieces
+            .iter()
+            .map(|piece| match piece {
+                SpreadPiece::Spread(value, _) => (*value, true),
+                SpreadPiece::Item(value) => (*value, false),
+            })
+            .collect();
+        let item_ty = self.array_spread_item_type(&piece_exprs, body, type_hint);
+        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        let mut packed = None;
+        let mut current_items = Vec::new();
+        let mut append = |target: &mut Body, right: smelt_hir::ExprId| {
+            packed = Some(packed.map_or(right, |left| {
+                target.push_expr(Expr {
+                    kind: ExprKind::ListConcat { left, right },
+                    ty: list_ty,
+                    span: self.span(array.span.start, array.span.end),
+                })
+            }));
+        };
+        for piece in &pieces {
+            match piece {
+                SpreadPiece::Spread(spread_value, spread_span) => {
+                    if !current_items.is_empty() {
+                        let right = body.push_expr(Expr {
+                            kind: ExprKind::ListLit(std::mem::take(&mut current_items)),
+                            ty: list_ty,
+                            span: self.span(array.span.start, array.span.end),
+                        });
+                        append(body, right);
+                    }
+                    let right = self.list_expr_from_spread_value(
+                        *spread_value,
+                        list_ty,
+                        *spread_span,
+                        body,
+                    )?;
+                    append(body, right);
+                }
+                SpreadPiece::Item(item) => current_items.push(*item),
             }
         }
         if !current_items.is_empty() {
@@ -2380,13 +2415,7 @@ impl ModuleBuilder<'_> {
                 ty: list_ty,
                 span: self.span(array.span.start, array.span.end),
             });
-            packed = Some(packed.map_or(right, |left| {
-                body.push_expr(Expr {
-                    kind: ExprKind::ListConcat { left, right },
-                    ty: list_ty,
-                    span: self.span(array.span.start, array.span.end),
-                })
-            }));
+            append(body, right);
         }
         packed.ok_or_else(|| {
             SmeltError::unsupported(
@@ -2396,10 +2425,20 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Infer the list item type for an array spread literal.
+    /// Infer the list item type for an array spread literal from its lowered
+    /// pieces.
+    ///
+    /// A `List` item type from the contextual hint wins. Otherwise every
+    /// lowered piece contributes one candidate item type — a spread operand
+    /// contributes its unwrapped `List`/`Set` item type (or `String` for
+    /// string spreads), a plain element contributes its own expression type —
+    /// and the literal keeps the single unified candidate when they all
+    /// agree. Mixed or erased candidates fall back to `Unknown`, matching the
+    /// previous blanket behavior for genuinely heterogeneous literals.
     pub(in crate::lowering) fn array_spread_item_type(
         &mut self,
-        array: &oxc::ast::ast::ArrayExpression<'_>,
+        pieces: &[(smelt_hir::ExprId, bool)],
+        body: &Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> smelt_hir::TypeId {
         if let Some(hint) = type_hint
@@ -2407,15 +2446,26 @@ impl ModuleBuilder<'_> {
         {
             return *item_ty;
         }
-        for element in &array.elements {
-            match element {
-                ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => {}
-                _ => {
-                    return self.ctx.krate.types.intern(Type::Unknown);
+        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        let mut unified: Option<smelt_hir::TypeId> = None;
+        for &(value, is_spread) in pieces {
+            let candidate = if is_spread {
+                let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
+                match self.ctx.krate.types.get(value_ty) {
+                    Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
+                    Some(Type::String) => self.ctx.krate.types.intern(Type::String),
+                    _ => unknown,
                 }
+            } else {
+                Self::expr_ty(body, value)
+            };
+            match unified {
+                None => unified = Some(candidate),
+                Some(existing) if existing == candidate => {}
+                Some(_) => return unknown,
             }
         }
-        self.ctx.krate.types.intern(Type::Unknown)
+        unified.unwrap_or(unknown)
     }
 
     /// Convert an iterable spread operand into the list value required by list concatenation.

@@ -1279,6 +1279,14 @@ return_ty: function.return_ty,
     }
 
     /// Clone one expression from a const body, remapping nested expression IDs.
+    ///
+    /// Cloning is fully structural: every expression kind is rebuilt through
+    /// [`ExprKind::try_map_child_exprs`], which remaps direct child expression
+    /// IDs into the target body while preserving crate-global references
+    /// (items, types, symbols, closure bodies). The only shapes rejected here
+    /// are the ones that genuinely point into the source body's local arenas —
+    /// `Local` variables and statement `Block`s — because those cannot move to
+    /// another body by expression cloning alone.
     pub(in crate::lowering) fn clone_const_body_expr(
         source_body: &Body,
         expr_id: smelt_hir::ExprId,
@@ -1297,107 +1305,15 @@ return_ty: function.return_ty,
                     "const expression is missing",
                 )
             })?;
-        let kind = match expr.kind {
-            ExprKind::Literal(value) => ExprKind::Literal(value),
-            ExprKind::Item(item) => ExprKind::Item(item),
-            ExprKind::Closure(closure) => ExprKind::Closure(closure),
-            ExprKind::Call { callee, args } => ExprKind::Call {
-                callee: Self::clone_const_body_expr(source_body, callee, target_body)?,
-                args: args
-                    .into_iter()
-                    .map(|arg| Self::clone_const_body_expr(source_body, arg, target_body))
-                    .collect::<Result<Vec<_>, _>>()?,
-            },
-            ExprKind::Field { receiver, field } => ExprKind::Field {
-                receiver: Self::clone_const_body_expr(source_body, receiver, target_body)?,
-                field,
-            },
-            ExprKind::OptionalField { receiver, field } => ExprKind::OptionalField {
-                receiver: Self::clone_const_body_expr(source_body, receiver, target_body)?,
-                field,
-            },
-            ExprKind::TypeAssert { value } => ExprKind::TypeAssert {
-                value: Self::clone_const_body_expr(source_body, value, target_body)?,
-            },
-            ExprKind::UnknownCast { value, target } => ExprKind::UnknownCast {
-                value: Self::clone_const_body_expr(source_body, value, target_body)?,
-                target,
-            },
-            ExprKind::AsyncOp { op, args } => ExprKind::AsyncOp {
-                op,
-                args: args
-                    .into_iter()
-                    .map(|arg| Self::clone_const_body_expr(source_body, arg, target_body))
-                    .collect::<Result<Vec<_>, _>>()?,
-            },
-            ExprKind::DateFromValue { value } => ExprKind::DateFromValue {
-                value: Self::clone_const_body_expr(source_body, value, target_body)?,
-            },
-            ExprKind::DictLit(entries) => ExprKind::DictLit(
-                entries
-                    .into_iter()
-                    .map(|(key, value)| {
-                        Ok((
-                            Self::clone_const_body_expr(source_body, key, target_body)?,
-                            Self::clone_const_body_expr(source_body, value, target_body)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, SmeltError>>()?,
-            ),
-            ExprKind::DictProjection { op, dict } => ExprKind::DictProjection {
-                op,
-                dict: Self::clone_const_body_expr(source_body, dict, target_body)?,
-            },
-            ExprKind::ListLit(items) => ExprKind::ListLit(
-                items
-                    .into_iter()
-                    .map(|item| Self::clone_const_body_expr(source_body, item, target_body))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            ExprKind::SetLit(items) => ExprKind::SetLit(
-                items
-                    .into_iter()
-                    .map(|item| Self::clone_const_body_expr(source_body, item, target_body))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            ExprKind::TupleLit(items) => ExprKind::TupleLit(
-                items
-                    .into_iter()
-                    .map(|item| Self::clone_const_body_expr(source_body, item, target_body))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            ExprKind::New { class, args } => ExprKind::New {
-                class,
-                args: args
-                    .into_iter()
-                    .map(|arg| Self::clone_const_body_expr(source_body, arg, target_body))
-                    .collect::<Result<Vec<_>, _>>()?,
-            },
-            ExprKind::Conditional {
-                cond,
-                then_expr,
-                else_expr,
-            } => ExprKind::Conditional {
-                cond: Self::clone_const_body_expr(source_body, cond, target_body)?,
-                then_expr: Self::clone_const_body_expr(source_body, then_expr, target_body)?,
-                else_expr: Self::clone_const_body_expr(source_body, else_expr, target_body)?,
-            },
-            ExprKind::BinOp { op, lhs, rhs } => ExprKind::BinOp {
-                op,
-                lhs: Self::clone_const_body_expr(source_body, lhs, target_body)?,
-                rhs: Self::clone_const_body_expr(source_body, rhs, target_body)?,
-            },
-            ExprKind::UnaryOp { op, operand } => ExprKind::UnaryOp {
-                op,
-                operand: Self::clone_const_body_expr(source_body, operand, target_body)?,
-            },
-            _ => {
-                return Err(SmeltError::unsupported(
-                    expr.span,
-                    "const item expression shape is not supported for inlining yet",
-                ));
-            }
-        };
+        if matches!(expr.kind, ExprKind::Local(_) | ExprKind::Block(_)) {
+            return Err(SmeltError::unsupported(
+                expr.span,
+                "const item expression references body-local state that cannot be inlined",
+            ));
+        }
+        let kind = expr.kind.try_map_child_exprs(&mut |child| {
+            Self::clone_const_body_expr(source_body, child, target_body)
+        })?;
         Ok(target_body.push_expr(Expr {
             kind,
             ty: expr.ty,
