@@ -8087,3 +8087,178 @@ function useClock(): void {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+#[test]
+fn lowers_suppressed_zero_argument_overload_call_against_implementation() -> Result<(), String> {
+    // A `@ts-expect-error` pragma on the preceding line marks the call as
+    // deliberately invalid source (a lodash-compat runtime probe such as
+    // `expect(split())`), so overload resolution falls back to the
+    // implementation signature instead of aborting on the overload table.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function joinText(left: string | null | undefined, right?: string): string;
+function joinText(left: string | null | undefined, index: number, guard: object): string;
+function joinText(left?: any, right?: any, sep?: any): string {
+  return `${left ?? ''}${sep ?? '-'}${right ?? ''}`;
+}
+
+function probe(): string {
+  // @ts-expect-error
+  return joinText();
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_ts_ignore_suppressed_under_applied_overload_call() -> Result<(), String> {
+    // `@ts-ignore` also suppresses the checker on the next line (the compat
+    // specs mix both pragmas), so an under-applied call — one argument where
+    // every overload demands at least two — lowers against the implementation
+    // types and keeps the implementation return type.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function scale(value: number, factor: number): number;
+function scale(value: number, factor: number, offset: number): number;
+function scale(value: number, factor?: number, offset?: number): number {
+  if (factor === undefined) {
+    return value;
+  }
+  return value * factor + (offset ?? 0);
+}
+
+function probe(): number {
+  // @ts-ignore - testing runtime behavior when only one argument is provided
+  return scale(5);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    ensure!(
+        matches!(ctx.krate.types.get(function.return_ty), Some(Type::Float)),
+        "suppressed under-applied call should keep the implementation return type"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn rejects_unsuppressed_overload_call_with_missing_arguments() -> Result<(), String> {
+    // Without a suppression pragma the overload table stays authoritative: a
+    // zero-argument call over required-parameter overloads must keep failing
+    // so genuine signature mismatches are still surfaced.
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+function scale(value: number, factor: number): number;
+function scale(value: number, factor: number, offset: number): number;
+function scale(value: number, factor?: number, offset?: number): number {
+  return value * (factor ?? 1) + (offset ?? 0);
+}
+
+function probe(): number {
+  return scale();
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("no overload of `scale`")),
+        "unsuppressed overload mismatch should still be rejected"
+    );
+    Ok(())
+}
+
+#[test]
+fn suppression_pragma_does_not_leak_past_intervening_code() -> Result<(), String> {
+    // The pragma applies to the line that follows it; a later statement in
+    // the same block must not inherit the suppression through the 256-byte
+    // window heuristic used for coded `@ts-expect-error` scans.
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+function scale(value: number, factor: number): number;
+function scale(value: number, factor: number, offset: number): number;
+function scale(value: number, factor?: number, offset?: number): number {
+  return value * (factor ?? 1) + (offset ?? 0);
+}
+
+function probe(): number {
+  // @ts-expect-error
+  const first = scale();
+  const second = scale();
+  return second;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("no overload of `scale`")),
+        "suppression must stop at the line the pragma annotates"
+    );
+    Ok(())
+}
+
+#[test]
+fn prefers_undefined_absorbing_overload_for_void_callback() -> Result<(), String> {
+    // `void`, `undefined`, and `null` intern as one `None` type, so the first
+    // overload can bind `R := None` and slip past a constraint that tsc would
+    // fail for `void`. The candidate that absorbs the callback's undefined
+    // return through an explicit `R | undefined` slot mirrors the checker's
+    // real selection and must win, keeping the value type (`R | T`) instead of
+    // collapsing the call's result to `None`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Customizer<T, R> = (value: T, key: number | string | undefined) => R;
+
+function cloneWith<T, R extends object | string | number | boolean | null>(
+  value: T,
+  customizer: Customizer<T, R>
+): R;
+function cloneWith<T, R>(value: T, customizer: Customizer<T, R | undefined>): R | T;
+function cloneWith<T, R>(value: T, customizer?: Customizer<T, R | undefined>): T | R {
+  return value;
+}
+
+function noop(): void {}
+
+function probe(): unknown {
+  return cloneWith({ a: 1 }, noop);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 3)?;
+    let body = function_body(&ctx, function)?;
+    let call_types = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::Call { .. }))
+        .map(|expr| expr.ty)
+        .collect::<Vec<_>>();
+    ensure!(
+        !call_types.is_empty(),
+        "probe should lower the cloneWith call"
+    );
+    ensure!(
+        call_types
+            .iter()
+            .all(|ty| !matches!(ctx.krate.types.get(*ty), Some(Type::None))),
+        "void callback must not collapse the overload result to None"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

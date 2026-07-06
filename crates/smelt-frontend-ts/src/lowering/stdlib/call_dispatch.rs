@@ -1991,7 +1991,11 @@ impl<'builder> ModuleBuilder<'builder> {
             let arg = self.argument(argument, body)?;
             lowered_arg_tys.push(Self::expr_ty(body, arg));
         }
-        let mut selected: Option<(usize, usize, usize, OverloadSignature, HashMap<_, _>)> = None;
+        let mut selected: Option<(
+            (usize, usize, usize, usize),
+            OverloadSignature,
+            HashMap<_, _>,
+        )> = None;
         for (order, signature) in signatures.iter().enumerate() {
             let mut substitutions = HashMap::new();
             let constraint_scope = Self::overload_type_param_constraint_scope(signature);
@@ -2009,21 +2013,27 @@ impl<'builder> ModuleBuilder<'builder> {
                     self.overload_signature_specificity_score(signature, lowered_arg_tys.len());
                 let literal_score =
                     usize::MAX - self.overload_source_arg_mismatch_count(signature, arguments);
+                let none_collapse_score =
+                    self.overload_substitution_none_collapse_score(&substitutions);
                 let candidate = (
-                    score,
-                    literal_score,
-                    usize::MAX - order,
+                    (
+                        literal_score,
+                        score,
+                        none_collapse_score,
+                        usize::MAX - order,
+                    ),
                     signature.clone(),
                     substitutions,
                 );
-                if selected.as_ref().is_none_or(|current| {
-                    (candidate.1, candidate.0, candidate.2) > (current.1, current.0, current.2)
-                }) {
+                if selected
+                    .as_ref()
+                    .is_none_or(|current| candidate.0 > current.0)
+                {
                     selected = Some(candidate);
                 }
             }
         }
-        if let Some((_, _, _, signature, substitutions)) = selected {
+        if let Some((_, signature, substitutions)) = selected {
             return Ok(Some(
                 self.instantiate_overload_signature(signature, &substitutions),
             ));
@@ -2031,11 +2041,21 @@ impl<'builder> ModuleBuilder<'builder> {
         if self.has_ts_expect_error_before(span.start, "ts2353") {
             return Ok(None);
         }
+        // The author explicitly suppressed TypeScript's own rejection of this
+        // call (`@ts-expect-error` / `@ts-ignore` on the preceding line), so no
+        // declared overload *can* describe it — the call is a deliberate
+        // runtime-behavior probe (lodash-compat specs call `range()`,
+        // `clamp(5)`, `fill(1, 'a')`, ... this way). Fall back to the
+        // implementation signature exactly like a sibling implementation call:
+        // the caller lowers the supplied arguments against the implementation
+        // parameter types and missing trailing parameters take their padded
+        // defaults (`undefined` for erased/optional slots).
+        if self.has_ts_error_suppression_before(span.start) {
+            return Ok(None);
+        }
         if self.allow_unknown_index_access {
             let mut loose_selected: Option<(
-                usize,
-                usize,
-                usize,
+                (usize, usize, usize, usize),
                 OverloadSignature,
                 HashMap<_, _>,
             )> = None;
@@ -2061,20 +2081,26 @@ impl<'builder> ModuleBuilder<'builder> {
                     self.overload_signature_specificity_score(signature, lowered_arg_tys.len());
                 let literal_score =
                     usize::MAX - self.overload_source_arg_mismatch_count(signature, arguments);
+                let none_collapse_score =
+                    self.overload_substitution_none_collapse_score(&substitutions);
                 let candidate = (
-                    score,
-                    literal_score,
-                    usize::MAX - order,
+                    (
+                        literal_score,
+                        score,
+                        none_collapse_score,
+                        usize::MAX - order,
+                    ),
                     signature.clone(),
                     substitutions,
                 );
-                if loose_selected.as_ref().is_none_or(|current| {
-                    (candidate.1, candidate.0, candidate.2) > (current.1, current.0, current.2)
-                }) {
+                if loose_selected
+                    .as_ref()
+                    .is_none_or(|current| candidate.0 > current.0)
+                {
                     loose_selected = Some(candidate);
                 }
             }
-            if let Some((_, _, _, signature, substitutions)) = loose_selected {
+            if let Some((_, signature, substitutions)) = loose_selected {
                 return Ok(Some(
                     self.instantiate_overload_signature(signature, &substitutions),
                 ));
@@ -2099,6 +2125,32 @@ impl<'builder> ModuleBuilder<'builder> {
                     .collect::<Vec<_>>()
             ),
         ))
+    }
+
+    /// Score how free a matching overload's inferences are of `undefined` collapse.
+    ///
+    /// Smelt interns TypeScript `void`, `undefined`, and `null` as one `None`
+    /// type, so a candidate can bind a type parameter to `None` (for example
+    /// `R := void` when a `noop` callback argument matches a
+    /// `customizer: (...) => R` parameter) and still pass constraint checks
+    /// that `tsc` would have failed on the distinct `void` type. When another
+    /// candidate matches the same call *without* collapsing any type parameter
+    /// to `None` — its signature absorbs the `undefined` through an explicit
+    /// `R | undefined` or optional slot — that candidate mirrors the checker's
+    /// real selection (e.g. `cloneWith(value, noop)` picks the
+    /// `customizer: (...) => R | undefined` overload returning `R | T`).
+    /// Returns `usize::MAX` minus the number of `None` substitutions so a
+    /// larger score is better; used as a tie-break after literal and
+    /// specificity scores in [`Self::selected_overload_signature`].
+    fn overload_substitution_none_collapse_score(
+        &self,
+        substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> usize {
+        usize::MAX
+            - substitutions
+                .values()
+                .filter(|ty| matches!(self.ctx.krate.types.get(**ty), Some(Type::None)))
+                .count()
     }
 
     /// Build the active constraint scope needed while matching a stored overload signature.

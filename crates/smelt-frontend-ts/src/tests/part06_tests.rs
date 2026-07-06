@@ -1186,3 +1186,66 @@ export function useit(): number {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+#[test]
+fn lowers_to_have_property_over_erased_class_actual() -> Result<(), String> {
+    // The actual is typed by an ambient class-shaped interface with no local
+    // declaration (`IArguments`), which erases to a runtime `SmeltUnknown`
+    // value; `toHaveProperty` lowers to the same live key-containment check
+    // used for `unknown` actuals.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+
+function toArgs(array: unknown[]): IArguments {
+  return (function (..._: unknown[]) {
+    return arguments;
+  })(...array);
+}
+
+it("has property", () => {
+  const actual = toArgs([1, 2, 3]);
+  expect(actual).toHaveProperty("length");
+});
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. })),
+        "erased-class actual should lower to a runtime key-containment check"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn rejects_to_have_property_over_primitive_actual() -> Result<(), String> {
+    // A statically primitive actual has no runtime object shape to inspect, so
+    // the matcher must keep rejecting it even though erased class-shaped
+    // actuals are now accepted.
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+import { expect, it } from "vitest";
+
+it("has property", () => {
+  const actual = 42;
+  expect(actual).toHaveProperty("length");
+});
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors.iter().any(|error| error
+            .message
+            .contains("toHaveProperty(...) requires an object or map actual value")),
+        "primitive actual should still be rejected by toHaveProperty"
+    );
+    Ok(())
+}
