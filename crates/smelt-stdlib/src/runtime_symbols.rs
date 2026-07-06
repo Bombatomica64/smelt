@@ -79,6 +79,19 @@ pub mod json {
     pub const UNKNOWN_FROM_JSON_VALUE: &str = "smelt_unknown_from_json_value";
 }
 
+/// String runtime helpers.
+///
+/// These back JavaScript global string functions that need more than a direct
+/// Rust std method call.
+pub mod strings {
+    /// Percent-encodes a string; backs `encodeURI(value)` (`Rvalue::UriEncode`).
+    ///
+    /// The ECMA-262 `encodeURI` character set stays literal (ASCII
+    /// alphanumerics, unreserved marks, URI reserved separators, and `#`);
+    /// everything else becomes uppercase `%XX` UTF-8 triplets.
+    pub const ENCODE_URI: &str = "smelt_encode_uri";
+}
+
 /// Host-object construction helpers.
 ///
 /// These build the marker records that model JavaScript host builtins (see

@@ -468,6 +468,12 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("string_normalize_{form_text} {}", operand_text(operand))
         }
+        Rvalue::UriEncode { operand } => {
+            format!("uri_encode {}", operand_text(operand))
+        }
+        Rvalue::ObjectToStringTag { operand } => {
+            format!("object_to_string_tag {}", operand_text(operand))
+        }
         Rvalue::StringTrim { side, operand } => {
             let side_text = match side {
                 smelt_hir::StringTrimSide::Both => "both",

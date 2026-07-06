@@ -664,3 +664,75 @@ export function apply(values: string[]): string[] {
     assert!(source.contains("if "), "{source}");
     assert!(source.contains("unknown function table key"), "{source}");
 }
+
+#[test]
+fn emits_encode_uri_helper_for_encode_uri_usage() {
+    let source = source_for(
+        r#"
+const encoded = encodeURI("https://ex.com/a b?x=1&y=2#frag");
+const asValue = encodeURI;
+"#,
+    );
+
+    // Both the direct call and the first-class value form route through the
+    // shared percent-encoding runtime helper.
+    assert!(source.contains("fn smelt_encode_uri("), "{source}");
+    assert!(source.contains("= smelt_encode_uri("), "{source}");
+}
+
+#[test]
+fn omits_encode_uri_helper_without_usage() {
+    let source = source_for("const value: number = 1;");
+    assert!(
+        !source.contains("smelt_encode_uri"),
+        "the encodeURI helper must stay gated behind actual encodeURI usage: {source}"
+    );
+}
+
+#[test]
+fn emits_object_to_string_tag_probe_for_prototype_to_string_call() {
+    let source = source_for(
+        r"
+export function tag(value: unknown): string {
+  return Object.prototype.toString.call(value);
+}
+",
+    );
+
+    // The classic `"[object Tag]"` probe resolves through the runtime helper
+    // (variant plus host identity markers), not through field reads on the
+    // prototype sentinel.
+    assert!(source.contains("fn smelt_object_to_string_tag("), "{source}");
+    assert!(source.contains("= smelt_object_to_string_tag(&("), "{source}");
+}
+
+#[test]
+fn emits_timer_prelude_for_set_timeout_value_form() {
+    let source = source_for(
+        r"
+const scheduled = globalThis.setTimeout;
+const id = scheduled(() => {}, 4);
+",
+    );
+
+    // The timer op lives inside the synthesized first-class closure body, so
+    // the prelude gate must scan closure rvalues too.
+    assert!(source.contains("fn smelt_set_timeout("), "{source}");
+}
+
+#[test]
+fn emits_error_record_with_cause_and_aggregate_errors() {
+    let source = source_for(
+        r#"
+const error = new Error("boom", { cause: "root" });
+const aggregate = new AggregateError([new Error("a")], "many");
+const cause = error.cause;
+"#,
+    );
+
+    // The ES2022 options form retains `cause` (and AggregateError's `errors`)
+    // on the marker-bearing error record.
+    assert!(source.contains("\"__smelt_error\""), "{source}");
+    assert!(source.contains("\"cause\""), "{source}");
+    assert!(source.contains("\"errors\""), "{source}");
+}

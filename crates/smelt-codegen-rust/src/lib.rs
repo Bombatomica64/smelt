@@ -78,7 +78,7 @@ use std::{
 };
 
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
-use smelt_mir::{HirOrigin, Mir, MirFunction, Rvalue, Statement};
+use smelt_mir::{HirOrigin, Mir, MirFunction, Rvalue};
 
 pub(crate) mod classes;
 pub(crate) mod deps;
@@ -322,35 +322,27 @@ fn write_if_changed(
 }
 
 /// Returns whether generated Rust uses JavaScript timer helpers.
+///
+/// Scans function *and* closure rvalues: a timer op can live inside a
+/// synthesized closure body (e.g. the first-class `setTimeout` value form),
+/// and the prelude must still define the timer queue for it.
 fn needs_timer_helpers(mir: &Mir) -> bool {
-    mir.functions.iter().any(|function| {
-        function.blocks.iter().any(|block| {
-            block.statements.iter().any(|statement| {
-                let Some(value) = (match statement {
-                    Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
-                        Some(value)
-                    }
-                    Statement::StorageLive(_) | Statement::StorageDead(_) => None,
-                }) else {
-                    return false;
-                };
-                matches!(
-                    value,
-                    Rvalue::AsyncOp {
-                        op: AsyncOp::Sleep
-                            | AsyncOp::SetTimeout
-                            | AsyncOp::ClearTimeout
-                            | AsyncOp::SetInterval
-                            | AsyncOp::ClearInterval
-                            | AsyncOp::Promise
-                            | AsyncOp::Then
-                            | AsyncOp::Catch
-                            | AsyncOp::SpawnLocal,
-                        ..
-                    }
-                )
-            })
-        })
+    stdlib::rvalues(mir).any(|value| {
+        matches!(
+            value,
+            Rvalue::AsyncOp {
+                op: AsyncOp::Sleep
+                    | AsyncOp::SetTimeout
+                    | AsyncOp::ClearTimeout
+                    | AsyncOp::SetInterval
+                    | AsyncOp::ClearInterval
+                    | AsyncOp::Promise
+                    | AsyncOp::Then
+                    | AsyncOp::Catch
+                    | AsyncOp::SpawnLocal,
+                ..
+            }
+        )
     })
 }
 
@@ -443,6 +435,37 @@ fn emit_source_with_free_function_router(
     // identity when later erased to `SmeltUnknown`). Emit it standalone only in
     // that regex-without-list case so list-using programs keep byte-identical
     // output. `needs_smelt_list` already subsumes `needs_unknown`.
+    if stdlib::needs_uri_encode_runtime(mir) {
+        writer.line("/// JavaScript `encodeURI`: percent-encode `value` as a full URI.");
+        writer.line("///");
+        writer.line("/// Leaves the ECMA-262 `encodeURI` unescaped set intact — ASCII alphanumerics,");
+        writer.line("/// the unreserved marks `- _ . ! ~ * ' ( )`, the URI reserved separators");
+        writer.line("/// `; / ? : @ & = + $ ,`, and `#` — and percent-encodes every other character's");
+        writer.line("/// UTF-8 bytes as uppercase `%XX` triplets. Rust `&str` is always valid UTF-8,");
+        writer.line("/// so ECMA-262's lone-surrogate `URIError` case cannot occur here.");
+        writer.line(format!(
+            "fn {encode_uri}(value: &str) -> String {{",
+            encode_uri = smelt_stdlib::runtime_symbols::strings::ENCODE_URI,
+        ));
+        writer.line("    use ::std::fmt::Write as _;");
+        writer.line("    let mut encoded = String::with_capacity(value.len());");
+        writer.line("    for ch in value.chars() {");
+        writer.line("        let unescaped = ch.is_ascii_alphanumeric()");
+        writer.line("            || matches!(ch, '-' | '_' | '.' | '!' | '~' | '*' | '\\'' | '(' | ')'");
+        writer.line("                | ';' | '/' | '?' | ':' | '@' | '&' | '=' | '+' | '$' | ',' | '#');");
+        writer.line("        if unescaped {");
+        writer.line("            encoded.push(ch);");
+        writer.line("        } else {");
+        writer.line("            let mut buffer = [0u8; 4];");
+        writer.line("            for byte in ch.encode_utf8(&mut buffer).as_bytes() {");
+        writer.line("                let _ = write!(encoded, \"%{byte:02X}\");");
+        writer.line("            }");
+        writer.line("        }");
+        writer.line("    }");
+        writer.line("    encoded");
+        writer.line("}");
+        writer.blank_line();
+    }
     if needs_regex && !needs_smelt_list {
         writer.line("thread_local! {");
         writer.line("    static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };");
@@ -761,10 +784,10 @@ fn emit_source_with_free_function_router(
         let host_marker_array = host_marker_registry_array();
         writer.line(format!("fn smelt_object_has_host_marker(object: &SmeltObject) -> bool {{ {host_marker_array}.iter().any(|marker| object.contains_key(marker)) }}"));
         writer.line(format!("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool {{ {host_marker_array}.iter().any(|marker| record.contains_key(*marker)) }}"));
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\")) }");
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
-        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\")) }");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")) }");
         writer.line("/// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.");
         writer.line(
             "/// Class instances carry a hidden `__smelt_class` marker and map to a distinct",
@@ -774,6 +797,34 @@ fn emit_source_with_free_function_router(
         );
         writer.line("/// `null`, and plain objects keep their existing sentinels.");
         writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".to_owned()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"__smelt_proto:promise\".to_owned()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".to_owned()), _ => SmeltUnknown::String(\"__smelt_proto:object\".to_owned()) } }");
+        writer.blank_line();
+        writer.line("/// Resolve the JavaScript `Object.prototype.toString.call(x)` tag for an erased value.");
+        writer.line("///");
+        writer.line("/// Primitive and function variants map to their spec tags. Object records");
+        writer.line("/// resolve through Smelt's host identity markers: dates, regexps, errors, the");
+        writer.line("/// global object, abort records, registry host objects (WeakMap, Blob, boxed");
+        writer.line("/// primitives, Intl instances, ...), and builtin namespace records (whose");
+        writer.line("/// `@@toStringTag`-bearing `name` becomes the tag, matching `[object JSON]` /");
+        writer.line("/// `[object Math]`). Class instances and unmarked records are plain");
+        writer.line("/// `[object Object]`, exactly like JavaScript objects without a custom tag.");
+        {
+            let host_tag_arms = smelt_stdlib::HOST_OBJECTS.iter().fold(
+                String::new(),
+                |mut arms, entry| {
+                    use ::std::fmt::Write as _;
+                    let _ = write!(
+                        arms,
+                        "if map.contains_key(\"{marker}\") {{ return \"[object {tag}]\".to_owned(); }} ",
+                        marker = entry.marker,
+                        tag = entry.class_name,
+                    );
+                    arms
+                },
+            );
+            writer.line(format!(
+                "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String {{ match value {{ SmeltUnknown::Null => \"[object Null]\".to_owned(), SmeltUnknown::Undefined => \"[object Undefined]\".to_owned(), SmeltUnknown::Bool(_) => \"[object Boolean]\".to_owned(), SmeltUnknown::Number(_) => \"[object Number]\".to_owned(), SmeltUnknown::String(_) => \"[object String]\".to_owned(), SmeltUnknown::Symbol(_) => \"[object Symbol]\".to_owned(), SmeltUnknown::Array(_) => \"[object Array]\".to_owned(), SmeltUnknown::Function(_) => \"[object Function]\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned(), SmeltUnknown::Object(map) => {{ if map.contains_key(\"__smelt_date\") {{ return \"[object Date]\".to_owned(); }} if map.contains_key(\"__smelt_regexp\") {{ return \"[object RegExp]\".to_owned(); }} if map.contains_key(\"__smelt_error\") {{ return \"[object Error]\".to_owned(); }} if map.contains_key(\"__smelt_global_object\") {{ return \"[object global]\".to_owned(); }} if map.contains_key(\"__smelt_abortcontroller\") {{ return \"[object AbortController]\".to_owned(); }} if map.contains_key(\"__smelt_abortsignal\") {{ return \"[object AbortSignal]\".to_owned(); }} {host_tag_arms}if map.contains_key(\"__smelt_builtin_namespace\") {{ if let Some(SmeltUnknown::String(name)) = map.get(\"name\") {{ return format!(\"[object {{name}}]\"); }} }} \"[object Object]\".to_owned() }} }} }}",
+            ));
+        }
         writer.blank_line();
         writer.line("impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }");
         writer.line("impl Eq for SmeltObject {}");

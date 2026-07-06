@@ -498,6 +498,26 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::UriEncode { operand } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::UriEncode {
+                        operand: lowered_operand,
+                    },
+                )?
+            }
+            ExprKind::ObjectToStringTag { operand } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ObjectToStringTag {
+                        operand: lowered_operand,
+                    },
+                )?
+            }
             ExprKind::StringTrim { side, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 self.assign_temp(

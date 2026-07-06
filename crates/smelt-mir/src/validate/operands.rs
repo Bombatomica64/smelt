@@ -693,6 +693,8 @@ impl Rvalue {
             | Self::NumericUnaryFunc { operand, .. }
             | Self::StringCase { operand, .. }
             | Self::StringNormalize { operand, .. }
+            | Self::UriEncode { operand }
+            | Self::ObjectToStringTag { operand }
             | Self::StringTrim { operand, .. }
             | Self::StringPredicate { operand, .. }
             | Self::Await(operand) => visit(operand),
@@ -1388,6 +1390,8 @@ impl Rvalue {
             | Self::NumericUnaryFunc { operand, .. }
             | Self::StringCase { operand, .. }
             | Self::StringNormalize { operand, .. }
+            | Self::UriEncode { operand }
+            | Self::ObjectToStringTag { operand }
             | Self::StringTrim { operand, .. }
             | Self::StringPredicate { operand, .. }
             | Self::Await(operand) => visit(operand),

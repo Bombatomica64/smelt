@@ -918,3 +918,237 @@ export function isTypedArray(x: unknown): boolean {
     )?;
     Ok(())
 }
+
+/// A bare `Proxy` reference used as a value (`if (Proxy)`, `isFunction(Proxy)`,
+/// a `Proxy` entry in a value table) lowers to a first-class closure — the
+/// transparent-construction value form matching `new Proxy(target, handler)`
+/// resolving to `target` — instead of an unresolved identifier.
+#[test]
+fn bare_proxy_value_lowers_to_transparent_constructor_closure() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const p = Proxy;"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::Closure(_))),
+        "expected bare `Proxy` to lower to a first-class closure value",
+    );
+    Ok(())
+}
+
+/// A bare `Intl` reference used as a value lowers to the shared
+/// builtin-namespace marker record, like `Math`/`JSON`/`Reflect`, so
+/// namespace-identity probes observe a host object rather than an unresolved
+/// identifier.
+#[test]
+fn bare_intl_namespace_value_lowers_to_marker_record() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const i = Intl;"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::Literal(Literal::String(text)) if text == "__smelt_builtin_namespace"
+        )),
+        "expected bare `Intl` value to carry the `__smelt_builtin_namespace` marker",
+    );
+    Ok(())
+}
+
+/// `new Intl.<Constructor>(...)` (the ECMA-402 namespace constructors) lowers
+/// to a marker-only host-object record through the shared registry, keyed by
+/// the full qualified path, so `isPlainObject(new Intl.Locale('en'))` observes
+/// a host identity instead of an unresolved `Intl`.
+#[test]
+fn new_intl_namespace_constructor_lowers_to_marker_record() -> Result<(), String> {
+    for (source, marker) in [
+        ("const l = new Intl.Locale('en');", "__smelt_intl_locale"),
+        ("const c = new Intl.Collator('en');", "__smelt_intl_collator"),
+        (
+            "const n = new Intl.NumberFormat('en');",
+            "__smelt_intl_numberformat",
+        ),
+    ] {
+        let mut ctx = HirCtx::new();
+        let module_id = lower_ok(source, &mut ctx)?;
+        let module = module(&ctx, module_id)?;
+        let body = module_body(&ctx, module)?;
+        ensure!(
+            body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::Literal(Literal::String(text)) if text == marker
+            )),
+            "expected `{source}` to stamp the `{marker}` host marker",
+        );
+    }
+    Ok(())
+}
+
+/// A `new Intl.<Member>()` spelling for an unmodeled member falls through to
+/// the ordinary member-callee construction (an `ExprKind::New` naming the
+/// member, resolved or rejected by the later class-resolution passes) instead
+/// of being silently stamped with an Intl host marker.
+#[test]
+fn new_unmodeled_intl_member_falls_through_without_marker() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const x = new Intl.Nonexistent('en');"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        !body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::Literal(Literal::String(text)) if text.starts_with("__smelt_intl")
+        )),
+        "expected `new Intl.Nonexistent(...)` to keep the ordinary construction path",
+    );
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::New { class, .. }
+                if ctx.krate.symbols.get(*class) == Some("Nonexistent")
+        )),
+        "expected `new Intl.Nonexistent(...)` to lower as an ordinary member construction",
+    );
+    Ok(())
+}
+
+/// `encodeURI(value)` lowers to the dedicated URI percent-encoding IR op, and
+/// the bare `encodeURI` value form lowers to a first-class closure running the
+/// same op, instead of an unresolved identifier.
+#[test]
+fn encode_uri_call_and_value_forms_lower_to_uri_encode() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const s = encodeURI('a b');"), &mut ctx)?;
+    let call_module = module(&ctx, module_id)?;
+    let call_body = module_body(&ctx, call_module)?;
+    ensure!(
+        call_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::UriEncode { .. })),
+        "expected `encodeURI('a b')` to lower to the UriEncode op",
+    );
+
+    let mut value_ctx = HirCtx::new();
+    let value_module_id = lower_ok(ts!("const f = encodeURI;"), &mut value_ctx)?;
+    let value_module = module(&value_ctx, value_module_id)?;
+    let value_body = module_body(&value_ctx, value_module)?;
+    ensure!(
+        value_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::Closure(_))),
+        "expected bare `encodeURI` to lower to a first-class closure value",
+    );
+    Ok(())
+}
+
+/// A bare `setTimeout` reference (e.g. `const original = globalThis.setTimeout;`
+/// before mocking) lowers to a first-class closure over the shared timer op,
+/// instead of an unresolved identifier. The `globalThis.` spelling normalizes
+/// to the bare name first (see `global_alias_member_read`).
+#[test]
+fn bare_set_timeout_value_lowers_to_timer_closure() -> Result<(), String> {
+    for source in [
+        ts!("const st = setTimeout;"),
+        ts!("const st = globalThis.setTimeout;"),
+    ] {
+        let mut ctx = HirCtx::new();
+        let module_id = lower_ok(source, &mut ctx)?;
+        let module = module(&ctx, module_id)?;
+        let body = module_body(&ctx, module)?;
+        ensure!(
+            body.exprs
+                .iter()
+                .any(|expr| matches!(&expr.kind, ExprKind::Closure(_))),
+            "expected `{source}` to lower to a first-class timer closure",
+        );
+    }
+    Ok(())
+}
+
+/// `Object.prototype.toString.call(x)` lowers to the dedicated
+/// `"[object Tag]"` probe op rather than mis-reading `toString`/`call` as
+/// fields of the prototype sentinel.
+#[test]
+fn object_prototype_to_string_call_lowers_to_tag_probe() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!("export function tag(x: unknown): string { return Object.prototype.toString.call(x); }"),
+        &mut ctx,
+    )?;
+    let has_probe = ctx.krate.bodies.iter().any(|body| {
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::ObjectToStringTag { .. }))
+    });
+    ensure!(
+        has_probe,
+        "expected `Object.prototype.toString.call(x)` to lower to ObjectToStringTag",
+    );
+    Ok(())
+}
+
+/// `new Error(message, { cause })` (ES2022 options) retains the `cause` on the
+/// error record alongside the `__smelt_error` marker and `message`, and
+/// `new AggregateError(errors, message, options?)` retains the leading
+/// `errors` list, instead of rejecting the options argument.
+#[test]
+fn error_options_constructor_retains_cause_and_aggregate_errors() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const e = new Error('boom', { cause: 'root' });"),
+        &mut ctx,
+    )?;
+    let error_module = module(&ctx, module_id)?;
+    let error_body = module_body(&ctx, error_module)?;
+    for key in ["__smelt_error", "cause"] {
+        ensure!(
+            error_body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::Literal(Literal::String(text)) if text == key
+            )),
+            "expected `new Error(msg, {{ cause }})` to store the `{key}` key",
+        );
+    }
+
+    let mut aggregate_ctx = HirCtx::new();
+    let aggregate_module_id = lower_ok(
+        ts!("const e = new AggregateError([new Error('a')], 'many', { cause: 'root' });"),
+        &mut aggregate_ctx,
+    )?;
+    let aggregate_module = module(&aggregate_ctx, aggregate_module_id)?;
+    let aggregate_body = module_body(&aggregate_ctx, aggregate_module)?;
+    for key in ["__smelt_error", "cause", "errors"] {
+        ensure!(
+            aggregate_body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::Literal(Literal::String(text)) if text == key
+            )),
+            "expected `new AggregateError(errors, msg, {{ cause }})` to store the `{key}` key",
+        );
+    }
+    Ok(())
+}
+
+/// A non-literal Error options argument stays an honest blocker: whether a
+/// `cause` is attached depends on `"cause" in options`, which a general static
+/// rule can only answer for a literal spelling.
+#[test]
+fn error_options_non_literal_argument_stays_a_blocker() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!("const opts = { cause: 'root' }; const e = new Error('boom', opts);"),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors.iter().any(|error| error
+            .message
+            .contains("Error constructor options must be an object literal")),
+        "expected a clear blocker for non-literal Error options, got {errors:?}",
+    );
+    Ok(())
+}

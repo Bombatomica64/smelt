@@ -140,6 +140,19 @@ pub enum ExprKind {
         form: StringNormalizeForm,
         operand: ExprId,
     },
+    /// JavaScript `encodeURI(operand)`: percent-encode the string, leaving the
+    /// URI-reserved and unreserved characters of the `encodeURI` character set
+    /// intact (see the runtime `smelt_encode_uri` helper for the exact set).
+    UriEncode {
+        operand: ExprId,
+    },
+    /// JavaScript `Object.prototype.toString.call(operand)`: the classic
+    /// `"[object Tag]"` type probe. Resolves the tag from the erased value's
+    /// runtime variant and host identity markers (see the runtime
+    /// `smelt_object_to_string_tag` helper).
+    ObjectToStringTag {
+        operand: ExprId,
+    },
     StringTrim {
         side: StringTrimSide,
         operand: ExprId,

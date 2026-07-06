@@ -50,6 +50,17 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Converts JavaScript `encodeURI(value)` to a call to the runtime
+    /// percent-encoding helper (`smelt_encode_uri`), which implements the
+    /// ECMA-262 `encodeURI` character-set rules.
+    pub(super) fn uri_encode_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        let receiver_text = self.string_like_operand_text(operand, "encodeURI")?;
+        Ok(format!(
+            "{encode_uri}({receiver_text}.as_str())",
+            encode_uri = smelt_stdlib::runtime_symbols::strings::ENCODE_URI,
+        ))
+    }
+
     /// Converts a string trim operation to Rust text.
     pub(super) fn string_trim_text(
         &self,

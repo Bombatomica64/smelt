@@ -153,6 +153,12 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("string_normalize_{form_name} {}", expr_ref(*operand))
         }
+        ExprKind::UriEncode { operand } => {
+            format!("uri_encode {}", expr_ref(*operand))
+        }
+        ExprKind::ObjectToStringTag { operand } => {
+            format!("object_to_string_tag {}", expr_ref(*operand))
+        }
         ExprKind::StringTrim { side, operand } => {
             let side_name = match side {
                 crate::expr::StringTrimSide::Both => "both",

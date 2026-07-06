@@ -13,6 +13,21 @@ use smelt_hir::{
     PrimitiveCastOp, Span, Stmt, Type, UnaryOp, UrlField,
 };
 
+/// The lowered positional pieces of a builtin Error construction.
+///
+/// Produced by `error_constructor_parts` so the throw path (which keeps only
+/// the message) and the error-record path (which retains everything) lower the
+/// source arguments exactly once.
+struct ErrorConstructorParts {
+    /// The `string`-typed message expression (`"Error"` literal when absent).
+    message: smelt_hir::ExprId,
+    /// The retained ES2022 `cause` option value, when the construction spells
+    /// an options object literal with a `cause` property.
+    cause: Option<smelt_hir::ExprId>,
+    /// The retained `AggregateError` leading `errors` argument.
+    errors: Option<smelt_hir::ExprId>,
+}
+
 impl ModuleBuilder<'_> {
     /// Lower a `new ...` expression, including stdlib containers and class construction.
     pub(super) fn new_expression_with_hint(
@@ -32,6 +47,9 @@ impl ModuleBuilder<'_> {
         }
         let Expression::Identifier(callee) = &new_expr.callee else {
             if let Some(expr) = self.intl_date_time_format_constructor_expression(new_expr, body)? {
+                return Ok(expr);
+            }
+            if let Some(expr) = self.intl_namespace_constructor_expression(new_expr, body)? {
                 return Ok(expr);
             }
             if let Some(expr) = self.dynamic_date_constructor_expression(new_expr, body)? {
@@ -869,12 +887,20 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a built-in Error constructor used as a value to an erased Error object.
+    ///
+    /// The record carries the shared `__smelt_error` identity marker and the
+    /// `message`, plus the retained ES2022 `cause` option and the
+    /// `AggregateError` `errors` list when the construction spells them (see
+    /// `error_constructor_parts`). `cause`/`errors` mirror JavaScript's
+    /// non-enumerable own error properties: reads resolve through the record,
+    /// and the runtime for-in/`Object.keys` filters hide them alongside
+    /// `message` (see `smelt_is_for_in_object_key`).
     pub(super) fn error_object_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let message = self.error_constructor_expression(new_expr, body)?;
+        let parts = self.error_constructor_parts(new_expr, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
@@ -895,8 +921,25 @@ impl ModuleBuilder<'_> {
             ty: string_ty,
             span,
         });
+        let mut entries = vec![(marker_key, marker_value), (message_key, parts.message)];
+        if let Some(cause) = parts.cause {
+            let cause_key = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("cause".to_owned())),
+                ty: string_ty,
+                span,
+            });
+            entries.push((cause_key, cause));
+        }
+        if let Some(errors) = parts.errors {
+            let errors_key = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("errors".to_owned())),
+                ty: string_ty,
+                span,
+            });
+            entries.push((errors_key, errors));
+        }
         let object = body.push_expr(Expr {
-            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (message_key, message)]),
+            kind: ExprKind::DictLit(entries),
             ty: dict_ty,
             span,
         });
@@ -1634,43 +1677,123 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `new Error(message)` to the message expression used by HIR throws.
+    ///
+    /// HIR throws carry only the string message, so the retained `cause`
+    /// option and `AggregateError` `errors` list are lowered for their source
+    /// effects and discarded here; the record-building value path
+    /// (`error_object_constructor_expression`) keeps them.
     pub(super) fn error_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if new_expr.arguments.len() > 1 {
+        Ok(self.error_constructor_parts(new_expr, body)?.message)
+    }
+
+    /// Lower the positional pieces of a builtin Error construction exactly once.
+    ///
+    /// Supported shapes, following ES2022:
+    /// - `new Error(message?, options?)` (and the `EvalError`..`URIError`
+    ///   subclasses), where `options` is an object literal whose `cause`
+    ///   property is retained;
+    /// - `new AggregateError(errors, message?, options?)`, whose leading
+    ///   `errors` iterable is retained as a list value.
+    ///
+    /// The message follows the pre-existing model: a missing message lowers to
+    /// the literal `"Error"`, a concrete `string` passes through, and a
+    /// string-compatible or erased operand is asserted to `string`. A
+    /// non-literal `options` expression is rejected with an honest blocker
+    /// rather than guessed at, because whether a `cause` is attached depends on
+    /// `"cause" in options`, which a general static rule can only answer for a
+    /// literal spelling. Options properties other than `cause` are lowered for
+    /// their effects and discarded, matching JavaScript (only `cause` is read).
+    fn error_constructor_parts(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<ErrorConstructorParts, SmeltError> {
+        let is_aggregate = matches!(
+            &new_expr.callee,
+            Expression::Identifier(callee) if callee.name == "AggregateError"
+        );
+        let mut arguments = new_expr.arguments.iter();
+        let errors = if is_aggregate {
+            match arguments.next() {
+                Some(errors_arg) => Some(self.argument(errors_arg, body)?),
+                None => None,
+            }
+        } else {
+            None
+        };
+        let message_arg = arguments.next();
+        let options_arg = arguments.next();
+        if arguments.next().is_some() {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
-                "Error constructor lowering supports at most one message argument",
+                "Error constructor lowering supports at most a message and an options argument",
             ));
         }
-        let Some(message_arg) = new_expr.arguments.first() else {
-            let ty = self.ctx.krate.types.intern(Type::String);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String("Error".to_owned())),
-                ty,
-                span: self.span(new_expr.span.start, new_expr.span.end),
-            }));
+        let message = match message_arg {
+            None => {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String("Error".to_owned())),
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                })
+            }
+            Some(message_arg) => {
+                let message = self.argument(message_arg, body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, message)) == Some(&Type::String) {
+                    message
+                } else if self.is_string_compatible_type(Self::expr_ty(body, message))
+                    || self.type_contains_unknown(Self::expr_ty(body, message))
+                {
+                    let ty = self.ctx.krate.types.intern(Type::String);
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: message },
+                        ty,
+                        span: self.span(message_arg.span().start, message_arg.span().end),
+                    })
+                } else {
+                    return Err(SmeltError::unsupported(
+                        self.span(message_arg.span().start, message_arg.span().end),
+                        "Error constructor message must be a string",
+                    ));
+                }
+            }
         };
-        let message = self.argument(message_arg, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, message)) == Some(&Type::String) {
-            return Ok(message);
-        }
-        if self.is_string_compatible_type(Self::expr_ty(body, message))
-            || self.type_contains_unknown(Self::expr_ty(body, message))
-        {
-            let ty = self.ctx.krate.types.intern(Type::String);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::TypeAssert { value: message },
-                ty,
-                span: self.span(message_arg.span().start, message_arg.span().end),
-            }));
-        }
-        Err(SmeltError::unsupported(
-            self.span(message_arg.span().start, message_arg.span().end),
-            "Error constructor message must be a string",
-        ))
+        let cause = match options_arg {
+            None => None,
+            Some(Argument::ObjectExpression(options)) => {
+                let mut cause = None;
+                for property in &options.properties {
+                    let ObjectPropertyKind::ObjectProperty(property) = property else {
+                        return Err(SmeltError::unsupported(
+                            self.span(options.span.start, options.span.end),
+                            "Error constructor options must not use spread properties",
+                        ));
+                    };
+                    let value = self.expression(&property.value, body)?;
+                    if matches!(&property.key, PropertyKey::StaticIdentifier(key) if key.name == "cause")
+                    {
+                        cause = Some(value);
+                    }
+                }
+                cause
+            }
+            Some(options_arg) => {
+                return Err(SmeltError::unsupported(
+                    self.span(options_arg.span().start, options_arg.span().end),
+                    "Error constructor options must be an object literal with an optional cause property",
+                ));
+            }
+        };
+        Ok(ErrorConstructorParts {
+            message,
+            cause,
+            errors,
+        })
     }
 
     /// Lower `Error(message)`-style calls to the message value used by HIR throws.

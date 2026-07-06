@@ -1535,9 +1535,26 @@ impl FunctionEmitter<'_> {
     /// runtime helper so the array/null/plain-object/class branches stay in one
     /// place. Class instances carry a hidden `__smelt_class` marker and map to a
     /// distinct sentinel, while non-class values keep their existing sentinels.
+    /// The operand is rendered through the erased-`unknown` coercion seam so a
+    /// source spelling that narrows the receiver first (e.g. an
+    /// `Optional(unknown)` from `as typeof Object.prototype | null`) still
+    /// hands the helper a plain `SmeltUnknown`.
     pub(super) fn prototype_sentinel_text(&self, value: &Operand) -> Result<String, EmitError> {
-        let text = self.operand_text(value)?;
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let text = self.value_at_type(value, unknown_ty)?;
         Ok(format!("smelt_prototype_sentinel(&({text}))"))
+    }
+
+    /// Emits the JavaScript `Object.prototype.toString.call(x)` tag probe.
+    ///
+    /// Defers the tag resolution to the `smelt_object_to_string_tag` runtime
+    /// helper so the primitive-variant and host-identity-marker branches stay
+    /// in one place. The operand is rendered through the erased-`unknown`
+    /// coercion seam because the probe is only lowered for erased values.
+    pub(super) fn object_to_string_tag_text(&self, value: &Operand) -> Result<String, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let text = self.value_at_type(value, unknown_ty)?;
+        Ok(format!("smelt_object_to_string_tag(&({text}))"))
     }
 
     /// Emits a runtime tag check for already-rendered `SmeltUnknown` text.
