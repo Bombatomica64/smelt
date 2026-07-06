@@ -563,12 +563,10 @@ impl ModuleBuilder<'_> {
             let function_params_len = function.params.len();
             let function_return_ty = function.return_ty;
             let function_ty = self.item_expr_type(item, span)?;
-            if function_params_len < expected_param_tys.len().min(1) {
-                return Err(SmeltError::unsupported(
-                    span,
-                    "array callback function reference has too few parameters",
-                ));
-            }
+            // JavaScript ignores callback arguments beyond the declared
+            // parameters, so a reference declaring fewer parameters than the
+            // receiver supplies — down to zero (`values.filter(stubTrue)`) —
+            // is called with just its declared prefix.
             let args = expected_param_tys
                 .iter()
                 .copied()
@@ -596,12 +594,9 @@ impl ModuleBuilder<'_> {
         if let Some(local) = self.locals.get(name).copied() {
             let local_ty = Self::local_ty(body, local);
             if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
-                if function.params.len() < expected_param_tys.len().min(1) {
-                    return Err(SmeltError::unsupported(
-                        self.span(start, end),
-                        "array callback function reference has too few parameters",
-                    ));
-                }
+                // Same arity rule as item references above: fewer declared
+                // parameters (including zero) ignore the extra supplied
+                // arguments.
                 let args = expected_param_tys
                     .iter()
                     .copied()

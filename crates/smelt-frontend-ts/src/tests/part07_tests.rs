@@ -308,3 +308,84 @@ export function dyn(key: string): unknown {
     ensure!(!errors.is_empty());
     Ok(())
 }
+
+#[test]
+fn lowers_zero_parameter_named_function_array_callback() -> Result<(), String> {
+    // JavaScript callbacks adapt arity at the call site: a named function
+    // declaring no parameters (`values.map(stubTrue)`, the lodash-style stub
+    // shape) simply ignores the supplied `(value, index, array)` arguments.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function stubTrue(): boolean {
+  return true;
+}
+export function run(values: number[]): boolean[] {
+  return values.map(stubTrue);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_zero_parameter_named_function_array_predicate() -> Result<(), String> {
+    // The predicate path (`filter`/`some`/`every`) accepts the same
+    // zero-parameter named callback shape as `map`.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function stubFalse(): boolean {
+  return false;
+}
+export function run(values: number[]): number[] {
+  return values.filter(stubFalse);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_zero_parameter_local_arrow_array_callback() -> Result<(), String> {
+    // A zero-parameter *local* callback binding follows the same JavaScript
+    // arity rule as named items: extra supplied arguments are ignored.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function run(values: string[]): number[] {
+  const localStub = () => 42;
+  return values.map(localStub);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_named_array_callback_with_optional_parameter_tail() -> Result<(), String> {
+    // A named callback declaring *more* parameters than the receiver supplies
+    // (`xs.map(orderBy)` with a four-parameter `orderBy`) receives `undefined`
+    // for the unsupplied optional tail, so the wrapper truncates to the
+    // receiver's supplied arity instead of rejecting the reference.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function withTail(value: number, index?: number, list?: number[], guard?: number): number {
+  return value + (guard ?? 0);
+}
+export function run(values: number[]): number[] {
+  return values.map(withTail);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

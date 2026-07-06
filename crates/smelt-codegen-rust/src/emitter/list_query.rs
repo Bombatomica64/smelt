@@ -144,9 +144,6 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
-        if function_ty.params.is_empty() {
-            return Ok("Default::default()".to_owned());
-        }
         if self.mir.types.get(function_ty.return_ty) != Some(&Type::Bool) {
             return Err(EmitError::new(
                 "array predicate callback must return boolean",
@@ -245,9 +242,6 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
-        if function_ty.params.is_empty() {
-            return Ok("Default::default()".to_owned());
-        }
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
             Err(_) => self.operand_text(callback)?,
@@ -287,9 +281,6 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
-        if function_ty.params.is_empty() {
-            return Ok("Default::default()".to_owned());
-        }
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
             Err(_) => self.operand_text(callback)?,
@@ -320,9 +311,6 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
-        if function_ty.params.is_empty() {
-            return Ok("Default::default()".to_owned());
-        }
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
             Err(_) => self.operand_text(callback)?,
@@ -371,16 +359,17 @@ impl FunctionEmitter<'_> {
         _callback: &Operand,
         function_ty: &FunctionType,
     ) -> Result<ListCallbackIterationParts, EmitError> {
-        let Some(item_param_ty) = function_ty.params.first().copied() else {
-            return Err(EmitError::new("array callback must have an item parameter"));
-        };
         let owned_list_text = self.operand_text(list)?;
         let borrowed_list_text = match list {
             Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
             Operand::Const(_) => owned_list_text.clone(),
         };
-        let item_text = self.value_at_type_text("item.clone()", element_ty, item_param_ty)?;
-        let mut call_args = vec![item_text];
+        // A zero-parameter callback (`values.map(stubTrue)`) ignores every
+        // supplied argument, so it is called with no arguments at all.
+        let mut call_args = Vec::new();
+        if let Some(item_param_ty) = function_ty.params.first().copied() {
+            call_args.push(self.value_at_type_text("item.clone()", element_ty, item_param_ty)?);
+        }
         if let Some(index_param_ty) = function_ty.params.get(1).copied() {
             let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
                 self.type_id(Type::Int)?
