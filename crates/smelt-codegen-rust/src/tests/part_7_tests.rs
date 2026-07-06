@@ -6445,3 +6445,61 @@ export function numberCount(): number {
         "expected the inlined slice argument to emit a skip-based slice: {source}"
     );
 }
+
+/// A zero-parameter named callback (`values.map(stubTrue)`) is called with no
+/// arguments at all — JavaScript ignores the supplied `(value, index, array)`
+/// triple when the callback declares no parameters.
+#[test]
+fn zero_parameter_named_map_callback_calls_with_no_arguments() {
+    let source = source_for(
+        r#"
+function stubTrue(): boolean {
+  return true;
+}
+export function run(values: number[]): boolean[] {
+  return values.map(stubTrue);
+}
+"#,
+    );
+    assert!(source.contains("(smelt_callback)()"), "{source}");
+    assert!(source.contains("fn run("), "{source}");
+}
+
+/// A zero-parameter named predicate emits a real filter over the receiver
+/// instead of the former `Default::default()` placeholder.
+#[test]
+fn zero_parameter_named_filter_callback_emits_real_iteration() {
+    let source = source_for(
+        r#"
+function stubFalse(): boolean {
+  return false;
+}
+export function run(values: number[]): number[] {
+  return values.filter(stubFalse);
+}
+"#,
+    );
+    assert!(source.contains("stub_false()"), "{source}");
+    assert!(source.contains(".iter().enumerate().filter_map("), "{source}");
+}
+
+/// A named callback declaring more parameters than the receiver supplies is
+/// wrapped at the supplied arity; the item call pads the unsupplied optional
+/// tail with its default (`None`), matching the JavaScript `undefined` tail.
+#[test]
+fn over_arity_named_map_callback_pads_optional_tail_with_none() {
+    let source = source_for(
+        r#"
+function withTail(value: number, index?: number, list?: number[], guard?: number): number {
+  return value + (guard ?? 0);
+}
+export function run(values: number[]): number[] {
+  return values.map(withTail);
+}
+"#,
+    );
+    assert!(
+        source.contains("with_tail(closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2.clone(), None::<f64>)"),
+        "{source}"
+    );
+}

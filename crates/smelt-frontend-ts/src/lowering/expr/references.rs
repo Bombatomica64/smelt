@@ -888,6 +888,29 @@ impl ModuleBuilder<'_> {
         end: u32,
         outer_body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.item_function_closure_expression_with_max_params(item, usize::MAX, start, end, outer_body)
+    }
+
+    /// Wrap a function item in a closure value capped at a caller-supplied arity.
+    ///
+    /// JavaScript callback call sites adapt arity at runtime: a caller that
+    /// supplies `max_params` arguments simply leaves any further declared
+    /// parameters `undefined`. When the item declares more parameters than the
+    /// call site supplies (`xs.map(orderBy)` supplies 3, `orderBy` declares 4),
+    /// the wrapper closure therefore only declares the supplied arity and calls
+    /// the item with those arguments; the item call pads the remaining
+    /// (optional, per the source type checker) parameters with their defaults
+    /// downstream, matching the JavaScript `undefined` tail. Items declaring
+    /// `max_params` or fewer parameters (including zero) are wrapped at their
+    /// own arity, since callback callers only pass what the closure declares.
+    pub(in crate::lowering) fn item_function_closure_expression_with_max_params(
+        &mut self,
+        item: smelt_hir::ItemId,
+        max_params: usize,
+        start: u32,
+        end: u32,
+        outer_body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let Item::Function(function) = self.item_ref(item).clone() else {
             return Err(SmeltError::unsupported(
                 self.span(start, end),
@@ -895,10 +918,12 @@ impl ModuleBuilder<'_> {
             ));
         };
         let span = self.span(start, end);
+        let wrapped_params_len = function.params.len().min(max_params);
+        let truncated = wrapped_params_len < function.params.len();
         let mut closure_body = Body::new(None, span);
         let mut closure_params = Vec::new();
         let mut call_args = Vec::new();
-        for param in &function.params {
+        for param in function.params.iter().take(wrapped_params_len) {
             let local = closure_body.push_local(LocalDecl {
                 name: Some(param.name),
                 ty: param.ty,
@@ -933,11 +958,27 @@ impl ModuleBuilder<'_> {
         });
         closure_body.push_stmt(Stmt::Return(Some(call)));
         let body_id = self.ctx.krate.push_body(closure_body);
+        // A truncated wrapper drops the item's trailing parameters (and any rest
+        // parameter that falls beyond the cap), so its declared surface is the
+        // capped prefix with every remaining parameter required.
+        let rest = function.rest.filter(|index| *index < wrapped_params_len);
+        let required_params = if truncated {
+            function
+                .required_params
+                .map(|required| required.min(wrapped_params_len))
+        } else {
+            function.required_params
+        };
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: function.params.iter().map(|param| param.ty).collect(),
-            rest: function.rest,
-            required_params: function.required_params,
-                    mutable_params: Vec::new(),
+            params: function
+                .params
+                .iter()
+                .take(wrapped_params_len)
+                .map(|param| param.ty)
+                .collect(),
+            rest,
+            required_params,
+            mutable_params: Vec::new(),
             return_ty: function.return_ty,
             is_async: function.is_async,
             may_throw: false,
@@ -945,15 +986,18 @@ impl ModuleBuilder<'_> {
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: closure_params,
-                rest: function.rest,
-                required_params: function.required_params,
+                rest,
+                required_params,
                 return_ty: function.return_ty,
                 captures: Vec::new(),
                 body: body_id,
                 // Tag this wrapper with its source function item so codegen caches
                 // one runtime wrapper per item, giving every `func1`-as-value
                 // reference the same JavaScript reference identity under `===`.
-                function_item: Some(item),
+                // Truncated wrappers stay untagged: the per-item wrapper cache is
+                // keyed by item alone, and a capped-arity wrapper must not alias
+                // the full-arity wrapper emitted for ordinary value positions.
+                function_item: if truncated { None } else { Some(item) },
                 span,
             }),
             ty: closure_ty,

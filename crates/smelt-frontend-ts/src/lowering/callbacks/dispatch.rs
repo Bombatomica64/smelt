@@ -47,15 +47,18 @@ impl ModuleBuilder<'_> {
                         ),
                     ));
                 };
-                if function.params.is_empty() || function.params.len() > expected_param_tys.len() {
-                    return Err(SmeltError::unsupported(
-                        span,
-                        format!("{context} callback item parameter count is not supported"),
-                    ));
-                }
+                // JavaScript adapts callback arity at the call site: an item
+                // declaring fewer parameters than the receiver supplies (down
+                // to zero, e.g. `values.map(stubTrue)`) ignores the extra
+                // arguments, and one declaring more (e.g. `xs.map(orderBy)`
+                // with a four-parameter `orderBy`) receives `undefined` for the
+                // unsupplied optional tail. Wrap the item capped at the
+                // receiver's supplied arity so the generated closure matches
+                // what the callback caller actually passes.
                 let return_ty = function.return_ty;
-                let expr = self.item_function_closure_expression(
+                let expr = self.item_function_closure_expression_with_max_params(
                     item,
+                    expected_param_tys.len(),
                     identifier.span.start,
                     identifier.span.end,
                     body,
@@ -163,7 +166,12 @@ impl ModuleBuilder<'_> {
                     ),
                 ));
             };
-            if callback.params.is_empty() || callback.params.len() > expected_param_tys.len() {
+            // A local callback declaring fewer parameters than the receiver
+            // supplies (including zero) is valid JavaScript — the extra
+            // arguments are simply ignored — so only reject the shape the
+            // compact callback IR cannot express: a body that references more
+            // parameters than the receiver will ever pass.
+            if callback.params.len() > expected_param_tys.len() {
                 return Err(SmeltError::unsupported(
                     self.span(identifier.span.start, identifier.span.end),
                     format!("{context} local callback parameter count is not supported"),
