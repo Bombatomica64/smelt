@@ -53,6 +53,10 @@ When touching existing `SmeltUnknown` code, check whether the value can now use 
 
 Measure it: `smelt smelt-unknown-report <generated-crate>/src --baseline blocker-logs/smelt-unknown-baseline.json` classifies generated `SmeltUnknown` into runtime-prelude, legitimate-boundary, and avoidable-erasure. A rise in avoidable-erasure is a regression to justify; see `blocker-logs/smelt-unknown-report.md` for methodology.
 
+## Subagents
+the orchestrating session (Fable) must not write feature code itself when dispatching subagents: send code-writing subagents on Opus (`model: opus`) and review their diffs before merging
+run at most two coding subagents in parallel — five parallel cargo builds exhaust both the token budget and the disk
+
 ## git
 After each feature, push a commit with the changes and a clear description of what was implemented
 git status should as clean as possible
