@@ -652,6 +652,135 @@ export function firstSeparator(): string {
     Ok(())
 }
 
+/// An imported const whose initializer uses an array spread (es-toolkit's
+/// `arrayViews = [...typedArrays, 'DataView']` shape) inlines its computed
+/// `ListConcat` expression into the importing function body instead of
+/// erroring as an unsupported const item expression shape.
+#[test]
+fn imported_const_with_array_spread_initializer_inlines() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export const typedNames = ["Float32Array", "Int8Array", "Uint8Array"];
+export const viewNames = [...typedNames, "DataView"];
+"#),
+        "src/constants.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { viewNames } from "./constants";
+
+export function viewCount(): number {
+  const names = viewNames;
+  return names.length;
+}
+"#),
+        "src/views.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::ListConcat { .. })),
+        "expected the imported spread const to inline its ListConcat expression"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// An imported const whose initializer is a method-call chain (es-toolkit's
+/// `empties = [[], {}].concat(falsey.slice(1))` shape) inlines the computed
+/// `ListConcat`/`ListSlice` expressions into the importing function body.
+#[test]
+fn imported_const_with_method_chain_initializer_inlines() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export const smallNumbers = [0, 1].concat([2, 3, 4].slice(1));
+"#),
+        "src/constants.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { smallNumbers } from "./constants";
+
+export function numberCount(): number {
+  const values = smallNumbers;
+  return values.length;
+}
+"#),
+        "src/numbers.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::ListConcat { .. })),
+        "expected the imported concat const to inline its ListConcat expression"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::ListSlice { .. })),
+        "expected the imported concat const to inline its ListSlice argument"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// An imported const whose initializer is a callback chain (es-toolkit's
+/// `whitespace = [...].filter(chr => /\s/.exec(chr)).join('')` shape) inlines
+/// the computed `ListCallback`/`StringJoin` expressions, cloning the closure
+/// callback reference into the importing function body.
+#[test]
+fn imported_const_with_callback_chain_initializer_inlines() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export const whitespace = [" ", "\t", "a"].filter(chr => /\s/.exec(chr)).join("");
+"#),
+        "src/constants.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { whitespace } from "./constants";
+
+export function padded(value: string): string {
+  const pad = whitespace;
+  return pad + value;
+}
+"#),
+        "src/pad.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::StringJoin { .. })),
+        "expected the imported callback-chain const to inline its StringJoin expression"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::ListCallback { .. })),
+        "expected the imported callback-chain const to inline its ListCallback expression"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 /// A member expression whose root is genuinely undefined still fails rather
 /// than lowering incorrectly.
 ///

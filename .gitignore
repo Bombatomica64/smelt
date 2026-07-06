@@ -38,6 +38,8 @@ blocker-logs/*.md
 !blocker-logs/library-probes.md
 # smelt-unknown-report.md documents the SmeltUnknown metric methodology + baseline
 !blocker-logs/smelt-unknown-report.md
+# estk-const-item-inlining.md documents the const-item-inlining blocker fix
+!blocker-logs/estk-const-item-inlining.md
 
 # Generated docs site output
 _site/

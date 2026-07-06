@@ -6386,3 +6386,62 @@ export function run(values: number[]): string {
         "expected the reduce return-type rejection, got: {errors:?}"
     );
 }
+
+/// A module const whose initializer is an array spread (es-toolkit's
+/// `arrayViews = [...typedArrays, 'DataView']` shape) inlines into a function
+/// body as a concrete `SmeltList<String>` concat chain. The homogeneous
+/// literal must keep its `String` item type — the previous blanket
+/// `List<Unknown>` item type made the concat operands disagree and the
+/// emitter silently produced an empty `SmeltList::default()` value.
+#[test]
+fn inlined_spread_const_emits_concrete_string_list_concat() {
+    let source = source_for(
+        r#"
+const typedNames = ["Float32Array", "Int8Array", "Uint8Array"];
+const viewNames = [...typedNames, "DataView"];
+export function describeViews(): string {
+  const names = viewNames;
+  return names.join(",");
+}
+"#,
+    );
+    assert!(source.contains("fn describe_views()"), "{source}");
+    assert!(
+        source.contains("\"DataView\".to_owned()"),
+        "expected the spread tail literal to survive codegen: {source}"
+    );
+    assert!(
+        source.contains("let names: SmeltList<String>"),
+        "expected the inlined spread const to stay a concrete string list: {source}"
+    );
+    assert!(
+        !source.contains("SmeltList::default()"),
+        "expected no silently-defaulted list value in the concat chain: {source}"
+    );
+}
+
+/// A module const whose initializer is a concat/slice method chain
+/// (es-toolkit's `empties = [[], {}].concat(falsey.slice(1))` shape) inlines
+/// into a function body and emits the full chain instead of erroring as an
+/// unsupported const item expression shape.
+#[test]
+fn inlined_method_chain_const_emits_concat_and_slice() {
+    let source = source_for(
+        r#"
+const smallNumbers = [0, 1].concat([2, 3, 4].slice(1));
+export function numberCount(): number {
+  const values = smallNumbers;
+  return values.length;
+}
+"#,
+    );
+    assert!(source.contains("fn number_count()"), "{source}");
+    assert!(
+        source.contains(".chain("),
+        "expected the inlined concat chain to emit list concatenation: {source}"
+    );
+    assert!(
+        source.contains(".skip("),
+        "expected the inlined slice argument to emit a skip-based slice: {source}"
+    );
+}
