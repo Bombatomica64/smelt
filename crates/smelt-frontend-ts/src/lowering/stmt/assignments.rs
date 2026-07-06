@@ -1292,6 +1292,42 @@ impl ModuleBuilder<'_> {
         ) && self.has_ts_expect_error_before(start, "ts7053")
     }
 
+    /// Return whether a TypeScript error-suppression pragma covers this position.
+    ///
+    /// `tsc` suppresses every diagnostic on the line that follows a
+    /// `// @ts-expect-error` or `// @ts-ignore` comment, so a call marked this
+    /// way is *intentionally* invalid source: the author is probing runtime
+    /// behavior that the static signature rejects (for example calling an
+    /// overloaded function with too few arguments). Lowering uses this to
+    /// distinguish such deliberate probes from genuine signature mismatches.
+    /// Only the contiguous comment-only lines directly above the line
+    /// containing `start` are inspected, so a pragma cannot leak past the
+    /// statement it annotates onto later code.
+    pub(in crate::lowering) fn has_ts_error_suppression_before(&self, start: u32) -> bool {
+        let Ok(start) = usize::try_from(start) else {
+            return false;
+        };
+        let Some(prefix) = self.source.get(..start) else {
+            return false;
+        };
+        let mut lines = prefix.lines().rev();
+        // Drop the (partial) line that contains `start` itself; the pragma
+        // must sit on a preceding line to apply to this one.
+        let _current_line = lines.next();
+        for line in lines {
+            let trimmed = line.trim_start();
+            let is_comment_line =
+                trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*');
+            if !is_comment_line {
+                return false;
+            }
+            if trimmed.contains("@ts-expect-error") || trimmed.contains("@ts-ignore") {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Return whether a nearby preceding comment expects the given TS error code.
     pub(in crate::lowering) fn has_ts_expect_error_before(&self, start: u32, code: &str) -> bool {
         let Ok(start) = usize::try_from(start) else {

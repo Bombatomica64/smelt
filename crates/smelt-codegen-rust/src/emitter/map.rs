@@ -63,10 +63,16 @@ impl FunctionEmitter<'_> {
 
     /// Return whether a dictionary containment check must inspect an erased
     /// JavaScript object value at runtime.
+    ///
+    /// Class-shaped types without a local declaration (ambient interfaces such
+    /// as `IArguments`) are represented as `SmeltUnknown` at runtime — see
+    /// [`Self::is_erased_class_type`] — so their containment checks go through
+    /// the same live-object inspection as `unknown` values.
     fn dict_contains_key_uses_erased_object(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Unknown | Type::Union(_)) => true,
             Some(Type::TypeParam { name }) => !self.current_function_has_type_param(*name),
+            Some(Type::Class { .. }) => self.is_erased_class_type(ty),
             _ => false,
         }
     }

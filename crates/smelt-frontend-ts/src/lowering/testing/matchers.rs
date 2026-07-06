@@ -803,7 +803,9 @@ impl ModuleBuilder<'_> {
     ///
     /// A statically-typed record/map (`Type::Dict`) checks key membership
     /// directly and requires the key type to match. An erased actual
-    /// (`Unknown`/`Union`/unconstrained type param) is a runtime JavaScript
+    /// (`Unknown`/`Union`/unconstrained type param, or a class-shaped type
+    /// with no local declaration such as the ambient `IArguments` interface —
+    /// see [`Self::class_type_erases_to_unknown`]) is a runtime JavaScript
     /// value — for example the erased return of an imported helper — so the
     /// emitted `DictContainsKey` inspects the live `SmeltUnknown::Object` at
     /// runtime; the key may be any string-convertible value there, so no
@@ -827,10 +829,14 @@ impl ModuleBuilder<'_> {
                 }
             }
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {}
+            _ if self.class_type_erases_to_unknown(actual_ty) => {}
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(span.start, span.end),
-                    "expect(...).toHaveProperty(...) requires an object or map actual value",
+                    format!(
+                        "expect(...).toHaveProperty(...) requires an object or map actual value (actual: {:?})",
+                        self.ctx.krate.types.get(actual_ty)
+                    ),
                 ));
             }
         }
