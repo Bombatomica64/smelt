@@ -42,6 +42,8 @@ blocker-logs/*.md
 !blocker-logs/estk-const-item-inlining.md
 # estk-overload-resolution.md documents the overload-resolution blocker fix
 !blocker-logs/estk-overload-resolution.md
+# estk-array-misc.md documents the array/callback misc blocker fixes
+!blocker-logs/estk-array-misc.md
 
 # Generated docs site output
 _site/
