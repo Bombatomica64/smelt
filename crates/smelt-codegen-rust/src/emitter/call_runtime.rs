@@ -641,6 +641,8 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand, dest_ty),
             Rvalue::StringNormalize { form, operand } => self.string_normalize_text(*form, operand),
+            Rvalue::UriEncode { operand } => self.uri_encode_text(operand),
+            Rvalue::ObjectToStringTag { operand } => self.object_to_string_tag_text(operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_text(*side, operand),
             Rvalue::StringAffix {
                 op,

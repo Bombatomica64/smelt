@@ -709,7 +709,8 @@ const yes = value instanceof Error;
     );
     assert!(
         source.contains("object.contains_key(\"__smelt_error\")")
-            && source.contains("matches!(key, \"__smelt_error\" | \"message\")"),
+            && source
+                .contains("matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")"),
         "{source}"
     );
 }

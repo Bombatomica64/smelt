@@ -1056,6 +1056,42 @@ return_ty: string_ty,
         )))
     }
 
+    /// Lower `new Intl.<Constructor>(...)` to a marker-only host-object record.
+    ///
+    /// ECMA-402 defines the `Intl` namespace constructors (`Intl.Locale`,
+    /// `Intl.Collator`, `Intl.NumberFormat`, ...). Source code in scope
+    /// constructs them only to probe host identity (e.g.
+    /// `isPlainObject(new Intl.Locale('en')) === false`), so each lowers to a
+    /// marker-bearing record through the shared host-object registry (keyed by
+    /// the full qualified `Intl.<Constructor>` path, per the qualified-type
+    /// rule). Arguments are lowered for their effects and discarded. The opaque
+    /// formatter pair (`Intl.DateTimeFormat` / `Intl.RelativeTimeFormat`) is
+    /// claimed earlier by `intl_date_time_format_constructor_expression` and is
+    /// not in the registry; unmodeled `Intl` members fall through to the
+    /// ordinary member-callee path and keep their honest blocker.
+    pub(in crate::lowering) fn intl_namespace_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &new_expr.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        // A local binding named `Intl` shadows the global namespace.
+        if object.name != "Intl" || self.locals.contains_key("Intl") {
+            return Ok(None);
+        }
+        let qualified = format!("Intl.{}", member.property.name.as_str());
+        let Some(marker) = smelt_stdlib::host_object_marker(&qualified) else {
+            return Ok(None);
+        };
+        self.marker_only_builtin_constructor_expression(new_expr, body, marker)
+            .map(Some)
+    }
+
     /// Lower calls to the supported opaque `Intl.*Format#format` formatter surface.
     pub(in crate::lowering) fn intl_format_method_call(
         &mut self,

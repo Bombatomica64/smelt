@@ -85,6 +85,22 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     host("File", "__smelt_file"),
     host("Blob", "__smelt_blob"),
     host("DOMException", "__smelt_domexception"),
+    // ECMA-402 `Intl` namespace constructors. Source code constructs these only
+    // to probe host identity (`isPlainObject(new Intl.Locale('en')) === false`);
+    // none of their structural surface is read, so each is a marker-only host
+    // object keyed by its full qualified path (the construction site is always
+    // `new Intl.<Constructor>(...)`). `Intl.DateTimeFormat` and
+    // `Intl.RelativeTimeFormat` are deliberately absent: the opaque-formatter
+    // model claims them first and never stamps a marker (see
+    // `intl_date_time_format_constructor_expression`).
+    host("Intl.Collator", "__smelt_intl_collator"),
+    host("Intl.DisplayNames", "__smelt_intl_displaynames"),
+    host("Intl.DurationFormat", "__smelt_intl_durationformat"),
+    host("Intl.ListFormat", "__smelt_intl_listformat"),
+    host("Intl.Locale", "__smelt_intl_locale"),
+    host("Intl.NumberFormat", "__smelt_intl_numberformat"),
+    host("Intl.PluralRules", "__smelt_intl_pluralrules"),
+    host("Intl.Segmenter", "__smelt_intl_segmenter"),
     boxed("Number", "__smelt_number"),
     boxed("Boolean", "__smelt_boolean"),
     boxed("String", "__smelt_string"),

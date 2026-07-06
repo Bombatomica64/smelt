@@ -18,12 +18,6 @@ exclude = [
   "src/compat/object/clone.spec.ts",    # document.createElement, document.body
   "src/compat/object/cloneWith.spec.ts", # document.createElement, document.body
   "src/compat/predicate/isElement.spec.ts", # document (isElement DOM checks)
-  # Blocked on the Error-options constructor, not on a host global: `Blob`/
-  # `File` are modeled now, but this spec also spells
-  # `new AggregateError(errors, message, { cause })` / `new Error(msg, { cause })`,
-  # which the Error constructor lowering does not accept yet ("supports at most
-  # one message argument"). Re-include once Error `cause` options land.
-  "src/object/clone.spec.ts",
 ]
 # `Blob` / `File` are modeled as marker records with real `type`/`size`/
 # `content` (and `name`/`lastModified` for File), so the former Blob/File
@@ -33,15 +27,23 @@ exclude = [
 # Note: isBlob/isFile specs reassign `globalThis.File`/`globalThis.Blob`
 # (monkey-patching, a Smelt non-goal); they build, but the environment-absence
 # test cases will fail at runtime because presence guards fold at compile time.
-# Deliberately NOT excluded (host/ECMA globals, but ambiguous whether Smelt can
-# model them — left in per "when unsure, leave it in"):
-#   src/predicate/isFunction.spec.ts   -> `Proxy`
-#   src/predicate/isPlainObject.spec.ts -> `Intl`, `Proxy`, `Request`
+# `src/object/clone.spec.ts` is back in the build now that the Error constructor
+# lowering accepts the ES2022 options form (`new Error(msg, { cause })`,
+# `new AggregateError(errors, msg, { cause })`) and retains `cause`/`errors` on
+# the error record. The constructor + read-back path is verified end to end; the
+# spec's own `clone` round-trip still exercises dynamic `Object.getPrototypeOf` /
+# `prototype.constructor` / `new Constructor(...)` reconstruction, so some of its
+# runtime assertions remain gated on that separate dynamic-prototype work.
+# Deliberately NOT excluded (host/ECMA globals now modeled as values/namespaces):
+#   src/predicate/isFunction.spec.ts    -> `Proxy` (transparent value closure)
+#   src/predicate/isPlainObject.spec.ts -> `Intl` namespace + `Proxy`; still
+#     reaches `class extends Object` and `Request`, other work
+#   src/compat/object/cloneDeepWith.spec.ts -> `encodeURI` value closure
+#   src/compat/function/delay.spec.ts   -> `setTimeout` value closure
 # After the excludes above, `smelt build` still aborts earlier at
 # src/predicate/isEqualWith.spec.ts ("const item expression shape is not
-# supported for inlining yet"), which is other work; with that file also
-# excluded the next blockers are isFunction.spec.ts (`Proxy`) and
-# isPlainObject.spec.ts (`Intl`).
+# supported for inlining yet"), which is other work; the host-global fixes above
+# clear files that sort after that abort, so they do not move the abort point.
 
 [output]
 target = "./dist-smelt"

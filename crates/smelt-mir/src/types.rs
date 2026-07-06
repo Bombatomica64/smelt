@@ -744,6 +744,19 @@ pub enum Rvalue {
         /// String operand to normalize.
         operand: Operand,
     },
+    /// Percent-encode a string per JavaScript `encodeURI` (the full-URI
+    /// character set; see the runtime `smelt_encode_uri` helper).
+    UriEncode {
+        /// String operand to encode.
+        operand: Operand,
+    },
+    /// Resolve the JavaScript `Object.prototype.toString.call(x)` tag
+    /// (`"[object Tag]"`) from an erased value's runtime variant and host
+    /// identity markers (see the runtime `smelt_object_to_string_tag` helper).
+    ObjectToStringTag {
+        /// Erased value operand to probe.
+        operand: Operand,
+    },
     /// Trim whitespace from a string value.
     StringTrim {
         /// Which side of the string to trim.

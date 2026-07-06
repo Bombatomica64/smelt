@@ -420,6 +420,37 @@ impl ModuleBuilder<'_> {
             "Map" | "Set" => {
                 self.builtin_collection_constructor_closure_expression(name, span, outer_body)
             }
+            // The `Proxy` constructor used as a first-class value (`if (Proxy)`,
+            // `isFunction(Proxy)`, a `Proxy` entry in a value table). JavaScript
+            // proxies are transparent about their target's identity, and Smelt's
+            // construction lowering (`proxy_constructor_expression`) models
+            // `new Proxy(target, handler)` as the target itself. The value form
+            // mirrors that: an identity closure over the target, so a dynamic
+            // `new` through the value (which lowers to a closure call) produces
+            // the same transparent result, and `typeof Proxy === 'function'`
+            // holds because the value is a real function.
+            "Proxy" => self.transparent_proxy_value_closure_expression(span, outer_body),
+            // `encodeURI` used as a value (`values.map(encodeURI)`, a native-
+            // function table entry). The closure runs the same IR op as the
+            // direct-call lowering (`uri_encode_call`), with a concrete `string`
+            // parameter so the percent-encoding runs on the real string.
+            "encodeURI" => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                self.builtin_unary_closure_expression(
+                    string_ty,
+                    string_ty,
+                    span,
+                    outer_body,
+                    |value_expr| ExprKind::UriEncode { operand: value_expr },
+                )
+            }
+            // `setTimeout` used as a value rather than called directly (e.g.
+            // `const original = globalThis.setTimeout;` before mocking). The
+            // synthesized `(callback, delayMs) => …` closure runs the same
+            // `AsyncOp::SetTimeout` the direct-call lowering emits, so the value
+            // form schedules on the shared virtual-time timer queue and returns
+            // the timer id.
+            "setTimeout" => self.builtin_set_timeout_value_closure_expression(span, outer_body),
             _ => return None,
         })
     }
@@ -496,9 +527,128 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Build the identity closure used for the bare `Proxy` constructor value.
+    ///
+    /// The closure is `(target) => target` over the erased ABI: JavaScript
+    /// proxies report the identity of their target (`typeof`, plain-object
+    /// shape), and Smelt's `new Proxy(target, handler)` lowering already
+    /// resolves the construct to the target. Dynamic `new` through a
+    /// first-class constructor value lowers to a closure call, so applying
+    /// this value reproduces the transparent-construction semantics. Extra
+    /// arguments (the handler) are tolerated by dynamic dispatch and ignored,
+    /// matching how the direct construction discards the handler.
+    fn transparent_proxy_value_closure_expression(
+        &mut self,
+        span: Span,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        self.builtin_unary_closure_expression(
+            unknown_ty,
+            unknown_ty,
+            span,
+            outer_body,
+            |value_expr| ExprKind::UnknownCast {
+                value: value_expr,
+                target: unknown_ty,
+            },
+        )
+    }
+
+    /// Build the `(callback, delayMs) => setTimeout(callback, delayMs)` closure
+    /// used when `setTimeout` escapes as a first-class value.
+    ///
+    /// The closure body runs the same `AsyncOp::SetTimeout` the direct-call
+    /// timer lowering produces, so a call through the value registers on the
+    /// shared virtual-time timer queue and returns the erased timer id. The
+    /// callback parameter is `unknown` (the timer emitter dispatches erased
+    /// callables), and the delay parameter is a concrete number.
+    fn builtin_set_timeout_value_closure_expression(
+        &mut self,
+        span: Span,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let callback_name = self.intern_source_name("callback");
+        let delay_name = self.intern_source_name("delayMs");
+        let mut closure_body = Body::new(None, span);
+        let callback_local = closure_body.push_local(LocalDecl {
+            name: Some(callback_name),
+            ty: unknown_ty,
+            mutable: false,
+            span,
+        });
+        let delay_local = closure_body.push_local(LocalDecl {
+            name: Some(delay_name),
+            ty: float_ty,
+            mutable: false,
+            span,
+        });
+        closure_body.params.push(callback_local);
+        closure_body.params.push(delay_local);
+        let callback_expr = closure_body.push_expr(Expr {
+            kind: ExprKind::Local(callback_local),
+            ty: unknown_ty,
+            span,
+        });
+        let delay_expr = closure_body.push_expr(Expr {
+            kind: ExprKind::Local(delay_local),
+            ty: float_ty,
+            span,
+        });
+        let result = closure_body.push_expr(Expr {
+            kind: ExprKind::AsyncOp {
+                op: AsyncOp::SetTimeout,
+                args: vec![callback_expr, delay_expr],
+            },
+            ty: unknown_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Return(Some(result)));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![unknown_ty, float_ty],
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: unknown_ty,
+            is_async: false,
+            may_throw: false,
+        }));
+        outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: vec![
+                    Param {
+                        name: callback_name,
+                        local: callback_local,
+                        ty: unknown_ty,
+                        span,
+                    },
+                    Param {
+                        name: delay_name,
+                        local: delay_local,
+                        ty: float_ty,
+                        span,
+                    },
+                ],
+                rest: None,
+                required_params: None,
+                return_ty: unknown_ty,
+                captures: Vec::new(),
+                body: body_id,
+                function_item: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        })
+    }
+
     /// Lower a bare reference to a recognized global *namespace object*
-    /// (`Math`, `JSON`, `Reflect`, `Atomics`, `Promise`, `Array`, `Function`)
-    /// used as a value into a concrete marker-bearing host-object record.
+    /// (`Math`, `JSON`, `Reflect`, `Atomics`, `Intl`, `Promise`, `Array`,
+    /// `Function`) used as a value into a concrete marker-bearing host-object
+    /// record.
     ///
     /// These intrinsics are normally consumed through recognized member calls
     /// (`Math.max(...)`, `JSON.parse(...)`, `Promise.resolve(...)`); this path
@@ -522,7 +672,7 @@ impl ModuleBuilder<'_> {
     ) -> Option<smelt_hir::ExprId> {
         if !matches!(
             name,
-            "Math" | "JSON" | "Reflect" | "Atomics" | "Promise" | "Array" | "Function"
+            "Math" | "JSON" | "Reflect" | "Atomics" | "Intl" | "Promise" | "Array" | "Function"
         ) && !Self::is_known_defined_global_constructor(name)
             && name != "Blob"
             && name != "ArrayBuffer"

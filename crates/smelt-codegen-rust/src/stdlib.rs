@@ -49,7 +49,7 @@ fn any_rvalue_needs(mir: &Mir, needs_dependency: impl Fn(&Rvalue) -> bool) -> bo
 }
 
 /// Iterates over all rvalues that can require generated backend dependencies.
-fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
+pub(crate) fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
     let function_rvalues = mir.functions.iter().flat_map(|function| {
         function.blocks.iter().flat_map(|block| {
             block
@@ -101,6 +101,12 @@ fn rvalue_needs_regex(rvalue: &Rvalue, _mir: &Mir) -> bool {
 /// Returns true when a MIR rvalue uses Unicode normalization APIs.
 fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::StringNormalize { .. })
+}
+
+/// Returns true when generated Rust needs the `smelt_encode_uri` runtime helper
+/// backing JavaScript `encodeURI`.
+pub(crate) fn needs_uri_encode_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::UriEncode { .. }))
 }
 
 /// Returns true when a MIR rvalue uses Chrono APIs.

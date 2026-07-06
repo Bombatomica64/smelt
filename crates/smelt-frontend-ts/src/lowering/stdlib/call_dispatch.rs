@@ -1067,6 +1067,8 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::date_fns_timezone_context_call,
         Self::sinon_fake_timers_call,
         Self::structured_clone_call,
+        Self::uri_encode_call,
+        Self::object_prototype_to_string_call,
         Self::crypto_get_random_values_call,
         Self::unsupported_object_collection_call_entry,
         Self::exact_stdlib_call,
@@ -1231,6 +1233,117 @@ impl<'builder> ModuleBuilder<'builder> {
             ));
         };
         self.argument(value, body).map(Some)
+    }
+
+    /// Lower `Object.prototype.toString.call(value)` to the `"[object Tag]"` probe.
+    ///
+    /// This is the classic JavaScript type-probing idiom (isPlainObject,
+    /// lodash `getTag`): the result string distinguishes primitives, arrays,
+    /// functions, and host objects by their `@@toStringTag`-style tag. The
+    /// lowering resolves the tag at runtime from the erased value's variant
+    /// and host identity markers (see the `smelt_object_to_string_tag` runtime
+    /// helper), instead of mis-reading `toString`/`call` as fields of the
+    /// prototype sentinel. Only fires for the exact unshadowed
+    /// `Object.prototype.toString.call(x)` spelling so every other member call
+    /// keeps its existing path.
+    pub(in crate::lowering) fn object_prototype_to_string_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(call_member) = &call.callee else {
+            return Ok(None);
+        };
+        if call_member.property.name != "call" {
+            return Ok(None);
+        }
+        let Expression::StaticMemberExpression(to_string_member) = &call_member.object else {
+            return Ok(None);
+        };
+        if to_string_member.property.name != "toString" {
+            return Ok(None);
+        }
+        let Expression::StaticMemberExpression(prototype_member) = &to_string_member.object else {
+            return Ok(None);
+        };
+        if prototype_member.property.name != "prototype" {
+            return Ok(None);
+        }
+        let Expression::Identifier(object) = &prototype_member.object else {
+            return Ok(None);
+        };
+        // A local binding or user class named `Object` shadows the builtin.
+        if object.name != "Object"
+            || self.locals.contains_key("Object")
+            || self.classes.contains_key("Object")
+        {
+            return Ok(None);
+        }
+        let [value_arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Object.prototype.toString.call requires exactly one value argument",
+            ));
+        };
+        let operand = self.argument(value_arg, body)?;
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ObjectToStringTag { operand },
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower `encodeURI(value)` to the URI percent-encoding IR op.
+    ///
+    /// JavaScript `encodeURI` percent-encodes a full URI, leaving the
+    /// `encodeURI` unescaped character set intact (see the runtime
+    /// `smelt_encode_uri` helper for the exact set). The operand must be
+    /// string-compatible: a concrete `string` passes through, and an erased or
+    /// string-convertible operand is asserted to `string` first, mirroring how
+    /// other string builtins accept erased operands. The bare-value form of
+    /// `encodeURI` is handled by `builtin_function_value_expression`.
+    pub(in crate::lowering) fn uri_encode_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        if callee.name != "encodeURI" || self.locals.contains_key(callee.name.as_str()) {
+            return Ok(None);
+        }
+        let [value_arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "encodeURI requires exactly one string argument",
+            ));
+        };
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let value = self.argument(value_arg, body)?;
+        let operand = if self.ctx.krate.types.get(Self::expr_ty(body, value)) == Some(&Type::String)
+        {
+            value
+        } else if self.is_string_compatible_type(Self::expr_ty(body, value))
+            || self.type_contains_unknown(Self::expr_ty(body, value))
+        {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value },
+                ty: string_ty,
+                span: self.span(value_arg.span().start, value_arg.span().end),
+            })
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(value_arg.span().start, value_arg.span().end),
+                "encodeURI argument must be a string",
+            ));
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::UriEncode { operand },
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower a qualified static method call `Class.staticMethod(args)`.
