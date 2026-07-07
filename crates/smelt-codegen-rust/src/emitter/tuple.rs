@@ -13,18 +13,62 @@ impl FunctionEmitter<'_> {
         let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
             return Err(EmitError::new("tuple contains receiver must be a tuple"));
         };
+        let items_len = items.len();
         let item_ty = self.operand_ty(item)?;
         if !items.contains(&item_ty) {
+            // A `T | undefined` needle (e.g. `tuple.includes(sample(tuple))`)
+            // still checks containment against the tuple elements: unwrap the
+            // optional and guard on `Some`, since a `None`/`undefined` needle is
+            // never one of the (non-optional) tuple fields. The narrowed needle
+            // compares directly when its inner type is a tuple element type, or,
+            // when it is erased (`unknown | undefined`), against each field
+            // erased to the runtime `SmeltUnknown` value (JS `includes`).
+            if let Some(Type::Optional(opt_inner)) = self.mir.types.get(item_ty) {
+                let inner = *opt_inner;
+                if items_len == 0 {
+                    return Ok("false".to_owned());
+                }
+                let element_types: Vec<TypeId> = items.clone();
+                let tuple_text = self.operand_text(tuple)?;
+                let comparisons = if element_types.contains(&inner) {
+                    (0..items_len)
+                        .map(|idx| format!("{tuple_text}.{idx} == smelt_needle"))
+                        .collect::<Vec<_>>()
+                        .join(" || ")
+                } else if matches!(
+                    self.mir.types.get(inner),
+                    Some(Type::Unknown | Type::TypeParam { .. })
+                ) {
+                    element_types
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, field_ty)| {
+                            let erased =
+                                self.erase_value_text(&format!("{tuple_text}.{idx}"), *field_ty)?;
+                            Ok(format!("({erased}).same_js_key(&smelt_needle)"))
+                        })
+                        .collect::<Result<Vec<_>, EmitError>>()?
+                        .join(" || ")
+                } else {
+                    return Err(EmitError::new(
+                        "tuple contains item must match at least one tuple element type",
+                    ));
+                };
+                let item_text = self.operand_text(item)?;
+                return Ok(format!(
+                    "{{ match {item_text} {{ Some(smelt_needle) => {comparisons}, None => false }} }}"
+                ));
+            }
             return Err(EmitError::new(
                 "tuple contains item must match at least one tuple element type",
             ));
         }
-        if items.is_empty() {
+        if items_len == 0 {
             return Ok("false".to_owned());
         }
         let tuple_text = self.operand_text(tuple)?;
         let item_text = self.operand_text(item)?;
-        Ok((0..items.len())
+        Ok((0..items_len)
             .map(|idx| format!("{tuple_text}.{idx} == {item_text}"))
             .collect::<Vec<_>>()
             .join(" || "))

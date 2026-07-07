@@ -569,6 +569,20 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => Ok(format!(
                 "{{ {list_text}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); {result_text} }}"
             )),
+            // A `TypeParam` element takes the erased coercion path only when it
+            // is not a type parameter of the enclosing function: such a leaked
+            // `TypeParam` (e.g. a `T[keyof T]` element from a generic call
+            // reached through an erased value) renders as `SmeltUnknown`, so the
+            // string-coercion comparison below is well typed. A type parameter
+            // that IS in scope renders as a real generic (`T`) that has no
+            // `into_smelt_unknown`/coercion, so it must not take this path.
+            Some(Type::TypeParam { name })
+                if !self.current_function_has_type_param(*name) =>
+            {
+                self.default_sort_by_string_coercion_text(
+                    element_ty, &list_text, &result_text,
+                )
+            }
             // Erased and union elements follow JavaScript's default sort:
             // compare the `ToString` coercion of each element. Concrete unions
             // project through `into_smelt_unknown` first so the coercion match
@@ -576,20 +590,38 @@ impl FunctionEmitter<'_> {
             // so equal-key structured values ("[object Object]") keep their
             // original order, matching the JS default sort on objects.
             Some(Type::Unknown | Type::Union(_) | Type::Never) => {
-                let left_key = Self::js_string_coercion_match_text(
-                    &self.erase_concrete_union_text("left.clone()", element_ty),
-                );
-                let right_key = Self::js_string_coercion_match_text(
-                    &self.erase_concrete_union_text("right.clone()", element_ty),
-                );
-                Ok(format!(
-                    "{{ {list_text}.sort_by(|left, right| ({left_key}).cmp(&({right_key}))); {result_text} }}"
-                ))
+                self.default_sort_by_string_coercion_text(element_ty, &list_text, &result_text)
             }
             _ => Err(EmitError::new(
                 "list sort supports bool, int, float, string, and erased items",
             )),
         }
+    }
+
+    /// Emit a comparator-less default sort for an erased element type.
+    ///
+    /// JavaScript's default `Array.prototype.sort` compares elements by their
+    /// `ToString` coercion. This shared helper is used for the erased element
+    /// surfaces (`unknown`, concrete unions, leaked non-scoped type parameters,
+    /// `never`), each of which renders as `SmeltUnknown`: concrete unions project
+    /// through `into_smelt_unknown` first so the coercion match sees the erased
+    /// shape, and the resulting string keys are compared. `sort_by` is stable,
+    /// so equal-key structured values keep their original order.
+    fn default_sort_by_string_coercion_text(
+        &self,
+        element_ty: TypeId,
+        list_text: &str,
+        result_text: &str,
+    ) -> Result<String, EmitError> {
+        let left_key = Self::js_string_coercion_match_text(
+            &self.erase_concrete_union_text("left.clone()", element_ty),
+        );
+        let right_key = Self::js_string_coercion_match_text(
+            &self.erase_concrete_union_text("right.clone()", element_ty),
+        );
+        Ok(format!(
+            "{{ {list_text}.sort_by(|left, right| ({left_key}).cmp(&({right_key}))); {result_text} }}"
+        ))
     }
 
     /// Converts a JavaScript `Array.prototype.sort` comparator closure to Rust.

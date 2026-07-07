@@ -587,6 +587,35 @@ impl ModuleBuilder<'_> {
             .collect()
     }
 
+    /// Recover a concrete `Set<T>` type from a contextual type hint.
+    ///
+    /// A `Set` construction is often assigned to a variable whose annotation
+    /// wraps the set in `Optional`/`Union` (`Set<T> | undefined`, common when a
+    /// set is conditionally initialized). The set element type is still fully
+    /// determined by that annotation, so unwrap those wrappers to find the set
+    /// arm rather than treating the wrapped hint as an unannotated construction.
+    /// Returns the interned `Type::Set` `TypeId` when exactly one set arm is
+    /// present, otherwise `None`.
+    fn set_type_from_hint(&self, hint: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(hint) {
+            Some(Type::Set(_)) => Some(hint),
+            Some(Type::Optional(inner)) => self.set_type_from_hint(*inner),
+            Some(Type::Union(items)) => {
+                let mut found = None;
+                for item in items {
+                    if let Some(set_ty) = self.set_type_from_hint(*item) {
+                        if found.is_some() {
+                            return None;
+                        }
+                        found = Some(set_ty);
+                    }
+                }
+                found
+            }
+            _ => None,
+        }
+    }
+
     /// Lower `new Set(...)` from an array literal or annotated empty constructor.
     pub(in crate::lowering) fn set_constructor_expression(
         &mut self,
@@ -602,23 +631,27 @@ impl ModuleBuilder<'_> {
         }
         let (items, ty) = match new_expr.arguments.as_slice() {
             [] => {
+                // Prefer an explicit `new Set<T>()` argument, then the element
+                // type recovered from the contextual type hint (including hints
+                // wrapped in `Optional`/`Union`, e.g. `let s: Set<T> | undefined
+                // = new Set()`), then an erased empty set. An empty `new Set()`
+                // with no usable element type mirrors the graceful `new Map()`
+                // fallback: it never rejects the construction, it produces an
+                // empty `Set<unknown>` whose element type is refined by later
+                // `.add(...)` calls, rather than forcing an inline annotation.
                 let ty = if let Some(type_args) = &new_expr.type_arguments
                     && let [item] = type_args.params.as_slice()
                 {
                     let item_ty = self.ts_type_to_hir(item)?;
                     self.ctx.krate.types.intern(Type::Set(item_ty))
+                } else if let Some(set_ty) =
+                    type_hint.and_then(|hint| self.set_type_from_hint(hint))
+                {
+                    set_ty
                 } else {
-                    type_hint.unwrap_or_else(|| {
-                        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
-                        self.ctx.krate.types.intern(Type::Set(item_ty))
-                    })
+                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
                 };
-                if !matches!(self.ctx.krate.types.get(ty), Some(Type::Set(_))) {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "new Set() requires a Set<T> type annotation",
-                    ));
-                }
                 (Vec::new(), ty)
             }
             [Argument::ArrayExpression(array)] => {

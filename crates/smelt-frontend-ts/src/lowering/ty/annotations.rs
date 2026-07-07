@@ -234,24 +234,33 @@ impl ModuleBuilder<'_> {
             TSType::TSConstructorType(constructor) => {
                 self.constructor_type_to_hir(constructor)
             }
-            TSType::TSThisType(this_ty) => {
-                let Some(class_name) = &self.current_class else {
+            TSType::TSThisType(_this_ty) => {
+                let Some(class_name) = self.current_class.clone() else {
                     return Ok(self.ctx.krate.types.intern(Type::Unknown));
                 };
-                let Some(class_item) = self.classes.get(class_name).copied() else {
-                    return Err(SmeltError::unsupported(
-                        self.span(this_ty.span.start, this_ty.span.end),
-                        "this class type is not resolvable yet",
-                    ));
-                };
-                let Item::Class(class) = self.item_ref(class_item) else {
-                    return Err(SmeltError::unsupported(
-                        self.span(this_ty.span.start, this_ty.span.end),
-                        "this class type is not resolvable yet",
-                    ));
-                };
+                // `this` in a method/return position resolves to the enclosing
+                // class type. Prefer the fully lowered class item when it is
+                // already registered (it carries the canonical name symbol), but
+                // fall back to interning the enclosing class name directly. The
+                // class currently being lowered is not inserted into `classes`
+                // until its whole body finishes, so a `this` annotation on one of
+                // its own methods (`clear(): this`, `... as this`) would otherwise
+                // fail to resolve — this notably affects classes declared inside a
+                // function body (e.g. a test's `describe` callback), which are
+                // lowered inline without a forward-declaration pass. The interned
+                // symbol matches the class item's name because both come from
+                // `intern_type_name(class_text)`.
+                let name = self
+                    .classes
+                    .get(&class_name)
+                    .copied()
+                    .and_then(|class_item| match self.item_ref(class_item) {
+                        Item::Class(class) => Some(class.name),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| self.intern_type_name(&class_name));
                 Ok(self.ctx.krate.types.intern(Type::Class {
-                    name: class.name,
+                    name,
                     args: Vec::new(),
                 }))
             }

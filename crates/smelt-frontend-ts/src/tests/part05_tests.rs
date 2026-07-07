@@ -1082,3 +1082,52 @@ const mapping = new Map([["a", 1], ["b", 2]]);
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// `sample(...)`-style helpers return `T | undefined`, so
+/// `expect(collection).toContain(sample(collection))` passes an optional needle
+/// whose inner type matches the collection element type. JavaScript containment
+/// compares the needle against each element regardless of nullability, so the
+/// optional expected is accepted (the emitter guards the `undefined` at runtime)
+/// instead of being rejected with "requires a string, array, set, or tuple
+/// actual value with a matching expected value". es-toolkit's `sample` spec
+/// exercises this over both list and tuple actuals.
+#[test]
+fn expect_to_contain_accepts_optional_expected_in_collection() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+
+function firstNum(items: number[]): number | undefined {
+  if (items.length === 0) {
+    return undefined;
+  }
+  return items[0];
+}
+
+describe("sample", () => {
+  it("list actual with optional needle", () => {
+    const values: number[] = [10, 20, 30];
+    const picked = firstNum(values);
+    expect(values).toContain(picked);
+  });
+
+  it("tuple actual with optional needle", () => {
+    const picked = firstNum([1, 2, 3]);
+    expect([1, 2, 3]).toContain(picked);
+  });
+});
+"#),
+        "src/sample.spec.ts",
+        &mut ctx,
+    )?;
+    ensure!(
+        has_test_named(&ctx, "test_sample_list_actual_with_optional_needle"),
+        "list toContain with an optional needle should lower the test",
+    );
+    ensure!(
+        has_test_named(&ctx, "test_sample_tuple_actual_with_optional_needle"),
+        "tuple toContain with an optional needle should lower the test",
+    );
+    Ok(())
+}

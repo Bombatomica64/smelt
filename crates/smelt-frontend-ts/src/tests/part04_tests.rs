@@ -8455,3 +8455,64 @@ function tag(rows: string[][], suffix: string): string[][] {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// A comparator-less `sort()` over a list whose element type is a type
+/// parameter follows JavaScript's default (`ToString`) ordering, exactly like an
+/// `unknown`/union element list. A leaked type parameter (e.g. the `T[keyof T]`
+/// element of a cross-module generic `values<T>(...)` result reached through an
+/// erased value) renders as `SmeltUnknown` and sorts through the same string
+/// coercion. This must lower to `ListSort` instead of being rejected with
+/// "array sort supports boolean, number, and string arrays for now".
+#[test]
+fn lowers_default_sort_over_type_parameter_list() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function sortItems<T>(items: T[]): T[] {
+  return items.sort();
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListSort { .. })),
+        "type-parameter list sort did not lower to ListSort",
+    );
+    Ok(())
+}
+
+/// A `new Set()` whose contextual type hint is a `Set<T>` wrapped in an
+/// `Optional`/`Union` (`let s: Set<number> | undefined = ...`) recovers the set
+/// element type from that hint instead of rejecting the construction, mirroring
+/// the graceful empty `new Map()` fallback. es-toolkit's `isMatchWith` spec
+/// conditionally assigns `set1 = new Set()` to a `Set<unknown> | undefined`
+/// binding.
+#[test]
+fn lowers_new_set_assigned_to_optional_set_binding() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function build(): boolean {
+  let s: Set<number> | undefined;
+  s = new Set();
+  return s !== undefined;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetLit(_))),
+        "empty new Set() with an optional Set hint did not lower to SetLit",
+    );
+    Ok(())
+}

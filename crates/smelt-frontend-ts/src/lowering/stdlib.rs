@@ -1823,9 +1823,14 @@ impl ModuleBuilder<'_> {
         // erased (`unknown`) and union elements go through the emitter's
         // string-coercion comparison, so mixed-value lists (`values(object)`,
         // `Array<T[keyof T]>` results) sort with real JS semantics instead of
-        // being rejected. Structured concrete shapes (nested lists, records)
-        // stay unsupported because their JS `ToString` (e.g. `1,2` for arrays)
-        // is not modeled yet.
+        // being rejected. A leaked/unbound type parameter (e.g. the `T[keyof T]`
+        // element of a generic `values<T>(...)` result reached through an erased
+        // call) renders as `SmeltUnknown` at codegen (a non-scoped `TypeParam`
+        // erases to `SmeltUnknown`), so it sorts through the same string
+        // coercion; this mirrors the erased-surface treatment already applied to
+        // the sort comparator return type. Structured concrete shapes (nested
+        // lists, records) stay unsupported because their JS `ToString` (e.g.
+        // `1,2` for arrays) is not modeled yet.
         if !matches!(
             self.ctx.krate.types.get(element_ty),
             Some(
@@ -1835,6 +1840,7 @@ impl ModuleBuilder<'_> {
                     | Type::String
                     | Type::Unknown
                     | Type::Union(_)
+                    | Type::TypeParam { .. }
             )
         ) {
             return Err(SmeltError::unsupported(

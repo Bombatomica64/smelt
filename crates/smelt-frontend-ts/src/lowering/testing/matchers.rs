@@ -756,6 +756,37 @@ impl ModuleBuilder<'_> {
         // check against such a value, so an erased expected matches any item
         // type rather than forcing a static element-type equality.
         let expected_is_erased = matches!(self.ctx.krate.types.get(expected_ty), Some(Type::Unknown));
+        // A `sample(...)`-style helper returns `T | undefined`, so the expected
+        // needle is commonly an `Optional(T)` while the actual collection holds
+        // `T` (`expect(array).toContain(sample(array))`). JavaScript containment
+        // compares the needle against each element regardless of the needle's
+        // nullability, so an optional expected whose inner type matches the
+        // element type (or is itself erased) is accepted here; the emitter guards
+        // the optional at runtime (a `None`/`undefined` needle is never contained
+        // in a collection of non-optional elements).
+        // Unwrap an optional expected to its inner type; a `None`/`undefined`
+        // needle simply never matches, and the emitter guards it at runtime. The
+        // containment is supported when the inner type is exactly the element
+        // type, or when the inner type is erased (`unknown`/leaked type param):
+        // an erased needle is compared against each element after the element is
+        // itself erased to the runtime value (JS `includes`/`has` semantics),
+        // exactly like a bare erased expected.
+        let expected_inner = match self.ctx.krate.types.get(expected_ty) {
+            Some(Type::Optional(inner)) => Some(*inner),
+            _ => None,
+        };
+        let expected_inner_is_erased = expected_inner.is_some_and(|inner| {
+            matches!(
+                self.ctx.krate.types.get(inner),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            )
+        });
+        let item_matches = |item_ty: smelt_hir::TypeId| {
+            expected_ty == item_ty
+                || expected_is_erased
+                || expected_inner == Some(item_ty)
+                || expected_inner_is_erased
+        };
         let kind = match self.ctx.krate.types.get(Self::expr_ty(body, actual)) {
             Some(Type::String)
                 if self.ctx.krate.types.get(expected_ty) == Some(&Type::String)
@@ -767,19 +798,19 @@ impl ModuleBuilder<'_> {
                     from_index: None,
                 }
             }
-            Some(Type::List(item_ty)) if expected_ty == *item_ty || expected_is_erased => {
+            Some(Type::List(item_ty)) if item_matches(*item_ty) => {
                 ExprKind::ListContains {
                     list: actual,
                     item: expected,
                 }
             }
-            Some(Type::Set(item_ty)) if expected_ty == *item_ty || expected_is_erased => {
+            Some(Type::Set(item_ty)) if item_matches(*item_ty) => {
                 ExprKind::SetContains {
                     set: actual,
                     item: expected,
                 }
             }
-            Some(Type::Tuple(items)) if items.contains(&expected_ty) || expected_is_erased => {
+            Some(Type::Tuple(items)) if items.iter().any(|item| item_matches(*item)) => {
                 ExprKind::TupleContains {
                     tuple: actual,
                     item: expected,
