@@ -293,11 +293,16 @@ function classify(tag: string): number {
 }
 
 #[test]
-fn keeps_computed_global_access_unfolded() -> Result<(), String> {
-    // A dynamic computed key is on the erasure denylist: it must not fold and
-    // must not normalize, since the key is not statically known.
+fn dynamic_global_computed_read_lowers_to_erased_undefined() -> Result<(), String> {
+    // A dynamic computed key (`globalThis[key]`, `key: string`) names no
+    // statically-known global property. It is a genuine dynamic boundary: the
+    // value could be any global (a constructor, an object, a number, or
+    // absent), so no concrete type, union, or scoped generic can represent it —
+    // it must be `SmeltUnknown`. Smelt's deterministic profile models no runtime
+    // global-object property store, so the read resolves to the JS-correct
+    // `undefined`, cast to `Unknown` for the downstream erased-value paths.
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    lower_ok(
         ts!(r#"
 export function dyn(key: string): unknown {
   return globalThis[key];
@@ -305,7 +310,84 @@ export function dyn(key: string): unknown {
 "#),
         &mut ctx,
     )?;
-    ensure!(!errors.is_empty());
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::Literal(Literal::Undefined)
+    )));
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::UnknownCast { .. }
+    )));
+    Ok(())
+}
+
+#[test]
+fn literal_key_global_computed_read_normalizes_to_builtin() -> Result<(), String> {
+    // A statically-known string-literal key that names a modeled JavaScript
+    // global normalizes to the concrete builtin value, exactly like the
+    // static-member spelling `globalThis.Array`, so the modeled global keeps its
+    // shape instead of erasing to a dynamic `undefined` read.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function arr(): unknown {
+  return globalThis['Array'];
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // The literal-key normalization does not emit the dynamic-read `undefined`.
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::Literal(Literal::Undefined)
+    )));
+    Ok(())
+}
+
+#[test]
+fn dynamic_global_constructor_read_supports_new_construction() -> Result<(), String> {
+    // The erased dynamic global read flows into the existing dynamic-`new`
+    // machinery: `const Ctor = globalThis[key]; new Ctor(arg)` constructs
+    // through the erased closure-call ABI rather than aborting the build.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function build(key: string, arg: number): unknown {
+  const Ctor = globalThis[key];
+  return new Ctor(arg);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::ClosureCall { .. }
+    )));
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_body_reading_non_callable_value_item() -> Result<(), String> {
+    // A callback body that reads a non-callable module item as an ordinary value
+    // (`value !== whitespace`, where `whitespace` is a module-scoped `string`
+    // const) cannot be modeled by the compact callback IR, which only resolves
+    // callable item references. The full closure-body fallback routes the
+    // identifier through the general expression path, so it lowers instead of
+    // aborting the build.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const whitespace = [' ', '\t'].join('');
+export function run(values: string[]): number[] {
+  return values.map(value => (value !== whitespace ? 1 : 0));
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 

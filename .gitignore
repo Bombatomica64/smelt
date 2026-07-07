@@ -46,6 +46,8 @@ blocker-logs/*.md
 !blocker-logs/estk-array-misc.md
 # estk-host-globals.md documents the es-toolkit host-global / Error-cause fixes
 !blocker-logs/estk-host-globals.md
+# estk-globalthis.md documents the dynamic globalThis[key] read + three singleton fixes
+!blocker-logs/estk-globalthis.md
 
 # Generated docs site output
 _site/

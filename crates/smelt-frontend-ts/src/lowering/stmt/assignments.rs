@@ -204,6 +204,79 @@ impl ModuleBuilder<'_> {
             .map(Some)
     }
 
+    /// Lower a computed read off the global object (`globalThis[key]`).
+    ///
+    /// Two shapes are handled by one general rule:
+    ///
+    /// * A static string-literal key that names a modeled JavaScript global
+    ///   (`globalThis['Object']`) is normalized to the bare identifier value,
+    ///   exactly like the static-member spelling `globalThis.Object`, so the
+    ///   concrete modeled global keeps its shape.
+    /// * Any other key — a runtime variable (`globalThis[type]` in the
+    ///   lodash-style typed-array/error spec loops) or a literal that names no
+    ///   modeled global — is a genuine dynamic property lookup on the global
+    ///   object. Smelt's deterministic profile has no runtime global-object
+    ///   property store keyed by an arbitrary string, so the lookup resolves to
+    ///   the JavaScript-correct `undefined`, tagged `SmeltUnknown` because the
+    ///   value's static shape is genuinely erased at this dynamic boundary (see
+    ///   the `SmeltUnknown` regression test `dynamic_global_computed_read_*`).
+    ///   Downstream truthiness guards, `|| fallback`, and `new Ctor(...)`
+    ///   dispatch through the existing erased-value machinery, so a present
+    ///   guard folds to the absent branch and an unguarded construction becomes
+    ///   a dynamic closure call — matching how the profile already treats
+    ///   unmodeled host globals as absent.
+    pub(in crate::lowering) fn global_alias_computed_read(
+        &mut self,
+        member: &oxc::ast::ast::ComputedMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Expression::StringLiteral(key) = &member.expression {
+            let name = key.value.as_str();
+            if smelt_stdlib::is_javascript_global_builtin(name) {
+                return self.identifier_expression(
+                    name,
+                    member.span.start,
+                    member.span.end,
+                    body,
+                );
+            }
+        }
+        Ok(self.dynamic_global_object_read(member.span.start, member.span.end, body))
+    }
+
+    /// Build the value of a dynamic global-object property lookup.
+    ///
+    /// The deterministic profile models no runtime global-object property store,
+    /// so a read keyed by an arbitrary runtime string resolves to the
+    /// JavaScript-correct `undefined`. It is tagged `SmeltUnknown` (not
+    /// `Type::None`) because the result feeds erased-value code paths — dynamic
+    /// `new Ctor(...)` construction, `|| fallback`, truthiness guards — that
+    /// expect a dynamic boundary value, and the property's static shape is
+    /// genuinely unknown here.
+    pub(in crate::lowering) fn dynamic_global_object_read(
+        &mut self,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let span = self.span(start, end);
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let undefined = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Undefined),
+            ty: none_ty,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: undefined,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        })
+    }
+
     /// Lower a static member access expression.
     pub(in crate::lowering) fn static_member(
         &mut self,
@@ -971,17 +1044,12 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.dynamic_math_member_expression(member, body) {
             return Ok(expr);
         }
-        // A dynamic computed read off the global object (`globalThis[key]`) is on
-        // the erasure denylist: the key is not statically known, so it genuinely
-        // needs the runtime global object's dynamic property store (plan Phase
-        // 2/3), which is not built. The global object resolves to a marker
-        // host-object value (see `global_object_value_expression`), so guard here
-        // to keep an honest blocker instead of indexing the empty marker record.
-        if !member.optional && self.expr_is_global_alias(&member.object) {
-            return Err(SmeltError::unsupported(
-                self.span(member.span.start, member.span.end),
-                "dynamic computed access on the global object requires the runtime global object (not yet modeled)",
-            ));
+        // A computed read off the global object (`globalThis[key]`). A statically
+        // known string-literal key that names a modeled JavaScript global is
+        // normalized to the concrete builtin value; any other key is a genuine
+        // dynamic global-object lookup handled by `global_alias_computed_read`.
+        if self.expr_is_global_alias(&member.object) {
+            return self.global_alias_computed_read(member, body);
         }
         let receiver = self.expression(&member.object, body)?;
         let index = self.expression(&member.expression, body)?;
@@ -1382,6 +1450,26 @@ impl ModuleBuilder<'_> {
             "Boolean" => (PrimitiveCastOp::ToBool, Type::Bool),
             _ => return Ok(None),
         };
+        if call.arguments.is_empty() {
+            // Zero-argument primitive conversions are legal JavaScript and return
+            // the type's default primitive: `Boolean()` -> `false`, `Number()` ->
+            // `0`, `String()` -> `""`. (`parseFloat`/`BigInt` are not
+            // default-value coercions and keep the arity error.)
+            let default_literal = match callee.name.as_str() {
+                "Boolean" => Some(Literal::Bool(false)),
+                "Number" => Some(Literal::Float(0.0)),
+                "String" => Some(Literal::String(String::new())),
+                _ => None,
+            };
+            if let Some(literal) = default_literal {
+                let ty = self.ctx.krate.types.intern(result_ty);
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::Literal(literal),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
+        }
         let [arg] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),

@@ -526,6 +526,13 @@ impl ModuleBuilder<'_> {
             || error
                 .message
                 .starts_with("unresolved callback identifier `")
+            // A callback body that reads a non-callable module/import item as an
+            // ordinary value (`value !== whitespace`, where `whitespace` is a
+            // `string` const) cannot be modeled by the compact callback IR, which
+            // only resolves callable item references. Full closure-body lowering
+            // routes the identifier through the general expression path, which
+            // reads a value item of any type, so retry there.
+            || error.message == "callback item references must resolve to callable values"
             || error
                 .message
                 .contains("resolves outside the current callback body")
