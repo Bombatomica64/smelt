@@ -1403,19 +1403,32 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let ([pattern_argument] | [pattern_argument, _]) = new_expr.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "RegExp construction requires a string pattern and optional flags",
-            ));
+        // `new RegExp()` (zero arguments) is legal JavaScript for the empty
+        // pattern `/(?:)/`, which es-toolkit's `merge` spec constructs as a
+        // representative non-plain-object source value. Model it as an empty
+        // pattern string so it lowers exactly like `new RegExp('')`.
+        let pattern = match new_expr.arguments.as_slice() {
+            [] => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(String::new())),
+                ty: self.ctx.krate.types.intern(Type::String),
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            }),
+            [pattern_argument] | [pattern_argument, _] => {
+                let pattern = self.argument(pattern_argument, body)?;
+                self.regexp_pattern_operand(pattern, body)?.ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "RegExp construction requires a string pattern",
+                    )
+                })?
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(new_expr.span.start, new_expr.span.end),
+                    "RegExp construction requires a string pattern and optional flags",
+                ));
+            }
         };
-        let pattern = self.argument(pattern_argument, body)?;
-        let pattern = self.regexp_pattern_operand(pattern, body)?.ok_or_else(|| {
-            SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "RegExp construction requires a string pattern",
-            )
-        })?;
         let flags = if let Some(flags_argument) = new_expr.arguments.get(1) {
             let flags = self.argument(flags_argument, body)?;
             self.regexp_text_operand(flags, body).ok_or_else(|| {

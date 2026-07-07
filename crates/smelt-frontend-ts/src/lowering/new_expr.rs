@@ -864,7 +864,10 @@ impl ModuleBuilder<'_> {
     /// excluded here even though they share the registry.
     pub(crate) fn marker_only_builtin_marker(name: &str) -> Option<&'static str> {
         match name {
-            "WeakMap" | "WeakSet" | "DataView" | "SharedArrayBuffer" => {
+            // `Request` joins the marker-only set: es-toolkit constructs it only
+            // to probe host identity (`isPlainObject(new Request(url))`), reading
+            // none of its structural surface, exactly like the other entries here.
+            "WeakMap" | "WeakSet" | "DataView" | "SharedArrayBuffer" | "Request" => {
                 smelt_stdlib::host_object_marker(name)
             }
             _ => None,
@@ -2053,6 +2056,17 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::ConditionalExpression(conditional) => {
+                // Fold `Ctor ? new Ctor(...) : fallback` where `Ctor` is a host
+                // constructor Smelt always models as present (see
+                // `identifier_is_always_present_global_constructor`): the probe is
+                // always true, so the ternary yields its consequent and keeps its
+                // concrete shape instead of forcing the mismatched branches to
+                // reconcile through `SmeltUnknown`.
+                if let Expression::Identifier(test) = &conditional.test
+                    && self.identifier_is_always_present_global_constructor(test.name.as_str())
+                {
+                    return self.expression_with_hint(&conditional.consequent, body, type_hint);
+                }
                 let cond = self.condition_expression(&conditional.test, body)?;
                 let then_narrowing = self.guard_narrowing(&conditional.test, body);
                 if let Some(narrowing) = then_narrowing.clone() {
@@ -2352,10 +2366,9 @@ impl ModuleBuilder<'_> {
                 member.span,
                 body,
             ),
-            Expression::TaggedTemplateExpression(tagged) => Err(SmeltError::unsupported(
-                self.span(tagged.span.start, tagged.span.end),
-                "tagged template literals are not supported",
-            )),
+            Expression::TaggedTemplateExpression(tagged) => {
+                self.tagged_template_expression(tagged, body)
+            }
             _ => Err(SmeltError::unsupported(
                 self.expression_span(expression),
                 format!("expression kind is not lowered yet: {expression:?}"),
@@ -2431,6 +2444,21 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // A constructor-presence guard `Ctor ? new Ctor(...) : fallback` where
+        // `Ctor` is a bare host constructor Smelt always models as present (typed
+        // arrays, `ArrayBuffer`/`Blob`/`Buffer`, the marker-only host builtins).
+        // The environment probe is always true in Smelt's model, so the ternary
+        // yields its consequent; folding to that branch keeps its concrete shape
+        // (es-toolkit's `merge` spec writes `Uint8Array ? new Uint8Array([1]) : {
+        // buffer: [1] }`, whose `List` and `Dict` arms have no common concrete
+        // Rust type — widening the merge to `SmeltUnknown` to reconcile them is
+        // exactly the avoidable erasure the ABI rules forbid). A user binding or
+        // class of the same name shadows the global and is not folded.
+        if let Expression::Identifier(test) = &conditional.test
+            && self.identifier_is_always_present_global_constructor(test.name.as_str())
+        {
+            return self.expression_with_hint(&conditional.consequent, body, type_hint);
+        }
         let cond = self.condition_expression(&conditional.test, body)?;
         let then_expr = self.expression_with_hint(&conditional.consequent, body, type_hint)?;
         let branch_hint = Some(Self::expr_ty(body, then_expr));
@@ -2453,6 +2481,23 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(conditional.span.start, conditional.span.end),
         }))
+    }
+
+    /// Return whether a bare identifier names a host constructor that Smelt
+    /// always models as present, so a `Ctor ? … : …` environment-presence guard
+    /// folds to its consequent.
+    ///
+    /// The set matches the constructors with a concrete construct + `instanceof`
+    /// lowering: typed-array views (backed by numeric lists),
+    /// `ArrayBuffer`/`Blob`/`File`/`Buffer`, and the marker-only host builtins.
+    /// A local binding or user class of the same name shadows the global, so it
+    /// is excluded — the guard then lowers normally.
+    fn identifier_is_always_present_global_constructor(&self, name: &str) -> bool {
+        if self.locals.contains_key(name) || self.classes.contains_key(name) {
+            return false;
+        }
+        smelt_stdlib::is_typed_array_class_name(name)
+            || Self::is_known_defined_global_constructor(name)
     }
 
     /// Compute the result type for a conditional expression's branches.
@@ -2847,6 +2892,84 @@ impl ModuleBuilder<'_> {
                     .cooked
                     .as_ref()
                     .map_or_else(|| quasi.value.raw.as_str(), |c| c.as_str());
+                if !s.is_empty() {
+                    let lit = body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::String(s.to_owned())),
+                        ty: str_ty,
+                        span,
+                    });
+                    acc = body.push_expr(Expr {
+                        kind: ExprKind::BinOp {
+                            op: BinOp::Add,
+                            lhs: acc,
+                            rhs: lit,
+                        },
+                        ty: str_ty,
+                        span,
+                    });
+                }
+            }
+        }
+        Ok(acc)
+    }
+
+    /// Lower a `String.raw` tagged template literal into string concatenation.
+    ///
+    /// `String.raw` is the one tagged template Smelt models: it yields the
+    /// template's *raw* (un-escaped) text with the substitutions interpolated,
+    /// i.e. ``String.raw`a${x}b` `` is `"a" + String(x) + "b"` built from the raw
+    /// quasi segments rather than the cooked ones. es-toolkit's `isPlainObject`
+    /// spec constructs the substitution-free ``String.raw`rawtemplate` `` as a
+    /// representative non-object value. Any other tag is a user/host function
+    /// whose "call with a `TemplateStringsArray` plus substitutions" protocol
+    /// Smelt does not model, so it keeps reporting the unsupported error.
+    pub(super) fn tagged_template_expression(
+        &mut self,
+        tagged: &oxc::ast::ast::TaggedTemplateExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let is_string_raw = matches!(
+            &tagged.tag,
+            Expression::StaticMemberExpression(member)
+                if member.property.name == "raw"
+                    && matches!(
+                        &member.object,
+                        Expression::Identifier(object) if object.name == "String"
+                    )
+        );
+        if !is_string_raw {
+            return Err(SmeltError::unsupported(
+                self.span(tagged.span.start, tagged.span.end),
+                "tagged template literals are not supported",
+            ));
+        }
+        let tpl = &tagged.quasi;
+        let str_ty = self.ctx.krate.types.intern(Type::String);
+        let span = self.span(tagged.span.start, tagged.span.end);
+        let Some(first_quasi) = tpl.quasis.first() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "template literals must contain at least one quasi",
+            ));
+        };
+        let mut acc = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(first_quasi.value.raw.as_str().to_owned())),
+            ty: str_ty,
+            span,
+        });
+        for (i, interp) in tpl.expressions.iter().enumerate() {
+            let part = self.expression(interp, body)?;
+            acc = body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::Add,
+                    lhs: acc,
+                    rhs: part,
+                },
+                ty: str_ty,
+                span,
+            });
+            if let Some(quasi) = tpl.quasis.get(i.saturating_add(1)) {
+                let s = quasi.value.raw.as_str();
                 if !s.is_empty() {
                     let lit = body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::String(s.to_owned())),

@@ -558,6 +558,37 @@ impl ModuleBuilder<'_> {
         methods
     }
 
+    /// Resolve the HIR type of a synthesized constructor function's parameter.
+    ///
+    /// An annotated or default-initialized parameter keeps the ordinary
+    /// [`Self::function_parameter_type`] resolution. An *unannotated,
+    /// non-defaulted* constructor parameter, however, is a genuinely dynamic
+    /// boundary: a synthesized constructor's own fields are all typed `unknown`
+    /// (their shapes come from whatever `new Foo(args)` passes and the
+    /// `this.x = …` / `Object.assign(this, …)` writes Smelt cannot see
+    /// statically), so the value the parameter carries into those writes has no
+    /// recoverable static shape either. It defaults to `unknown`, matching both
+    /// the `unknown` field ABI and TypeScript's own implicit-any inference for
+    /// the identical `function Foo(object) { Object.assign(this, object); }`
+    /// idiom (es-toolkit spells the very same shape `object: any` in its `merge`
+    /// spec). This fallback stays inside the constructor-function synthesis path,
+    /// so ordinary untyped function declarations still require explicit
+    /// annotations via [`Self::function_parameter_type`].
+    fn constructor_parameter_type(
+        &mut self,
+        param: &oxc::ast::ast::FormalParameter<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if param.type_annotation.is_some() || param.initializer.is_some() {
+            return self.function_parameter_type(param);
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        if param.optional {
+            Ok(self.ctx.krate.types.intern(Type::Optional(unknown_ty)))
+        } else {
+            Ok(unknown_ty)
+        }
+    }
+
     /// Lower a constructor function body into the class constructor item.
     ///
     /// Mirrors the constructor path of `class_function`: `this` is bound as a
@@ -597,7 +628,7 @@ impl ModuleBuilder<'_> {
         let mut params = Vec::new();
         let mut errors = Vec::new();
         for (index, param) in function.params.items.iter().enumerate() {
-            let ty = match self.function_parameter_type(param) {
+            let ty = match self.constructor_parameter_type(param) {
                 Ok(ty) => ty,
                 Err(error) => {
                     errors.push(error);
