@@ -52,6 +52,8 @@ blocker-logs/*.md
 !blocker-logs/estk-lowering-tail.md
 # estk-transpile-gate.md documents the five whole-crate transpile-gate blocker fixes
 !blocker-logs/estk-transpile-gate.md
+# estk-mir-gates.md documents the es-toolkit MIR-lowering gate fixes (await/assignment/postfix)
+!blocker-logs/estk-mir-gates.md
 
 # Generated docs site output
 _site/

@@ -84,14 +84,13 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     host("WeakSet", "__smelt_weakset"),
     host("File", "__smelt_file"),
     host("Blob", "__smelt_blob"),
-    host("DOMException", "__smelt_domexception"),
-    // The Fetch `Request` host object. es-toolkit constructs it only to probe
-    // host identity (`isPlainObject(new Request('http://localhost')) === false`);
-    // none of its structural surface (`url`/`method`/headers) is read, so it is
-    // a marker-only host object like `WeakMap`/`DataView`. Construction stamps
-    // `__smelt_request` and `instanceof`/presence-guard folding resolve through
-    // the marker (see `marker_only_builtin_marker`).
+    // Fetch API `Request` host object. Source code (es-toolkit's `isPlainObject`
+    // spec) constructs it only to probe host identity
+    // (`isPlainObject(new Request('...')) === false`); none of its structural
+    // surface is read, so it is a marker-only host object like `WeakMap` /
+    // `DataView`. `instanceof Request` resolves through this marker.
     host("Request", "__smelt_request"),
+    host("DOMException", "__smelt_domexception"),
     // ECMA-402 `Intl` namespace constructors. Source code constructs these only
     // to probe host identity (`isPlainObject(new Intl.Locale('en')) === false`);
     // none of their structural surface is read, so each is a marker-only host

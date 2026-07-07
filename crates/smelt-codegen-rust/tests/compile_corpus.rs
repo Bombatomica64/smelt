@@ -1048,6 +1048,98 @@ class Registry {
 }
 ",
         },
+        // --- MIR-lowering gates cleared for the es-toolkit transpile ----------
+        Case {
+            // Assigning to an array's `length` resizes it. The shrink case
+            // (`arr.length = n` with `n <= arr.length`) lowers to an in-place
+            // truncating splice; before that it aborted MIR lowering with
+            // "only local, field, and index expressions can be assigned".
+            name: "array_length_assignment_truncates",
+            area: "assignment_targets",
+            source: r"
+export function pull<T>(arr: T[], values: readonly T[]): T[] {
+  const valuesSet = new Set(values);
+  let resultIndex = 0;
+  for (let i = 0; i < arr.length; i++) {
+    if (valuesSet.has(arr[i])) {
+      continue;
+    }
+    arr[resultIndex++] = arr[i];
+  }
+  arr.length = resultIndex;
+  return arr;
+}
+",
+        },
+        Case {
+            // A bare `array[i] = ...` write on an optional array (`T[] |
+            // undefined`) after an `if (array == null) { array = ... }` default
+            // initialization. Post-`if` null narrowing makes `array` a concrete
+            // list so the index write is an assignable place.
+            name: "optional_array_index_write_after_default_init",
+            area: "assignment_targets",
+            source: r"
+export function copyArray<T>(source: T[], array?: T[]): T[] {
+  const length = source.length;
+  if (array == null) {
+    array = new Array(length);
+  }
+  for (let i = 0; i < length; i++) {
+    array[i] = source[i];
+  }
+  return array;
+}
+",
+        },
+        Case {
+            // A `let` variable initialized to an arrow and later reassigned. The
+            // arrow must bind a mutable closure-valued local (not lift to an
+            // immutable function item), so the reassignment target is a place.
+            name: "let_arrow_reassignment",
+            area: "assignment_targets",
+            source: r"
+export function pick<T>(values: Array<(a: T, b: T) => boolean>): (a: T, b: T) => boolean {
+  let comparator = (a: T, b: T) => a === b;
+  const last = values[0];
+  if (typeof last === 'function') {
+    comparator = last;
+  }
+  return comparator;
+}
+",
+        },
+        Case {
+            // A postfix update (`k++`) inside a function-expression body that is
+            // itself a variable-declaration initializer. The update must emit
+            // into the closure body, not defer into the outer declaration's
+            // pending list (which produced a cross-body dangling expr ref).
+            name: "postfix_update_in_nested_function_initializer",
+            area: "closures",
+            source: r"
+export function bindArgs(func: (...args: number[]) => number, partial: number[]): (...args: number[]) => number {
+  const bound = function (...provided: number[]): number {
+    const args: number[] = [];
+    let startIndex = 0;
+    for (let i = 0; i < partial.length; i++) {
+      args.push(provided[startIndex++]);
+    }
+    return func(...args);
+  };
+  return bound;
+}
+",
+        },
+        Case {
+            // `String.raw` tagged template lowers to raw-quasi / substitution
+            // concatenation; tagged templates were previously unsupported.
+            name: "string_raw_tagged_template",
+            area: "baseline",
+            source: r"
+export function raw(name: string): string {
+  return String.raw`a\n${name}\t`;
+}
+",
+        },
     ]
 }
 

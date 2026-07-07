@@ -635,6 +635,9 @@ impl ModuleBuilder<'_> {
                     if self.try_lower_negative_bracket_write_statement(assign, body, block)? {
                         return Ok(());
                     }
+                    if self.try_lower_list_length_assignment_statement(assign, body, block)? {
+                        return Ok(());
+                    }
                     if self.array_destructuring_assignment_statement(assign, body, block)? {
                         return Ok(());
                     }
@@ -716,6 +719,19 @@ impl ModuleBuilder<'_> {
                     for (name, target) in narrowing {
                         self.apply_narrowing(name, target);
                     }
+                }
+                // Default-initialization idiom `if (x == null) { x = <value>; }`:
+                // both paths leave `x` non-null (the not-taken path by the nullish
+                // guard's inverse, the taken path by the reassignment), so narrow
+                // `x` to its non-null type after the `if`. This runs alongside the
+                // must-exit case above (a reassigning branch does not exit) and lets
+                // later reads/writes such as `x[i] = ...` see the concrete list.
+                if if_stmt.alternate.is_none()
+                    && let Some((name, non_null_ty)) =
+                        self.optional_none_inverse_guard(&if_stmt.test, body)
+                    && Self::branch_reassigns_to_nonnull(&if_stmt.consequent, &name)
+                {
+                    self.apply_narrowing(name, non_null_ty);
                 }
                 Ok(())
             }
@@ -1464,6 +1480,9 @@ impl ModuleBuilder<'_> {
             Statement::ExpressionStatement(expr_stmt) => {
                 if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
                     if self.try_lower_negative_bracket_write_statement(assign, body, block)? {
+                        return Ok(());
+                    }
+                    if self.try_lower_list_length_assignment_statement(assign, body, block)? {
                         return Ok(());
                     }
                     if self.array_destructuring_assignment_statement(assign, body, block)? {

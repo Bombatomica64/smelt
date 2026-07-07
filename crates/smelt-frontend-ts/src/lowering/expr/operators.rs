@@ -3090,6 +3090,17 @@ impl ModuleBuilder<'_> {
         let saved_return_ty = self.current_return_ty;
         let saved_generator_yields = self.current_generator_yields;
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        // A postfix update (`x++`) is emitted into the current body's block, but a
+        // variable-declaration initializer defers its postfix updates into a
+        // pending list so `const y = x++;` observes the old value. That deferral
+        // must not leak across a nested function boundary: this function
+        // expression may be the initializer being lowered (`const bound =
+        // function () { … a[k++] … };`), and a postfix update inside its body
+        // belongs to this body, not the outer declaration's deferred list — which
+        // would otherwise flush a statement referencing this body's locals into
+        // the enclosing body's block (a cross-body dangling reference). Reset the
+        // deferral while lowering this body and restore it afterward.
+        let saved_deferred_updates = self.deferred_postfix_updates.take();
         self.current_async = function.r#async;
         self.current_return_ty = Some(return_ty);
         let mut body = Body::new(
@@ -3278,6 +3289,7 @@ impl ModuleBuilder<'_> {
         self.current_return_ty = saved_return_ty;
         self.current_generator_yields = saved_generator_yields;
         self.narrowed_locals = saved_narrowed_locals;
+        self.deferred_postfix_updates = saved_deferred_updates;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
