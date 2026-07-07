@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-07-06 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-07-07 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,8 +12,8 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **no** | n/a | `src/predicate/isEqualWith.spec.ts` | 25 | non-working Rust (24r/1s) |
-| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/async.ts` | 14 | non-working Rust (14r/0s) |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **no** | n/a | `src/predicate/isEqualWith.spec.ts` | 11 | non-working Rust (10r/1s) |
+| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/async.ts` | 13 | non-working Rust (13r/0s) |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/internals/helpers.ts` | 12 | non-working Rust (12r/0s) |
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/utils/_getByteCount/_getByteCount.ts` | 19 | non-working Rust (18r/1s) |
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 5 | non-working Rust (5r/0s) |
@@ -28,24 +28,21 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **no** — `smelt build` aborts at `src/predicate/isEqualWith.spec.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1219 · with blockers: 93
+- Files scanned: 1219 · with blockers: 17
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 30 | 30 | non-working Rust | array callback callback item parameter count is not supported |
-| 29 | 29 | non-working Rust | const item expression shape is not supported for inlining yet |
-| 4 | 4 | non-working Rust | array sort supports boolean, number, and string arrays for now |
-| 2 | 2 | non-working Rust | expect(...).toHaveProperty(...) requires an object or map actual value |
-| 1 | 1 | non-working Rust | no overload of `X` matches this call (args: [Some(List(TypeId(7)))], overloads: [[Some(Lis |
-| 1 | 1 | non-working Rust | no overload of `X` matches this call (args: [], overloads: [[Some(Optional(TypeId(210)))], |
-| 1 | 1 | non-working Rust | no overload of `X` matches this call (args: [Some(Float)], overloads: [[Some(Optional(Type |
-| 1 | 1 | non-working Rust | array concat requires an array or element argument matching the receiver |
-| 1 | 1 | non-working Rust | array callback methods currently require arrow function callbacks |
-| 1 | 1 | non-working Rust | no overload of `X` matches this call (args: [Some(Float)], overloads: [[Some(Float), Some( |
-| 1 | 1 | non-working Rust | no overload of `X` matches this call (args: [Some(Float)], overloads: [[Some(Float), Some( |
-| 1 | 1 | non-working Rust | array callback local callback `X` is not in scope |
-| 1 | 1 | non-working Rust | no overload of `X` matches this call (args: [], overloads: [[Some(Float), Some(Float), Som |
-| 1 | 1 | non-working Rust | no overload of `X` matches this call (args: [], overloads: [[Some(Float), Some(Float), Som |
+| 3 | 3 | non-working Rust | dynamic computed access on the global object requires the runtime global object (not yet m |
+| 2 | 2 | non-working Rust | array sort supports boolean, number, and string arrays for now |
+| 1 | 1 | non-working Rust | expect(...).toContain(...) requires a string, array, set, or tuple actual value with a mat |
+| 1 | 1 | non-working Rust | this class type is not resolvable yet |
+| 1 | 1 | non-working Rust | static fields require a concrete literal initializer |
+| 1 | 1 | non-working Rust | Boolean requires exactly one argument |
+| 1 | 1 | missing-stdlib | TypeScript instanceof requires a concrete class-typed left operand |
+| 1 | 1 | non-working Rust | new Set() requires a Set<T> type annotation |
+| 1 | 1 | non-working Rust | function parameters must have explicit type annotations or default initializers |
+| 1 | 1 | non-working Rust | callback item references must resolve to callable values |
+| 1 | 1 | non-working Rust | base class `X` is not declared |
 
 ## radash
 
@@ -58,7 +55,6 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | ---: | ---: | --- | --- |
 | 1 | 1 | non-working Rust | call argument kind is not lowered yet: UpdateExpression(UpdateExpression { span: Span { st |
 | 1 | 1 | non-working Rust | Promise constructor lowering supports one arrow executor |
-| 1 | 1 | non-working Rust | Error constructor message must be a string |
 | 1 | 1 | non-working Rust | local `X` is not callable (Some(None)) |
 | 1 | 1 | non-working Rust | statement kind is not lowered yet: EmptyStatement(EmptyStatement { span: Span { start: 151 |
 | 1 | 1 | non-working Rust | parseFloat requires a string argument |
@@ -98,7 +94,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `fabian-hiller/valibot` @ `1f9b18338ad5`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/library/src/utils/_getByteCount/_getByteCount.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1083 · with blockers: 36
+- Files scanned: 1083 · with blockers: 34
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -267,6 +263,7 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 2 (radash, valibot) | 9 | callback method `X` is not lowered into closure bodies yet |
 | 2 (funcy, returns) | 5 | attribute access is only supported on class instances |
 | 2 (ts-pattern, valibot) | 3 | too many generic type arguments |
+| 2 (es-toolkit, valibot) | 2 | expect(...).toContain(...) requires a string, array, set, or tuple actual value with a matching expe |
 
 ## Missing stdlib builtins observed
 
@@ -274,6 +271,5 @@ Builtins referenced in `new`/`extends`/callback position that Smelt does not res
 
 | Library | Builtins (occurrences) |
 | --- | --- |
-| es-toolkit | `Proxy`×3, `Intl`×1 |
-| valibot | `TextEncoder`×5, `Intl`×2 |
+| valibot | `TextEncoder`×5 |
 
