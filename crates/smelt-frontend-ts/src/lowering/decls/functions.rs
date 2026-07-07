@@ -894,6 +894,26 @@ impl ModuleBuilder<'_> {
                             source_static_fields.push(static_field);
                             continue;
                         }
+                        // A static field initialized to a function or arrow
+                        // expression (`static c = function () {};`) is a static
+                        // *callable* member, not a data constant. Materializing it
+                        // as an associated function needs the static-method
+                        // lowering path, which is not wired to property
+                        // initializers yet; until then the field is not emitted
+                        // rather than blocking the whole class. This keeps classes
+                        // that merely *carry* such a member lowerable (its value is
+                        // a function, never a data value read back structurally);
+                        // an actual `Class.c(...)` use would fail at the call site
+                        // rather than silently reading a wrong value.
+                        if matches!(
+                            property.value,
+                            Some(
+                                Expression::FunctionExpression(_)
+                                    | Expression::ArrowFunctionExpression(_)
+                            )
+                        ) {
+                            continue;
+                        }
                         return Err(SmeltError::unsupported(
                             self.span(property.span.start, property.span.end),
                             "static fields require a concrete literal initializer",
@@ -1908,6 +1928,21 @@ impl ModuleBuilder<'_> {
             }
         };
         let name = name.as_str();
+        // `class X extends Object {}` names the universal root constructor as its
+        // base. Every JavaScript class already descends from `Object`, so an
+        // explicit `extends Object` contributes no fields, methods, or distinct
+        // constructor behavior: the subclass behaves exactly like a base-less
+        // class (its instances are still non-plain objects with their own
+        // constructor identity). Model it as no declared base rather than
+        // requiring an `Object` class item that Smelt does not synthesize. A
+        // user-declared class or value import literally named `Object` shadows
+        // the global and is handled through the normal declared-base path below.
+        if name == "Object"
+            && !self.classes.contains_key(name)
+            && !self.value_imports.contains(name)
+        {
+            return Ok((None, Vec::new()));
+        }
         let base = self.intern_type_name(name);
         // A modeled JavaScript host constructor (`Blob`, `File`, `ArrayBuffer`, the
         // boxed primitive wrappers, …) is a legitimate base even though it is not a

@@ -48,6 +48,8 @@ blocker-logs/*.md
 !blocker-logs/estk-host-globals.md
 # estk-globalthis.md documents the dynamic globalThis[key] read + three singleton fixes
 !blocker-logs/estk-globalthis.md
+# estk-lowering-tail.md documents the small es-toolkit lowering tail blocker fixes
+!blocker-logs/estk-lowering-tail.md
 
 # Generated docs site output
 _site/

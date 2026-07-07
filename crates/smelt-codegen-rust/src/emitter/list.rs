@@ -10,16 +10,44 @@ impl FunctionEmitter<'_> {
         item: &Operand,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+        let Some(Type::List(list_item_ty)) = self.mir.types.get(list_ty) else {
             return Ok("false".to_owned());
         };
-        if self.operand_ty(item)? != *item_ty {
+        let item_ty = *list_item_ty;
+        let needle_ty = self.operand_ty(item)?;
+        if needle_ty != item_ty {
+            // A `T | undefined` needle (e.g. `array.includes(sample(array))`)
+            // still checks containment against a `Vec<T>`: unwrap the optional
+            // and guard on `Some`, since a `None`/`undefined` needle is never an
+            // element of a list of non-optional `T`.
+            if let Some(Type::Optional(opt_inner)) = self.mir.types.get(needle_ty) {
+                let inner = *opt_inner;
+                let compare = if inner == item_ty {
+                    self.list_element_match_predicate(item_ty).to_owned()
+                } else if matches!(
+                    self.mir.types.get(inner),
+                    Some(Type::Unknown | Type::TypeParam { .. })
+                ) {
+                    // An erased needle (`unknown | undefined`) compares against
+                    // each element after the element is erased to the runtime
+                    // `SmeltUnknown` value, matching JS `includes` semantics.
+                    let erased_item = self.erase_value_text("item.clone()", item_ty)?;
+                    format!("({erased_item}).same_js_key(&smelt_needle)")
+                } else {
+                    return Ok("false".to_owned());
+                };
+                let list_text = self.operand_text(list)?;
+                let item_text = self.operand_text(item)?;
+                return Ok(format!(
+                    "{{ match {item_text} {{ Some(smelt_needle) => {list_text}.iter().any(|item| {compare}), None => false }} }}"
+                ));
+            }
             return Ok("false".to_owned());
         }
         let list_text = self.operand_text(list)?;
         let item_text = self.operand_text(item)?;
-        if self.list_item_uses_same_value_zero(*item_ty) {
-            if self.mir.types.get(*item_ty) == Some(&Type::Float) {
+        if self.list_item_uses_same_value_zero(item_ty) {
+            if self.mir.types.get(item_ty) == Some(&Type::Float) {
                 return Ok(format!(
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())) }}"
                 ));
@@ -29,6 +57,25 @@ impl FunctionEmitter<'_> {
             ));
         }
         Ok(format!("{list_text}.contains(&{item_text})"))
+    }
+
+    /// Per-element comparison predicate against a bound `smelt_needle` value.
+    ///
+    /// Mirrors the direct-needle containment comparison so an optional-needle
+    /// containment check (`list.includes(sample(list))`) reuses the same
+    /// SameValueZero / float-NaN / structural-identity semantics after the
+    /// optional has been narrowed to `smelt_needle`. `item` is the closure
+    /// binding for each `&element`.
+    fn list_element_match_predicate(&self, item_ty: TypeId) -> &'static str {
+        if self.list_item_uses_same_value_zero(item_ty) {
+            if self.mir.types.get(item_ty) == Some(&Type::Float) {
+                "*item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())"
+            } else {
+                "item.same_js_key(&smelt_needle)"
+            }
+        } else {
+            "*item == smelt_needle"
+        }
     }
 
     /// Converts a set containment operation to Rust text.

@@ -10,11 +10,50 @@ impl FunctionEmitter<'_> {
         item: &Operand,
     ) -> Result<String, EmitError> {
         let set_ty = self.operand_ty(set)?;
-        let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
+        let Some(Type::Set(set_item_ty)) = self.mir.types.get(set_ty) else {
             return Ok("false".to_owned());
         };
-        let item_text = self.value_at_type(item, *item_ty)?;
-        if self.mir.types.get(*item_ty) == Some(&Type::Float) {
+        let item_ty = *set_item_ty;
+        let needle_ty = self.operand_ty(item)?;
+        // A `T | undefined` needle (e.g. `set.has(sample(set))`) still checks
+        // containment against a `Set<T>`: unwrap the optional and guard on
+        // `Some`, since a `None`/`undefined` needle is never an element of a set
+        // of non-optional `T`. The narrowed `smelt_needle` already has the
+        // element type, so it feeds the same per-element comparison directly.
+        if needle_ty != item_ty
+            && let Some(Type::Optional(opt_inner)) = self.mir.types.get(needle_ty)
+        {
+            let inner = *opt_inner;
+            let set_text = self.operand_text(set)?;
+            let body = if inner == item_ty {
+                if self.mir.types.get(item_ty) == Some(&Type::Float) {
+                    format!("{set_text}.iter().any(|value| *value == smelt_needle)")
+                } else if matches!(
+                    self.mir.types.get(item_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) {
+                    format!("{set_text}.iter().any(|value| value.same_js_key(&smelt_needle))")
+                } else {
+                    format!("{set_text}.contains(&smelt_needle)")
+                }
+            } else if matches!(
+                self.mir.types.get(inner),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            ) {
+                // An erased needle compares against each element erased to the
+                // runtime `SmeltUnknown` value (JS `Set.prototype.has`).
+                let erased = self.erase_value_text("value.clone()", item_ty)?;
+                format!("{set_text}.iter().any(|value| ({erased}).same_js_key(&smelt_needle))")
+            } else {
+                return Ok("false".to_owned());
+            };
+            return Ok(format!(
+                "{{ match {} {{ Some(smelt_needle) => {body}, None => false }} }}",
+                self.operand_text(item)?
+            ));
+        }
+        let item_text = self.value_at_type(item, item_ty)?;
+        if self.mir.types.get(item_ty) == Some(&Type::Float) {
             return Ok(format!(
                 "{}.iter().any(|value| *value == {item_text})",
                 self.operand_text(set)?
@@ -28,7 +67,7 @@ impl FunctionEmitter<'_> {
         // report `true`. Primitive elements still compare by value because
         // `same_js_key` falls through to `==` for them.
         if matches!(
-            self.mir.types.get(*item_ty),
+            self.mir.types.get(item_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
             return Ok(format!(

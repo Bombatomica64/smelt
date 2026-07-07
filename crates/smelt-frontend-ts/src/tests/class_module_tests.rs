@@ -936,3 +936,125 @@ export class Widget extends NotARealBaseClass {}
     assert_unsupported_ts(&errors, "base class `NotARealBaseClass` is not declared")?;
     Ok(())
 }
+
+/// `class X extends Object {}` names the universal root constructor as its base.
+/// Since every class already descends from `Object`, an explicit `extends Object`
+/// contributes nothing and must lower as a base-less class rather than demanding
+/// an `Object` class item Smelt does not synthesize. es-toolkit's
+/// `isPlainObject` spec reaches `new (class extends Object {})()`.
+#[test]
+fn lowers_class_extending_object_as_empty_base() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export class Tagged extends Object {
+  label = "x";
+  count = 3;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let tagged = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some("Tagged") => {
+                Some(class)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing Tagged class".to_owned())?;
+    ensure!(
+        tagged.base.is_none(),
+        "`extends Object` should lower to no declared base, got {:?}",
+        tagged.base
+    );
+    Ok(())
+}
+
+/// A class declared inside a function body (e.g. a test's `describe` callback)
+/// is lowered inline without a forward-declaration pass, so it is not yet
+/// registered in the class table while its own method bodies are lowered. A
+/// `this`-typed return/annotation on one of those methods must still resolve to
+/// the enclosing class type instead of failing with "this class type is not
+/// resolvable yet". es-toolkit's `memoize` spec declares such a class with an
+/// `override clear(): this` returning `new ImmutableCache() as this`.
+#[test]
+fn lowers_this_type_in_class_declared_in_function_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function build(): number {
+  class Node {
+    value: number;
+    constructor(v: number) {
+      this.value = v;
+    }
+    self(): this {
+      return this;
+    }
+    rebuild(): this {
+      return new Node(this.value) as this;
+    }
+  }
+  const node = new Node(4);
+  node.self();
+  node.rebuild();
+  return node.value;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A static field initialized to a function or arrow expression
+/// (`static c = function () {};`) is a static callable member, not a data
+/// constant. Materializing it as an associated function needs the static-method
+/// lowering path, which is not wired to property initializers yet; until then
+/// the field is skipped rather than blocking the whole class, so a class that
+/// merely carries such a member still lowers (es-toolkit's `cloneDeep` spec
+/// declares `class Foo { static c = function () {}; }`).
+#[test]
+fn lowers_class_carrying_static_function_field() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export class Widget {
+  a = 1;
+  b = 2;
+  static make = function () {};
+  static build = () => 42;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let widget = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some("Widget") => {
+                Some(class)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing Widget class".to_owned())?;
+    // The instance data fields survive; the function-valued statics are not
+    // materialized as static fields (they are skipped, not stored as data).
+    ensure!(
+        widget.fields.len() == 2,
+        "expected two instance fields, got {}",
+        widget.fields.len()
+    );
+    ensure!(
+        widget.static_fields.is_empty(),
+        "function-valued static fields should not be materialized as data static fields, got {}",
+        widget.static_fields.len()
+    );
+    Ok(())
+}
