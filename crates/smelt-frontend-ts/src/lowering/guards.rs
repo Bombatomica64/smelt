@@ -76,6 +76,40 @@ impl ModuleBuilder<'_> {
                 span: self.span(binary.span.start, binary.span.end),
             }));
         }
+        // `x instanceof Array`. Smelt backs a JavaScript array with a plain list,
+        // so this folds exactly like `Array.isArray(x)` (see `array_is_array_call`):
+        // a list/tuple-typed operand *is* an array and folds to `true`, an erased
+        // operand (`unknown`/generic/union) resolves through the runtime array
+        // probe `UnknownIs { Array }`, and any other concrete type carries no array
+        // identity and folds to `false`. A user-declared `class Array` owns the
+        // name and falls through to the ordinary class path below.
+        if class_text == "Array" && !self.classes.contains_key("Array") {
+            let operand_ty = self.type_param_constraint_or_self(value_ty);
+            if matches!(
+                self.ctx.krate.types.get(operand_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) {
+                let ty = self.ctx.krate.types.intern(Type::Bool);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::UnknownIs {
+                        value,
+                        kind: UnknownKind::Array,
+                    },
+                    ty,
+                    span: self.span(binary.span.start, binary.span.end),
+                }));
+            }
+            let result = matches!(
+                self.ctx.krate.types.get(operand_ty),
+                Some(Type::List(_) | Type::Tuple(_))
+            );
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(result)),
+                ty,
+                span: self.span(binary.span.start, binary.span.end),
+            }));
+        }
         if Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::Date)
             && self.expression_is_known_date_value(value, body)
         {
@@ -1054,6 +1088,9 @@ impl ModuleBuilder<'_> {
             Argument::CallExpression(call) => self.call_expression(call, body),
             Argument::ChainExpression(chain) => self.chain_expression(chain, body),
             Argument::TemplateLiteral(template) => self.template_literal_expression(template, body),
+            Argument::TaggedTemplateExpression(tagged) => {
+                self.tagged_template_expression(tagged, body)
+            }
             Argument::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
                 &as_expr.type_annotation,

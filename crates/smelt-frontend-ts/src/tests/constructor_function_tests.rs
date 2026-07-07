@@ -181,3 +181,93 @@ export function fillRange<T>(array: T[], value: T, start = 0, end = array.length
     )?;
     Ok(())
 }
+
+#[test]
+fn unannotated_constructor_parameter_defaults_to_unknown() -> Result<(), String> {
+    // `function Foo(object) { Object.assign(this, object); }` used with `new`
+    // is a constructor function whose single parameter carries no annotation.
+    // A synthesized constructor's own fields are all `unknown`, so the parameter
+    // that flows into `this` is the same dynamic boundary and defaults to
+    // `unknown` (es-toolkit's `merge` spec spells the identical shape
+    // `object: any`). Ordinary untyped functions still require an annotation.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { describe, expect, it } from 'vitest';
+
+describe('nonplain', () => {
+  it('constructs from an object', () => {
+    function Foo(object) {
+      Object.assign(this, object);
+    }
+    const object = new Foo({ a: new Foo({ b: 1, c: 2 }) });
+    expect((object as any).a.b).toBe(1);
+  });
+});
+"#),
+        &mut ctx,
+    )?;
+    let class = class_by_name(&ctx, "Foo").ok_or("expected synthesized class `Foo`")?;
+    ensure!(
+        class.constructor.is_some(),
+        "unannotated constructor function should still synthesize a class",
+    );
+    Ok(())
+}
+
+#[test]
+fn plain_unannotated_function_parameter_still_rejected() -> Result<(), String> {
+    // The unknown-parameter fallback is scoped to constructor functions. A plain
+    // function declaration that is never used as a `new` target keeps requiring
+    // explicit annotations, so this must still fail to lower.
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+export function plain(object) {
+  return object;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors.iter().any(|error| error
+            .message
+            .contains("explicit type annotations or default initializers")),
+        "plain untyped function parameter should still be rejected: {errors:?}",
+    );
+    Ok(())
+}
+
+#[test]
+fn sibling_it_blocks_synthesize_independent_constructor_classes() -> Result<(), String> {
+    // A `function Foo` synthesized as a class in one `it` block must not leak
+    // into a sibling block that declares a differently-shaped `function Foo`.
+    // The class registry is scoped per test case, so the second block
+    // re-synthesizes its own `Foo` (whose unannotated constructor parameter
+    // would otherwise fall back to the plain-function path and fail to lower).
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { describe, expect, it } from 'vitest';
+
+describe('scoping', () => {
+  it('inherited constructor', () => {
+    function Foo() {}
+    Foo.prototype.b = 2;
+    const object = { a: new Foo() };
+    expect((object as any).a).toBeDefined();
+  });
+
+  it('non-plain constructor', () => {
+    function Foo(object) {
+      Object.assign(this, object);
+    }
+    const object = new Foo({ a: new Foo({ b: 1, c: 2 }) });
+    expect((object as any).a.b).toBe(1);
+  });
+});
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}

@@ -50,6 +50,8 @@ blocker-logs/*.md
 !blocker-logs/estk-globalthis.md
 # estk-lowering-tail.md documents the small es-toolkit lowering tail blocker fixes
 !blocker-logs/estk-lowering-tail.md
+# estk-transpile-gate.md documents the five whole-crate transpile-gate blocker fixes
+!blocker-logs/estk-transpile-gate.md
 
 # Generated docs site output
 _site/

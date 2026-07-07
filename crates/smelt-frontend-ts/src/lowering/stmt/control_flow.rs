@@ -273,11 +273,30 @@ impl ModuleBuilder<'_> {
                     span: self.expression_span(source),
                 }))
             }
+            Some(Type::Function(_)) => {
+                // A `for...in` over a function value (`function fn() {}; fn.a = 1;
+                // for (const key in fn)`, the lodash-compat idiom es-toolkit's
+                // `defaultsDeep` spec iterates). Smelt models a function as a
+                // property-less closure, so it exposes no enumerable own string
+                // keys: the loop iterates the empty list. This is the sound
+                // projection for Smelt's function representation and compiles
+                // cleanly (a closure has no `SmeltUnknown`/record view to cast
+                // into); attaching enumerable properties to a function is a
+                // dynamic-JS shape Smelt does not yet model.
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let list_ty = self.ctx.krate.types.intern(Type::List(key_ty));
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::ListLit(Vec::new()),
+                    ty: list_ty,
+                    span: self.expression_span(source),
+                }))
+            }
             Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. } |
 Type::Optional(_)) => {
                 // A `for...in` over an erased object surface — an unconstrained
-                // generic `T`, an erased object, or an optional object — iterates
-                // string-keyed properties, so it is cast to `Record<string, unknown>`.
+                // generic `T`, an erased object, or an optional object —
+                // iterates string-keyed properties, so it is cast to
+                // `Record<string, unknown>`.
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));

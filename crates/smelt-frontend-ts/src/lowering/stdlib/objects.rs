@@ -1043,7 +1043,26 @@ return_ty,
             Some(Type::Dict(key_ty, _)) => *key_ty,
             Some(Type::Unknown) => Self::expr_ty(body, key),
             Some(Type::String) => self.ctx.krate.types.intern(Type::String),
+            Some(Type::Function(_)) => {
+                // `Object.hasOwn(fn, key)` on a function value (paired with
+                // `for (const key in fn)` in es-toolkit's `defaultsDeep` spec).
+                // Smelt models a function as a property-less closure with no
+                // enumerable own keys, so the ownership check is a constant
+                // `false` — the sound answer for Smelt's function representation,
+                // and it compiles cleanly without casting the closure to a
+                // record. The receiver and key were already lowered above for
+                // their effects/types.
+                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Bool(false)),
+                    ty: bool_ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
+                // A generic or erased object is treated as a string-keyed
+                // record, matching the `for...in` lowering that casts the same
+                // value to `Record<string, unknown>`.
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));

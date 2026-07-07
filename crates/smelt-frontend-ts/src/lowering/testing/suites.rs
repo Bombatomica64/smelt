@@ -12,6 +12,21 @@ use oxc::span::GetSpan;
 use smelt_hir::{
     Body, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type,
 };
+use std::collections::HashSet;
+
+/// Class-registry names captured before a test case is lowered so that
+/// block-local synthesized constructor classes can be rolled back afterwards.
+///
+/// See [`ModuleBuilder::test_case_class_scope`] for why per-case class scoping
+/// is needed even though `self.locals` is already saved and restored.
+struct TestCaseClassScope {
+    /// Names present in the `classes` registry on entry to the test case.
+    classes: HashSet<String>,
+    /// Names present in the `class_fields` registry on entry to the test case.
+    fields: HashSet<String>,
+    /// Names present in the `class_methods` registry on entry to the test case.
+    methods: HashSet<String>,
+}
 
 impl ModuleBuilder<'_> {
     /// Lower a `describe` test-suite declaration and its inherited hooks.
@@ -495,6 +510,35 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Snapshot the class-registry names present before a test case is lowered.
+    ///
+    /// Constructor functions declared inside a test case (`function Foo(){}`
+    /// used as `new Foo()` / `instanceof Foo` / `Foo.prototype.x = …`) are
+    /// synthesized into the class registry during per-case predeclaration and
+    /// setup replay, but they are *block-local*: a differently-shaped
+    /// `function Foo` in a sibling `it` must synthesize its own class rather than
+    /// reuse a stale one. `self.locals` is already scoped per case; the class
+    /// registry is not. Pairing this snapshot with
+    /// [`Self::restore_test_case_class_scope`] drops any class added during the
+    /// case while preserving module-level and imported classes.
+    fn test_case_class_scope(&self) -> TestCaseClassScope {
+        TestCaseClassScope {
+            classes: self.classes.keys().cloned().collect(),
+            fields: self.class_fields.keys().cloned().collect(),
+            methods: self.class_methods.keys().cloned().collect(),
+        }
+    }
+
+    /// Drop class-registry entries added while lowering a test case, restoring
+    /// the block-local class scope captured by [`Self::test_case_class_scope`].
+    fn restore_test_case_class_scope(&mut self, scope: &TestCaseClassScope) {
+        self.classes.retain(|name, _| scope.classes.contains(name));
+        self.class_fields
+            .retain(|name, _| scope.fields.contains(name));
+        self.class_methods
+            .retain(|name, _| scope.methods.contains(name));
+    }
+
     /// Lower a prepared test callback into an HIR test function.
     pub(in crate::lowering) fn test_function_from_arrow(
         &mut self,
@@ -509,6 +553,7 @@ impl ModuleBuilder<'_> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
         let saved_async = self.current_async;
+        let class_scope = self.test_case_class_scope();
         self.current_async = arrow.r#async;
         let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
         let mut errors = Vec::new();
@@ -556,6 +601,7 @@ impl ModuleBuilder<'_> {
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
         self.current_async = saved_async;
+        self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
@@ -611,6 +657,7 @@ return_ty: none,
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
         let saved_async = self.current_async;
+        let class_scope = self.test_case_class_scope();
         self.current_async = function.r#async;
         // A `function () { ... }` test callback (as opposed to an arrow) has its
         // own `arguments` binding, so make the array-like `arguments` object
@@ -671,6 +718,7 @@ return_ty: none,
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
         self.current_async = saved_async;
+        self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
