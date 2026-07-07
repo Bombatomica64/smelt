@@ -321,7 +321,13 @@ impl ModuleBuilder<'_> {
                 | Type::Int
                 | Type::String
                 | Type::Bool
-                | Type::None,
+                | Type::None
+                // A plain object/record value (`transform(obj): Record<…>`)
+                // carries no nominal class identity in Smelt's record model, so
+                // `value instanceof UserClass` resolves through the concrete
+                // `InstanceOf` codegen to `false` instead of aborting the build
+                // (records are never instances of a user-declared class here).
+                | Type::Dict(..),
             ) => true,
             Some(Type::Union(items)) => items
                 .iter()

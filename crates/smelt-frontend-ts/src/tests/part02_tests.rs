@@ -1405,6 +1405,70 @@ const result = value instanceof Box;
 }
 
 #[test]
+fn lowers_instanceof_for_record_left_operand() -> Result<(), String> {
+    // A plain object/record value (`transform(obj): Record<string, unknown>`)
+    // carries no nominal class identity in Smelt's record model, so
+    // `value instanceof UserClass` lowers to a concrete `InstanceOf` (which the
+    // codegen resolves to `false`) instead of aborting the build.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Foo {}
+function make(): Record<string, unknown> {
+  return {};
+}
+const result = make() instanceof Foo;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::InstanceOf { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_zero_argument_primitive_coercions() -> Result<(), String> {
+    // Zero-argument primitive conversions are legal JavaScript and return the
+    // type's default primitive: `Boolean()` -> `false`, `Number()` -> `0`,
+    // `String()` -> `""`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const b = Boolean();
+const n = Number();
+const s = String();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(false))))
+    );
+    // `Number()` -> numeric zero (the exact `0.0` value is verified end to end
+    // in the generated-crate fixtures; assert the literal shape here).
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::Literal(Literal::Float(value)) if value.abs() < f64::EPSILON))
+    );
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        &expr.kind,
+        ExprKind::Literal(Literal::String(value)) if value.is_empty()
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_date_instanceof_for_union_that_can_contain_date() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
