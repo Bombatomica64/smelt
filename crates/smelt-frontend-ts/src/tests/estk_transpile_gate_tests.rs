@@ -222,7 +222,7 @@ export function use(): string {
     ensure!(
         errors
             .iter()
-            .any(|error| error.message.contains("tagged template literals are not supported")),
+            .any(|error| error.message.contains("tagged template literals are only supported for the `String.raw`")),
         "non-`String.raw` tagged templates should still be rejected: {errors:?}",
     );
     Ok(())

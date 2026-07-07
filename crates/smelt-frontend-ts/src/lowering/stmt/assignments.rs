@@ -1620,6 +1620,67 @@ impl ModuleBuilder<'_> {
         Ok((target, value))
     }
 
+    /// Try to lower a statement-level `list.length = value` assignment.
+    ///
+    /// Assigning to a JavaScript array's `length` resizes it: when the new length
+    /// is smaller than the current one the array is truncated to that many
+    /// elements; when it is larger the array grows with empty (`undefined`) slots.
+    /// The truncation case is modeled here as an in-place splice that removes
+    /// every element from the new length onward (`arr.splice(new_len)`), reusing
+    /// the existing list-splice machinery rather than inventing a new op.
+    ///
+    /// Growing a list past its current length is intentionally *not* modeled: a
+    /// Smelt list is a homogeneous `Vec<T>`, so padding it with `undefined` holes
+    /// has no representation for a non-optional element type. That case (rare in
+    /// practice — `length` writes overwhelmingly shrink) lowers to a no-op growth,
+    /// which is an explicit deferral of JavaScript's hole-padding semantics.
+    ///
+    /// Returns `Ok(true)` when the target matched a list `.length` write and a
+    /// statement was emitted, `Ok(false)` when normal assignment lowering should
+    /// proceed.
+    pub(in crate::lowering) fn try_lower_list_length_assignment_statement(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        // Only a plain `=` resize is modeled; a compound `arr.length += n` would
+        // first read the current length and is left to normal lowering.
+        if assign.operator != AssignmentOperator::Assign {
+            return Ok(false);
+        }
+        let AssignmentTarget::StaticMemberExpression(member) = &assign.left else {
+            return Ok(false);
+        };
+        if member.property.name != "length" {
+            return Ok(false);
+        }
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        if !matches!(self.ctx.krate.types.get(list_ty), Some(Type::List(_))) {
+            return Ok(false);
+        }
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let start = self.expression_with_hint(&assign.right, body, Some(float_ty))?;
+        let span = self.span(assign.span.start, assign.span.end);
+        // `splice(new_len)` with no delete count removes everything from the new
+        // length to the end, truncating the list in place. The splice yields the
+        // removed elements (typed as the list); discarded as an expression stmt.
+        let splice = body.push_expr(Expr {
+            kind: ExprKind::ListSplice {
+                list,
+                start,
+                delete_count: None,
+                items: Vec::new(),
+                mutate: true,
+            },
+            ty: list_ty,
+            span,
+        });
+        body.push_stmt_to_block(block, Stmt::Expr(splice));
+        Ok(true)
+    }
+
     /// Lower a plain array destructuring assignment statement.
     ///
     /// JavaScript evaluates the right-hand side before writing any targets, so

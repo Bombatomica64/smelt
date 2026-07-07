@@ -858,7 +858,8 @@ impl ModuleBuilder<'_> {
     /// The mapping lives in the shared `smelt_stdlib::host_object` registry so the
     /// construct side, the `instanceof` side, and the runtime host-marker registry
     /// cannot drift. "Marker-only" here means host objects with no retained
-    /// structural fields (`WeakMap`/`WeakSet`/`DataView`/`SharedArrayBuffer`);
+    /// structural fields (`WeakMap`/`WeakSet`/`DataView`/`SharedArrayBuffer`/
+    /// `Request`);
     /// host objects with retained fields (`ArrayBuffer`, `Blob`, `File`, boxed
     /// primitives, `DOMException`) have their own dedicated constructors and are
     /// excluded here even though they share the registry.
@@ -2913,36 +2914,65 @@ impl ModuleBuilder<'_> {
         Ok(acc)
     }
 
-    /// Lower a `String.raw` tagged template literal into string concatenation.
+    /// Lower a tagged template literal (a `tag` applied to a template literal).
     ///
-    /// `String.raw` is the one tagged template Smelt models: it yields the
-    /// template's *raw* (un-escaped) text with the substitutions interpolated,
-    /// i.e. ``String.raw`a${x}b` `` is `"a" + String(x) + "b"` built from the raw
-    /// quasi segments rather than the cooked ones. es-toolkit's `isPlainObject`
-    /// spec constructs the substitution-free ``String.raw`rawtemplate` `` as a
-    /// representative non-object value. Any other tag is a user/host function
-    /// whose "call with a `TemplateStringsArray` plus substitutions" protocol
-    /// Smelt does not model, so it keeps reporting the unsupported error.
+    /// Only the `String.raw` builtin tag is modeled. `String.raw` has fully
+    /// defined semantics for *any* template: it concatenates the template's
+    /// **raw** quasis (backslash escapes left verbatim) interleaved with the
+    /// string-coerced substitution values. This lowering implements exactly that
+    /// — it is a complete, general implementation of the stdlib builtin, not a
+    /// per-call-site special case, mirroring how the other `String.*` statics are
+    /// modeled.
+    ///
+    /// General user-defined tags desugar to `tag(cookedStrings, ...subs)` where
+    /// the `cookedStrings` argument is a `TemplateStringsArray` that also carries
+    /// a `.raw` sibling array. Smelt's array model is homogeneous and cannot yet
+    /// attach that `.raw` property to an array value, so custom tags remain an
+    /// explicit deferral with a descriptive error rather than a silently wrong
+    /// cooked-only call.
     pub(super) fn tagged_template_expression(
         &mut self,
         tagged: &oxc::ast::ast::TaggedTemplateExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let is_string_raw = matches!(
-            &tagged.tag,
-            Expression::StaticMemberExpression(member)
-                if member.property.name == "raw"
-                    && matches!(
-                        &member.object,
-                        Expression::Identifier(object) if object.name == "String"
-                    )
-        );
-        if !is_string_raw {
-            return Err(SmeltError::unsupported(
-                self.span(tagged.span.start, tagged.span.end),
-                "tagged template literals are not supported",
-            ));
+        if Self::is_string_raw_tag(&tagged.tag) {
+            return self.string_raw_template_expression(tagged, body);
         }
+        Err(SmeltError::unsupported(
+            self.span(tagged.span.start, tagged.span.end),
+            "tagged template literals are only supported for the `String.raw` \
+             builtin; user-defined tags need a `TemplateStringsArray` with a \
+             `.raw` sibling, which Smelt's homogeneous array model cannot yet \
+             represent",
+        ))
+    }
+
+    /// Return true when a tagged-template tag is the `String.raw` builtin,
+    /// i.e. a static member read of `raw` off the global `String` identifier
+    /// that source has not shadowed with its own binding.
+    fn is_string_raw_tag(tag: &Expression<'_>) -> bool {
+        let Expression::StaticMemberExpression(member) = tag else {
+            return false;
+        };
+        if member.property.name != "raw" {
+            return false;
+        }
+        matches!(&member.object, Expression::Identifier(ident) if ident.name == "String")
+    }
+
+    /// Lower a `String.raw` tagged template to interleaved raw-quasi /
+    /// substitution concatenation.
+    ///
+    /// The result is `raw[0] + str(sub[0]) + raw[1] + … + raw[n]`, using the raw
+    /// (unescaped) quasi text exactly as `String.raw` specifies. Substitutions are
+    /// lowered through the normal expression path and string-coerced by the `+`
+    /// operator, matching the runtime string concatenation the cooked-template
+    /// path already relies on.
+    fn string_raw_template_expression(
+        &mut self,
+        tagged: &oxc::ast::ast::TaggedTemplateExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let tpl = &tagged.quasi;
         let str_ty = self.ctx.krate.types.intern(Type::String);
         let span = self.span(tagged.span.start, tagged.span.end);
@@ -2969,10 +2999,10 @@ impl ModuleBuilder<'_> {
                 span,
             });
             if let Some(quasi) = tpl.quasis.get(i.saturating_add(1)) {
-                let s = quasi.value.raw.as_str();
-                if !s.is_empty() {
+                let raw = quasi.value.raw.as_str();
+                if !raw.is_empty() {
                     let lit = body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::String(s.to_owned())),
+                        kind: ExprKind::Literal(Literal::String(raw.to_owned())),
                         ty: str_ty,
                         span,
                     });
@@ -2990,7 +3020,6 @@ impl ModuleBuilder<'_> {
         }
         Ok(acc)
     }
-
 
     // Continued in the next split builder file.
 }

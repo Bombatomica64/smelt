@@ -1275,6 +1275,60 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Return whether a no-else guarded branch unconditionally reassigns `name`
+    /// to a non-nullish value on its taken path.
+    ///
+    /// This recognizes the ubiquitous default-initialization idiom
+    /// `if (x == null) { x = <value>; }`: on the *not-taken* path the nullish
+    /// guard's inverse already proves `x` is non-null, and on the *taken* path
+    /// this reassignment makes it non-null too, so `x` is non-null after the `if`.
+    /// Only a top-level (unconditionally reached) `x = <expr>` statement counts —
+    /// an assignment nested inside another branch is not guaranteed to run — and
+    /// the assigned value must not be a `null`/`undefined` literal. The last such
+    /// top-level assignment wins, matching JavaScript's flow order.
+    pub(in crate::lowering) fn branch_reassigns_to_nonnull(
+        consequent: &Statement<'_>,
+        name: &str,
+    ) -> bool {
+        let statements = match consequent {
+            Statement::BlockStatement(block) => block.body.as_slice(),
+            other => std::slice::from_ref(other),
+        };
+        let mut reassigned_nonnull = false;
+        for statement in statements {
+            let Statement::ExpressionStatement(expr_stmt) = statement else {
+                continue;
+            };
+            let Expression::AssignmentExpression(assign) = &expr_stmt.expression else {
+                continue;
+            };
+            if assign.operator != oxc::syntax::operator::AssignmentOperator::Assign {
+                continue;
+            }
+            let oxc::ast::ast::AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left
+            else {
+                continue;
+            };
+            if target.name != name {
+                continue;
+            }
+            reassigned_nonnull = !Self::expression_is_nullish_literal(&assign.right);
+        }
+        reassigned_nonnull
+    }
+
+    /// Return whether an expression is a `null` or `undefined` literal.
+    fn expression_is_nullish_literal(expression: &Expression<'_>) -> bool {
+        match expression {
+            Expression::NullLiteral(_) => true,
+            Expression::Identifier(identifier) => identifier.name == "undefined",
+            Expression::ParenthesizedExpression(paren) => {
+                Self::expression_is_nullish_literal(&paren.expression)
+            }
+            _ => false,
+        }
+    }
+
     /// Recognize `typeof value === "kind"` guard expressions.
     pub(in crate::lowering) fn typeof_guard(
         &mut self,
@@ -2187,8 +2241,18 @@ impl ModuleBuilder<'_> {
                     .insert(binding.name.as_str().to_owned());
                 continue;
             }
+            // A `const f = (…) => …` arrow lifts to the compact callback/function
+            // form, which references `f` as an immutable item — sound because a
+            // `const` can never be reassigned. A `let`/`var` arrow may be
+            // reassigned later (`let cmp = defaultCmp; … cmp = other;`), and the
+            // callback form has no assignable place for that write. Only lift
+            // `const` arrows here; mutable-binding arrows fall through to the
+            // general initializer path, which binds a mutable local holding the
+            // arrow as a closure value so later reassignments lower to a plain
+            // local write.
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init
+                && declarator.kind == oxc::ast::ast::VariableDeclarationKind::Const
             {
                 let annotated_ty = declarator
                     .type_annotation

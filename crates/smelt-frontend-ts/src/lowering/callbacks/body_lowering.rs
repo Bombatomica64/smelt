@@ -1185,6 +1185,11 @@ impl ModuleBuilder<'_> {
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        // Postfix-update deferral must not cross this closure boundary: if this
+        // closure is a variable-declaration initializer, an `x++` inside its body
+        // belongs here, not the outer declaration's pending deferral list (see
+        // the matching reset in `function_expression_value`).
+        let saved_deferred_updates = self.deferred_postfix_updates.take();
         let infer_expression_return = is_expression_body
             && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
         self.current_async = is_async;
@@ -1235,6 +1240,7 @@ impl ModuleBuilder<'_> {
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
         self.narrowed_locals = saved_narrowed_locals;
+        self.deferred_postfix_updates = saved_deferred_updates;
         for (name, prior) in saved_locals.into_iter().rev() {
             if let Some(local) = prior {
                 self.locals.insert(name, local);
@@ -1337,6 +1343,23 @@ impl ModuleBuilder<'_> {
             | CallbackExprKind::Function(_)
             | CallbackExprKind::Literal(_) => false,
         }
+    }
+
+    /// Returns whether a lowered body directly contains an `await` expression.
+    ///
+    /// Only this body's own expression arena is scanned; awaits inside nested
+    /// closure bodies live in their own [`Body`] arenas and belong to those
+    /// closures, not to this one. A body that directly awaits must itself be
+    /// async — HIR validation rejects `await` outside an async function. Some
+    /// lowerings (notably the Vitest `expect(...).rejects.toThrow(...)` async
+    /// matcher) desugar into an inline `await` even when the source callback was
+    /// not spelled `async`, because in JavaScript the test returns the pending
+    /// promise for the framework to await; inlining that await makes the body
+    /// genuinely async, so callers use this to mark the function accordingly.
+    pub(in crate::lowering) fn body_contains_await(body: &Body) -> bool {
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Await(_)))
     }
 
     /// Returns whether a lowered closure body can throw past its own boundary.

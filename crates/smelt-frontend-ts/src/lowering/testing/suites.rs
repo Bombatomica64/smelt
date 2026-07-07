@@ -605,7 +605,13 @@ impl ModuleBuilder<'_> {
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
-        if arrow.r#async {
+        // A test callback is async when its source spelled `async`, or when the
+        // lowered body inlined an `await` (e.g. the `expect(...).rejects.toThrow`
+        // async matcher desugars into an awaited try/catch even from a non-async
+        // `() => expect(...).rejects.toThrow()` callback, which in JavaScript just
+        // returns the pending promise for the framework to await).
+        let is_async = arrow.r#async || Self::body_contains_await(&body);
+        if is_async {
             body.build_async_state_machine();
         }
 
@@ -621,7 +627,7 @@ impl ModuleBuilder<'_> {
             rest: None,
             required_params: None,
 return_ty: none,
-            is_async: arrow.r#async,
+            is_async,
             is_test: true,
             body: Some(body_id),
             owner: FunctionOwner::Module,
@@ -722,7 +728,10 @@ return_ty: none,
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
-        if function.r#async {
+        // See `test_function_from_arrow`: async when spelled `async` or when the
+        // lowered body inlined an `await` (async matcher desugaring).
+        let is_async = function.r#async || Self::body_contains_await(&body);
+        if is_async {
             body.build_async_state_machine();
         }
 
@@ -738,7 +747,7 @@ return_ty: none,
             rest: None,
             required_params: None,
 return_ty: none,
-            is_async: function.r#async,
+            is_async,
             is_test: true,
             body: Some(body_id),
             owner: FunctionOwner::Module,
