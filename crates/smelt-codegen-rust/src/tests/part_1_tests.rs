@@ -1006,3 +1006,105 @@ export function scaleAll(xs: number[]): number[] {
         "array map iteration was dropped: {source}"
     );
 }
+
+/// Extracting an iterable into a list must normalize a non-erased source
+/// (`Option<SmeltList<_>>` / `SmeltList<_>`) through the `IntoSmeltUnknown`
+/// boundary adapter before matching `SmeltUnknown::` arms. `Array.from(arr)`
+/// where `arr: unknown[] | null | undefined` previously matched
+/// `SmeltUnknown::` patterns against the `Option<SmeltList<..>>` value directly
+/// and failed to type-check (E0308).
+#[test]
+fn erases_optional_list_source_before_iterable_extraction() {
+    let source = source_for(
+        r"
+export function toList(arr: unknown[] | null | undefined): unknown[] {
+  return Array.from(arr);
+}
+",
+    );
+
+    assert!(
+        source.contains(".into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array"),
+        "iterable extraction did not normalize its source through IntoSmeltUnknown: {source}"
+    );
+    assert!(
+        !source.contains("let smelt_src = arr.clone().clone(); let smelt_id"),
+        "iterable extraction still matched SmeltUnknown arms on a non-erased source: {source}"
+    );
+}
+
+/// A fallible (`may_throw`) array predicate is emitted as a closure returning
+/// `Result<_, Box<dyn Error>>`. The predicate call site (`find`/`findIndex`/
+/// `some`/`every`/`filter`) consumes the result in boolean position and must
+/// unwrap the `Result` — otherwise the `if …`/`.any`/`.all` sees a `Result`
+/// where a `bool` is required (E0308).
+#[test]
+fn unwraps_fallible_predicate_result_in_list_query() {
+    let source = source_for(
+        r"
+export function firstBad(values: unknown[]): number {
+  return values.findIndex((value) => {
+    if (value) {
+      throw new Error('boom');
+    }
+    return false;
+  });
+}
+",
+    );
+
+    assert!(source.contains("find_map("), "{source}");
+    assert!(
+        source.contains(".unwrap_or_else(|error: Box<dyn std::error::Error>| panic!"),
+        "fallible predicate result was not unwrapped before boolean use: {source}"
+    );
+}
+
+/// Rebinding a whole list parameter (`items = …`) is a local reassignment that
+/// JavaScript never propagates to the caller, so the parameter stays an owned
+/// `mut` binding. It must not be promoted to the shared `&mut SmeltList<..>`
+/// ABI, which cannot accept an owned assignment (E0308).
+#[test]
+fn keeps_rebound_list_parameter_owned() {
+    let source = source_for(
+        r"
+export function rebindList(items: unknown[]): unknown[] {
+  items = [items[0]];
+  return items;
+}
+",
+    );
+
+    assert!(
+        source.contains("mut items: SmeltList<SmeltUnknown>"),
+        "rebound list parameter was not an owned mut binding: {source}"
+    );
+    assert!(
+        !source.contains("&mut SmeltList<SmeltUnknown>"),
+        "rebound list parameter was promoted to a mutable reference: {source}"
+    );
+}
+
+/// Rebinding a callback parameter (`cb = …`) assigns an owned `Rc<dyn Fn…>`
+/// handle, which a borrowed `&dyn Fn` binding cannot hold. Such a parameter
+/// must enter the function as an owned callback handle (E0308).
+#[test]
+fn keeps_rebound_callback_parameter_owned() {
+    let source = source_for(
+        r"
+export function rebindCb(cb: (value: unknown) => unknown): unknown {
+  cb = (value) => value;
+  return cb(1);
+}
+",
+    );
+
+    assert!(
+        source.contains("::std::rc::Rc<dyn Fn(SmeltUnknown) ->"),
+        "rebound callback parameter was not an owned handle: {source}"
+    );
+    assert!(
+        !source.contains("cb: &dyn Fn(SmeltUnknown)"),
+        "rebound callback parameter stayed a borrowed &dyn Fn: {source}"
+    );
+}

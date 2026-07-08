@@ -1053,10 +1053,17 @@ impl<'mir> FunctionEmitter<'mir> {
         seen.push(key);
         let needs_reference = function.blocks.iter().any(|block| {
             if block.statements.iter().any(|statement| match statement {
+                // Only in-place mutation through the parameter (`param.field = …`
+                // / `param[i] = …`) needs the shared `&mut` ABI so the write
+                // reaches the caller's value. Rebinding the whole parameter
+                // (`Place::Local`, e.g. `iteratees = iteratees[0]`) is a local
+                // reassignment that JavaScript never propagates to the caller, so
+                // it stays an owned `mut` binding — matching this function's
+                // contract. Lumping `Place::Local` in here made owned rebinds emit
+                // `&mut SmeltList<…>` and then fail to accept an owned assignment.
                 Statement::AssignPlace {
                     place:
-                        Place::Local(candidate)
-                        | Place::Field {
+                        Place::Field {
                             base: candidate, ..
                         }
                         | Place::Index {
