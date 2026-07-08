@@ -992,7 +992,14 @@ impl FunctionEmitter<'_> {
                     {
                         emitter.borrowed_callback_names.insert(alias_name.clone());
                     }
-                    let capture_name = if self.closure_capture_needs_shared_access(closure, capture)
+                    let capture_name = if alias_name.starts_with("(*smelt_capture_") {
+                        // The source binding is itself captured from an
+                        // enclosing shared closure and already renders as
+                        // `(*smelt_capture_x.borrow_mut())`. Reuse that rendered
+                        // form; wrapping it again would emit the invalid
+                        // `(*smelt_capture_(*smelt_capture_x.borrow_mut())...)`.
+                        alias_name
+                    } else if self.closure_capture_needs_shared_access(closure, capture)
                         || self.local_uses_shared_capture_storage(capture.source_local)
                     {
                         format!("(*smelt_capture_{alias_name}.borrow_mut())")
@@ -1170,8 +1177,17 @@ impl FunctionEmitter<'_> {
                     .get(&capture.source_local)
                     .cloned()
                     .unwrap_or_else(|| source_name.clone());
-                if source_name.starts_with("(*smelt_capture_") {
-                    return None;
+                if let Some(cell_ref) = shared_capture_cell_name(&source_name) {
+                    // The source binding already renders through shared storage
+                    // (it was captured from an enclosing shared closure). The
+                    // nested closure body references the same `smelt_capture_x`
+                    // cell directly, so clone the `Rc` into this closure's
+                    // header; otherwise `move` steals the enclosing closure's
+                    // cell and later uses of it fail to borrow-check.
+                    let cell = cell_ref.to_owned();
+                    return cloned_captures
+                        .insert(cell.clone())
+                        .then(|| format!("let {cell} = {cell}.clone();"));
                 }
                 cloned_captures.insert(name.clone()).then(|| {
                     if self.closure_capture_needs_shared_access(closure, capture)
@@ -1694,6 +1710,20 @@ impl FunctionEmitter<'_> {
     }
 
     // Sorted-list helpers continue in `list_ordering.rs`.
+}
+
+/// Extracts the bare shared-capture cell identifier from an already-rendered
+/// shared-capture access.
+///
+/// Shared captures render as `(*smelt_capture_x.borrow())` (read) or
+/// `(*smelt_capture_x.borrow_mut())` (write); this returns the underlying cell
+/// binding `smelt_capture_x` so a nested closure can clone the `Rc` cell
+/// itself. Returns `None` when `text` is not a shared-capture access.
+fn shared_capture_cell_name(text: &str) -> Option<&str> {
+    let inner = text.strip_prefix("(*")?;
+    inner
+        .strip_suffix(".borrow_mut())")
+        .or_else(|| inner.strip_suffix(".borrow())"))
 }
 
 /// Rewrites emitted closure text so shared captures use their `RefCell` storage.

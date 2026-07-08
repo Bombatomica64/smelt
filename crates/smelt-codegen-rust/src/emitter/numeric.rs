@@ -68,12 +68,27 @@ impl FunctionEmitter<'_> {
                 format!("{receiver_text}.as_ref().map_or(0, Vec::len)")
             }
             Some(Type::Optional(inner))
-                if matches!(
-                    self.mir.types.get(*inner),
-                    Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
-                ) || self.is_erased_class_type(*inner) =>
+                if matches!(self.mir.types.get(*inner), Some(Type::Unknown)) =>
             {
                 format!("{receiver_text}.as_ref().map_or(0, SmeltUnknown::len)")
+            }
+            Some(Type::Optional(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Union(_) | Type::TypeParam { .. })
+                ) || self.is_erased_class_type(*inner) =>
+            {
+                // The unwrapped value is a concrete union, type parameter, or
+                // erased class rather than a `SmeltUnknown`, so `SmeltUnknown::len`
+                // cannot be used as the `map_or` mapper (its `&SmeltUnknown`
+                // receiver mismatches the concrete borrow, E0631). JS `.length`
+                // is a dynamic property whose meaning depends on the runtime
+                // variant (string char count vs array length vs a length-bearing
+                // object), so erase the borrowed value at this genuinely dynamic
+                // boundary and inspect it, mirroring the non-optional case below.
+                format!(
+                    "{receiver_text}.as_ref().map_or(0, |value| match value.clone().into_smelt_unknown() {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(&value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => 0 }}, _ => 0 }})"
+                )
             }
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 format!(

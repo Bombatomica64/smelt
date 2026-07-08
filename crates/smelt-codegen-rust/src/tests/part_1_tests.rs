@@ -1108,3 +1108,95 @@ export function rebindCb(cb: (value: unknown) => unknown): unknown {
         "rebound callback parameter stayed a borrowed &dyn Fn: {source}"
     );
 }
+
+/// A closure nested inside another shared-capture closure must reuse the
+/// already-rendered `smelt_capture_x` cell instead of wrapping it again.
+///
+/// When an escaping outer closure mutates a captured binding, the binding lives
+/// in an `Rc<RefCell<T>>` cell and every use renders as
+/// `(*smelt_capture_x.borrow_mut())`. A closure nested inside that outer closure
+/// re-captures the same binding; its source name is therefore already the
+/// rendered `(*smelt_capture_x.borrow_mut())` form. The nested closure must (a)
+/// reuse that rendered form verbatim rather than emitting the invalid double
+/// wrap `(*smelt_capture_(*smelt_capture_x.borrow_mut())...)` (which fails to
+/// parse / resolve, E0425), and (b) still clone the `Rc` cell into its own
+/// header so the outer closure can keep using the cell after the nested closure
+/// moves its clone.
+#[test]
+fn nested_closure_reuses_enclosing_shared_capture_cell() {
+    let source = source_for(
+        r"
+export function makeTimers(onEnd: () => void): { schedule: () => void; cancel: () => void } {
+  let timeoutId: number | null = null;
+  const schedule = () => {
+    const cb = () => {
+      timeoutId = null;
+      onEnd();
+    };
+    timeoutId = 1;
+  };
+  const cancel = () => {
+    timeoutId = null;
+  };
+  return { schedule, cancel };
+}
+",
+    );
+
+    // The invalid double-wrapped capture name must never appear.
+    assert!(
+        !source.contains("smelt_capture_(*smelt_capture_"),
+        "nested capture re-wrapped an already-rendered shared cell: {source}"
+    );
+    // The nested closure clones the enclosing `Rc` cell into its own header
+    // (the source `timeoutId` is emitted as the snake-cased `timeout_id`).
+    assert!(
+        source.contains("let smelt_capture_timeout_id = smelt_capture_timeout_id.clone();"),
+        "nested closure did not clone the enclosing shared capture cell: {source}"
+    );
+    // The nested assignment writes straight through the single-wrapped cell.
+    assert!(
+        source.contains("(*smelt_capture_timeout_id.borrow_mut()) = None"),
+        "nested assignment did not target the single-wrapped shared cell: {source}"
+    );
+}
+
+/// `.length` on an optional whose unwrapped value is a concrete union must
+/// inspect the value dynamically rather than call `SmeltUnknown::len`.
+///
+/// A `string | string[]` parameter lowers to a concrete union, so an optional
+/// of it is `Option<SmeltUnionN>`, not `Option<SmeltUnknown>`. Emitting
+/// `map_or(0, SmeltUnknown::len)` there gives the mapper a `&SmeltUnknown`
+/// receiver that mismatches the concrete `&SmeltUnionN` borrow (E0631). JS
+/// `.length` is a dynamic property whose meaning depends on the runtime variant,
+/// so the mapper must erase the borrowed value and inspect it.
+#[test]
+fn optional_union_length_inspects_dynamically() {
+    let source = source_for(
+        r"
+export function measure(str: string, chars?: string | string[]): number {
+  if (chars === undefined) {
+    return str.length;
+  }
+  switch (typeof chars) {
+    case 'string': {
+      return chars.length;
+    }
+    default: {
+      return 0;
+    }
+  }
+}
+",
+    );
+
+    assert!(
+        !source.contains("map_or(0, SmeltUnknown::len)"),
+        "optional union `.length` used the SmeltUnknown::len mapper: {source}"
+    );
+    assert!(
+        source.contains("into_smelt_unknown()")
+            && source.contains("SmeltUnknown::String(value) => value.chars().count()"),
+        "optional union `.length` did not inspect the erased value: {source}"
+    );
+}
