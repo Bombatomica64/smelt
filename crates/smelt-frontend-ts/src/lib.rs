@@ -70,8 +70,8 @@ pub use context::{
 pub use error::SmeltError;
 pub use ident::camel_to_snake;
 pub use lowering::{
-    ConstCollection, ConstLiteral, FrontendOptions, InterfaceHeritageRef, RestParam, to_hir,
-    to_hir_with_options, to_hir_with_path,
+    ConstCollection, ConstLiteral, FrontendOptions, InterfaceHeritageRef, RestParam,
+    scan_written_host_globals, to_hir, to_hir_with_options, to_hir_with_path,
 };
 
 #[cfg(test)]

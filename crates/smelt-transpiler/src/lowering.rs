@@ -112,6 +112,13 @@ struct FrontendLoweringState {
     ts_callable_fields: HashMap<smelt_hir::TypeId, Vec<smelt_hir::Field>>,
     /// TypeScript aliases whose source surface is a callable object intersection.
     ts_callable_object_aliases: std::collections::HashSet<smelt_hir::Symbol>,
+    /// Modeled host constructor names reassigned via `globalThis.<Name> =`
+    /// anywhere in the crate (the crate-level host-global override pre-pass).
+    ///
+    /// Seeded once before lowering begins by scanning every source, so a write
+    /// in a spec file activates the dynamic override machinery in the predicate
+    /// module even though that module lowers first.
+    ts_written_host_globals: std::collections::HashSet<String>,
     /// Python module/package namespaces visible through `import package`.
     py_module_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Python `IntEnum` member values visible to later manifest entries.
@@ -124,6 +131,15 @@ pub(crate) fn lower_typescript_files(
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut ctx = smelt_frontend_ts::HirCtx::new();
     let mut modules = Vec::new();
+
+    // Crate-level host-global override pre-pass: scan every source for
+    // `globalThis.<Name> =` writes before any file lowers.
+    for file in files {
+        if let Ok(source) = fs::read_to_string(file) {
+            ctx.written_host_globals
+                .extend(smelt_frontend_ts::scan_written_host_globals(&source, file));
+        }
+    }
 
     for (idx, file) in files.iter().enumerate() {
         let source = fs::read_to_string(file)?;
@@ -196,6 +212,20 @@ fn lower_typescript_file_with_dependencies(
 
     let mut ctx = smelt_frontend_ts::HirCtx::new();
     let mut target_module: Option<(String, ModuleId)> = None;
+
+    // Crate-level host-global override pre-pass over the target's dependency
+    // closure, so single-file `dump-hir`/`dump-mir` see the same written-name
+    // set a full build does.
+    for path in &ordered_paths {
+        let path_string = path.display().to_string();
+        if SourceLang::from_path(&path_string).is_ok_and(SourceLang::is_typescript)
+            && let Ok(source) = fs::read_to_string(path)
+        {
+            ctx.written_host_globals.extend(
+                smelt_frontend_ts::scan_written_host_globals(&source, &path_string),
+            );
+        }
+    }
 
     for (idx, path) in ordered_paths.iter().enumerate() {
         let Ok(source) = fs::read_to_string(path) else {
@@ -619,12 +649,30 @@ fn glob_segment_match(path: &str, pattern: &str) -> bool {
 }
 
 /// Lowers already ordered manifest files into one shared HIR crate.
+/// Seed the crate-level host-global override set from every TypeScript source.
+///
+/// The scan runs once before per-file lowering so a `globalThis.<Name> =` write
+/// in any module (typically a spec file) activates the dynamic override
+/// machinery — presence guards, `new` dispatch, reads — in the module that
+/// defines the predicate, even though that module lowers first.
+fn seed_written_host_globals(sources: &[&ManifestSource], state: &mut FrontendLoweringState) {
+    for source in sources {
+        let path = source.path.display().to_string();
+        if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
+            state.ts_written_host_globals.extend(
+                smelt_frontend_ts::scan_written_host_globals(&source.source, &path),
+            );
+        }
+    }
+}
+
 fn lower_ordered_manifest_sources(
     sources: &[&ManifestSource],
     specialization: &crate::specialization::PreparedSpecialization,
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
+    seed_written_host_globals(sources, &mut state);
     let mut modules = Vec::new();
     let module_names = manifest_module_names(sources);
 
@@ -682,6 +730,7 @@ pub(crate) fn collect_manifest_diagnostics(
     let _quiet = QuietPanics::install();
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
+    seed_written_host_globals(&ordered_sources, &mut state);
     let mut diagnostics = Vec::new();
     for (idx, source) in ordered_sources.iter().enumerate() {
         let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -758,6 +807,7 @@ fn lower_manifest_source(
                 interface_construct_signatures: state.ts_interface_construct_signatures,
                 callable_fields: state.ts_callable_fields,
                 callable_object_aliases: state.ts_callable_object_aliases,
+                written_host_globals: state.ts_written_host_globals,
             };
             let outcome = smelt_frontend_ts::to_hir_with_options(
                 &source.source,
@@ -795,6 +845,7 @@ fn lower_manifest_source(
                 ts_interface_construct_signatures: ctx.interface_construct_signatures,
                 ts_callable_fields: ctx.callable_fields,
                 ts_callable_object_aliases: ctx.callable_object_aliases,
+                ts_written_host_globals: ctx.written_host_globals,
                 py_module_namespaces: state.py_module_namespaces,
                 py_enum_members: state.py_enum_members,
             };
@@ -830,6 +881,7 @@ fn lower_manifest_source(
                 ts_interface_construct_signatures: state.ts_interface_construct_signatures,
                 ts_callable_fields: state.ts_callable_fields,
                 ts_callable_object_aliases: state.ts_callable_object_aliases,
+                ts_written_host_globals: state.ts_written_host_globals,
                 py_module_namespaces,
                 py_enum_members,
             };

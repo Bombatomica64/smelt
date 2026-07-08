@@ -1861,6 +1861,25 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::HostGlobalRead { class } => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::HostGlobalRead { class: *class })?
+            }
+            ExprKind::HostGlobalWrite { class, value } => {
+                let value_operand = self.lower_expr(*value)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HostGlobalWrite {
+                        class: *class,
+                        value: value_operand,
+                    },
+                )?
+            }
+            ExprKind::HostGlobalPresent { class } => self.assign_temp(
+                expr.ty,
+                expr.span,
+                Rvalue::HostGlobalPresent { class: *class },
+            )?,
             ExprKind::Method {
                 receiver,
                 method,

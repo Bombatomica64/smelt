@@ -197,6 +197,17 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let name = member.property.name.as_str();
+        // A reassigned modeled host constructor reads through its override slot
+        // (`globalThis.File` yields the native handle / stored ctor / undefined),
+        // not the folded native identifier value.
+        if self.is_written_host_global(name) {
+            return Ok(Some(self.host_global_read_expr(
+                name,
+                member.span.start,
+                member.span.end,
+                body,
+            )));
+        }
         if !smelt_stdlib::is_javascript_global_builtin(name) {
             return Ok(None);
         }
@@ -1568,6 +1579,12 @@ impl ModuleBuilder<'_> {
         assign: &oxc::ast::ast::AssignmentExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // `globalThis.<Name> = ...` for a reassigned modeled host constructor
+        // desugars to a `HostGlobalWrite` slot store; it must intercept before
+        // the lifted-mutable-global path and the ordinary member-assignment path.
+        if let Some(write) = self.try_host_global_write_expression(assign, body)? {
+            return Ok(Some(write));
+        }
         let Some(item) = self.assignment_target_mutable_global(&assign.left) else {
             return Ok(None);
         };

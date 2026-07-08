@@ -137,6 +137,16 @@ pub struct HirCtx {
     pub callable_fields: HashMap<TypeId, Vec<Field>>,
     /// Type aliases whose source surface is a callable object intersection.
     pub callable_object_aliases: HashSet<smelt_hir::Symbol>,
+    /// Modeled host constructor names the crate reassigns via
+    /// `globalThis.<Name> =` somewhere (the host-global override pre-pass).
+    ///
+    /// Populated once, crate-wide, before any module lowers, so a write in one
+    /// module (an `isBlob.spec.ts`) switches on the dynamic override machinery
+    /// for reads/presence guards/`new` dispatch in the module that defines the
+    /// predicate (`isBlob.ts`), even though that module lowers first. A name
+    /// absent from this set keeps byte-identical presence folding and native
+    /// construction (pay-for-use).
+    pub written_host_globals: HashSet<String>,
 }
 
 impl HirCtx {
@@ -163,6 +173,7 @@ impl HirCtx {
             interface_construct_signatures: HashMap::new(),
             callable_fields: HashMap::new(),
             callable_object_aliases: HashSet::new(),
+            written_host_globals: HashSet::new(),
         }
     }
 }

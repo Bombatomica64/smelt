@@ -801,6 +801,18 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*blob_type),
             )
         }
+        ExprKind::HostGlobalRead { class } => {
+            let class_name = krate.symbols.get(*class).unwrap_or("<unknown>");
+            format!("host_global_read {class_name}")
+        }
+        ExprKind::HostGlobalWrite { class, value } => {
+            let class_name = krate.symbols.get(*class).unwrap_or("<unknown>");
+            format!("host_global_write {class_name} = {}", expr_ref(*value))
+        }
+        ExprKind::HostGlobalPresent { class } => {
+            let class_name = krate.symbols.get(*class).unwrap_or("<unknown>");
+            format!("host_global_present {class_name}")
+        }
         ExprKind::BinOp { op, lhs, rhs } => {
             format!("{op:?} {}, {}", expr_ref(*lhs), expr_ref(*rhs))
         }

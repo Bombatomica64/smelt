@@ -239,6 +239,9 @@ impl LoweringCtx<'_> {
             | ExprKind::FileReadText { .. }
             | ExprKind::FileWriteText { .. }
             | ExprKind::BlobFromParts { .. }
+            | ExprKind::HostGlobalRead { .. }
+            | ExprKind::HostGlobalWrite { .. }
+            | ExprKind::HostGlobalPresent { .. }
             | ExprKind::BinOp { .. }
             | ExprKind::UnaryOp { .. }
             | ExprKind::Conditional { .. }

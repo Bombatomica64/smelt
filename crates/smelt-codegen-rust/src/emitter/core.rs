@@ -4569,6 +4569,10 @@ fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         Rvalue::ClosureCallSpread { callee, args } => {
             operand_uses_local(callee, local) || operand_uses_local(args, local)
         }
+        // A host-global override write reads its stored value operand; the read
+        // and presence probes take no operands. Missing this arm would let the
+        // `_ => false` fallthrough elide a closure whose only use is the write.
+        Rvalue::HostGlobalWrite { value: stored, .. } => operand_uses_local(stored, local),
         _ => false,
     }
 }

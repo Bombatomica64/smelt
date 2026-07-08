@@ -58,6 +58,8 @@ blocker-logs/*.md
 !blocker-logs/estk-module-globals.md
 # estk-optional-receivers.md documents the optional-chained modeled-receiver desugar and probe families
 !blocker-logs/estk-optional-receivers.md
+# estk-host-override-slots.md documents bounded globalThis host-constructor reassignment
+!blocker-logs/estk-host-override-slots.md
 
 # Generated docs site output
 _site/

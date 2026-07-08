@@ -436,6 +436,27 @@ impl ModuleBuilder<'_> {
                 span: self.span(binary.span.start, binary.span.end),
             })));
         }
+        // A modeled host constructor the crate *reassigns* somewhere
+        // (`globalThis.Blob = undefined`) can no longer fold its presence guard
+        // to a constant: `typeof Blob === 'undefined'` becomes a dynamic slot
+        // probe so `isBlob`/`isFile` observe the override at runtime. Handles the
+        // bare identifier spelling (`typeof Blob`) and the global-alias member
+        // spelling (`typeof globalThis.Blob`).
+        if kind_lit.value.as_str() == "undefined"
+            && let Some(name) = self.typeof_operand_written_host_global(&unary.argument)
+        {
+            let name = name.to_owned();
+            let negated = !matches!(
+                binary.operator,
+                BinaryOperator::StrictInequality | BinaryOperator::Inequality
+            );
+            return Ok(Some(self.host_global_present_expr(
+                &name,
+                negated,
+                binary.span,
+                body,
+            )));
+        }
         // Modeled host constructors (e.g. `Blob`) are always present, so the
         // `typeof Blob === 'undefined'` support guards used by `isBlob` and the
         // `cloneDeepWith` clone paths fold to a constant: `=== 'undefined'` is

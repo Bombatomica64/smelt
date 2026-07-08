@@ -105,3 +105,47 @@ pub mod host {
     /// file name is supplied.
     pub const BLOB_RECORD_FROM_PARTS: &str = "smelt_blob_record_from_parts";
 }
+
+/// Host-global override-slot runtime helpers.
+///
+/// These back the bounded whole-global reassignment of modeled host
+/// constructors (`globalThis.File = ...`, `globalThis.Blob = undefined`,
+/// save/restore). The generated crate emits one `thread_local!` slot per host
+/// name the crate actually writes (`SMELT_HOST_OVERRIDE_<NAME>`), initialized to
+/// the fixed `SmeltHostOverride::Native` state, plus the fixed enum and the
+/// three helpers named here. See the `HostGlobalRead`/`HostGlobalWrite`/
+/// `HostGlobalPresent` MIR rvalues.
+///
+/// Per-test-thread semantics: each `#[test]` runs on its own thread and gets a
+/// fresh `Native` slot, matching the specs' save/restore discipline (they
+/// snapshot the native handle, override the slot, then restore it within one
+/// test).
+pub mod host_override {
+    /// Name of the fixed runtime enum modeling a host constructor's override
+    /// state: `Native` (unmodified), `Absent` (set to `undefined`), or
+    /// `Ctor(SmeltUnknown)` (reassigned to a constructor value).
+    pub const OVERRIDE_ENUM: &str = "SmeltHostOverride";
+
+    /// Prefix of the per-name `thread_local!` override slot
+    /// (`SMELT_HOST_OVERRIDE_<NAME>`). The suffix is the upper-cased host
+    /// constructor name.
+    pub const SLOT_PREFIX: &str = "SMELT_HOST_OVERRIDE_";
+
+    /// Read helper: returns the override state as a value. `Native` yields the
+    /// native-handle marker record, `Absent` yields JS `undefined`, `Ctor(v)`
+    /// yields the stored constructor value.
+    pub const READ: &str = "smelt_host_override_read";
+
+    /// Write helper: classifies the stored value into a slot state (`undefined`
+    /// → `Absent`; native-handle marker → `Native`; function/class value →
+    /// `Ctor`) and returns the stored value.
+    pub const WRITE: &str = "smelt_host_override_write";
+
+    /// Presence helper: `false` only when the slot is `Absent`.
+    pub const PRESENT: &str = "smelt_host_override_present";
+
+    /// The identity marker key stamped onto the native-handle record produced by
+    /// reading a `Native` slot. Its presence classifies a written-back value as
+    /// a restore-to-`Native`.
+    pub const NATIVE_CTOR_MARKER: &str = "__smelt_native_ctor";
+}
