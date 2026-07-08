@@ -234,12 +234,16 @@ impl FunctionEmitter<'_> {
                 "dict set destination must match the receiver dict type",
             ));
         }
-        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+        // The receiver may be a plain local or a place rooted in one (a class
+        // field holding a `Map`, e.g. `this.__data.set(k, v)`). Render the
+        // assignable lvalue for the place so the insertion mutates the stored
+        // dict in place rather than a temporary copy.
+        let (Operand::Copy(dict_place) | Operand::Move(dict_place)) = dict else {
             return Err(EmitError::new(
-                "dict set receiver must be a mutable local for now",
+                "dict set receiver must be a place operand",
             ));
         };
-        let dict_text = self.local_mut_value_text(*local)?;
+        let dict_text = self.assignment_place_text(dict_place)?;
         let key_text = self.dict_key_operand_text(key, *key_ty)?;
         let value_text = self.value_at_type(value, *value_ty)?;
         Ok(format!(
@@ -340,14 +344,17 @@ impl FunctionEmitter<'_> {
         if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
             return Err(EmitError::new("dict remove destination must be bool"));
         }
-        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+        // Accept a place-rooted receiver (a class field holding a `Map`, e.g.
+        // `this.__data.delete(k)`) as well as a plain local, rendering the
+        // assignable lvalue so the removal mutates the stored dict in place.
+        let (Operand::Copy(dict_place) | Operand::Move(dict_place)) = dict else {
             return Err(EmitError::new(
-                "dict remove receiver must be a mutable local for now",
+                "dict remove receiver must be a place operand",
             ));
         };
         Ok(format!(
             "{}.remove(&{}).is_some()",
-            self.local_mut_value_text(*local)?,
+            self.assignment_place_text(dict_place)?,
             self.dict_key_operand_text(key, *key_ty)?
         ))
     }

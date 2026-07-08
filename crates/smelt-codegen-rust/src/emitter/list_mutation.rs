@@ -463,13 +463,15 @@ impl FunctionEmitter<'_> {
                 "{collection_name} clear destination must be None"
             )));
         }
-        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = collection
-        else {
+        // Accept a place-rooted receiver (a class field holding the collection,
+        // e.g. `this.__data.clear()`) as well as a plain local, rendering the
+        // assignable lvalue so the clear mutates the stored collection in place.
+        let (Operand::Copy(collection_place) | Operand::Move(collection_place)) = collection else {
             return Err(EmitError::new(format!(
-                "{collection_name} clear receiver must be a mutable local for now"
+                "{collection_name} clear receiver must be a place operand"
             )));
         };
-        let collection_text = self.local_mut_value_text(*local)?;
+        let collection_text = self.assignment_place_text(collection_place)?;
         Ok(format!("{{ {collection_text}.clear(); () }}"))
     }
 
@@ -641,6 +643,19 @@ impl FunctionEmitter<'_> {
     /// and invoked per comparison; its numeric result maps to `Ordering` with
     /// JavaScript semantics (negative -> `Less`, positive -> `Greater`, zero and
     /// `NaN` -> `Equal`).
+    ///
+    /// A named or optional comparator (`array.sort(compareFn)` where `compareFn`
+    /// is `((a, b) => number) | undefined`) is lowered through a synthesized
+    /// wrapper closure whose call of the erased/optional inner callback yields a
+    /// `SmeltUnknown` result, so the wrapper's declared return type is erased to
+    /// `unknown` even though the source comparator is typed `=> number`. The
+    /// frontend deliberately admits that erased return (see the `array sort`
+    /// comparator check in `stdlib::list_sort_call`) and relies on this emitter
+    /// to coerce the comparison result numerically. A `SmeltUnknown` here is a
+    /// genuine dynamic boundary (the callback may be absent at runtime), so the
+    /// result is coerced through the `SmeltIntoF64` boundary adapter rather than
+    /// routed as an ordinary typed value; a concrete `number` return skips the
+    /// adapter and compares directly.
     fn list_sort_comparator_text(
         &self,
         comparator: &Operand,
@@ -658,9 +673,16 @@ impl FunctionEmitter<'_> {
         else {
             return Err(EmitError::new("array sort comparator must be a closure"));
         };
-        if self.mir.types.get(function_ty.return_ty) != Some(&Type::Float) {
-            return Err(EmitError::new("array sort comparator must return a number"));
-        }
+        // A `number` return compares directly; an erased return (`unknown`,
+        // concrete union, `never`, or a leaked non-scoped type parameter, all of
+        // which render as `SmeltUnknown`) is coerced through `SmeltIntoF64`.
+        let coerce_result = match self.mir.types.get(function_ty.return_ty) {
+            Some(Type::Float) => false,
+            Some(Type::Unknown | Type::Union(_) | Type::Never | Type::TypeParam { .. }) => true,
+            _ => {
+                return Err(EmitError::new("array sort comparator must return a number"));
+            }
+        };
         let left_param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
         let right_param_ty = function_ty.params.get(1).copied().unwrap_or(left_param_ty);
         let left_arg = self.value_at_type_text("left.clone()", element_ty, left_param_ty)?;
@@ -669,8 +691,9 @@ impl FunctionEmitter<'_> {
             Ok(closure_text) => closure_text,
             Err(_) => self.operand_text(comparator)?,
         };
+        let ordering_coercion = if coerce_result { ".smelt_into_f64()" } else { "" };
         Ok(format!(
-            "{{ let mut smelt_comparator = {closure_text}; {list_text}.sort_by(|left, right| {{ let ordering = (smelt_comparator)({left_arg}, {right_arg}); if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }}); {result_text} }}"
+            "{{ let mut smelt_comparator = {closure_text}; {list_text}.sort_by(|left, right| {{ let ordering = (smelt_comparator)({left_arg}, {right_arg}){ordering_coercion}; if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }}); {result_text} }}"
         ))
     }
 

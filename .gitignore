@@ -60,6 +60,10 @@ blocker-logs/*.md
 !blocker-logs/estk-optional-receivers.md
 # estk-host-override-slots.md documents bounded globalThis host-constructor reassignment
 !blocker-logs/estk-host-override-slots.md
+# estk-match-emitter.md documents the match/switch join-block emitter fix + first whole-crate transpile
+!blocker-logs/estk-match-emitter.md
+# estk-first-transpile-diagnostics.md is the generated-crate diagnostics report for the first whole-crate transpile
+!blocker-logs/estk-first-transpile-diagnostics.md
 
 # Generated docs site output
 _site/
