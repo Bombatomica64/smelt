@@ -3515,8 +3515,13 @@ impl<'mir> FunctionEmitter<'mir> {
         let (Operand::Copy(place) | Operand::Move(place)) = operand else {
             return Ok(None);
         };
+        // A borrowed callback parameter is bound as an immutable `&dyn Fn`
+        // (see `param_type_text`), so the adapter reborrows it immutably. A
+        // `&mut *` reborrow through the shared reference would fail to compile
+        // (E0596); the fresh `move` wrapper closure below supplies whatever
+        // `FnMut` shape the target expects on its own.
         let function_text = if self.is_function_parameter_place(place)? {
-            format!("&mut *{}", self.place_text(place)?)
+            format!("&*{}", self.place_text(place)?)
         } else {
             self.place_text(place)?
         };

@@ -6557,3 +6557,78 @@ function tag(rows: string[][], suffix: string): string[][] {
         "the member-assignment blocker must be gone\n{source}"
     );
 }
+
+#[test]
+fn optional_unknown_truthiness_covers_undefined() {
+    // An optional `unknown` used in a boolean position coerces through
+    // `optional_truthy_text`. The generated `match` must treat both
+    // `Some(Null)` and `Some(Undefined)` as falsy; omitting the `Undefined`
+    // arm produced a non-exhaustive match (E0004) because `SmeltUnknown` has a
+    // dedicated `Undefined` variant.
+    let source = source_for(
+        r#"
+export function firstTruthy(guard?: unknown): boolean {
+  if (guard) {
+    return true;
+  }
+  return false;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false"),
+        "optional-unknown truthiness must cover the Undefined variant\n{source}"
+    );
+}
+
+#[test]
+fn callback_parameter_adapter_reborrows_immutably() {
+    // Forwarding a borrowed callback parameter to a helper that expects a
+    // different callback arity builds a wrapper closure. The wrapper reborrows
+    // the parameter, which is bound as an immutable `&dyn Fn`; a `&mut *`
+    // reborrow through that shared reference fails to compile (E0596), so the
+    // adapter must reborrow immutably with `&*`.
+    let source = source_for(
+        r#"
+function uniqBy<T>(arr: T[], mapper: (item: T, index: number, arr: T[]) => unknown): T[] {
+  return arr;
+}
+export function unionBy<T>(arr1: T[], arr2: T[], mapper: (item: T) => unknown): T[] {
+  return uniqBy([...arr1, ...arr2], mapper);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("&*mapper"),
+        "the callback adapter should reborrow the parameter immutably\n{source}"
+    );
+    assert!(
+        !source.contains("&mut *mapper"),
+        "the callback adapter must not mutably reborrow an immutable `&dyn Fn`\n{source}"
+    );
+}
+
+#[test]
+fn tuple_length_emits_constant_arity() {
+    // A fixed-arity tuple has no Rust `.len()` method (E0599). Its JavaScript
+    // `.length` is a compile-time constant, so the length rvalue must emit the
+    // arity literal rather than a method call on the tuple.
+    let source = source_for(
+        r#"
+export function pairLength(pair: [string, number]): number {
+  return pair.length;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("2 as f64"),
+        "a tuple's `.length` should emit its constant arity\n{source}"
+    );
+    assert!(
+        !source.contains("pair.len()"),
+        "a tuple must not call the list `.len()` method\n{source}"
+    );
+}

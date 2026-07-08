@@ -64,6 +64,8 @@ blocker-logs/*.md
 !blocker-logs/estk-match-emitter.md
 # estk-first-transpile-diagnostics.md is the generated-crate diagnostics report for the first whole-crate transpile
 !blocker-logs/estk-first-transpile-diagnostics.md
+# estk-codegen-misc.md documents the E0004/E0596/E0599 generated-Rust codegen fixes
+!blocker-logs/estk-codegen-misc.md
 
 # Generated docs site output
 _site/
