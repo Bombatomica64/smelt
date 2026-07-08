@@ -424,7 +424,23 @@ fn callback_param_escapes_locally(
             .iter()
             .any(|statement| statement_erases_callback_param(mir, function, statement, local))
     });
+    // A callback parameter that is rebound in the body (`callback = …`, e.g. the
+    // `mapAsync`/`filterAsync` concurrency wrappers reassign their callback to a
+    // `limitAsync`-wrapped handle) receives an owned `Rc<dyn Fn…>` on the right.
+    // A borrowed `&dyn Fn` binding cannot hold that owned value, so the parameter
+    // must enter the function as an owned handle.
+    let rebound_locally = function.blocks.iter().any(|block| {
+        block.statements.iter().any(|statement| match statement {
+            Statement::Assign { dest, .. } => *dest == local,
+            Statement::AssignPlace {
+                place: Place::Local(candidate),
+                ..
+            } => *candidate == local,
+            _ => false,
+        })
+    });
     Ok(directly_returned
+        || rebound_locally
         || erased_or_dynamic_escape
         || captured_by_erased_closure_value
         || captured_by_erased_return

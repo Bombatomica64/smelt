@@ -158,7 +158,19 @@ impl FunctionEmitter<'_> {
         // `x => x && cond`), route the single call through `value_truthy_text` so
         // the predicate observes the same truthiness the source does; a `bool`
         // return passes through unchanged.
-        let raw_call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let callback_call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        // A fallible (`may_throw`) callback is emitted as a closure returning
+        // `Result<_, Box<dyn Error>>`, but list predicates consume the result in
+        // boolean position (`if …`, `.any`, `.all`). Unwrap the `Result` the same
+        // way `list_map_closure_text` does so the predicate observes the inner
+        // value rather than a `Result`; a non-throwing callback is used directly.
+        let raw_call_text = if function_ty.may_throw {
+            format!(
+                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{{}}\", error))"
+            )
+        } else {
+            callback_call_text
+        };
         let call_text = if self.mir.types.get(function_ty.return_ty) == Some(&Type::Bool) {
             raw_call_text
         } else {
