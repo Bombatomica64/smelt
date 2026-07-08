@@ -4,6 +4,24 @@ use super::*;
 
 impl FunctionEmitter<'_> {
     /// Emits a match expression.
+    ///
+    /// Two strategies handle the arm bodies:
+    ///
+    /// * When every arm target's *direct* terminator is either a `Goto` to one
+    ///   shared block or a diverging terminator (`Return`/`Throw`/`Unreachable`),
+    ///   the arms are straight-line and truly converge on a single continuation.
+    ///   That continuation (the "join") is emitted once after the `match`, and
+    ///   each arm drops its trailing `Goto` to it (see [`Self::emit_block_as_match_arm`]).
+    ///
+    /// * Otherwise the arms have heterogeneous successors: some diverge, some
+    ///   fall through, and some reach the shared continuation only transitively
+    ///   through nested loops or branches whose own blocks end in a `Switch` or a
+    ///   `Goto` back into the arm body. There is no single block to hoist, so each
+    ///   arm is emitted as a self-contained region via [`Self::emit_block`], which
+    ///   already lowers nested loops, branches, and returns and follows each arm's
+    ///   control-flow tail to its own continuation. The shared continuation is
+    ///   duplicated into every arm that reaches it, mirroring how arms ending in a
+    ///   non-`Goto` terminator already emit their tail inline.
     pub(super) fn emit_match(
         &self,
         scrutinee: &Operand,
@@ -13,6 +31,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
         let scrutinee_ty = self.operand_ty(scrutinee)?;
+        let hoisted_join = self.match_join(arms, default)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
         let match_declared = self.declared_locals_snapshot();
         for arm in arms {
@@ -20,27 +39,46 @@ impl FunctionEmitter<'_> {
                 "        {} => {{\n",
                 self.match_label_text_for_scrutinee(&arm.label, scrutinee_ty)
             ));
-            self.emit_block_as_match_arm(self.block(arm.target)?, out)?;
+            self.emit_match_arm(self.block(arm.target)?, hoisted_join, out)?;
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared.clone());
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
-            self.emit_block_as_match_arm(self.block(default_block)?, out)?;
+            self.emit_match_arm(self.block(default_block)?, hoisted_join, out)?;
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared);
         } else {
             out.push_str("        _ => {}\n");
         }
         out.push_str("    }\n");
-        if let Some(join) = self.match_join(arms, default)? {
+        if let Some(join) = hoisted_join {
             self.emit_block(self.block(join)?, out)?;
         }
         Ok(())
     }
 
-    /// Emits a match arm body.
-    /// Emits a match arm body.
+    /// Emits a single arm body, dispatching on whether a shared join was hoisted.
+    ///
+    /// With a hoisted join the arm drops its trailing `Goto` to it; without one
+    /// the arm emits its full control-flow tail inline.
+    fn emit_match_arm(
+        &self,
+        block: &BasicBlock,
+        hoisted_join: Option<smelt_mir::BlockId>,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        if hoisted_join.is_some() {
+            self.emit_block_as_match_arm(block, out)
+        } else {
+            self.emit_block(block, out)
+        }
+    }
+
+    /// Emits a match arm body whose trailing `Goto` to the shared join is dropped.
+    ///
+    /// Only used on the hoisted-join path, where the join block is emitted once
+    /// after the whole `match` and every arm falls straight through to it.
     pub(super) fn emit_block_as_match_arm(
         &self,
         block: &BasicBlock,
@@ -56,8 +94,14 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Finds the join block where all match arms converge.
-    /// Finds the join block where all match arms converge.
+    /// Finds a single join block that every arm falls straight through to.
+    ///
+    /// Returns `Some(join)` only when every arm target's direct terminator is a
+    /// `Goto` to the same block or a diverging terminator; the shared block can
+    /// then be hoisted out of the `match`. Returns `None` when the arms have
+    /// heterogeneous successors (an arm ends in a `Switch`/`Call`/`Await`/`Match`,
+    /// or two arms `Goto` different blocks), because in that case there is no
+    /// single block to hoist and each arm must carry its own control-flow tail.
     pub(super) fn match_join(
         &self,
         arms: &[smelt_mir::MatchArm],
@@ -66,15 +110,20 @@ impl FunctionEmitter<'_> {
         let mut join = None;
         for target in arms.iter().map(|arm| arm.target).chain(default) {
             let block = self.block(target)?;
-            if let Some(Terminator::Goto(join_target)) = block.terminator {
-                if join
-                    .replace(join_target)
-                    .is_some_and(|seen| seen != join_target)
-                {
-                    return Err(EmitError::new(
-                        "match codegen requires all non-terminating arms to share one join block",
-                    ));
+            match &block.terminator {
+                Some(Terminator::Goto(join_target)) => {
+                    if join
+                        .replace(*join_target)
+                        .is_some_and(|seen| seen != *join_target)
+                    {
+                        return Ok(None);
+                    }
                 }
+                // A diverging arm imposes no join constraint.
+                Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => {}
+                // An arm ending in a branch/loop/call reaches its continuation
+                // only transitively, so no single block can be hoisted.
+                _ => return Ok(None),
             }
         }
         Ok(join)

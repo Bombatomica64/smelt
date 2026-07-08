@@ -1341,26 +1341,6 @@ impl FunctionEmitter<'_> {
         Ok(left_ty)
     }
 
-    /// Validates a set receiver and item operand, returning the set type.
-    /// Validates a set receiver and item operand, returning the set type.
-    pub(super) fn validate_set_item_operands(
-        &self,
-        set: &Operand,
-        item: &Operand,
-        context: &str,
-    ) -> Result<TypeId, EmitError> {
-        let set_ty = self.operand_ty(set)?;
-        let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
-            return Err(EmitError::new(format!("{context} receiver must be a set")));
-        };
-        if self.operand_ty(item)? != *item_ty {
-            return Err(EmitError::new(format!(
-                "{context} item must match the set element type"
-            )));
-        }
-        Ok(set_ty)
-    }
-
     /// Converts a set insertion operation to Rust text.
     /// Converts a blocking HTTP GET operation to Rust text.
     pub(super) fn http_get_text(&self, url: &Operand) -> Result<String, EmitError> {

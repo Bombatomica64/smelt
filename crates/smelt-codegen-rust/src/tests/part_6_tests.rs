@@ -417,6 +417,87 @@ console.log(result);
 }
 
 #[test]
+fn emits_switch_with_heterogeneous_arm_successors() {
+    // A switch whose arms have different control-flow tails: one case loops and
+    // then falls through, one case returns early, and the default falls through.
+    // The arm blocks therefore reach the shared continuation only transitively
+    // (through the loop) or not at all (the early return), so no single join
+    // block can be hoisted. This previously aborted emission with "match codegen
+    // requires all non-terminating arms to share one join block"; the emitter now
+    // gives each arm its own control-flow tail.
+    let source = source_for(
+        "function pick(kind: string, n: number): number {
+  let total = 0;
+  switch (kind) {
+    case \"loop\": {
+      while (n > 0) {
+        total += n;
+        n--;
+      }
+      break;
+    }
+    case \"double\":
+      return n * 2;
+    default:
+      total = n;
+  }
+  return total;
+}
+const result = pick(\"loop\", 3);
+console.log(result);
+",
+    );
+
+    assert!(source.contains("match kind.as_str() {"), "{source}");
+    assert!(source.contains("\"loop\" => {"), "{source}");
+    assert!(source.contains("\"double\" => {"), "{source}");
+    // The early-return arm diverges inline.
+    assert!(source.contains("return"), "{source}");
+    // The loop arm's own control-flow tail is emitted inside the arm.
+    assert!(source.contains("while"), "{source}");
+}
+
+#[test]
+fn emits_switch_arm_with_loop_and_conditional_throw() {
+    // Mirrors es-toolkit's `trimEnd`: a `typeof` switch whose first arm branches
+    // (a conditional throw) and then runs a loop before rejoining, while a later
+    // arm is itself a loop. The arm regions converge on the trailing `return`
+    // only transitively, which is exactly the heterogeneous-successor shape that
+    // the join-block emitter must handle without a single hoisted join.
+    let source = source_for(
+        "function trimEnd(str: string, chars: string | string[]): string {
+  let endIndex = str.length;
+  switch (typeof chars) {
+    case \"string\": {
+      if (chars.length !== 1) {
+        throw new Error(\"bad\");
+      }
+      while (endIndex > 0 && str[endIndex - 1] === chars) {
+        endIndex--;
+      }
+      break;
+    }
+    case \"object\": {
+      while (endIndex > 0 && chars.includes(str[endIndex - 1])) {
+        endIndex--;
+      }
+    }
+  }
+  return str.substring(0, endIndex);
+}
+const result = trimEnd(\"aaa\", \"a\");
+console.log(result);
+",
+    );
+
+    // Emission succeeds (no EmitError) and the trailing continuation is emitted
+    // as each arm's own tail rather than one hoisted join.
+    assert!(source.contains("=> {"), "{source}");
+    assert!(source.contains("while"), "{source}");
+    assert!(source.contains("return Err(std::io::Error::new("), "{source}");
+}
+
+#[test]
 fn emits_uncaught_throw_as_result() {
     let source = source_for(
         "function fail(): void {

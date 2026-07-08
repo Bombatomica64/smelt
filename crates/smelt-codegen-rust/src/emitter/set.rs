@@ -173,14 +173,21 @@ impl FunctionEmitter<'_> {
         item: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        self.validate_set_item_operands(set, item, "set remove")?;
+        let set_ty = self.operand_ty(set)?;
+        let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
+            return Err(EmitError::new("set remove receiver must be a set"));
+        };
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = set else {
             return Err(EmitError::new(
                 "set remove receiver must be a mutable local for now",
             ));
         };
         let set_text = self.local_mut_value_text(*local)?;
-        let item_text = self.operand_text(item)?;
+        // Coerce the removed item to the set's element type so removing a
+        // concrete value (e.g. a `number`) from an erased `Set<unknown>` erases
+        // the key the same way `set_add_text` erases inserted items; the set
+        // stores `SmeltUnknown`, so the lookup key must be erased to match.
+        let item_text = self.value_at_type(item, *item_ty)?;
         match op {
             smelt_hir::SetRemoveOp::Delete => {
                 if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
