@@ -581,6 +581,10 @@ impl Rvalue {
             }
             Self::DateNow => {}
             Self::DateResetNow => {}
+            Self::GlobalGet { .. } => {}
+            Self::GlobalSet { value, .. } => {
+                visit(value);
+            }
             Self::DateSetNow { timestamp } => {
                 visit(timestamp);
             }
@@ -1278,6 +1282,10 @@ impl Rvalue {
             }
             Self::DateNow => {}
             Self::DateResetNow => {}
+            Self::GlobalGet { .. } => {}
+            Self::GlobalSet { value, .. } => {
+                visit(value);
+            }
             Self::DateSetNow { timestamp } => {
                 visit(timestamp);
             }

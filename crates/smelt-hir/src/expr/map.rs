@@ -61,6 +61,7 @@ impl ExprKind {
             kind @ (Self::Literal(_)
             | Self::Local(_)
             | Self::Item(_)
+            | Self::GlobalGet { .. }
             | Self::Closure(_)
             | Self::NumericRandom
             | Self::DateNow
@@ -118,6 +119,10 @@ impl ExprKind {
             Self::OptionalCoalesce { optional, fallback } => Self::OptionalCoalesce {
                 optional: f(optional)?,
                 fallback: f(fallback)?,
+            },
+            Self::GlobalSet { item, value } => Self::GlobalSet {
+                item,
+                value: f(value)?,
             },
             Self::TypeAssert { value } => Self::TypeAssert { value: f(value)? },
             Self::Len { operand } => Self::Len {

@@ -182,7 +182,7 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                     ),
                 );
             }
-            Item::Function(_) | Item::Const(_) => {}
+            Item::Function(_) | Item::Const(_) | Item::MutableGlobal(_) => {}
         }
     }
     out
@@ -232,7 +232,11 @@ fn python_declaration(krate: &Crate, module_id: ModuleId) -> String {
                     }
                 }
             }
-            Item::Function(_) | Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {}
+            Item::Function(_)
+            | Item::Interface(_)
+            | Item::TypeAlias(_)
+            | Item::Const(_)
+            | Item::MutableGlobal(_) => {}
         }
     }
     out

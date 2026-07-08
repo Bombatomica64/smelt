@@ -1149,6 +1149,10 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::JsonParse { text } => self.json_parse_text(text, dest_ty),
             Rvalue::HttpGetText { url } => self.http_get_text(url),
+            Rvalue::GlobalGet { global } => self.global_get_text(*global),
+            Rvalue::GlobalSet { global, value: stored } => {
+                self.global_set_text(*global, stored)
+            }
             Rvalue::DateNow => {
                 let text = "SMELT_DATE_NOW.with(::std::cell::Cell::get).unwrap_or_else(|| chrono::Utc::now().timestamp_millis())";
                 self.date_timestamp_result_text(text, dest_ty)
@@ -1307,6 +1311,49 @@ impl FunctionEmitter<'_> {
             "reqwest::blocking::get({}).expect(\"HTTP GET failed\").text().expect(\"HTTP response body read failed\")",
             self.operand_text(url)?
         ))
+    }
+
+    /// Emit a read of a mutable global's thread-local cell.
+    ///
+    /// Copy primitives read through `Cell::get`; strings clone the borrowed
+    /// `RefCell<String>` contents.
+    fn global_get_text(&self, global: u32) -> Result<String, EmitError> {
+        let name = crate::global_static_name(self.mir, global);
+        let ty = self.global_ty(global)?;
+        if matches!(self.mir.types.get(ty), Some(Type::String)) {
+            Ok(format!("{name}.with(|value| value.borrow().clone())"))
+        } else {
+            Ok(format!("{name}.with(::std::cell::Cell::get)"))
+        }
+    }
+
+    /// Emit a store into a mutable global's thread-local cell.
+    ///
+    /// The stored value is hoisted to a temporary so the block evaluates to the
+    /// stored value, letting `++`/`+=` compose as expressions. Copy primitives
+    /// use `Cell::set`; strings replace the `RefCell<String>` contents.
+    fn global_set_text(&self, global: u32, value: &Operand) -> Result<String, EmitError> {
+        let name = crate::global_static_name(self.mir, global);
+        let ty = self.global_ty(global)?;
+        let value_text = self.value_at_type(value, ty)?;
+        if matches!(self.mir.types.get(ty), Some(Type::String)) {
+            Ok(format!(
+                "{{ let smelt_global_value = {value_text}; {name}.with(|value| *value.borrow_mut() = smelt_global_value.clone()); smelt_global_value }}"
+            ))
+        } else {
+            Ok(format!(
+                "{{ let smelt_global_value = {value_text}; {name}.with(|value| value.set(smelt_global_value)); smelt_global_value }}"
+            ))
+        }
+    }
+
+    /// Look up the primitive type of a mutable global by index.
+    fn global_ty(&self, global: u32) -> Result<TypeId, EmitError> {
+        self.mir
+            .globals
+            .get(id_index(global, "mutable global index does not fit usize")?)
+            .map(|entry| entry.ty)
+            .ok_or_else(|| EmitError::new("mutable global index is out of range"))
     }
 
     /// Converts a function call to its Rust text representation.
@@ -2753,9 +2800,12 @@ impl FunctionEmitter<'_> {
             ));
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
-            return Err(EmitError::new(
-                "optional field codegen requires a class or string-keyed dict receiver",
-            ));
+            return Err(EmitError::new(format!(
+                "optional field codegen requires a class or string-keyed dict receiver, got {} for field `{}`",
+                Self::type_text_for(self.mir, receiver_ty)
+                    .unwrap_or_else(|_error| format!("{receiver_ty:?}")),
+                self.symbol_source_name(field).unwrap_or_default()
+            )));
         };
         if let Some(method_text) = self.class_method_reference_text(receiver_text, *name, field)? {
             return Ok(method_text);

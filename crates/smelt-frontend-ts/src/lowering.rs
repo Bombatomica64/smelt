@@ -417,6 +417,10 @@ struct ModuleBuilder<'ctx> {
     date_value_locals: HashSet<smelt_hir::LocalId>,
     /// Typed top-level mutable bindings visible from nested function bodies.
     module_globals: HashMap<String, smelt_hir::TypeId>,
+    /// Module-level `let`/`var` bindings lifted to mutable globals, mapped to
+    /// their HIR item id. Reads of these names lower to `GlobalGet` and writes
+    /// to `GlobalSet` instead of the const-inline or local-assignment paths.
+    mutable_global_items: HashMap<String, smelt_hir::ItemId>,
     /// Declared and imported items (functions, classes, interfaces).
     items: HashMap<String, smelt_hir::ItemId>,
     /// Class definitions by name.

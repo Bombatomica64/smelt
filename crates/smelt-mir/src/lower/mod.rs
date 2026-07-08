@@ -168,14 +168,19 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     let mut errors = Vec::new();
 
     let item_functions = assign_function_ids(krate)?;
+    let global_ids = lower_globals(krate, &mut mir);
+    let tables = LoweringTables {
+        item_functions: &item_functions,
+        global_ids: &global_ids,
+    };
     lower_type_tables(krate, &mut mir, &item_functions);
-    lower_item_functions(krate, &mut mir, &item_functions, helpers, &mut errors);
+    lower_item_functions(krate, &mut mir, &tables, helpers, &mut errors);
 
     if !errors.is_empty() {
         return Err(errors);
     }
 
-    lower_module_bodies(krate, &mut mir, &item_functions, helpers, &mut errors);
+    lower_module_bodies(krate, &mut mir, &tables, helpers, &mut errors);
 
     if errors.is_empty() {
         run_finalization_passes(&mut mir);
@@ -213,6 +218,51 @@ fn assign_function_ids(
     Ok(item_functions)
 }
 
+/// Item-resolution tables shared by every body lowering.
+///
+/// Bundles the function-id map from [`assign_function_ids`] with the
+/// mutable-global index map from [`lower_globals`] so body lowering entry
+/// points take one resolution frame instead of parallel table arguments.
+struct LoweringTables<'hir> {
+    /// Mapping of HIR function items to their assigned MIR function ids.
+    item_functions: &'hir FunctionIds,
+    /// Mapping of mutable-global HIR items to their `Mir::globals` index.
+    global_ids: &'hir HashMap<smelt_hir::ItemId, u32>,
+}
+
+/// Populate [`Mir::globals`] from every HIR mutable-global item.
+///
+/// Scans crate items in order; each [`smelt_hir::Item::MutableGlobal`] becomes
+/// one [`crate::MirGlobal`] with its literal initializer lowered to a
+/// [`Constant`]. Returns a map from the global's HIR [`smelt_hir::ItemId`] to
+/// its dense index in `Mir::globals`, which `GlobalGet`/`GlobalSet` lowering
+/// uses to resolve references.
+fn lower_globals(
+    krate: &smelt_hir::Crate,
+    mir: &mut Mir,
+) -> HashMap<smelt_hir::ItemId, u32> {
+    let mut global_ids = HashMap::new();
+    for (idx, item) in krate.items.iter().enumerate() {
+        let smelt_hir::Item::MutableGlobal(global) = item else {
+            continue;
+        };
+        let Ok(item_index) = u32_from_usize(idx, "HIR item index does not fit in u32") else {
+            continue;
+        };
+        let Ok(global_index) = u32_from_usize(mir.globals.len(), "MIR global index does not fit in u32")
+        else {
+            continue;
+        };
+        mir.globals.push(crate::MirGlobal {
+            name: global.name,
+            ty: global.ty,
+            init: lower_literal(&global.init),
+        });
+        global_ids.insert(smelt_hir::ItemId(item_index), global_index);
+    }
+    global_ids
+}
+
 /// Build the MIR class and interface tables from HIR items.
 ///
 /// Class descriptors, methods, and constructors are resolved to their already
@@ -228,7 +278,9 @@ fn lower_type_tables(krate: &smelt_hir::Crate, mir: &mut Mir, item_functions: &F
             }
             smelt_hir::Item::Function(_)
             | smelt_hir::Item::TypeAlias(_)
-            | smelt_hir::Item::Const(_) => {}
+            | smelt_hir::Item::Const(_)
+            // Mutable globals are collected separately by `lower_globals`.
+            | smelt_hir::Item::MutableGlobal(_) => {}
         }
     }
 }
@@ -337,7 +389,7 @@ fn lower_interface_table_entry(
 fn lower_item_functions(
     krate: &smelt_hir::Crate,
     mir: &mut Mir,
-    item_functions: &FunctionIds,
+    tables: &LoweringTables<'_>,
     helpers: HelperTypes,
     errors: &mut Vec<LowerError>,
 ) {
@@ -371,12 +423,13 @@ fn lower_item_functions(
         } else {
             function.return_ty
         };
-        let Some(function_id) = item_functions.get(&item_id).copied() else {
+        let Some(function_id) = tables.item_functions.get(&item_id).copied() else {
             continue;
         };
         let shared = LoweringShared {
             krate,
-            item_functions,
+            item_functions: tables.item_functions,
+            global_ids: tables.global_ids,
             loop_index_ty: helpers.loop_index_ty,
             loop_bool_ty: helpers.loop_bool_ty,
             closure_base: mir.closures.len(),
@@ -410,7 +463,7 @@ fn lower_item_functions(
 fn lower_module_bodies(
     krate: &smelt_hir::Crate,
     mir: &mut Mir,
-    item_functions: &FunctionIds,
+    tables: &LoweringTables<'_>,
     helpers: HelperTypes,
     errors: &mut Vec<LowerError>,
 ) {
@@ -436,7 +489,8 @@ fn lower_module_bodies(
         let function_id = mir.next_function_id();
         let shared = LoweringShared {
             krate,
-            item_functions,
+            item_functions: tables.item_functions,
+            global_ids: tables.global_ids,
             loop_index_ty: helpers.loop_index_ty,
             loop_bool_ty: helpers.loop_bool_ty,
             closure_base: mir.closures.len(),

@@ -31,7 +31,7 @@ mod list;
 mod list_mutation;
 mod list_ordering;
 mod list_query;
-mod literals;
+pub(crate) mod literals;
 mod map;
 mod numeric;
 mod place;

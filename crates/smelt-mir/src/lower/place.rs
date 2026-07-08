@@ -98,6 +98,10 @@ impl LoweringCtx<'_> {
             | ExprKind::UnknownCast { .. }
             | ExprKind::Literal(_)
             | ExprKind::Item(_)
+            // Global reads/writes are values, not assignable places: a write to
+            // a mutable global lowers to `Rvalue::GlobalSet`, never through here.
+            | ExprKind::GlobalGet { .. }
+            | ExprKind::GlobalSet { .. }
             | ExprKind::Call { .. }
             | ExprKind::ClosureCall { .. }
             | ExprKind::ClosureCallSpread { .. }

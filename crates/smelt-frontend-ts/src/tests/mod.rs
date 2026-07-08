@@ -228,3 +228,4 @@ mod class_module_tests;
 mod enum_switch_tests;
 mod array_literal_expr_tests;
 mod estk_mir_gate_tests;
+mod module_globals_tests;

@@ -2202,6 +2202,19 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         for declarator in &decl.declarations {
+            // A module-level `let`/`var` binding lifted to a mutable global is
+            // fully represented by its thread-local item (its literal
+            // initializer is the cell's initial value), so lowering the SAME
+            // source declaration — in the module body or replayed as top-level
+            // test setup — must not re-declare it as a shadowing local. The
+            // declaration is recognized by its binding span; a same-named
+            // binding declared elsewhere (a function or block scope) has a
+            // different span and still creates its ordinary shadowing local.
+            if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                && self.is_lifted_global_declarator(binding.name.as_str(), binding.span)
+            {
+                continue;
+            }
             // A `const Foo = function () { … }` binding recognized as a
             // constructor function was already synthesized into a class during
             // the block prepass; its declarator contributes no runtime binding.

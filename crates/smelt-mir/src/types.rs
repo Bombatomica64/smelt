@@ -42,12 +42,33 @@ pub struct Mir {
     pub interfaces: Vec<MirInterface>,
     /// All closure bodies in the crate.
     pub closures: Vec<MirClosure>,
+    /// Module-level mutable globals lifted from source `let`/`var` bindings.
+    ///
+    /// Populated during HIR lowering from every [`smelt_hir::Item::MutableGlobal`]
+    /// in the crate. `Rvalue::GlobalGet`/`Rvalue::GlobalSet` reference entries by
+    /// index, and codegen emits one thread-local cell per entry.
+    pub globals: Vec<MirGlobal>,
     /// Type interner for interned types.
     pub types: smelt_hir::TypeInterner,
     /// Symbol interner for interned identifiers.
     pub symbols: smelt_hir::SymbolInterner,
     /// Original source spellings for symbols that were normalized internally.
     pub names: smelt_hir::OriginalNameTable,
+}
+
+/// A module-level mutable global lowered from a source `let`/`var` binding.
+///
+/// Carries the binding's name, primitive type, and literal initializer. Codegen
+/// mangles a per-program thread-local cell name from `name` and the global's
+/// index so cross-module bindings that share a source name stay distinct.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MirGlobal {
+    /// The binding's name symbol.
+    pub name: Symbol,
+    /// The binding's primitive type (Float, Int, Bool, or String in V1).
+    pub ty: TypeId,
+    /// The binding's literal initializer.
+    pub init: Constant,
 }
 
 impl Mir {
@@ -63,6 +84,7 @@ impl Mir {
             classes: Vec::new(),
             interfaces: Vec::new(),
             closures: Vec::new(),
+            globals: Vec::new(),
             types,
             symbols,
             names,
@@ -1455,6 +1477,18 @@ pub enum Rvalue {
     HttpGetText {
         /// URL to request.
         url: Operand,
+    },
+    /// Read a module-level mutable global by index into `Mir::globals`.
+    GlobalGet {
+        /// Index into `Mir::globals`.
+        global: u32,
+    },
+    /// Store into a module-level mutable global; evaluates to the stored value.
+    GlobalSet {
+        /// Index into `Mir::globals`.
+        global: u32,
+        /// The value to store.
+        value: Operand,
     },
     /// Read the current timestamp in milliseconds.
     DateNow,

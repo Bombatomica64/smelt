@@ -22,8 +22,12 @@ impl ModuleBuilder<'_> {
                     self.variable_declaration(decl, body, block)?;
                 }
                 ForStatementInit::AssignmentExpression(assign) => {
-                    let (target, value) = self.assignment_parts(assign, body)?;
-                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
+                    if let Some(set) = self.try_global_assignment_expression(assign, body)? {
+                        body.push_stmt_to_block(block, Stmt::Expr(set));
+                    } else {
+                        let (target, value) = self.assignment_parts(assign, body)?;
+                        body.push_stmt_to_block(block, Stmt::Assign { target, value });
+                    }
                 }
                 _ => {
                     return Err(SmeltError::unsupported(
@@ -80,11 +84,19 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Expression::AssignmentExpression(assign) => {
+                if let Some(set) = self.try_global_assignment_expression(assign, body)? {
+                    body.push_stmt_to_block(loop_body, Stmt::Expr(set));
+                    return Ok(());
+                }
                 let (target, value) = self.assignment_parts(assign, body)?;
                 body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
                 Ok(())
             }
             Expression::UpdateExpression(update_expr) => {
+                if let Some(set) = self.try_global_update_expression(update_expr, body, false)? {
+                    body.push_stmt_to_block(loop_body, Stmt::Expr(set));
+                    return Ok(());
+                }
                 let (target, value) = self.update_parts(update_expr, body)?;
                 body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
                 Ok(())

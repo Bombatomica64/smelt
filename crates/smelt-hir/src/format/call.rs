@@ -15,6 +15,10 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::Literal(literal) => literal_text(literal),
         ExprKind::Local(local) => local_ref(*local),
         ExprKind::Item(item) => item_ref(krate, *item),
+        ExprKind::GlobalGet { item } => format!("global_get {}", item_ref(krate, *item)),
+        ExprKind::GlobalSet { item, value } => {
+            format!("global_set {} = {}", item_ref(krate, *item), expr_ref(*value))
+        }
         ExprKind::Call { .. }
         | ExprKind::ClosureCall { .. }
         | ExprKind::ClosureCallSpread { .. }

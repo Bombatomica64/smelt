@@ -69,7 +69,19 @@ describe("outer", () => {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(source, "src/setup-expression.test.ts", &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    ensure_eq!(module.items.len(), 2);
+    // `clock` is a module-level `let` mutated inside `fakeDate`, so it lifts to
+    // a mutable-global item alongside the function item and the test item. The
+    // replayed setup reads and writes the same global (its declaration is not
+    // re-declared as a shadowing local), so the test observes `fakeDate`'s
+    // write.
+    ensure_eq!(module.items.len(), 3);
+    ensure!(
+        ctx.krate
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::MutableGlobal(_))),
+        "mutated module let should lift to a mutable global",
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -1231,8 +1243,15 @@ let defaultOptions: DefaultOptions = {};
 
 #[test]
 fn lowers_module_mutable_default_options_accessors() -> Result<(), String> {
+    // `defaultOptions` is a module-level `let` mutated inside a function, so it
+    // classifies as a mutable global; its object initializer is outside the V1
+    // literal constraint, producing the named frontend blocker. Before the
+    // mutable-global lift this shape HIR-lowered but the function-body write
+    // had no assignable place, so MIR lowering always aborted with the generic
+    // "only local, field, and index expressions can be assigned" — the named
+    // blocker surfaces the same gap earlier and more precisely.
     let mut ctx = HirCtx::new();
-    let module_id = lower_ok(
+    let errors = lowering_errors(
         ts!(r#"
 interface LocalizedOptions {
   locale?: string;
@@ -1251,9 +1270,10 @@ function setDefaultOptions(newOptions: DefaultOptions): void {
 "#),
         &mut ctx,
     )?;
-    let _module = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
+    assert_unsupported_ts(
+        &errors,
+        "module-level mutable binding initializer must be a literal for now",
+    )
 }
 
 #[test]

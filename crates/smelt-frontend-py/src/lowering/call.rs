@@ -400,7 +400,10 @@ impl ModuleBuilder<'_> {
                             span,
                         })));
                     }
-                    Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {}
+                    Item::Interface(_)
+                    | Item::TypeAlias(_)
+                    | Item::Const(_)
+                    | Item::MutableGlobal(_) => {}
                 }
             }
         }

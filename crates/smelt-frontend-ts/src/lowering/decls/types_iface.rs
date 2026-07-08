@@ -627,6 +627,13 @@ impl ModuleBuilder<'_> {
                     return Ok(());
                 }
                 if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
+                    // A write to a lifted mutable global desugars to a
+                    // `GlobalSet` expression statement; it must intercept before
+                    // the discard-only module-global path below.
+                    if let Some(set) = self.try_global_assignment_expression(assign, body)? {
+                        body.push_stmt_to_block(block, Stmt::Expr(set));
+                        return Ok(());
+                    }
                     if block == body.root
                         && self.module_global_assignment_statement(assign, body, block)?
                     {
@@ -646,6 +653,12 @@ impl ModuleBuilder<'_> {
                     return Ok(());
                 }
                 if let Expression::UpdateExpression(update) = &expr_stmt.expression {
+                    // Statement-position `++`/`--` of a lifted mutable global
+                    // discards its result, so the old-value temp is skipped.
+                    if let Some(set) = self.try_global_update_expression(update, body, false)? {
+                        body.push_stmt_to_block(block, Stmt::Expr(set));
+                        return Ok(());
+                    }
                     let (target, value) = self.update_parts(update, body)?;
                     body.push_stmt_to_block(block, Stmt::Assign { target, value });
                     return Ok(());
@@ -1479,6 +1492,10 @@ impl ModuleBuilder<'_> {
         let result = match statement {
             Statement::ExpressionStatement(expr_stmt) => {
                 if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
+                    if let Some(set) = self.try_global_assignment_expression(assign, body)? {
+                        body.push_stmt_to_block(block, Stmt::Expr(set));
+                        return Ok(());
+                    }
                     if self.try_lower_negative_bracket_write_statement(assign, body, block)? {
                         return Ok(());
                     }

@@ -75,6 +75,22 @@ impl LoweringCtx<'_> {
                     Some(expr.span),
                 ));
             }
+            ExprKind::GlobalGet { item } => {
+                let global = self.global_index(*item, expr.span)?;
+                self.assign_temp(expr.ty, expr.span, Rvalue::GlobalGet { global })?
+            }
+            ExprKind::GlobalSet { item, value } => {
+                let global = self.global_index(*item, expr.span)?;
+                let value_operand = self.lower_expr(*value)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::GlobalSet {
+                        global,
+                        value: value_operand,
+                    },
+                )?
+            }
             ExprKind::BinOp { op, lhs, rhs } => {
                 let lhs_operand = self.lower_expr(*lhs)?;
                 let rhs_operand = self.lower_expr(*rhs)?;
@@ -2005,6 +2021,16 @@ impl LoweringCtx<'_> {
 
         self.exprs.insert(expr_id, operand.clone());
         Ok(operand)
+    }
+
+    /// Resolve a mutable-global HIR item to its `Mir::globals` index.
+    fn global_index(&self, item: smelt_hir::ItemId, span: Span) -> Result<u32, LowerError> {
+        self.global_ids.get(&item).copied().ok_or_else(|| {
+            self.error(
+                "mutable-global reference does not resolve to a lowered global",
+                Some(span),
+            )
+        })
     }
 
     /// Lowers a callee expression to a MIR callee.

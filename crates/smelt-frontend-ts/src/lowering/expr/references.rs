@@ -136,6 +136,21 @@ impl ModuleBuilder<'_> {
             );
         }
         let Some(local) = self.locals.get(name).copied() else {
+            // A module-level `let`/`var` binding lifted to a mutable global (and
+            // not shadowed by a local) reads through `GlobalGet`, never the
+            // const-inline path. This also resolves imported mutated bindings,
+            // which appear in `items` as the same `MutableGlobal` item.
+            if let Some(item) = self.mutable_global_item(name) {
+                let ty = match self.item_ref(item) {
+                    Item::MutableGlobal(global_item) => global_item.ty,
+                    _ => self.ctx.krate.types.intern(Type::Unknown),
+                };
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::GlobalGet { item },
+                    ty,
+                    span: self.span(start, end),
+                }));
+            }
             if let Some((pattern, flags, ty)) = self.const_regexps.get(name).cloned() {
                 let span = self.span(start, end);
                 let string_ty = self.ctx.krate.types.intern(Type::String);
@@ -257,6 +272,19 @@ impl ModuleBuilder<'_> {
             .ok()
             .is_none_or(|index| index >= body.locals.len())
         {
+            // A stale local entry from another body must not hide a lifted
+            // mutable global: the read still resolves through `GlobalGet`.
+            if let Some(item) = self.mutable_global_item(name) {
+                let ty = match self.item_ref(item) {
+                    Item::MutableGlobal(global_item) => global_item.ty,
+                    _ => self.ctx.krate.types.intern(Type::Unknown),
+                };
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::GlobalGet { item },
+                    ty,
+                    span: self.span(start, end),
+                }));
+            }
             if let Some(value) = self.const_objects.get(name).cloned() {
                 return Ok(self.object_const_expression(&value, start, end, body));
             }
