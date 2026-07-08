@@ -417,6 +417,81 @@ mapping.clear();
 }
 
 #[test]
+fn emits_optional_chained_map_methods_as_guarded_modeled_ops() {
+    // `recv?.has/get/set/delete(...)` on an optional Map receiver desugars to the
+    // same modeled dict operation the non-optional receiver produces, guarded by
+    // a presence test and narrowed via the `optional value was absent` unwrap.
+    // It must NOT fall through to a generic `.get("has")` field access.
+    let source = source_for(
+        r#"
+export function probe(stack: Map<string, number> | undefined, key: string): boolean | undefined {
+  return stack?.has(key);
+}
+export function fetch(stack: Map<string, number> | undefined, key: string): number | undefined {
+  return stack?.get(key);
+}
+export function store(stack: Map<string, number> | undefined, key: string): void {
+  stack?.set(key, 1);
+}
+export function drop(stack: Map<string, number> | undefined, key: string): boolean | undefined {
+  return stack?.delete(key);
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".is_none()"),
+        "optional receiver presence test should emit is_none\n{source}"
+    );
+    assert!(
+        source.contains(".expect(\"optional value was absent after narrowing\")"),
+        "narrowed receiver should unwrap the optional in the present branch\n{source}"
+    );
+    assert!(
+        source.contains(".contains_key(&"),
+        "optional Map.has should lower to a modeled contains_key\n{source}"
+    );
+    assert!(
+        source.contains(".insert("),
+        "optional Map.set should lower to a modeled insert\n{source}"
+    );
+    assert!(
+        source.contains(".remove(&"),
+        "optional Map.delete should lower to a modeled remove\n{source}"
+    );
+    assert!(
+        !source.contains(".get(\"has\")"),
+        "optional Map.has must not misroute to an erased field access\n{source}"
+    );
+}
+
+#[test]
+fn emits_optional_chained_set_has_as_guarded_modeled_op() {
+    // `recv?.has(value)` on an optional Set receiver desugars to a guarded
+    // modeled `contains` check rather than a generic erased field access.
+    let source = source_for(
+        r#"
+export function probe(seen: Set<string> | undefined, value: string): boolean | undefined {
+  return seen?.has(value);
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".is_none()"),
+        "optional receiver presence test should emit is_none\n{source}"
+    );
+    assert!(
+        source.contains(".contains(&"),
+        "optional Set.has should lower to a modeled contains check\n{source}"
+    );
+    assert!(
+        !source.contains(".get(\"has\")"),
+        "optional Set.has must not misroute to an erased field access\n{source}"
+    );
+}
+
+#[test]
 fn emits_string_split_method() {
     let source = source_for(
         r#"

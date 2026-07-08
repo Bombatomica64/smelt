@@ -284,6 +284,48 @@ impl FunctionEmitter<'_> {
         self.primitive_cast_text(smelt_hir::PrimitiveCastOp::ToBool, operand, bool_ty)
     }
 
+    /// Convert an already-rendered value expression to a Rust boolean using
+    /// JavaScript/Python truthiness rules.
+    ///
+    /// This is the text-based counterpart to the `ToBool` arm of
+    /// [`Self::primitive_cast_text`]: callers that hold a rendered expression
+    /// (rather than an [`Operand`]) — such as an array predicate callback result —
+    /// coerce it here. `value_text` is evaluated exactly once. Objects, arrays,
+    /// functions, class instances, and other reference values are always truthy;
+    /// primitives follow their per-type emptiness/zero rules; optionals defer to
+    /// [`Self::optional_truthy_text`].
+    pub(super) fn value_truthy_text(
+        &self,
+        value_text: &str,
+        ty: TypeId,
+    ) -> Result<String, EmitError> {
+        match self.mir.types.get(ty) {
+            Some(Type::Bool) => Ok(value_text.to_owned()),
+            Some(Type::Int) => Ok(format!("({value_text}) != 0")),
+            Some(Type::Float) => Ok(format!(
+                "{{ let smelt_number = ({value_text}); smelt_number != 0.0 && !smelt_number.is_nan() }}"
+            )),
+            Some(Type::String) => Ok(format!("!({value_text}).is_empty()")),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never) => {
+                Ok(format!(
+                    "match ({value_text}) {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}"
+                ))
+            }
+            Some(Type::Optional(inner)) => self.optional_truthy_text(value_text, *inner),
+            Some(Type::None) => Ok(format!("{{ let _ = ({value_text}); false }}")),
+            Some(
+                Type::Class { .. }
+                | Type::Function(_)
+                | Type::List(_)
+                | Type::Tuple(_)
+                | Type::Dict(_, _)
+                | Type::Set(_)
+                | Type::Future(_),
+            ) => Ok(format!("{{ let _ = ({value_text}); true }}")),
+            None => Err(EmitError::new("predicate result type is unknown")),
+        }
+    }
+
     /// Converts a string trim operation to Rust text.
     /// Returns whether a type is supported by the current JSON serializer path.
     pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {

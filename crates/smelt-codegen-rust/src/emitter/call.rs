@@ -665,66 +665,74 @@ impl FunctionEmitter<'_> {
                 }
                 let free_function_type_params =
                     self.callee_free_function_type_params(function);
-                let mut rendered_args = args
-                    .iter()
-                    .enumerate()
-                    .map(|(index, arg)| {
-                        let param = function.params.get(index).copied();
-                        let local_ty = param
-                            .map(|target_param| {
-                                self.function_local_decl(function, target_param)
-                                    .map(|local| local.ty)
-                            })
-                            .transpose()?;
-                        let target_ty = emitted_params
-                            .as_ref()
-                            .and_then(|params| params.get(index).copied())
-                            .or(local_ty)
-                            .ok_or_else(|| {
-                                EmitError::new("call argument has no target parameter")
-                            })?;
-                        // A concrete argument bound to one of the callee's own
-                        // generic type parameters (`identity(3)` against
-                        // `x: T`) is passed through at its own type so Rust
-                        // monomorphizes `identity::<f64>`; erasing it against the
-                        // bare `T` target would mismatch the generic parameter.
-                        if matches!(
-                            self.mir.types.get(target_ty),
-                            Some(Type::TypeParam { name })
-                                if free_function_type_params.contains(name)
-                        ) {
-                            return self.callee_generic_argument_text(
-                                arg,
-                                function,
-                                target_ty,
-                                &free_function_type_params,
-                            );
-                        }
-                        if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
-                            && param.is_some_and(|target_param| {
-                                !self
-                                    .function_parameter_requires_owned_in(function, target_param)
-                                    .unwrap_or(false)
-                            })
-                        {
-                            return self.borrowed_function_argument_text(arg, target_ty);
-                        }
-                        if param.is_some_and(|target_param| {
-                            self.parameter_needs_mutable_reference_in(function, target_param)
-                        }) {
-                            return self.mutable_reference_argument_text(arg, target_ty);
-                        }
-                        if matches!(
-                            self.mir.types.get(self.operand_ty(arg)?),
-                            Some(Type::Function(_))
-                        ) && !self.type_accepts_erased_function(target_ty)
-                        {
-                            self.default_value(target_ty)
-                        } else {
-                            self.value_at_type(arg, target_ty)
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                let mut rendered_args = Vec::new();
+                for (index, arg) in args.iter().enumerate() {
+                    let param = function.params.get(index).copied();
+                    let local_ty = param
+                        .map(|target_param| {
+                            self.function_local_decl(function, target_param)
+                                .map(|local| local.ty)
+                        })
+                        .transpose()?;
+                    let target_ty = emitted_params
+                        .as_ref()
+                        .and_then(|params| params.get(index).copied())
+                        .or(local_ty);
+                    let Some(target_ty) = target_ty else {
+                        // Extra trailing argument beyond the callee's fixed arity
+                        // (no rest parameter absorbs it). JavaScript silently
+                        // ignores surplus positional arguments; the operand has
+                        // already been evaluated into a temporary before the call,
+                        // so its side effects are preserved and it is simply not
+                        // forwarded. `tsc` only admits this shape when the callee
+                        // is erased/`any`-typed, so a genuine over-application is
+                        // already rejected upstream.
+                        continue;
+                    };
+                    // A concrete argument bound to one of the callee's own
+                    // generic type parameters (`identity(3)` against
+                    // `x: T`) is passed through at its own type so Rust
+                    // monomorphizes `identity::<f64>`; erasing it against the
+                    // bare `T` target would mismatch the generic parameter.
+                    if matches!(
+                        self.mir.types.get(target_ty),
+                        Some(Type::TypeParam { name })
+                            if free_function_type_params.contains(name)
+                    ) {
+                        rendered_args.push(self.callee_generic_argument_text(
+                            arg,
+                            function,
+                            target_ty,
+                            &free_function_type_params,
+                        )?);
+                        continue;
+                    }
+                    if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                        && param.is_some_and(|target_param| {
+                            !self
+                                .function_parameter_requires_owned_in(function, target_param)
+                                .unwrap_or(false)
+                        })
+                    {
+                        rendered_args.push(self.borrowed_function_argument_text(arg, target_ty)?);
+                        continue;
+                    }
+                    if param.is_some_and(|target_param| {
+                        self.parameter_needs_mutable_reference_in(function, target_param)
+                    }) {
+                        rendered_args.push(self.mutable_reference_argument_text(arg, target_ty)?);
+                        continue;
+                    }
+                    if matches!(
+                        self.mir.types.get(self.operand_ty(arg)?),
+                        Some(Type::Function(_))
+                    ) && !self.type_accepts_erased_function(target_ty)
+                    {
+                        rendered_args.push(self.default_value(target_ty)?);
+                    } else {
+                        rendered_args.push(self.value_at_type(arg, target_ty)?);
+                    }
+                }
                 for (index, param) in function.params.iter().enumerate().skip(args.len()) {
                     let local = self.function_local_decl(function, *param)?;
                     let target_ty = emitted_params

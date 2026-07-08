@@ -356,25 +356,32 @@ impl FunctionEmitter<'_> {
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list pop receiver must be a list"));
         };
-        let returns_optional = match self.mir.types.get(dest_ty) {
-            Some(Type::Optional(inner)) if *inner == *item_ty => true,
-            _ if dest_ty == *item_ty => false,
-            _ => {
-                return Err(EmitError::new(
-                    "list pop destination must be item or optional item",
-                ));
-            }
-        };
+        let item_ty = *item_ty;
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
                 "list pop receiver must be a mutable local for now",
             ));
         };
         let list_text = self.local_mut_value_text(*local)?;
-        if returns_optional {
-            Ok(format!("{list_text}.pop()"))
-        } else {
-            Ok(format!("{list_text}.pop().expect(\"pop from empty list\")"))
+        // `Array.prototype.pop` yields `item | undefined`. The two exact-match
+        // fast paths keep the historical output; any other destination (e.g. a
+        // widened/narrowed optional whose inner differs from the list item type,
+        // as when the item type is a union) coerces the popped value to the
+        // destination through the standard coercion seam instead of aborting.
+        match self.mir.types.get(dest_ty) {
+            Some(Type::Optional(inner)) if *inner == item_ty => Ok(format!("{list_text}.pop()")),
+            _ if dest_ty == item_ty => {
+                Ok(format!("{list_text}.pop().expect(\"pop from empty list\")"))
+            }
+            Some(Type::Optional(_)) => {
+                let pop_ty = self.type_id(Type::Optional(item_ty))?;
+                self.value_at_type_text(&format!("{list_text}.pop()"), pop_ty, dest_ty)
+            }
+            _ => self.value_at_type_text(
+                &format!("{list_text}.pop().expect(\"pop from empty list\")"),
+                item_ty,
+                dest_ty,
+            ),
         }
     }
 
