@@ -66,6 +66,8 @@ blocker-logs/*.md
 !blocker-logs/estk-first-transpile-diagnostics.md
 # estk-codegen-misc.md documents the E0004/E0596/E0599 generated-Rust codegen fixes
 !blocker-logs/estk-codegen-misc.md
+# estk-codegen-e0308.md documents the systematic E0308 (mismatched types) emitter fixes
+!blocker-logs/estk-codegen-e0308.md
 
 # Generated docs site output
 _site/
