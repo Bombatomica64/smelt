@@ -2204,6 +2204,14 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
+        // An optional field read on a statically-absent receiver (`None`/unit, as
+        // for a host global the non-DOM profile does not model, e.g.
+        // `window?.document`) always short-circuits to `undefined`. The receiver
+        // carries no value to read, so fold to the destination's absent default
+        // instead of attempting a field access on a unit type.
+        if matches!(self.mir.types.get(inner_ty), Some(Type::None)) {
+            return self.default_value(dest_ty);
+        }
         let field_ty = self.field_access_type(inner_ty, field)?;
         if is_optional {
             let value = self.field_access_text("_smelt_value", inner_ty, field)?;

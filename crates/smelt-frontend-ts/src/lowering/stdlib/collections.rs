@@ -53,7 +53,21 @@ impl ModuleBuilder<'_> {
         }
         let receiver = self.expression(&member.object, body)?;
         let receiver_ty = self.type_param_constraint_or_self(Self::expr_ty(body, receiver));
-        let receiver_kind = match self.ctx.krate.types.get(receiver_ty) {
+        // A `recv?.method(args)` call whose receiver is `T | undefined` for a
+        // modeled receiver `T` (Map/Set) desugars to the same modeled operation
+        // guarded by a presence test: the op runs on the narrowed receiver when
+        // present and yields `undefined` otherwise. Detect the optional shape
+        // here so the same per-method lowering serves both the plain and the
+        // optional-chained receiver instead of the optional case falling through
+        // to a generic (mis-typed) field access.
+        let optional_inner =
+            if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty) {
+                Some(self.type_param_constraint_or_self(*inner))
+            } else {
+                None
+            };
+        let effective_ty = optional_inner.unwrap_or(receiver_ty);
+        let receiver_kind = match self.ctx.krate.types.get(effective_ty) {
             Some(Type::Dict(_, _)) => smelt_stdlib::TypeScriptReceiverKind::Map,
             Some(Type::Set(_)) => smelt_stdlib::TypeScriptReceiverKind::Set,
             _ => return Ok(None),
@@ -61,16 +75,102 @@ impl ModuleBuilder<'_> {
         let Some(rule) = smelt_stdlib::typescript_method_rule(receiver_kind, member_name) else {
             return Ok(None);
         };
-        match rule {
-            RuleId::TsMapHas => self.map_has_call(call, body),
-            RuleId::TsMapGet => self.map_get_call(call, body),
-            RuleId::TsMapMutation => self.map_mutation_call(call, body),
-            RuleId::TsMapProjection => self.map_projection_call(call, body),
-            RuleId::TsSetHas => self.set_contains_call(call, body),
-            RuleId::TsSetMutation => self.set_mutation_call(call, body),
-            RuleId::TsSetProjection => self.set_projection_call(call, body),
-            _ => Ok(None),
+        // The operation is built on the narrowed receiver (typed `T`, unwrapped
+        // by codegen) when the source receiver was optional, and directly on the
+        // receiver otherwise.
+        let op_receiver = if optional_inner.is_some() {
+            self.narrowed_optional_receiver(receiver, effective_ty, member.span, body)
+        } else {
+            receiver
+        };
+        let op = match rule {
+            RuleId::TsMapHas => self.map_has_call(call, op_receiver, body)?,
+            RuleId::TsMapGet => self.map_get_call(call, op_receiver, body)?,
+            RuleId::TsMapMutation => self.map_mutation_call(call, op_receiver, body)?,
+            RuleId::TsMapProjection => self.map_projection_with_receiver(call, op_receiver, body)?,
+            RuleId::TsSetHas => self.set_contains_call(call, op_receiver, body)?,
+            RuleId::TsSetMutation => self.set_mutation_call(call, op_receiver, body)?,
+            RuleId::TsSetProjection => self.set_projection_call(call, op_receiver, body)?,
+            _ => return Ok(None),
+        };
+        let Some(op) = op else {
+            return Ok(None);
+        };
+        if optional_inner.is_some() {
+            Ok(Some(
+                self.wrap_optional_receiver_method(receiver, op, call.span, body),
+            ))
+        } else {
+            Ok(Some(op))
         }
+    }
+
+    /// Narrow an optional modeled receiver to its inner type for a guarded op.
+    ///
+    /// Builds an [`ExprKind::TypeAssert`] typed as the receiver's inner type. The
+    /// Rust emitter recognizes an `Optional(inner)` operand assigned into an
+    /// `inner`-typed slot and unwraps it (`.clone().expect(...)`), matching the
+    /// narrowing the ordinary `if (recv) { recv.method() }` guard produces. The
+    /// assertion is only ever evaluated inside the present branch of the
+    /// conditional built by [`Self::wrap_optional_receiver_method`], so the
+    /// unwrap cannot observe an absent receiver.
+    fn narrowed_optional_receiver(
+        &self,
+        receiver: smelt_hir::ExprId,
+        inner_ty: smelt_hir::TypeId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: receiver },
+            ty: inner_ty,
+            span: self.span(span.start, span.end),
+        })
+    }
+
+    /// Wrap a modeled receiver operation as an optional-chained method result.
+    ///
+    /// Given the original optional receiver and the modeled operation `op` built
+    /// on its narrowed form, produces `recv present ? Some(op) : undefined`. The
+    /// result type flattens through [`Self::optional_chain_result_type`] so an op
+    /// that already returns `Optional` (e.g. `Map.get`) does not double-wrap. The
+    /// receiver expression is shared by the presence test and the narrowed
+    /// access; MIR memoizes each HIR expression, so the receiver is evaluated
+    /// exactly once and its temporary dominates both uses.
+    fn wrap_optional_receiver_method(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        op: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let op_ty = Self::expr_ty(body, op);
+        let result_ty = self.optional_chain_result_type(op_ty);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let is_absent = body.push_expr(Expr {
+            kind: ExprKind::UnknownIs {
+                value: receiver,
+                kind: smelt_hir::UnknownKind::Null,
+            },
+            ty: bool_ty,
+            span: self.span(span.start, span.end),
+        });
+        let present = self.unary_bool_expr(smelt_hir::UnaryOp::Not, is_absent, span, body);
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let absent = body.push_expr(Expr {
+            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            ty: none_ty,
+            span: self.span(span.start, span.end),
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond: present,
+                then_expr: op,
+                else_expr: absent,
+            },
+            ty: result_ty,
+            span: self.span(span.start, span.end),
+        })
     }
 
     /// Return whether a member name belongs to a registry-backed collection method family.
@@ -82,9 +182,14 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Set.prototype.has`.
+    ///
+    /// `receiver` is the pre-lowered set receiver supplied by
+    /// [`Self::dispatch_collection_method`]; for an optional-chained receiver it
+    /// is the narrowed (`T`-typed) form so the same op serves both spellings.
     pub(in crate::lowering) fn set_contains_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
+        receiver: smelt_hir::ExprId,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -99,7 +204,7 @@ impl ModuleBuilder<'_> {
                 "Set.has requires exactly one argument",
             ));
         };
-        let set = self.expression(&member.object, body)?;
+        let set = receiver;
         let set_ty = Self::expr_ty(body, set);
         let Some(Type::Set(set_element_ty)) = self.ctx.krate.types.get(set_ty) else {
             return Ok(None);
@@ -121,9 +226,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Set` mutation methods.
+    ///
+    /// `receiver` is the pre-lowered set receiver (narrowed for optional chains).
     pub(in crate::lowering) fn set_mutation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
+        receiver: smelt_hir::ExprId,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -133,7 +241,7 @@ impl ModuleBuilder<'_> {
         if !matches!(method, "add" | "delete" | "clear") {
             return Ok(None);
         }
-        let set = self.expression(&member.object, body)?;
+        let set = receiver;
         let set_ty = Self::expr_ty(body, set);
         let Some(Type::Set(set_element_ty)) = self.ctx.krate.types.get(set_ty) else {
             return Ok(None);
@@ -204,9 +312,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Map.prototype.has`.
+    ///
+    /// `receiver` is the pre-lowered map receiver (narrowed for optional chains).
     pub(in crate::lowering) fn map_has_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
+        receiver: smelt_hir::ExprId,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -221,7 +332,7 @@ impl ModuleBuilder<'_> {
                 "Map.has requires exactly one key argument",
             ));
         };
-        let dict = self.expression(&member.object, body)?;
+        let dict = receiver;
         let dict_ty = Self::expr_ty(body, dict);
         let Some(Type::Dict(dict_key_ty, _)) = self.ctx.krate.types.get(dict_ty) else {
             return Ok(None);
@@ -243,9 +354,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Map.prototype.get`.
+    ///
+    /// `receiver` is the pre-lowered map receiver (narrowed for optional chains).
     pub(in crate::lowering) fn map_get_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
+        receiver: smelt_hir::ExprId,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -254,7 +368,7 @@ impl ModuleBuilder<'_> {
         if member.property.name != "get" {
             return Ok(None);
         }
-        let dict = self.expression(&member.object, body)?;
+        let dict = receiver;
         let dict_ty = Self::expr_ty(body, dict);
         let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
             return Ok(None);
@@ -287,9 +401,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Map` mutation methods.
+    ///
+    /// `receiver` is the pre-lowered map receiver (narrowed for optional chains).
     pub(in crate::lowering) fn map_mutation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
+        receiver: smelt_hir::ExprId,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -299,7 +416,7 @@ impl ModuleBuilder<'_> {
         if !matches!(method, "set" | "delete" | "clear") {
             return Ok(None);
         }
-        let dict = self.expression(&member.object, body)?;
+        let dict = receiver;
         let dict_ty = Self::expr_ty(body, dict);
         let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
             return Ok(None);
@@ -427,13 +544,37 @@ impl ModuleBuilder<'_> {
         if let [dict_argument] = call.arguments.as_slice() {
             return self.static_dict_projection_utility_call(call, body, op, dict_argument);
         }
+        let dict = self.expression(&member.object, body)?;
+        self.map_projection_with_receiver(call, dict, body)
+    }
+
+    /// Lower a `Map` projection method on a pre-lowered receiver.
+    ///
+    /// Shared by [`Self::map_projection_call`] (receiver form) and
+    /// [`Self::dispatch_collection_method`], which passes the narrowed receiver
+    /// for optional-chained `recv?.keys()/values()/entries()` calls.
+    pub(in crate::lowering) fn map_projection_with_receiver(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        receiver: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let op = match member.property.name.as_str() {
+            "keys" => DictProjectionOp::Keys,
+            "values" => DictProjectionOp::Values,
+            "entries" => DictProjectionOp::Entries,
+            _ => return Ok(None),
+        };
         if !call.arguments.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "Map keys/values/entries require no arguments",
             ));
         }
-        let dict = self.expression(&member.object, body)?;
+        let dict = receiver;
         let dict_ty = Self::expr_ty(body, dict);
         let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
             return Ok(None);
@@ -551,9 +692,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript `Set` projection methods.
+    ///
+    /// `receiver` is the pre-lowered set receiver (narrowed for optional chains).
     pub(in crate::lowering) fn set_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
+        receiver: smelt_hir::ExprId,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -570,7 +714,7 @@ impl ModuleBuilder<'_> {
                 "Set keys/values/entries require no arguments",
             ));
         }
-        let set = self.expression(&member.object, body)?;
+        let set = receiver;
         let set_ty = Self::expr_ty(body, set);
         let Some(Type::Set(set_item_ty)) = self.ctx.krate.types.get(set_ty) else {
             return Ok(None);

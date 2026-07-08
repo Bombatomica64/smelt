@@ -144,11 +144,6 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
-        if self.mir.types.get(function_ty.return_ty) != Some(&Type::Bool) {
-            return Err(EmitError::new(
-                "array predicate callback must return boolean",
-            ));
-        }
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
             Err(_) => self.operand_text(callback)?,
@@ -156,7 +151,19 @@ impl FunctionEmitter<'_> {
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
         let call_args = list_iteration.call_args;
-        let call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        // JavaScript array predicates (`filter`/`find`/`findIndex`/`some`/`every`)
+        // coerce the callback result with the usual truthiness rules rather than
+        // requiring a `boolean`. When the declared return type is not already
+        // `bool` (e.g. an erased `unknown` predicate, `x => x.length`, or
+        // `x => x && cond`), route the single call through `value_truthy_text` so
+        // the predicate observes the same truthiness the source does; a `bool`
+        // return passes through unchanged.
+        let raw_call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let call_text = if self.mir.types.get(function_ty.return_ty) == Some(&Type::Bool) {
+            raw_call_text
+        } else {
+            self.value_truthy_text(&raw_call_text, function_ty.return_ty)?
+        };
         let prefix = format!(
             "let mut smelt_callback = {closure_text}; {prefix}",
             prefix = list_iteration.prefix

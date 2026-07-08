@@ -56,6 +56,8 @@ blocker-logs/*.md
 !blocker-logs/estk-mir-gates.md
 # estk-module-globals.md documents module-level mutable state (thread-local mutable globals)
 !blocker-logs/estk-module-globals.md
+# estk-optional-receivers.md documents the optional-chained modeled-receiver desugar and probe families
+!blocker-logs/estk-optional-receivers.md
 
 # Generated docs site output
 _site/
