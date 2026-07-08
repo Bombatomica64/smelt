@@ -80,6 +80,10 @@ impl FunctionEmitter<'_> {
                     "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => 0 }}, _ => 0 }}"
                 )
             }
+            // A fixed-arity tuple (e.g. a `[key, value]` narrowing) has no Rust
+            // `.len()` method; its JavaScript `.length` is the compile-time
+            // arity, so emit that constant rather than a method call.
+            Some(Type::Tuple(items)) => format!("{}", items.len()),
             _ => format!("{receiver_text}.len()"),
         };
         Ok(format!("{len_expr} as {cast}"))
