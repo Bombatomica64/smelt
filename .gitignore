@@ -70,6 +70,8 @@ blocker-logs/*.md
 !blocker-logs/estk-codegen-e0308.md
 # remeda-regression.md documents the remeda no-regression investigation (baseline vs current binary)
 !blocker-logs/remeda-regression.md
+# estk-codegen-tail.md documents the non-coercion structural/trait/name tail fixes
+!blocker-logs/estk-codegen-tail.md
 
 # Generated docs site output
 _site/
