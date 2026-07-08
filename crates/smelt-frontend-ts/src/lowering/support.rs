@@ -14,6 +14,7 @@ pub(super) fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<
         Item::Interface(interface) => interface.name,
         Item::TypeAlias(alias) => alias.name,
         Item::Const(const_item) => const_item.name,
+        Item::MutableGlobal(global_item) => global_item.name,
     };
     krate
         .names
@@ -52,7 +53,10 @@ pub(super) fn insert_visible_item(
         Item::Interface(_) => {
             interfaces.insert(name.to_owned(), item_id);
         }
-        Item::Function(_) | Item::TypeAlias(_) | Item::Const(_) => {}
+        Item::Function(_)
+        | Item::TypeAlias(_)
+        | Item::Const(_)
+        | Item::MutableGlobal(_) => {}
     }
 }
 

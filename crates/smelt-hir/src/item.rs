@@ -20,6 +20,8 @@ pub enum Item {
     TypeAlias(TypeAlias),
     /// A constant item.
     Const(ConstItem),
+    /// A module-level mutable binding lifted to a global.
+    MutableGlobal(MutableGlobalItem),
 }
 
 /// Visibility modifier for items.
@@ -303,6 +305,32 @@ pub struct ParamSig {
     /// The type of the parameter.
     pub ty: TypeId,
     /// Source location of the parameter.
+    pub span: Span,
+}
+
+/// A module-level mutable binding lifted to a "mutable global".
+///
+/// Created by the TypeScript frontend's classification pass for a module-level
+/// `let`/`var` binding that is mutated somewhere in the crate (direct
+/// reassignment, `++`/`--`, or a compound assignment). Reads of the binding
+/// lower to [`crate::ExprKind::GlobalGet`] and writes to
+/// [`crate::ExprKind::GlobalSet`], both referencing this item's
+/// [`crate::ItemId`]. MIR lowering collects these items into `Mir::globals`,
+/// and codegen emits one thread-local cell per global. Non-mutated module
+/// bindings keep the existing inline/const-item path and never become a
+/// `MutableGlobalItem`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MutableGlobalItem {
+    /// The name of the binding.
+    pub name: Symbol,
+    /// The lowered type of the binding (always a primitive in V1: Float, Int,
+    /// Bool, or String).
+    pub ty: TypeId,
+    /// The literal initializer captured from the binding declaration.
+    pub init: Literal,
+    /// The visibility of the binding (exported bindings are `Public`).
+    pub visibility: Visibility,
+    /// Source location of the binding declaration.
     pub span: Span,
 }
 

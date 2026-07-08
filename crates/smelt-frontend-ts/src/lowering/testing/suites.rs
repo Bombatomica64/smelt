@@ -552,6 +552,13 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
+        // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
+        // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
+        // must not leak into a sibling test that declares its own same-named
+        // binding — a stale optional narrowing would turn its indexed writes
+        // into non-assignable optional projections. Scope them per test case
+        // exactly like `self.locals`.
+        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         let class_scope = self.test_case_class_scope();
         self.current_async = arrow.r#async;
@@ -600,6 +607,7 @@ impl ModuleBuilder<'_> {
         }
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
+        self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {
@@ -662,6 +670,13 @@ return_ty: none,
 
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
+        // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
+        // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
+        // must not leak into a sibling test that declares its own same-named
+        // binding — a stale optional narrowing would turn its indexed writes
+        // into non-assignable optional projections. Scope them per test case
+        // exactly like `self.locals`.
+        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         let class_scope = self.test_case_class_scope();
         self.current_async = function.r#async;
@@ -723,6 +738,7 @@ return_ty: none,
         self.current_arguments_arities.pop();
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
+        self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {

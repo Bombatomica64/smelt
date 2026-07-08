@@ -2308,6 +2308,9 @@ impl ModuleBuilder<'_> {
             }
             Expression::CallExpression(call) => self.call_expression(call, body),
             Expression::AssignmentExpression(assign) => {
+                if let Some(expr) = self.try_global_assignment_expression(assign, body)? {
+                    return Ok(expr);
+                }
                 let (_target, value) = self.assignment_parts(assign, body)?;
                 Ok(value)
             }

@@ -1147,6 +1147,10 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!("json_parse {}", operand_text(text))
         }
         Rvalue::HttpGetText { url } => format!("http_get_text {}", operand_text(url)),
+        Rvalue::GlobalGet { global } => format!("global_get #{global}"),
+        Rvalue::GlobalSet { global, value: stored } => {
+            format!("global_set #{global} = {}", operand_text(stored))
+        }
         Rvalue::DateNow => "date_now".to_owned(),
         Rvalue::DateSetNow { timestamp } => format!("date_set_now {}", operand_text(timestamp)),
         Rvalue::DateResetNow => "date_reset_now".to_owned(),

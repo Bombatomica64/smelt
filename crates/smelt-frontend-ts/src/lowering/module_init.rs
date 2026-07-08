@@ -23,8 +23,35 @@ use oxc::ast::ast::{
 use oxc::span::GetSpan;
 use smelt_hir::{
     Body, ConstItem, Expr, ExprKind, FileId, Function, FunctionOwner, FunctionType, Import, Item,
-    Language, Literal, Module, ModuleId, Param, SourceFile, Span, Type,
+    Language, Literal, Module, ModuleId, Param, SourceFile, Span, Type, Visibility,
 };
+
+/// Collects the names of every binding that is reassigned or `++`/`--` updated
+/// anywhere in a program, used to decide which module-level `let`/`var`
+/// bindings must be lifted to mutable globals.
+///
+/// Overriding [`oxc::ast_visit::Visit::visit_simple_assignment_target`] catches
+/// both assignment left-hand sides and increment/decrement arguments, since the
+/// default traversal routes both through a simple assignment target. Walking
+/// continues into nested nodes so function and method bodies are covered.
+struct MutatedNameCollector {
+    /// Names observed as an assignment or update target.
+    names: HashSet<String>,
+}
+
+impl<'a> oxc::ast_visit::Visit<'a> for MutatedNameCollector {
+    fn visit_simple_assignment_target(
+        &mut self,
+        target: &oxc::ast::ast::SimpleAssignmentTarget<'a>,
+    ) {
+        if let oxc::ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) =
+            target
+        {
+            self.names.insert(identifier.name.as_str().to_owned());
+        }
+        oxc::ast_visit::walk::walk_simple_assignment_target(self, target);
+    }
+}
 
 impl<'ctx> ModuleBuilder<'ctx> {
     /// Create a new module builder.
@@ -61,6 +88,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             locals: HashMap::new(),
             date_value_locals: HashSet::new(),
             module_globals: HashMap::new(),
+            mutable_global_items: HashMap::new(),
             items,
             classes,
             pending_class_names: HashSet::new(),
@@ -220,6 +248,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.predeclare_type_alias_items(program);
         self.collect_module_enums(program);
         self.collect_module_globals(program);
+        self.collect_mutable_globals(program, &mut module, &mut errors);
         self.pending_class_names = Self::program_class_names(program);
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
@@ -673,6 +702,257 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .insert(binding.name.as_str().to_owned(), ty);
             }
         }
+    }
+
+    /// Classify module-level `let`/`var` bindings that are mutated anywhere in
+    /// the module and lift each to a [`Item::MutableGlobal`].
+    ///
+    /// A binding is lifted only when it is reassigned or updated somewhere (the
+    /// [`MutatedNameCollector`] scan). Lifted bindings register a HIR item so
+    /// reads lower to `GlobalGet` and writes to `GlobalSet`; the item is added
+    /// to the module's item list so exported globals are visible cross-module.
+    /// V1 constraints — literal initializer and primitive type — are enforced
+    /// here with named blocker errors; a violating binding is not lifted.
+    pub(super) fn collect_mutable_globals(
+        &mut self,
+        program: &Program<'_>,
+        module: &mut Module,
+        errors: &mut Vec<SmeltError>,
+    ) {
+        let mutated = Self::collect_mutated_names(program);
+        if mutated.is_empty() {
+            return;
+        }
+        for statement in &program.body {
+            match statement {
+                Statement::VariableDeclaration(variable) => {
+                    self.register_mutable_global_decl(
+                        variable,
+                        &mutated,
+                        Visibility::Private,
+                        module,
+                        errors,
+                    );
+                }
+                Statement::ExportNamedDeclaration(export) => {
+                    if let Some(Declaration::VariableDeclaration(variable)) = &export.declaration {
+                        self.register_mutable_global_decl(
+                            variable,
+                            &mutated,
+                            Visibility::Public,
+                            module,
+                            errors,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Lift each mutated identifier binding in one declaration to a global.
+    fn register_mutable_global_decl(
+        &mut self,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+        mutated: &HashSet<String>,
+        visibility: Visibility,
+        module: &mut Module,
+        errors: &mut Vec<SmeltError>,
+    ) {
+        // `var` is treated like `let`; `const` bindings can never be reassigned
+        // and keep the existing inline/const-item path.
+        if !matches!(
+            decl.kind,
+            oxc::ast::ast::VariableDeclarationKind::Let
+                | oxc::ast::ast::VariableDeclarationKind::Var
+        ) {
+            return;
+        }
+        for declarator in &decl.declarations {
+            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                continue;
+            };
+            let name = binding.name.as_str();
+            if !mutated.contains(name) {
+                continue;
+            }
+            let span = self.span(binding.span.start, binding.span.end);
+            let Some(init) = &declarator.init else {
+                errors.push(SmeltError::unsupported(
+                    span,
+                    "module-level mutable binding initializer must be a literal for now",
+                ));
+                continue;
+            };
+            let Some(literal) = self.mutable_global_literal_init(init) else {
+                errors.push(SmeltError::unsupported(
+                    span,
+                    "module-level mutable binding initializer must be a literal for now",
+                ));
+                continue;
+            };
+            let ty = match &declarator.type_annotation {
+                Some(annotation) => self
+                    .ts_type_to_hir(&annotation.type_annotation)
+                    .unwrap_or(literal.ty),
+                None => literal.ty,
+            };
+            if !self.mutable_global_type_is_primitive(ty) {
+                errors.push(SmeltError::unsupported(
+                    span,
+                    "module-level mutable bindings support primitive types for now",
+                ));
+                continue;
+            }
+            let symbol = self.intern_source_name(name);
+            let item = self.ctx.krate.push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
+                name: symbol,
+                ty,
+                init: literal.literal.clone(),
+                visibility,
+                span,
+            }));
+            module.items.push(item);
+            self.items.insert(name.to_owned(), item);
+            self.mutable_global_items.insert(name.to_owned(), item);
+        }
+    }
+
+    /// Accept only a direct number/string/bool literal initializer (through
+    /// transparent parenthesis/cast wrappers) for a mutable global.
+    fn mutable_global_literal_init(&mut self, expression: &Expression<'_>) -> Option<ConstLiteral> {
+        match expression {
+            Expression::NumericLiteral(literal) => Some(ConstLiteral {
+                literal: Literal::Float(literal.value),
+                ty: self.ctx.krate.types.intern(Type::Float),
+            }),
+            Expression::StringLiteral(literal) => Some(ConstLiteral {
+                literal: Literal::String(literal.value.to_string()),
+                ty: self.ctx.krate.types.intern(Type::String),
+            }),
+            Expression::BooleanLiteral(literal) => Some(ConstLiteral {
+                literal: Literal::Bool(literal.value),
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            }),
+            Expression::ParenthesizedExpression(inner) => {
+                self.mutable_global_literal_init(&inner.expression)
+            }
+            Expression::TSAsExpression(inner) => {
+                self.mutable_global_literal_init(&inner.expression)
+            }
+            Expression::TSSatisfiesExpression(inner) => {
+                self.mutable_global_literal_init(&inner.expression)
+            }
+            Expression::TSNonNullExpression(inner) => {
+                self.mutable_global_literal_init(&inner.expression)
+            }
+            _ => None,
+        }
+    }
+
+    /// Return whether a lowered type is a primitive a mutable global supports.
+    fn mutable_global_type_is_primitive(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Float | Type::Int | Type::Bool | Type::String)
+        )
+    }
+
+    /// Collect the names of every binding reassigned or updated inside a
+    /// hoisted item body: top-level function declarations, class declarations,
+    /// and `const` arrow/function initializers (all of which lower to items
+    /// with no access to a module-body local).
+    ///
+    /// Mutations written directly in module-body statements — including inline
+    /// callbacks such as `forEach` bodies — are deliberately NOT collected:
+    /// there the binding lowers to an ordinary mutable module-body local and
+    /// the existing assignment path already works, byte-identical to today.
+    /// Within each scanned subtree the collection is a conservative
+    /// over-approximation (it ignores inner shadowing scopes), which is
+    /// sufficient to decide which module-level `let`/`var` bindings need the
+    /// mutable-global lift.
+    fn collect_mutated_names(program: &Program<'_>) -> HashSet<String> {
+        use oxc::ast_visit::Visit;
+        let mut collector = MutatedNameCollector {
+            names: HashSet::new(),
+        };
+        for statement in &program.body {
+            let declaration = match statement {
+                Statement::FunctionDeclaration(function) => {
+                    collector.visit_function(function, oxc::semantic::ScopeFlags::Function);
+                    continue;
+                }
+                Statement::ClassDeclaration(class) => {
+                    collector.visit_class(class);
+                    continue;
+                }
+                Statement::VariableDeclaration(decl) => {
+                    Self::collect_mutated_names_in_const_callables(&mut collector, decl);
+                    continue;
+                }
+                Statement::ExportNamedDeclaration(export) => export.declaration.as_ref(),
+                Statement::ExportDefaultDeclaration(_) => None,
+                _ => None,
+            };
+            match declaration {
+                Some(Declaration::FunctionDeclaration(function)) => {
+                    collector.visit_function(function, oxc::semantic::ScopeFlags::Function);
+                }
+                Some(Declaration::ClassDeclaration(class)) => {
+                    collector.visit_class(class);
+                }
+                Some(Declaration::VariableDeclaration(decl)) => {
+                    Self::collect_mutated_names_in_const_callables(&mut collector, decl);
+                }
+                _ => {}
+            }
+        }
+        collector.names
+    }
+
+    /// Scan `const name = <arrow/function>` initializers for mutation targets.
+    ///
+    /// Const arrow/function bindings lift to items (the compact callback and
+    /// function-item forms), so their bodies — like function declarations —
+    /// have no module-body local to assign through and need the global lift.
+    fn collect_mutated_names_in_const_callables(
+        collector: &mut MutatedNameCollector,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+    ) {
+        use oxc::ast_visit::Visit;
+        if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+            return;
+        }
+        for declarator in &decl.declarations {
+            if let Some(
+                init @ (Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)),
+            ) = &declarator.init
+            {
+                collector.visit_expression(init);
+            }
+        }
+    }
+
+    /// Return the mutable-global HIR item id for a name, if it was lifted.
+    pub(in crate::lowering) fn mutable_global_item(&self, name: &str) -> Option<smelt_hir::ItemId> {
+        let item = self.items.get(name).copied()?;
+        matches!(self.item_ref(item), Item::MutableGlobal(_)).then_some(item)
+    }
+
+    /// Return whether a binding declarator IS the lifted module-level
+    /// declaration of a mutable global (same name and binding span).
+    pub(in crate::lowering) fn is_lifted_global_declarator(
+        &self,
+        name: &str,
+        binding_span: oxc::span::Span,
+    ) -> bool {
+        let Some(item) = self.mutable_global_items.get(name).copied() else {
+            return false;
+        };
+        let Item::MutableGlobal(global_item) = self.item_ref(item) else {
+            return false;
+        };
+        global_item.span.start == binding_span.start && global_item.span.end == binding_span.end
     }
 
     /// Register simple names from a non-identifier module-level binding pattern.

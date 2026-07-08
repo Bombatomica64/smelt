@@ -178,6 +178,7 @@ fn item_name<'a>(krate: &'a smelt_hir::Crate, hir_item: &Item) -> Option<&'a str
         Item::Interface(interface) => interface.name,
         Item::TypeAlias(alias) => alias.name,
         Item::Const(const_item) => const_item.name,
+        Item::MutableGlobal(global_item) => global_item.name,
     };
     krate.symbols.get(symbol)
 }

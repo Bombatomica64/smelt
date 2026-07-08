@@ -313,7 +313,22 @@ impl FunctionEmitter<'_> {
                 }
                 return Ok("true".to_owned());
             }
-            return Err(EmitError::new("dict remove receiver must be a dict"));
+            // JavaScript `delete list[i]` punches a hole while preserving
+            // length. Smelt lists are dense `Vec<T>` with no hole
+            // representation, so the delete lowers to a successful no-op —
+            // the same explicit deferral style as no-op list `length` growth.
+            // Subsequent reads observe the retained element instead of a hole.
+            if matches!(self.mir.types.get(dict_ty), Some(Type::List(_) | Type::Tuple(_))) {
+                if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
+                    return Err(EmitError::new("dict remove destination must be bool"));
+                }
+                return Ok("true".to_owned());
+            }
+            return Err(EmitError::new(format!(
+                "dict remove receiver must be a dict, got {}",
+                Self::type_text_for(self.mir, dict_ty)
+                    .unwrap_or_else(|_error| format!("{dict_ty:?}"))
+            )));
         };
         // Coerce a dynamically-typed (`Unknown`/optional/union) key to the dict's
         // key type instead of dropping the removal — mirrors `dict_set_text`.

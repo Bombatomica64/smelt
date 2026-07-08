@@ -1152,7 +1152,10 @@ impl ModuleBuilder<'_> {
                     self.ctx.krate.symbols.get(class.name) == Some(source_name)
                         && owner_name.is_none()
                 }
-                Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => false,
+                Item::Interface(_)
+                | Item::TypeAlias(_)
+                | Item::Const(_)
+                | Item::MutableGlobal(_) => false,
             })
             .ok_or_else(|| {
                 SmeltError::native_specialization_adapter_required(

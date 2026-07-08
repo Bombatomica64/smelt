@@ -4,7 +4,7 @@ use super::*;
 use crate::rust::RustExpr;
 
 /// Converts a MIR constant to Rust source text.
-pub(super) fn constant_text(constant: &Constant) -> String {
+pub(crate) fn constant_text(constant: &Constant) -> String {
     match constant {
         Constant::Bool(value) => value.to_string(),
         Constant::Int(value) => value.to_string(),

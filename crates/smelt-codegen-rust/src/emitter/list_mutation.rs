@@ -195,11 +195,15 @@ impl FunctionEmitter<'_> {
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
             return Err(EmitError::new("list extend receiver must be a list"));
         }
-        if self.operand_ty(other)? != list_ty {
-            return Err(EmitError::new(
-                "list extend argument must match the receiver list type",
-            ));
-        }
+        // A mismatched argument list (e.g. a generic `SmeltList<T>` extending an
+        // erased `SmeltList<SmeltUnknown>` receiver) coerces through the shared
+        // `value_at_type` conversion instead of failing; genuinely unconvertible
+        // shapes still produce that helper's honest error.
+        let other_text = if self.operand_ty(other)? == list_ty {
+            self.operand_text(other)?
+        } else {
+            self.value_at_type(other, list_ty)?
+        };
         let returns_length = match self.mir.types.get(dest_ty) {
             Some(Type::Float) => true,
             Some(Type::None) => false,
@@ -215,7 +219,6 @@ impl FunctionEmitter<'_> {
             ));
         };
         let list_text = self.local_mut_value_text(*local)?;
-        let other_text = self.operand_text(other)?;
         if returns_length {
             Ok(format!(
                 "{{ {list_text}.extend({other_text}.iter().cloned()); {list_text}.len() as f64 }}"

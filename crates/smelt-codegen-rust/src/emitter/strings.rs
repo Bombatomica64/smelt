@@ -664,6 +664,25 @@ impl FunctionEmitter<'_> {
                 self.operand_text(needle)?
             ));
         }
+        // Other erased haystacks (unscoped type parameters, unions, `never`,
+        // erased classes) reach here through specialization; erase the value to
+        // the runtime `SmeltUnknown` boundary and use the same `.includes`
+        // helper as the plain-`Unknown` fast path above.
+        if from_index.is_none()
+            && (matches!(
+                self.mir.types.get(haystack_ty),
+                Some(Type::Union(_) | Type::TypeParam { .. } | Type::Never)
+            ) || self.is_erased_class_type(haystack_ty))
+        {
+            let erased_haystack = self.erase_value_text(
+                &format!("{}.clone()", self.operand_text(haystack)?),
+                haystack_ty,
+            )?;
+            return Ok(format!(
+                "{erased_haystack}.includes({})",
+                self.operand_text(needle)?
+            ));
+        }
         if from_index.is_none()
             && self.mir.types.get(needle_ty) == Some(&Type::Unknown)
             && self.mir.types.get(haystack_ty) == Some(&Type::String)
@@ -677,18 +696,35 @@ impl FunctionEmitter<'_> {
                 self.operand_text(needle)?
             ));
         }
-        if !matches!(self.mir.types.get(haystack_ty), Some(Type::String))
-            || !matches!(self.mir.types.get(needle_ty), Some(Type::String))
-        {
-            return Err(EmitError::new("string contains operands must be strings"));
+        if !matches!(self.mir.types.get(needle_ty), Some(Type::String)) {
+            return Err(EmitError::new(format!(
+                "string contains needle must be a string, got {}",
+                Self::type_text_for(self.mir, needle_ty)
+                    .unwrap_or_else(|_error| format!("{needle_ty:?}"))
+            )));
         }
         if let Some(from_index_operand) = from_index {
-            let haystack_text = self.operand_text(haystack)?;
+            // A non-string haystack (e.g. an erased value reaching the
+            // positional form through specialization) coerces through the
+            // shared `value_at_type` conversion; genuinely unconvertible
+            // shapes still produce that helper's honest error.
+            let haystack_text = if matches!(self.mir.types.get(haystack_ty), Some(Type::String)) {
+                self.operand_text(haystack)?
+            } else {
+                self.value_at_type(haystack, self.type_id(Type::String)?)?
+            };
             let needle_text = self.operand_text(needle)?;
             let index_text = self.value_at_type(from_index_operand, self.type_id(Type::Float)?)?;
             return Ok(format!(
                 "{{ let smelt_haystack = {haystack_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).map_or(false, |suffix| suffix.contains(&{needle_text})) }}"
             ));
+        }
+        if !matches!(self.mir.types.get(haystack_ty), Some(Type::String)) {
+            return Err(EmitError::new(format!(
+                "string contains haystack must be a string, got {}",
+                Self::type_text_for(self.mir, haystack_ty)
+                    .unwrap_or_else(|_error| format!("{haystack_ty:?}"))
+            )));
         }
         Ok(format!(
             "{}.contains(&{})",

@@ -2189,6 +2189,17 @@ fn emit_source_with_free_function_router(
     }
     out.push_str(&format!("\n\n{PRELUDE_END_MARKER}\n"));
 
+    // Emit one thread-local cell per module-level mutable global. These are
+    // program-specific mangled names (not fixed runtime symbols): each `#[test]`
+    // thread observes fresh module state initialized from the source literal,
+    // deterministic and mirroring vitest's per-file module isolation. Copy
+    // primitives use a `const`-initialized `Cell`; strings use the non-const
+    // `RefCell` form because a `.to_owned()` initializer cannot be `const`.
+    if !mir.globals.is_empty() {
+        out.push('\n');
+        out.push_str(&emit_mutable_globals(mir)?);
+    }
+
     let mut has_emitted_root_function = false;
     for function in &mir.functions {
         if matches!(
@@ -2967,6 +2978,71 @@ fn generated_deps(mir: &Mir) -> Vec<GeneratedDep> {
 /// Helper struct for emitting Rust code from a MirFunction.
 fn sanitize_ident(name: &str) -> String {
     RustIdent::new(name).into_string()
+}
+
+/// Emit the `thread_local!` block declaring every mutable global's cell.
+///
+/// Each `#[test]` runs on its own thread, so a `thread_local!` cell gives every
+/// test a fresh copy of module state initialized from the source literal —
+/// deterministic, mirroring vitest's per-file module isolation. Copy primitives
+/// (`f64`/`i64`/`bool`) use a `const`-initialized [`std::cell::Cell`]; strings
+/// use a [`std::cell::RefCell`] with the non-const initializer form because a
+/// `.to_owned()` initializer cannot appear in a `const` block.
+fn emit_mutable_globals(mir: &Mir) -> Result<String, EmitError> {
+    let mut writer = CodeWriter::new();
+    writer.line("thread_local! {");
+    for (index, global) in mir.globals.iter().enumerate() {
+        let name = global_static_name(mir, compact_index(index, "global index")?);
+        let init = emitter::literals::constant_text(&global.init);
+        match mir.types.get(global.ty) {
+            Some(Type::String) => {
+                // `init` is already the owned-string expression (`"…".to_owned()`),
+                // which cannot appear in a `const` block, hence the non-const form.
+                writer.line(format!(
+                    "    static {name}: ::std::cell::RefCell<String> = ::std::cell::RefCell::new({init});"
+                ));
+            }
+            Some(Type::Float) => {
+                writer.line(format!(
+                    "    static {name}: ::std::cell::Cell<f64> = const {{ ::std::cell::Cell::new({init}) }};"
+                ));
+            }
+            Some(Type::Int) => {
+                writer.line(format!(
+                    "    static {name}: ::std::cell::Cell<i64> = const {{ ::std::cell::Cell::new({init}) }};"
+                ));
+            }
+            Some(Type::Bool) => {
+                writer.line(format!(
+                    "    static {name}: ::std::cell::Cell<bool> = const {{ ::std::cell::Cell::new({init}) }};"
+                ));
+            }
+            _ => {
+                return Err(EmitError::new(
+                    "mutable global has a non-primitive type; only Float/Int/Bool/String are supported",
+                ));
+            }
+        }
+    }
+    writer.line("}");
+    Ok(writer.finish())
+}
+
+/// Compute the thread-local static name for a mutable global by index.
+///
+/// The name is derived from the binding's source symbol (sanitized and
+/// uppercased) with the global's dense `Mir::globals` index appended, prefixed
+/// `SMELT_GLOBAL_`. Including the index disambiguates cross-module bindings
+/// that share a source name so each mutable global gets a unique per-program
+/// static. These names are program-specific and never enter the fixed
+/// runtime-symbol registry.
+pub(crate) fn global_static_name(mir: &Mir, index: u32) -> String {
+    let base = usize::try_from(index)
+        .ok()
+        .and_then(|idx| mir.globals.get(idx))
+        .and_then(|global| mir.symbols.get(global.name))
+        .map_or_else(|| "global".to_owned(), sanitize_ident);
+    format!("SMELT_GLOBAL_{}_{index}", base.to_uppercase())
 }
 
 #[cfg(test)]

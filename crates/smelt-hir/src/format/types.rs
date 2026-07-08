@@ -17,6 +17,7 @@ pub(super) fn item_ref(krate: &Crate, item: ItemId) -> String {
         Item::Interface(interface) => krate.symbols.get(interface.name),
         Item::TypeAlias(alias) => krate.symbols.get(alias.name),
         Item::Const(item) => krate.symbols.get(item.name),
+        Item::MutableGlobal(item) => krate.symbols.get(item.name),
     }
     .unwrap_or("<unknown>");
 
@@ -46,6 +47,10 @@ pub(super) fn item_text(krate: &Crate, item: ItemId) -> String {
         Item::Const(const_item) => {
             let name = krate.symbols.get(const_item.name).unwrap_or("<unknown>");
             format!("const {name}: {}", type_ref(krate, const_item.ty))
+        }
+        Item::MutableGlobal(global_item) => {
+            let name = krate.symbols.get(global_item.name).unwrap_or("<unknown>");
+            format!("global mut {name}: {}", type_ref(krate, global_item.ty))
         }
     }
 }

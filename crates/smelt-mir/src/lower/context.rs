@@ -28,6 +28,8 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) krate: &'hir smelt_hir::Crate,
     /// Mapping of HIR item IDs to MIR function IDs.
     pub(super) item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
+    /// Mapping of mutable-global HIR item IDs to their `Mir::globals` index.
+    pub(super) global_ids: &'hir HashMap<smelt_hir::ItemId, u32>,
     /// The HIR body being lowered.
     pub(super) body: &'hir Body,
     /// The MIR function being constructed.
@@ -82,6 +84,8 @@ pub(super) struct LoweringShared<'hir> {
     pub(super) krate: &'hir smelt_hir::Crate,
     /// Mapping of HIR item IDs to MIR function IDs.
     pub(super) item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
+    /// Mapping of mutable-global HIR item IDs to their `Mir::globals` index.
+    pub(super) global_ids: &'hir HashMap<smelt_hir::ItemId, u32>,
     /// Numeric type used for generated index-based loop counters.
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.
@@ -238,6 +242,7 @@ impl<'hir> LoweringCtx<'hir> {
         Self {
             krate: shared.krate,
             item_functions: shared.item_functions,
+            global_ids: shared.global_ids,
             body,
             function,
             closures: Vec::new(),

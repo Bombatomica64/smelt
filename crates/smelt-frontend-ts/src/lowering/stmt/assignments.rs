@@ -1539,6 +1539,153 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Return the mutable-global item id an assignment target names, if any.
+    ///
+    /// A function-local or test-body binding with the same name shadows the
+    /// module global, so a registered local always wins over the global path.
+    fn assignment_target_mutable_global(
+        &self,
+        target: &AssignmentTarget<'_>,
+    ) -> Option<smelt_hir::ItemId> {
+        let AssignmentTarget::AssignmentTargetIdentifier(identifier) = target else {
+            return None;
+        };
+        if self.locals.contains_key(identifier.name.as_str()) {
+            return None;
+        }
+        self.mutable_global_item(identifier.name.as_str())
+    }
+
+    /// Desugar an assignment to a lifted mutable global into a `GlobalSet`.
+    ///
+    /// Reuses [`Self::assignment_parts`] to compute the stored value (which
+    /// reads the current value through `GlobalGet` for compound and logical
+    /// operators), then wraps it in a `GlobalSet` that evaluates to the stored
+    /// value so `x = e` / `x += e` compose as expressions. Returns `Ok(None)`
+    /// when the target is not a lifted global so ordinary lowering proceeds.
+    pub(in crate::lowering) fn try_global_assignment_expression(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(item) = self.assignment_target_mutable_global(&assign.left) else {
+            return Ok(None);
+        };
+        let (_target, value) = self.assignment_parts(assign, body)?;
+        let ty = Self::expr_ty(body, value);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::GlobalSet { item, value },
+            ty,
+            span: self.span(assign.span.start, assign.span.end),
+        })))
+    }
+
+    /// Desugar an increment/decrement of a lifted mutable global.
+    ///
+    /// Prefix `++x` evaluates to the stored (new) value, so the `GlobalSet`
+    /// itself is returned. Postfix `x++` must evaluate to the old value while
+    /// still storing the incremented one; when `keep_old_value` is set (an
+    /// expression-value position) the old value is captured in a temporary
+    /// before the store is emitted as a side statement. In statement/loop
+    /// positions the result is discarded, so the `GlobalSet` is returned
+    /// directly. Returns `Ok(None)` when the target is not a lifted global.
+    pub(in crate::lowering) fn try_global_update_expression(
+        &mut self,
+        update: &oxc::ast::ast::UpdateExpression<'_>,
+        body: &mut Body,
+        keep_old_value: bool,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &update.argument else {
+            return Ok(None);
+        };
+        // A same-named local (function body or re-lowered test setup) shadows
+        // the module global; the ordinary local update path handles it.
+        if self.locals.contains_key(identifier.name.as_str()) {
+            return Ok(None);
+        }
+        let Some(item) = self.mutable_global_item(identifier.name.as_str()) else {
+            return Ok(None);
+        };
+        let span = self.span(update.span.start, update.span.end);
+        let ty = match self.item_ref(item) {
+            Item::MutableGlobal(global_item) => global_item.ty,
+            _ => self.ctx.krate.types.intern(Type::Unknown),
+        };
+        let op = match update.operator {
+            UpdateOperator::Increment => BinOp::Add,
+            UpdateOperator::Decrement => BinOp::Sub,
+        };
+        let build_set = |target_body: &mut Body| {
+            let current = target_body.push_expr(Expr {
+                kind: ExprKind::GlobalGet { item },
+                ty,
+                span,
+            });
+            let one = target_body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(1.0)),
+                ty,
+                span,
+            });
+            let next = target_body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op,
+                    lhs: current,
+                    rhs: one,
+                },
+                ty,
+                span,
+            });
+            target_body.push_expr(Expr {
+                kind: ExprKind::GlobalSet { item, value: next },
+                ty,
+                span,
+            })
+        };
+        if update.prefix || !keep_old_value {
+            let set = build_set(body);
+            return Ok(Some(set));
+        }
+        // Postfix in an expression-value position: capture the old value in a
+        // temporary, emit the store as a side statement, then evaluate to the
+        // captured old value.
+        let old = body.push_expr(Expr {
+            kind: ExprKind::GlobalGet { item },
+            ty,
+            span,
+        });
+        let temp_local = body.push_local(LocalDecl {
+            name: Some(self.ctx.krate.symbols.intern("__smelt_global_old")),
+            ty,
+            mutable: false,
+            span,
+        });
+        let temp_pat = body.push_pattern(Pattern::Binding(temp_local));
+        let set = build_set(body);
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(
+                block,
+                Stmt::Let {
+                    pat: temp_pat,
+                    ty,
+                    value: Some(old),
+                },
+            );
+            body.push_stmt_to_block(block, Stmt::Expr(set));
+        } else {
+            body.push_stmt(Stmt::Let {
+                pat: temp_pat,
+                ty,
+                value: Some(old),
+            });
+            body.push_stmt(Stmt::Expr(set));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Local(temp_local),
+            ty,
+            span,
+        })))
+    }
+
     /// Extract target and value from assignment expression.
     pub(in crate::lowering) fn assignment_parts(
         &mut self,
@@ -1893,6 +2040,12 @@ impl ModuleBuilder<'_> {
         update: &oxc::ast::ast::UpdateExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // A `++`/`--` of a lifted mutable global desugars to a `GlobalSet` that
+        // preserves JavaScript's prefix (new value) / postfix (old value)
+        // result semantics.
+        if let Some(expr) = self.try_global_update_expression(update, body, true)? {
+            return Ok(expr);
+        }
         let (target, value) = self.update_parts(update, body)?;
         if !update.prefix
             && let Some(deferred_updates) = self.deferred_postfix_updates.as_mut()

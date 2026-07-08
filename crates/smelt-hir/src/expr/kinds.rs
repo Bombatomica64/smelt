@@ -27,6 +27,27 @@ pub enum ExprKind {
     Literal(Literal),
     Local(LocalId),
     Item(ItemId),
+    /// Read of a module-level mutable global binding.
+    ///
+    /// `item` references an [`crate::Item::MutableGlobal`]; the expression is
+    /// typed as that binding's declared type. Reads of a lifted module `let`
+    /// lower to this instead of being const-inlined.
+    GlobalGet {
+        /// The mutable-global item being read.
+        item: ItemId,
+    },
+    /// Store to a module-level mutable global binding.
+    ///
+    /// Evaluates `value`, stores it into the global referenced by `item`, and
+    /// evaluates to the stored value so that `++`/`--` and compound assignments
+    /// compose as expressions. `item` references an
+    /// [`crate::Item::MutableGlobal`].
+    GlobalSet {
+        /// The mutable-global item being written.
+        item: ItemId,
+        /// The value expression to store.
+        value: ExprId,
+    },
     Call {
         callee: ExprId,
         args: Vec<ExprId>,

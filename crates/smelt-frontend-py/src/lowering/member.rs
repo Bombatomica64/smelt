@@ -22,7 +22,7 @@ impl ModuleBuilder<'_> {
         let span = self.span(call.range);
         let return_ty = match self.item_ref(item_id) {
             Item::Function(function) => function.return_ty,
-            Item::Class(_) | Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {
+            Item::Class(_) | Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) | Item::MutableGlobal(_) => {
                 return Ok(None);
             }
         };
@@ -123,7 +123,7 @@ impl ModuleBuilder<'_> {
         let span = self.span(call.range);
         let return_ty = match self.item_ref(item_id) {
             Item::Function(function) => function.return_ty,
-            Item::Class(_) | Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {
+            Item::Class(_) | Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) | Item::MutableGlobal(_) => {
                 return Ok(None);
             }
         };
@@ -292,9 +292,13 @@ impl ModuleBuilder<'_> {
                     span,
                 })))
             }
-            Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => Err(
-                SmeltError::unsupported(span, "module namespace member is not callable"),
-            ),
+            Item::Interface(_)
+            | Item::TypeAlias(_)
+            | Item::Const(_)
+            | Item::MutableGlobal(_) => Err(SmeltError::unsupported(
+                span,
+                "module namespace member is not callable",
+            )),
         }
     }
 
@@ -323,12 +327,14 @@ impl ModuleBuilder<'_> {
                     args: vec![],
                 })
             }
-            Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {
-                match self.item_ref(item_id) {
-                    Item::Const(const_item) => const_item.ty,
-                    _ => self.intern_type(Type::None),
-                }
-            }
+            Item::Interface(_)
+            | Item::TypeAlias(_)
+            | Item::Const(_)
+            | Item::MutableGlobal(_) => match self.item_ref(item_id) {
+                Item::Const(const_item) => const_item.ty,
+                Item::MutableGlobal(global_item) => global_item.ty,
+                _ => self.intern_type(Type::None),
+            },
         }
     }
 
