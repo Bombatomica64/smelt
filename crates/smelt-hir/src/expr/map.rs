@@ -646,6 +646,12 @@ impl ExprKind {
                 name: map_opt(name, f)?,
                 last_modified: map_opt(last_modified, f)?,
             },
+            Self::HostGlobalRead { class } => Self::HostGlobalRead { class },
+            Self::HostGlobalWrite { class, value } => Self::HostGlobalWrite {
+                class,
+                value: f(value)?,
+            },
+            Self::HostGlobalPresent { class } => Self::HostGlobalPresent { class },
             Self::BinOp { op, lhs, rhs } => Self::BinOp {
                 op,
                 lhs: f(lhs)?,

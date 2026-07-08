@@ -1233,6 +1233,14 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(blob_type),
             )
         }
+        Rvalue::HostGlobalRead { class } => format!("host_global_read class{}", class.0),
+        Rvalue::HostGlobalWrite {
+            class,
+            value: stored,
+        } => {
+            format!("host_global_write class{} = {}", class.0, operand_text(stored))
+        }
+        Rvalue::HostGlobalPresent { class } => format!("host_global_present class{}", class.0),
         Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
         Rvalue::AsyncOp { op, args } => {
             let op_text = match op {

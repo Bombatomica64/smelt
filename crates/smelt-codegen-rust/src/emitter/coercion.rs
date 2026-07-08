@@ -1452,9 +1452,58 @@ impl FunctionEmitter<'_> {
         // equal-shape plain object) but INVISIBLE to key enumeration / JSON via the
         // `__smelt_class` filters, and drives the `"__smelt_proto:class"` sentinel in
         // `smelt_prototype_sentinel`. See `blocker-logs/plan-class-prototype-2026-06-23.md`.
+        // A user class whose base chain reaches a modeled host object (e.g.
+        // `class File extends Blob`) IS an instance of that host in JavaScript, so
+        // its erased record carries the host base's identity marker(s). This keeps
+        // `value instanceof Blob` (a marker check on the erased value) honest for
+        // host subclasses — including override classes assigned into a
+        // `globalThis.<Name>` slot — without any globalThis special-casing.
+        let mut host_markers = String::new();
+        for marker in self.host_base_markers(*name) {
+            use std::fmt::Write as _;
+            // `marker` is a fixed `__smelt_*` identifier, so wrap it in explicit
+            // quotes rather than Debug-formatting it into a Rust string literal.
+            let _ = write!(
+                host_markers,
+                "smelt_object_entries.insert(\"{marker}\".to_owned(), SmeltUnknown::Bool(true)); "
+            );
+        }
         Ok(format!(
-            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); {entries} smelt_object_entries.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true)); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }}"
+            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); {entries} {host_markers}smelt_object_entries.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true)); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }}"
         ))
+    }
+
+    /// Identity markers a class carries because its base chain reaches a modeled
+    /// host object.
+    ///
+    /// Walks the single-inheritance base chain through `mir.classes`; the first
+    /// base that names a registered host object (`smelt_stdlib::host_object_by_class`)
+    /// contributes its marker. `File` additionally contributes `Blob`'s marker,
+    /// matching the host subtype relationship the native `new File(...)` records
+    /// stamp. Returns an empty vector for a class with no host base (the common
+    /// case, which keeps existing erased output byte-identical).
+    fn host_base_markers(&self, class_name: Symbol) -> Vec<&'static str> {
+        let mut markers: Vec<&'static str> = Vec::new();
+        let mut current = Some(class_name);
+        for _ in 0u32..64 {
+            let Some(name_sym) = current else { break };
+            let Some(class) = self.mir.classes.iter().find(|class| class.name == name_sym) else {
+                break;
+            };
+            let Some(base) = class.base else { break };
+            let Some(base_name) = self.mir.symbols.get(base) else { break };
+            if let Some(entry) = smelt_stdlib::host_object_by_class(base_name) {
+                markers.push(entry.marker);
+                if base_name == "File"
+                    && let Some(blob) = smelt_stdlib::host_object_marker("Blob")
+                {
+                    markers.push(blob);
+                }
+                break;
+            }
+            current = Some(base);
+        }
+        markers
     }
 
     /// Emits a runtime tag check for `SmeltUnknown`.

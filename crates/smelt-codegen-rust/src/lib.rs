@@ -383,6 +383,7 @@ fn emit_source_with_free_function_router(
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
     let needs_date_timezone_offset = stdlib::needs_date_timezone_offset_runtime(mir);
     let needs_blob_record = stdlib::needs_blob_record_runtime(mir);
+    let needs_host_override = stdlib::needs_host_override_runtime(mir);
     let needs_shared_captures = mir
         .closures
         .iter()
@@ -401,6 +402,69 @@ fn emit_source_with_free_function_router(
         writer.line("thread_local! {");
         writer.line("    static SMELT_DATE_TIMEZONE_OFFSET: ::std::cell::Cell<f64> = const { ::std::cell::Cell::new(0.0) };");
         writer.line("}");
+        writer.blank_line();
+    }
+    if needs_host_override {
+        // Bounded host-global override support: a fixed override-state enum, one
+        // `thread_local!` slot per host name the crate reassigns (fresh `Native`
+        // per test thread), and the three fixed helpers. Gated on any
+        // `globalThis.<Name> =` write, so crates that never reassign a host
+        // global emit byte-identical output.
+        writer.line("/// Override state of a modeled host constructor's global slot.");
+        writer.line("///");
+        writer.line("/// `Native` is the unmodified builtin; `Absent` is an explicit");
+        writer.line("/// `globalThis.X = undefined`; `Ctor` holds a reassigned constructor value.");
+        writer.line(format!(
+            "#[derive(Clone)] enum {enum_name} {{ Native, Absent, Ctor(SmeltUnknown) }}",
+            enum_name = smelt_stdlib::runtime_symbols::host_override::OVERRIDE_ENUM,
+        ));
+        writer.blank_line();
+        writer.line("thread_local! {");
+        for (suffix, _name) in stdlib::host_override_slot_names(mir) {
+            writer.line(format!(
+                "    static {prefix}{suffix}: ::std::cell::RefCell<{enum_name}> = const {{ ::std::cell::RefCell::new({enum_name}::Native) }};",
+                prefix = smelt_stdlib::runtime_symbols::host_override::SLOT_PREFIX,
+                enum_name = smelt_stdlib::runtime_symbols::host_override::OVERRIDE_ENUM,
+            ));
+        }
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Read a host override slot: native-handle marker for `Native`, the");
+        writer.line("/// stored constructor for `Ctor`, JS `undefined` for `Absent`.");
+        writer.line(format!(
+            "fn {read}(slot: &::std::cell::RefCell<{enum_name}>, name: &str) -> SmeltUnknown {{",
+            read = smelt_stdlib::runtime_symbols::host_override::READ,
+            enum_name = smelt_stdlib::runtime_symbols::host_override::OVERRIDE_ENUM,
+        ));
+        writer.line(format!(
+            "    match &*slot.borrow() {{ {enum_name}::Native => {{ let mut entries = ::std::collections::HashMap::new(); entries.insert({marker:?}.to_owned(), SmeltUnknown::Bool(true)); entries.insert(\"name\".to_owned(), SmeltUnknown::String(name.to_owned())); SmeltUnknown::Object(SmeltObject::new(entries)) }}, {enum_name}::Absent => SmeltUnknown::Undefined, {enum_name}::Ctor(value) => value.clone() }}",
+            enum_name = smelt_stdlib::runtime_symbols::host_override::OVERRIDE_ENUM,
+            marker = smelt_stdlib::runtime_symbols::host_override::NATIVE_CTOR_MARKER,
+        ));
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Classify and store a written host-global value; returns the stored value.");
+        writer.line("///");
+        writer.line("/// JS `undefined` -> `Absent`; a native-handle marker record -> `Native`");
+        writer.line("/// (the save/restore round trip); any function/class value -> `Ctor`.");
+        writer.line(format!(
+            "fn {write}(slot: &::std::cell::RefCell<{enum_name}>, value: SmeltUnknown) -> SmeltUnknown {{",
+            write = smelt_stdlib::runtime_symbols::host_override::WRITE,
+            enum_name = smelt_stdlib::runtime_symbols::host_override::OVERRIDE_ENUM,
+        ));
+        writer.line(format!(
+            "    let state = match &value {{ SmeltUnknown::Undefined => {enum_name}::Absent, SmeltUnknown::Object(entries) if entries.contains_key({marker:?}) => {enum_name}::Native, _ => {enum_name}::Ctor(value.clone()) }}; *slot.borrow_mut() = state; value",
+            enum_name = smelt_stdlib::runtime_symbols::host_override::OVERRIDE_ENUM,
+            marker = smelt_stdlib::runtime_symbols::host_override::NATIVE_CTOR_MARKER,
+        ));
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Whether a host override slot is present (`false` only when `Absent`).");
+        writer.line(format!(
+            "fn {present}(slot: &::std::cell::RefCell<{enum_name}>) -> bool {{ !matches!(&*slot.borrow(), {enum_name}::Absent) }}",
+            present = smelt_stdlib::runtime_symbols::host_override::PRESENT,
+            enum_name = smelt_stdlib::runtime_symbols::host_override::OVERRIDE_ENUM,
+        ));
         writer.blank_line();
     }
     if needs_shared_captures {

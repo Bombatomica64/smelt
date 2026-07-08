@@ -639,6 +639,41 @@ pub enum ExprKind {
         name: Option<ExprId>,
         last_modified: Option<ExprId>,
     },
+    /// Read the current value of a modeled host constructor's global override
+    /// slot (`globalThis.<class>`), for a host name the crate reassigns
+    /// somewhere (see the host-global override plan).
+    ///
+    /// When the slot is `Native` the read yields a *native-handle* marker record
+    /// (`{ "__smelt_native_ctor": true, "name": "<class>" }`) — an identity token
+    /// used for save/restore, not a callable. When the slot has been overridden
+    /// the read yields the stored value (a constructor value, or JS `undefined`
+    /// when set absent). Evaluates to a tagged dynamic value.
+    HostGlobalRead {
+        /// Modeled host constructor whose override slot is read.
+        class: Symbol,
+    },
+    /// Write `value` into a modeled host constructor's global override slot
+    /// (`globalThis.<class> = value`). Evaluates to the stored value so the
+    /// assignment composes as an expression.
+    ///
+    /// The runtime write helper classifies the stored value: JS `undefined`
+    /// makes the slot `Absent`; a value carrying the native-handle marker
+    /// restores the slot to `Native`; a function / class-constructor value makes
+    /// the slot hold that constructor (`Ctor`).
+    HostGlobalWrite {
+        /// Modeled host constructor whose override slot is written.
+        class: Symbol,
+        /// The value being stored.
+        value: ExprId,
+    },
+    /// Whether a modeled host constructor's global override slot is currently
+    /// *present* (`typeof <class> !== 'undefined'` folding for a reassigned host
+    /// name). `false` only when the slot has been overridden to JS `undefined`
+    /// (`Absent`); `true` for `Native` and any `Ctor` override. Bool-typed.
+    HostGlobalPresent {
+        /// Modeled host constructor whose override slot presence is tested.
+        class: Symbol,
+    },
     BinOp {
         op: BinOp,
         lhs: ExprId,

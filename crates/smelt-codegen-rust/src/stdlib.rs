@@ -164,6 +164,64 @@ pub(crate) fn needs_blob_record_runtime(mir: &Mir) -> bool {
     })
 }
 
+/// Returns true when generated Rust reads/writes/probes a host-global override
+/// slot and therefore needs the `SmeltHostOverride` enum + helper prelude.
+///
+/// This is the *pay-for-use* gate: it is `true` only when the crate actually
+/// contains a `globalThis.<Name> =` write somewhere (the frontend only lowers
+/// reads/presence to these rvalues for such written names), so a crate that
+/// never reassigns a host global emits byte-identical output to before.
+#[must_use]
+pub(crate) fn needs_host_override_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::HostGlobalRead { .. }
+                | Rvalue::HostGlobalWrite { .. }
+                | Rvalue::HostGlobalPresent { .. }
+        )
+    })
+}
+
+/// Collect the distinct host constructor names that the crate reassigns, paired
+/// with the sanitized upper-cased `thread_local!` slot suffix.
+///
+/// The returned pairs `(slot_suffix, display_name)` drive per-name slot
+/// emission: one `SMELT_HOST_OVERRIDE_<slot_suffix>` slot per name, and the
+/// `display_name` feeds the native-handle marker's `name` field. Sorted and
+/// de-duplicated so slot emission is deterministic.
+#[must_use]
+pub(crate) fn host_override_slot_names(mir: &Mir) -> Vec<(String, String)> {
+    let mut names = std::collections::BTreeMap::new();
+    for rvalue in rvalues(mir) {
+        let class = match rvalue {
+            Rvalue::HostGlobalRead { class }
+            | Rvalue::HostGlobalWrite { class, .. }
+            | Rvalue::HostGlobalPresent { class } => *class,
+            _ => continue,
+        };
+        if let Some(name) = mir.symbols.get(class) {
+            names.insert(host_override_slot_suffix(name), name.to_owned());
+        }
+    }
+    names.into_iter().collect()
+}
+
+/// Sanitize a host constructor name into the upper-cased `thread_local!` slot
+/// suffix (`Intl.Locale` -> `INTL_LOCALE`, `Blob` -> `BLOB`).
+#[must_use]
+pub(crate) fn host_override_slot_suffix(name: &str) -> String {
+    name.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 /// Returns true when a MIR rvalue uses Url APIs.
 fn rvalue_needs_url(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::UrlField { .. })

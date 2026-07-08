@@ -687,6 +687,10 @@ fn rewrite_rvalue(
         Rvalue::HttpGetText { url } => rewrite_operand_except(url, aliases, dest),
         Rvalue::DateNow => false,
         Rvalue::DateResetNow => false,
+        Rvalue::HostGlobalRead { .. } | Rvalue::HostGlobalPresent { .. } => false,
+        Rvalue::HostGlobalWrite { value: stored, .. } => {
+            rewrite_operand_except(stored, aliases, dest)
+        }
         Rvalue::GlobalGet { .. } => false,
         Rvalue::GlobalSet { value: stored, .. } => rewrite_operand_except(stored, aliases, dest),
         Rvalue::DateSetNow { timestamp } => rewrite_operand_except(timestamp, aliases, dest),

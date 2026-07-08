@@ -65,3 +65,4 @@ mod generics_tests;
 mod module_globals_tests;
 mod snapshot_tests;
 mod snapshot_tests_part_2;
+mod host_override_tests;

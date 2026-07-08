@@ -146,6 +146,17 @@ impl ModuleBuilder<'_> {
                 return Ok(expr);
             }
         }
+        // A reassigned modeled host constructor dispatches `new X(...)` on its
+        // override slot: closure-call the stored constructor when the slot holds
+        // one, else run the native construction. Intercepts before the native
+        // constructor and user-class paths so a same-named override class
+        // (`class File extends Blob`) does not shadow the dynamic dispatch.
+        if self.is_written_host_global(callee.name.as_str())
+            && let Some(native) =
+                self.native_host_constructor_expression(callee.name.as_str(), new_expr, body)?
+        {
+            return self.wrap_host_global_new(callee.name.as_str(), new_expr, native, body);
+        }
         if callee.name == "Date" {
             return self.new_date_expression(new_expr, body);
         }

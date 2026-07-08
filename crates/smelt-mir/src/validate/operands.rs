@@ -643,6 +643,10 @@ impl Rvalue {
                     visit(last_modified_operand);
                 }
             }
+            Self::HostGlobalRead { .. } | Self::HostGlobalPresent { .. } => {}
+            Self::HostGlobalWrite { value, .. } => {
+                visit(value);
+            }
             Self::NumericExtrema { args, .. } => {
                 for arg in args {
                     visit(arg);
@@ -1343,6 +1347,10 @@ impl Rvalue {
                 if let Some(last_modified_operand) = last_modified {
                     visit(last_modified_operand);
                 }
+            }
+            Self::HostGlobalRead { .. } | Self::HostGlobalPresent { .. } => {}
+            Self::HostGlobalWrite { value, .. } => {
+                visit(value);
             }
             Self::NumericExtrema { args, .. } => {
                 for arg in args.iter_mut() {

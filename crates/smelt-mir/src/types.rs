@@ -1580,6 +1580,30 @@ pub enum Rvalue {
         /// `File` options `lastModified` milliseconds, when spelled.
         last_modified: Option<Operand>,
     },
+    /// Read a modeled host constructor's global override slot
+    /// (`globalThis.<class>`). Yields a native-handle marker when the slot is
+    /// `Native`, the stored constructor when overridden, or JS `undefined` when
+    /// set absent. See `Rvalue::HostGlobalWrite`.
+    HostGlobalRead {
+        /// Modeled host constructor whose override slot is read.
+        class: Symbol,
+    },
+    /// Write a modeled host constructor's global override slot
+    /// (`globalThis.<class> = value`); evaluates to the stored value. The
+    /// runtime write helper classifies the value into the slot state (`Absent`
+    /// for `undefined`, `Native` for a native-handle marker, `Ctor` otherwise).
+    HostGlobalWrite {
+        /// Modeled host constructor whose override slot is written.
+        class: Symbol,
+        /// The value being stored.
+        value: Operand,
+    },
+    /// Whether a modeled host constructor's global override slot is present
+    /// (`false` only when overridden to JS `undefined`). Bool-typed.
+    HostGlobalPresent {
+        /// Modeled host constructor whose override slot presence is tested.
+        class: Symbol,
+    },
     /// Await a future and produce its output.
     Await(Operand),
     /// Run a runtime-backed async operation.

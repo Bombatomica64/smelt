@@ -1235,6 +1235,12 @@ impl FunctionEmitter<'_> {
                         smelt_stdlib::runtime_symbols::host::BLOB_RECORD_FROM_PARTS,
                 ))
             }
+            Rvalue::HostGlobalRead { class } => self.host_global_read_text(*class, dest_ty),
+            Rvalue::HostGlobalWrite {
+                class,
+                value: stored,
+            } => self.host_global_write_text(*class, stored, dest_ty),
+            Rvalue::HostGlobalPresent { class } => self.host_global_present_text(*class),
             Rvalue::Await(operand) => {
                 if self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::None) {
                     return self.default_value(dest_ty);
@@ -1256,6 +1262,63 @@ impl FunctionEmitter<'_> {
                 Ok(text)
             }
         }
+    }
+
+    /// The `thread_local!` slot identifier for a host constructor's override
+    /// state (`SMELT_HOST_OVERRIDE_<NAME>`).
+    fn host_override_slot_ident(&self, class: Symbol) -> Result<String, EmitError> {
+        let name = self.symbol_name(class)?;
+        Ok(format!(
+            "{prefix}{suffix}",
+            prefix = smelt_stdlib::runtime_symbols::host_override::SLOT_PREFIX,
+            suffix = crate::stdlib::host_override_slot_suffix(name),
+        ))
+    }
+
+    /// Emit a read of a host constructor's override slot (`globalThis.<class>`).
+    ///
+    /// The read helper yields a `SmeltUnknown` (native-handle marker for
+    /// `Native`, the stored ctor for `Ctor`, `undefined` for `Absent`); the
+    /// result is coerced to the destination type.
+    fn host_global_read_text(&self, class: Symbol, dest_ty: TypeId) -> Result<String, EmitError> {
+        let slot = self.host_override_slot_ident(class)?;
+        let name = self.symbol_name(class)?.to_owned();
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let call = format!(
+            "{slot}.with(|slot| {read}(slot, {name:?}))",
+            read = smelt_stdlib::runtime_symbols::host_override::READ,
+        );
+        self.value_at_type_text(&call, unknown_ty, dest_ty)
+    }
+
+    /// Emit a write to a host constructor's override slot
+    /// (`globalThis.<class> = value`). The stored value is erased to
+    /// `SmeltUnknown` for classification; the helper returns it so the write
+    /// composes as an expression.
+    fn host_global_write_text(
+        &self,
+        class: Symbol,
+        value: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let slot = self.host_override_slot_ident(class)?;
+        let erased = self.erase(value)?;
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let call = format!(
+            "{slot}.with(|slot| {write}(slot, {erased}))",
+            write = smelt_stdlib::runtime_symbols::host_override::WRITE,
+        );
+        self.value_at_type_text(&call, unknown_ty, dest_ty)
+    }
+
+    /// Emit a presence probe of a host constructor's override slot
+    /// (`typeof <class> !== 'undefined'` for a reassigned host name).
+    fn host_global_present_text(&self, class: Symbol) -> Result<String, EmitError> {
+        let slot = self.host_override_slot_ident(class)?;
+        Ok(format!(
+            "{slot}.with({present})",
+            present = smelt_stdlib::runtime_symbols::host_override::PRESENT,
+        ))
     }
 
     /// Converts a runtime-backed async operation to Rust.
