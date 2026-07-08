@@ -68,6 +68,8 @@ blocker-logs/*.md
 !blocker-logs/estk-codegen-misc.md
 # estk-codegen-e0308.md documents the systematic E0308 (mismatched types) emitter fixes
 !blocker-logs/estk-codegen-e0308.md
+# remeda-regression.md documents the remeda no-regression investigation (baseline vs current binary)
+!blocker-logs/remeda-regression.md
 
 # Generated docs site output
 _site/
