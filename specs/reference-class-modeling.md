@@ -83,12 +83,49 @@ delegating to `self.semaphore` mutates the real semaphore, not a clone.
    it panics. The port had to write `release()` as *pop-the-task → drop the borrow
    → call it*. This is a concrete, testable codegen rule and the main new hazard
    (runtime panic instead of compile error).
+6. **`Rc<RefCell<_>>` is a local-task representation.** It is intentionally close
+   to JS object semantics, but it is not `Send` or `Sync`. Generated async code
+   that captures a reference-class handle must stay on the local executor path
+   (`async fn`, awaited futures, `spawn_local`/`LocalSet` if spawning is needed),
+   or an explicit cross-thread adapter must be designed later. Do not silently
+   switch reference classes to `Arc<Mutex<_>>`: that changes cost, poisoning,
+   locking, and re-entrancy behavior and should be a separate runtime decision.
+
+## Struct fields vs dynamic properties
+
+Rust structs cannot grow fields at runtime. That is a feature for Smelt's typed
+path: declared class fields should remain concrete Rust fields because they are
+easier to emit, easier to type-check, faster, and harder for generated code to
+misuse than string-keyed property maps.
+
+JavaScript can still attach undeclared properties (`obj.extra = value`) or read
+properties through computed keys (`obj[key]`). For V1, prefer the simpler
+uniform lazy side-store on reference-class inners over precise dynamic-property
+classification:
+
+```rust
+struct WidgetInner {
+    count: f64,
+    smelt_extra_props: Option<SmeltObject>,
+}
+```
+
+Initialize it to `None`; the first dynamic write uses `get_or_insert_with` to
+allocate the object store. This is not zero-sized, but it avoids a separate
+analysis pass for a low-frequency feature while keeping the actual property map
+allocation lazy.
+
+Declared fields (`obj.count`) keep using concrete struct access. Unknown or
+computed dynamic properties route through `smelt_extra_props`. This keeps normal
+class lowering strongly typed without pretending Rust has runtime field addition.
 
 ## Classification rule (V1)
 
 Emit a class as a **reference class** (handle newtype) if ANY holds, else keep the
 current by-value struct (**value class**):
 - a method assigns to `this.<field>` (post-construction mutation), OR
+- any source path writes an instance field after construction (`obj.<field> = …`,
+  `obj[key] = …`, descriptor setter, or equivalent lowered mutation), OR
 - an instance binding is reassigned or aliased (`const b = a`) and later observed, OR
 - `this` (or a method's `self`) is captured by a closure that escapes the method
   (stored in a field, returned, or passed to an async/Promise executor), OR
@@ -120,6 +157,11 @@ re-enter (see `release()`). Getters → `&self` methods.
 the returned future — clears the E0425 async-`this` blocker. Interacts with
 [`cluster-b-promise-problem.md`](./cluster-b-promise-problem.md): the resolver
 stored in `deferredTasks` is a `ResolveFn` over the promise's shared cell.
+Because the representation is `Rc<RefCell<_>>`, these futures are local futures:
+they can be awaited directly or driven by a local executor, but must not be
+emitted through `tokio::spawn` or any API requiring `Send`. If Smelt needs
+cross-thread scheduling later, add an explicit runtime boundary adapter instead
+of changing the reference-class representation opportunistically.
 
 **Phase 4 — composition + aliasing.** A reference class held as a field of another
 class shares identity through the inner `Rc` (fixes the `Mutex`→`Semaphore`
