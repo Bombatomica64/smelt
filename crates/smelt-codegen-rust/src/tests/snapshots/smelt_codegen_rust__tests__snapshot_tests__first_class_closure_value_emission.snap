@@ -25,7 +25,7 @@ fn main() {
     let result: f64;
     let _smelt_tmp_3: f64;
     let _smelt_tmp_2 = make_adder(2.0).clone();
-    adder = { let smelt_fn = _smelt_tmp_2.clone(); ::std::rc::Rc::new(move |arg0: f64| -> f64 { (smelt_fn)(arg0).smelt_into_f64() }) };
+    adder = _smelt_tmp_2.clone();
     _smelt_tmp_3 = (adder)(3.0);
     result = _smelt_tmp_3;
     return;

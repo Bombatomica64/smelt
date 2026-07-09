@@ -1286,6 +1286,57 @@ impl FunctionEmitter<'_> {
         self.emit_closure_block_inner(block, out, &mut Vec::new(), None)
     }
 
+    /// Emits an explicit Rust `return` for a closure block that directly returns.
+    ///
+    /// Loop-shaped closure CFGs are rendered as statement-oriented `loop { ... }`
+    /// blocks, not Rust value expressions. If the loop exit is a MIR `Return`,
+    /// lowering it as a bare tail expression inside the loop's `else` arm makes
+    /// the closure body type `()`. In that context the MIR return must become an
+    /// explicit closure return statement.
+    fn emit_closure_explicit_return(
+        &self,
+        block: &BasicBlock,
+        out: &mut String,
+    ) -> Result<bool, EmitError> {
+        let Some(Terminator::Return(operand)) = &block.terminator else {
+            return Ok(false);
+        };
+        for statement in &block.statements {
+            self.emit_statement(statement, out)?;
+        }
+        if self.function.return_ty == self.none_ty {
+            if !matches!(operand, Operand::Const(Constant::None))
+                && self.operand_ty(operand)? != self.none_ty
+            {
+                out.push_str(&format!("    {};\n", self.operand_text(operand)?));
+            }
+            if self.function.can_throw {
+                out.push_str("    return Ok::<(), Box<dyn std::error::Error>>(());\n");
+            } else {
+                out.push_str("    return ();\n");
+            }
+            return Ok(true);
+        }
+        let operand_is_future = matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Future(_))
+        );
+        let return_ty = match self.mir.types.get(self.function.return_ty) {
+            Some(Type::Future(item)) if !operand_is_future => *item,
+            _ => self.function.return_ty,
+        };
+        let value = self.value_at_type(operand, return_ty)?;
+        if self.function.can_throw {
+            let return_ty_text = self.type_text_with_impl_trait(return_ty, false)?;
+            out.push_str(&format!(
+                "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
+            ));
+        } else {
+            out.push_str(&format!("    return {value};\n"));
+        }
+        Ok(true)
+    }
+
     /// Emits a closure block while guarding against unstructured CFG cycles.
     fn emit_closure_block_inner(
         &self,
@@ -1322,9 +1373,13 @@ impl FunctionEmitter<'_> {
             self.emit_closure_block_inner(self.block(*then_block)?, out, active, Some(block.id))?;
             out.push_str("    } else {\n");
             self.restore_declared_locals(branch_declared.clone());
-            self.emit_closure_block_inner(self.block(*else_block)?, out, active, Some(block.id))?;
-            out.push_str("    ;\n");
-            out.push_str("    break;\n");
+            let else_block_ref = self.block(*else_block)?;
+            let else_returns = self.emit_closure_explicit_return(else_block_ref, out)?;
+            if !else_returns {
+                self.emit_closure_block_inner(else_block_ref, out, active, Some(block.id))?;
+                out.push_str("    ;\n");
+                out.push_str("    break;\n");
+            }
             out.push_str("    }\n");
             out.push_str("    }\n");
             self.restore_declared_locals(branch_declared);
