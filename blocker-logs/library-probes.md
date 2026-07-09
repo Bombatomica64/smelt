@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-07-08 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-07-09 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,7 +12,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **no** | n/a | `(unknown)` | 0 | non-working Rust (0r/0s) |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
 | [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/async.ts` | 13 | non-working Rust (13r/0s) |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/internals/helpers.ts` | 12 | non-working Rust (12r/0s) |
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/storages/globalConfig/globalConfig.ts` | 20 | non-working Rust (19r/1s) |
@@ -26,12 +26,8 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 ## es-toolkit
 
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
-- Transpile: **no** — `smelt build` aborts at `(unknown)`
-- Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1219 · with blockers: 3
-
-| Occurrences | Files | Category | Blocker class |
-| ---: | ---: | --- | --- |
+- Transpile: **yes** — Rust crate emitted
+- Generated `cargo test`: transpiled, but pass/fail counts could not be parsed
 
 ## radash
 
@@ -61,7 +57,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `gvergnaud/ts-pattern` @ `c92ca435c7e1`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/internals/helpers.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 68 · with blockers: 18
+- Files scanned: 68 · with blockers: 17
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
