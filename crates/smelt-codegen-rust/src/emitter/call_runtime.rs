@@ -606,6 +606,15 @@ impl FunctionEmitter<'_> {
                 if !mir_class.type_params.is_empty() {
                     parts.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
                 }
+                // A reference class wraps its inner record in a fresh shared cell.
+                // Identity lives in the `Rc`, so the constructor mints one cell;
+                // aliasing later clones the handle (`Rc::clone`), sharing it.
+                if self.context.is_reference_class(*class) {
+                    return Ok(format!(
+                        "{class_name}(::std::rc::Rc::new(::std::cell::RefCell::new({class_name}Inner {{ {} }})))",
+                        parts.join(", ")
+                    ));
+                }
                 Ok(format!("{class_name} {{ {} }}", parts.join(", ")))
             }
             Rvalue::ExternalClassInstance { class, args } => {

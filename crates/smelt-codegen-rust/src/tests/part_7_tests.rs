@@ -5269,8 +5269,11 @@ def update(model: Model) -> int:
         .expect("Model descriptor")
         .data_descriptor = false;
     let emitted = emit_source(&mir).expect("non-data descriptor Rust source");
+    // `Model` mutates a field (`update` writes `model.value`, the setter writes
+    // `self._value`), so it is lifted to a reference class: instance storage that
+    // shadows a non-data descriptor is written through the shared cell.
     assert!(
-        emitted.contains("model.value = 7;"),
+        emitted.contains("model.0.borrow_mut().value = 7;"),
         "instance storage must shadow a non-data descriptor\n{emitted}"
     );
 }
