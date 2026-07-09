@@ -72,6 +72,10 @@ blocker-logs/*.md
 !blocker-logs/remeda-regression.md
 # estk-codegen-tail.md documents the non-coercion structural/trait/name tail fixes
 !blocker-logs/estk-codegen-tail.md
+# reference-classes.md documents the Rc<RefCell<Inner>> reference-class feature
+!blocker-logs/reference-classes.md
+# reference-classes-diagnostics.md is the es-toolkit rust-diagnostics report after the feature
+!blocker-logs/reference-classes-diagnostics.md
 
 # Generated docs site output
 _site/

@@ -99,6 +99,10 @@ pub(crate) struct EmitContext {
     /// [`EmitContext::populate_generic_functions`] and read through
     /// [`EmitContext::is_generic_function`].
     generic_functions: RefCell<HashSet<FuncId>>,
+    /// Class symbols emitted as reference classes (handle newtype over
+    /// `Rc<RefCell<Inner>>`), computed once by [`crate::classify`]. Every class
+    /// not in this set stays a by-value value class with its current emission.
+    reference_classes: HashSet<Symbol>,
 }
 
 impl EmitContext {
@@ -188,7 +192,16 @@ impl EmitContext {
                 ::std::collections::BTreeMap::new(),
             ),
             generic_functions: RefCell::new(HashSet::new()),
+            reference_classes: crate::classify::reference_classes(mir),
         })
+    }
+
+    /// Return whether the class named `symbol` is emitted as a reference class.
+    ///
+    /// Reference classes use the handle-newtype representation with interior
+    /// mutability; value classes keep the current by-value struct emission.
+    pub(crate) fn is_reference_class(&self, symbol: Symbol) -> bool {
+        self.reference_classes.contains(&symbol)
     }
 
     /// Compute, once, which free functions emit real Rust generics.

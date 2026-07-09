@@ -38,7 +38,11 @@ pub(crate) fn constant_text(constant: &Constant) -> String {
 }
 
 /// Computes the set of locals that are assigned after their initial declaration.
-pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
+pub(super) fn assigned_locals(
+    mir: &Mir,
+    context: &EmitContext,
+    function: &MirFunction,
+) -> HashSet<LocalId> {
     let mut locals = HashSet::new();
     let mut assigned_once = function.params.iter().copied().collect::<HashSet<_>>();
     for block in &function.blocks {
@@ -123,6 +127,7 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
             && let Ok(function_index) = id_index(func.0, "function index does not fit usize")
             && let Some(callee) = mir.functions.get(function_index)
             && method_mutates_this(callee)
+            && !callee_is_reference_class_method(context, callee)
             && let Some(Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) =
                 args.first()
         {
@@ -137,6 +142,20 @@ pub(super) fn operand_local(operand: &Operand) -> Option<LocalId> {
     match operand {
         Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
         Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => None,
+    }
+}
+
+/// Returns whether a callee is a method of a reference class.
+///
+/// Reference-class methods take `&self` and mutate through the shared cell, so
+/// the caller's receiver never needs a defensive mutable binding — this prevents
+/// the throwaway-clone-then-mutate miscompile.
+fn callee_is_reference_class_method(context: &EmitContext, callee: &MirFunction) -> bool {
+    match callee.origin {
+        HirOrigin::ClassMethod { class, .. } | HirOrigin::ClassConstructor { class, .. } => {
+            context.is_reference_class(class)
+        }
+        HirOrigin::ClassStaticMethod { .. } | HirOrigin::Body(_) => false,
     }
 }
 

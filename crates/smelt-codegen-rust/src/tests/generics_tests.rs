@@ -20,14 +20,22 @@ class Container<T> {
 ",
     );
 
-    // Struct carries the generic parameter and a PhantomData over it.
-    assert!(source.contains("struct Container<T>"));
+    // `Container` mutates `this.value` in `set`, so it is lifted to a reference
+    // class: a handle newtype over `Rc<RefCell<ContainerInner<T>>>` whose inner
+    // record carries the generic parameter and a PhantomData over it.
+    assert!(source.contains(
+        "struct Container<T>(::std::rc::Rc<::std::cell::RefCell<ContainerInner<T>>>);"
+    ));
+    assert!(source.contains("struct ContainerInner<T>"));
     assert!(source.contains("value: T,"));
     assert!(source.contains("_smelt_phantom: ::std::marker::PhantomData<(T)>"));
-    // Inherent impl block declares bounded generics and returns the parameter.
+    // Identity `Clone` shares the cell (`Rc::clone`), never forking state.
+    assert!(source.contains("Container(::std::rc::Rc::clone(&self.0))"));
+    // Inherent impl block declares bounded generics; every method takes `&self`
+    // uniformly (interior mutability), so `set` is `&self`, not `&mut self`.
     assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Container<T>"));
     assert!(source.contains("fn get(&self) -> T"));
-    assert!(source.contains("fn set(&mut self, value: T) -> ()"));
+    assert!(source.contains("fn set(&self, value: T) -> ()"));
 }
 
 #[test]

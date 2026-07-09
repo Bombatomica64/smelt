@@ -31,7 +31,7 @@ impl<'mir> FunctionEmitter<'mir> {
             context,
             function,
             names,
-            mutable_locals: assigned_locals(mir, function),
+            mutable_locals: assigned_locals(mir, context, function),
             declared_locals: RefCell::new(declared_locals),
             predeclared_locals,
             termination_cache: RefCell::new(HashMap::new()),
@@ -254,9 +254,20 @@ impl<'mir> FunctionEmitter<'mir> {
                 continue;
             }
             let name = self.local_name(*local)?;
-            out.push_str(&format!(
-                "    let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({name}));\n"
-            ));
+            // A reference-class receiver is `&self` and cannot be moved into the
+            // shared cell, so bind a cheap `self.clone()` (an `Rc::clone` of the
+            // handle). The clone shares the SAME underlying object, so both the
+            // method body and the escaping closure observe one identity. This is
+            // the escaping-`this` mechanism that clears the E0425 cluster.
+            if self.is_reference_self_shared_capture(*local) {
+                out.push_str(&format!(
+                    "    let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({name}.clone()));\n"
+                ));
+            } else {
+                out.push_str(&format!(
+                    "    let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({name}));\n"
+                ));
+            }
         }
         Ok(())
     }
@@ -1023,6 +1034,15 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Rust values because rebinding the parameter itself does not update the
     /// source caller's binding.
     pub(super) fn parameter_type_has_shared_mutation_semantics(&self, ty: TypeId) -> bool {
+        // A reference-class parameter is a handle: passing it by value shares the
+        // underlying cell, so mutations already reach the caller's object and the
+        // `&mut` ABI is neither needed nor wanted (`&self` methods only). This is
+        // also what fixes the `Mutex`→`Semaphore` throwaway-clone miscompile:
+        // once `Semaphore` is a reference class, delegating to `self.semaphore`
+        // no longer demands a `&mut` the `&self` caller cannot supply.
+        if self.is_reference_class_type(ty) {
+            return false;
+        }
         self.mir.types.get(ty).is_some_and(|kind| {
             matches!(kind, Type::List(_) | Type::Set(_) | Type::Dict(_, _))
                 || matches!(kind, Type::Class { .. })
@@ -2496,7 +2516,12 @@ impl<'mir> FunctionEmitter<'mir> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                let receiver_text = if method_mutates_this(self.function) {
+                // Reference classes carry interior mutability, so every method
+                // takes `&self` uniformly; the `&mut self` decision only applies
+                // to by-value value classes.
+                let receiver_text = if method_mutates_this(self.function)
+                    && !self.method_owner_is_reference_class()
+                {
                     "&mut self"
                 } else {
                     "&self"
@@ -2541,6 +2566,13 @@ impl<'mir> FunctionEmitter<'mir> {
                 ));
             }
             HirOrigin::Body(_) => return self.emit(out),
+        }
+        // Reference-class methods may capture `self` into an escaping closure;
+        // that receiver must be bound once as a cloned handle before the body.
+        // Value-class methods emit no prelude here, keeping their output
+        // byte-identical to the pre-reference-class emitter.
+        if self.method_owner_is_reference_class() {
+            self.emit_shared_parameter_preludes(out)?;
         }
         self.emit_block(self.entry_block()?, out)?;
         out.push_str("    }\n");
@@ -2732,6 +2764,10 @@ impl<'mir> FunctionEmitter<'mir> {
                     self.mir.types.get(self.place_ty(place)?),
                     Some(Type::Function(_))
                 ) || self.type_contains_noncloneable(self.place_ty(place)?)
+                    // A reference-class field read already clones the value out of
+                    // the borrowed cell, so it is owned; a second `.clone()` would
+                    // be redundant.
+                    || self.place_is_reference_class_field(place)
                 {
                     self.place_text(place)
                 } else {
@@ -4164,6 +4200,62 @@ impl<'mir> FunctionEmitter<'mir> {
                         .symbol_source_name(candidate.name)
                         .is_ok_and(|source| source != smelt_hir::CLASS_INDEX_STORE_FIELD)
             })
+    }
+
+    /// Returns whether a place is a declared-field read on a reference class.
+    ///
+    /// Such a read is lowered as `base.0.borrow().field.clone()`, which is
+    /// already an owned value, so callers must not wrap it in another `.clone()`.
+    pub(super) fn place_is_reference_class_field(&self, place: &Place) -> bool {
+        let Place::Field { base, field } = place else {
+            return false;
+        };
+        let Ok(base_ty) = self.local_decl(*base).map(|decl| decl.ty) else {
+            return false;
+        };
+        self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, *field)
+    }
+
+    /// Returns whether a type is a reference class (handle newtype).
+    ///
+    /// Reference classes carry shared mutable identity through
+    /// `Rc<RefCell<Inner>>`; field access goes through the cell and methods take
+    /// `&self` uniformly. Non-class types and value classes answer `false`.
+    pub(super) fn is_reference_class_type(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Class { name, .. }) if self.context.is_reference_class(*name)
+        )
+    }
+
+    /// Returns whether `local` is the receiver of a reference-class method that
+    /// is captured into an escaping closure.
+    ///
+    /// A reference-class `self` is already a shareable handle (`Rc<RefCell<
+    /// Inner>>`), so an escaping closure captures a plain `self.clone()` rather
+    /// than wrapping the receiver in a second `Rc<RefCell<_>>`. When this holds,
+    /// the receiver is bound once as `let smelt_capture_self = self.clone();` and
+    /// every reference renders as that handle (`smelt_capture_self`), with field
+    /// access going through its cell (`smelt_capture_self.0.borrow()`). This is
+    /// the escaping-`this` mechanism that clears the E0425 `smelt_capture_self`
+    /// cluster.
+    pub(super) fn is_reference_self_shared_capture(&self, local: LocalId) -> bool {
+        self.method_owner_is_reference_class()
+            && matches!(self.function.origin, HirOrigin::ClassMethod { .. })
+            && self.function.params.first() == Some(&local)
+            && self.local_uses_shared_capture_storage(local)
+    }
+
+    /// Returns whether the method currently being emitted belongs to a reference
+    /// class, so its receiver is `&self` and its field access goes through the
+    /// shared cell.
+    pub(super) fn method_owner_is_reference_class(&self) -> bool {
+        match self.function.origin {
+            HirOrigin::ClassConstructor { class, .. }
+            | HirOrigin::ClassMethod { class, .. }
+            | HirOrigin::ClassStaticMethod { class, .. } => self.context.is_reference_class(class),
+            HirOrigin::Body(_) => false,
+        }
     }
 
     /// Returns whether a class symbol names the stdlib `RegExp` class.

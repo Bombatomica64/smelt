@@ -217,6 +217,19 @@ impl FunctionEmitter<'_> {
                     };
                     return Ok(format!("{getter}.unwrap_or({default_value})"));
                 }
+                // A declared field of a reference class lives inside the shared
+                // cell. Read it through a narrow `borrow()` and clone the value
+                // out so the borrow guard is a short-lived temporary that ends
+                // with the statement — never held across a re-entrant call.
+                if self.is_reference_class_type(base_ty)
+                    && self.class_has_named_field(base_ty, *field)
+                {
+                    return Ok(format!(
+                        "{}.0.borrow().{}.clone()",
+                        self.local_value_text(*base)?,
+                        sanitize_ident(self.symbol_name(*field)?)
+                    ));
+                }
                 Ok(format!(
                     "{}.{}",
                     self.local_value_text(*base)?,
@@ -593,6 +606,21 @@ impl FunctionEmitter<'_> {
             }
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                // A declared field of a reference class is written through a
+                // narrow `borrow_mut()`. The statement's right-hand side has
+                // already been reduced to an operand by MIR temping, so the
+                // mutable borrow never spans a re-entrant call. Checked before
+                // the structural-record path because a reference class is still
+                // record-shaped structurally.
+                if self.is_reference_class_type(base_ty)
+                    && self.class_has_named_field(base_ty, *field)
+                {
+                    return Ok(format!(
+                        "{}.0.borrow_mut().{}",
+                        self.local_value_text(*base)?,
+                        sanitize_ident(self.symbol_name(*field)?)
+                    ));
+                }
                 if self.structural_record_fields(base_ty).is_some() {
                     return Ok(format!(
                         "{}.{}",

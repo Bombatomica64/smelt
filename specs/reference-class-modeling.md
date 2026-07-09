@@ -5,6 +5,23 @@ from hand-porting es-toolkit's `Semaphore`/`Mutex` to idiomatic Rust and diffing
 against what Smelt emits today. The compile-checked reference port lives beside
 this file: [`reference-class-modeling-port.rs`](./reference-class-modeling-port.rs).
 
+## Implementation status (2026-07-09) — V1 LANDED
+
+Implemented on `claude/reference-classes` (classification in
+`crates/smelt-codegen-rust/src/classify.rs`; emission in `lib.rs` +
+`emitter/place.rs`; getter lowering in the frontend). All four phases shipped.
+As-built V1 deviations, documented in `blocker-logs/reference-classes.md`:
+- **Index-signature classes** (`[key: string]: T`) stay value classes for now —
+  their `__smelt_index_store` access is not yet projected through the cell, so
+  the spec's `obj[key] = …` trigger is narrowed to declared-field writes in V1.
+- **`smelt_extra_props` side-store not yet emitted** — no current corpus class
+  exercises dynamic properties on a reference class; deferred instead of
+  emitting dead code. Named blocker remains.
+- Callback-as-method-parameter forwarding hits a pre-existing `&dyn Fn` vs
+  `Rc<closure>` ABI mismatch unrelated to reference classes.
+Verified: Semaphore/Mutex port scenarios 7/7; the `Mutex` throwaway-clone silent
+miscompile is fixed; value classes byte-identical; remeda 1789/1789.
+
 Sibling spec: [`cluster-b-promise-problem.md`](./cluster-b-promise-problem.md) —
 the `SmeltPromise { id, Rc<RefCell<…>> }` shape is the SAME shared-cell pattern
 applied to promises; the async-method interaction below depends on it.

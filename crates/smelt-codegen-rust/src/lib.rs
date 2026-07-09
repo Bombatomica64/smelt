@@ -81,6 +81,7 @@ use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirFunction, Rvalue};
 
 pub(crate) mod classes;
+pub(crate) mod classify;
 pub(crate) mod deps;
 pub mod rust;
 pub(crate) mod stdlib;
@@ -2107,6 +2108,10 @@ fn emit_source_with_free_function_router(
         if !emitted_class_names.insert(name.clone()) {
             continue;
         }
+        if context.is_reference_class(class.name) {
+            emit_reference_class_storage(&mut writer, mir, &context, class, needs_unknown)?;
+            continue;
+        }
         let type_params = class_type_params_text(mir, class)?;
         let impl_generics = class_impl_generics_text(mir, class)?;
         let _inherited_trait_methods = inherited_trait_methods(mir, class);
@@ -2740,6 +2745,248 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
         },
     );
     writer.blank_line();
+}
+
+/// Emit storage for a reference class as a handle newtype over `Rc<RefCell<_>>`.
+///
+/// A reference class `Name` becomes a thin handle `struct Name(Rc<RefCell<
+/// NameInner>>)` whose fields live in `NameInner`. Identity lives only in the
+/// wrapper, so:
+/// - `Clone` is hand-written as `Rc::clone` — a clone shares the SAME cell, which
+///   is JavaScript reference-identity and the fix for the silent "mutate a
+///   throwaway clone" miscompile;
+/// - `Default`/`Debug` delegate through the cell;
+/// - `IntoSmeltUnknown` (only when the crate crosses a dynamic boundary) borrows
+///   the cell and projects the public fields into an object.
+///
+/// The inner struct carries the same concrete field types the value struct would
+/// have used, so field access stays strongly typed; only identity concentrates
+/// in the outer `Rc`.
+fn emit_reference_class_storage(
+    writer: &mut CodeWriter,
+    mir: &Mir,
+    context: &EmitContext,
+    class: &smelt_mir::MirClass,
+    needs_unknown: bool,
+) -> Result<(), EmitError> {
+    let name = class_name_text(mir, class)?;
+    let inner_name = format!("{name}Inner");
+    let type_params = class_type_params_text(mir, class)?;
+    let type_args = class_type_args_text(mir, class)?;
+    let impl_generics = class_impl_generics_text(mir, class)?;
+    let fields = effective_class_fields(mir, class);
+    let scoped_type_params = class
+        .type_params
+        .iter()
+        .map(|param| param.name)
+        .collect::<HashSet<_>>();
+    let has_function_field = fields
+        .iter()
+        .any(|field| type_contains_function(mir, field.ty));
+    let phantom_args = class
+        .type_params
+        .iter()
+        .map(|param| {
+            mir.symbols
+                .get(param.name)
+                .map(|param_name| RustIdent::new(param_name).into_string())
+                .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+
+    // The handle newtype. `#[derive(Clone)]` is intentionally NOT used: a derived
+    // clone would require `Inner: Clone` and clone the cell contents. We hand-
+    // write `Rc::clone` below so a clone shares identity.
+    writer.line("#[allow(dead_code)]");
+    writer.line(format!(
+        "struct {name}{type_params}(::std::rc::Rc<::std::cell::RefCell<{inner_name}{type_args}>>);"
+    ));
+
+    // The inner record. Debug/Default are derived unless a callback field blocks
+    // the derives, matching the value-struct rules.
+    if has_function_field {
+        writer.line("#[allow(dead_code)]");
+        writer.block(
+            format!("struct {inner_name}{type_params}"),
+            |block_writer| {
+                emit_reference_inner_fields(block_writer, mir, context, &fields, &scoped_type_params, &phantom_args);
+            },
+        );
+        emit_default_impl_for_storage_type(
+            writer,
+            mir,
+            context,
+            &inner_name,
+            &impl_generics,
+            &type_args,
+            &fields,
+            &phantom_args,
+            &scoped_type_params,
+        )?;
+        emit_debug_impl_for_storage_type(writer, &inner_name, &impl_generics, &type_args);
+    } else {
+        writer.line("#[derive(Debug, Default)]");
+        writer.line("#[allow(dead_code)]");
+        writer.block(
+            format!("struct {inner_name}{type_params}"),
+            |block_writer| {
+                emit_reference_inner_fields(block_writer, mir, context, &fields, &scoped_type_params, &phantom_args);
+            },
+        );
+    }
+
+    // Hand-written identity `Clone`: share the SAME cell.
+    writer.block(
+        format!("impl{impl_generics} Clone for {name}{type_args}"),
+        |impl_writer| {
+            impl_writer.block("fn clone(&self) -> Self", |fn_writer| {
+                fn_writer.line(format!("{name}(::std::rc::Rc::clone(&self.0))"));
+            });
+        },
+    );
+
+    // `Default` wraps a defaulted inner record in a fresh cell.
+    writer.block(
+        format!("impl{impl_generics} Default for {name}{type_args}"),
+        |impl_writer| {
+            impl_writer.block("fn default() -> Self", |fn_writer| {
+                fn_writer.line(format!(
+                    "{name}(::std::rc::Rc::new(::std::cell::RefCell::new({inner_name}::default())))"
+                ));
+            });
+        },
+    );
+
+    // `Debug` delegates through the cell to the inner record for a non-generic
+    // class. A generic class's declared `T` bound does not include `Debug`, so a
+    // delegating body would not satisfy `Inner<T>: Debug`; it falls back to a
+    // non-exhaustive struct debug that needs no extra bound.
+    writer.block(
+        format!("impl{impl_generics} ::std::fmt::Debug for {name}{type_args}"),
+        |impl_writer| {
+            impl_writer.block(
+                "fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result",
+                |fn_writer| {
+                    if class.type_params.is_empty() {
+                        fn_writer.line("::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)");
+                    } else {
+                        fn_writer.line(format!(
+                            "formatter.debug_struct({name:?}).finish_non_exhaustive()"
+                        ));
+                    }
+                },
+            );
+        },
+    );
+
+    if !class.static_fields.is_empty() {
+        writer.block(
+            format!("impl{impl_generics} {name}{type_args}"),
+            |impl_writer| {
+                for field in &class.static_fields {
+                    let field_name = mir
+                        .symbols
+                        .get(field.name)
+                        .map(RustIdent::new)
+                        .map_or_else(|| "field".to_owned(), RustIdent::into_string);
+                    let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
+                        mir,
+                        context,
+                        field.ty,
+                        &scoped_type_params,
+                    )
+                    .unwrap_or_else(|_| "SmeltUnknown".to_owned());
+                    let value = materialized_static_value_text(field.value.as_ref());
+                    impl_writer.block(
+                        format!("fn __smelt_static_{field_name}() -> {field_ty}"),
+                        |function_writer| function_writer.line(value),
+                    );
+                }
+            },
+        );
+    }
+
+    if needs_unknown {
+        emit_reference_class_into_smelt_unknown_impl(
+            writer,
+            mir,
+            &name,
+            &impl_generics,
+            &type_args,
+            &fields,
+        )?;
+    }
+    writer.blank_line();
+    Ok(())
+}
+
+/// Emit the field lines of a reference class's inner record.
+fn emit_reference_inner_fields(
+    block_writer: &mut CodeWriter,
+    mir: &Mir,
+    context: &EmitContext,
+    fields: &[smelt_mir::MirField],
+    scoped_type_params: &HashSet<smelt_hir::Symbol>,
+    phantom_args: &str,
+) {
+    for field in fields {
+        let field_name = RustIdent::new(mir.symbols.get(field.name).unwrap_or("field")).into_string();
+        let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
+            mir,
+            context,
+            field.ty,
+            scoped_type_params,
+        )
+        .unwrap_or_else(|_| "SmeltUnknown".to_owned());
+        block_writer.line(format!("{field_name}: {field_ty},"));
+    }
+    if !phantom_args.is_empty() {
+        block_writer.line(format!(
+            "_smelt_phantom: ::std::marker::PhantomData<({phantom_args})>,"
+        ));
+    }
+}
+
+/// Emit `IntoSmeltUnknown` for a reference class by borrowing the shared cell.
+///
+/// Mirrors [`emit_record_into_smelt_unknown_impl`] but projects the public
+/// fields out of `self.0.borrow()` rather than owned struct fields.
+fn emit_reference_class_into_smelt_unknown_impl(
+    writer: &mut CodeWriter,
+    mir: &Mir,
+    name: &str,
+    impl_generics: &str,
+    type_args: &str,
+    fields: &[smelt_mir::MirField],
+) -> Result<(), EmitError> {
+    writer.block(
+        format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
+        |impl_writer| {
+            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                fn_writer.line("let __smelt_inner = self.0.borrow();");
+                fn_writer.line(
+                    "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([",
+                );
+                for field in fields {
+                    if matches!(field.visibility, smelt_hir::Visibility::Private) {
+                        continue;
+                    }
+                    let key = mir.symbols.get(field.name).unwrap_or("field");
+                    let field_name = RustIdent::new(key).into_string();
+                    let value = record_field_unknown_text(
+                        mir,
+                        &format!("__smelt_inner.{field_name}.clone()"),
+                        field.ty,
+                    )
+                    .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
+                    fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
+                }
+                fn_writer.line("])))");
+            });
+        },
+    );
+    Ok(())
 }
 
 /// Emits a manual `Default` impl for generated storage structs with callbacks.

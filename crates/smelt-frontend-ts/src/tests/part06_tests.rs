@@ -227,7 +227,7 @@ fn rejects_setters_and_decorators_and_lowers_abstract_classes() -> Result<(), St
 "),
         &mut setter_ctx,
     )?;
-    assert_unsupported_ts(&setter_errors, "getters and setters")?;
+    assert_unsupported_ts(&setter_errors, "setters are not lowered yet")?;
 
     let mut decorator_ctx = HirCtx::new();
     let decorator_errors = lowering_errors(

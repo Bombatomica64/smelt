@@ -862,6 +862,10 @@ impl ModuleBuilder<'_> {
         let mut source_static_fields: Vec<smelt_hir::StaticField> = Vec::new();
         let mut abstract_methods = Vec::new();
         let mut descriptor_accessors = Vec::new();
+        // Accessor descriptors built directly from plain source getters on a
+        // non-materialized class. Materialized classes derive their descriptors
+        // from the manifest instead (see `merge_materialized_class_descriptors`).
+        let mut source_descriptors: Vec<smelt_hir::Descriptor> = Vec::new();
         // Value type declared by a class string/number index signature, if any.
         // Recorded from the `TSIndexSignature` element below and published to the
         // index-value maps after the class is fully lowered.
@@ -988,21 +992,29 @@ impl ModuleBuilder<'_> {
                             "static accessors are not lowered yet",
                         ));
                     }
-                    let name = self.property_key_symbol(&method.key)?;
-                    let ty = method
-                        .value
-                        .return_type
-                        .as_ref()
-                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                        .transpose()?
-                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                    fields.push(Field {
-                        name,
-                        ty,
-                        visibility: Visibility::Private,
-                        optional: false,
-                        span: self.span(method.span.start, method.span.end),
-                    });
+                    // A plain source getter (`get x() { … }`) lowers to a `&self`
+                    // method plus an accessor descriptor in the second class pass
+                    // below, so reads of `obj.x` dispatch to the computed method
+                    // instead of a dropped stored field (see the reference-class
+                    // spec's finding #3). For a materialized/auto-accessor class
+                    // the getter still keeps its backing field.
+                    if materialized.is_some() {
+                        let name = self.property_key_symbol(&method.key)?;
+                        let ty = method
+                            .value
+                            .return_type
+                            .as_ref()
+                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                            .transpose()?
+                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                        fields.push(Field {
+                            name,
+                            ty,
+                            visibility: Visibility::Private,
+                            optional: false,
+                            span: self.span(method.span.start, method.span.end),
+                        });
+                    }
                 }
                 ClassElement::TSIndexSignature(sig) => {
                     // A class string/number index signature `[key: string]: T`
@@ -1145,13 +1157,13 @@ impl ModuleBuilder<'_> {
                             class_text,
                         ));
                     }
-                    if materialized.is_none() && method.kind == MethodDefinitionKind::Get {
-                        continue;
-                    }
+                    // Plain source getters are lowered as `&self` methods and
+                    // registered as accessor descriptors below; setters still need
+                    // the write path that is not modeled yet.
                     if materialized.is_none() && method.kind == MethodDefinitionKind::Set {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
-                            "getters and setters are not lowered yet",
+                            "setters are not lowered yet",
                         ));
                     }
                     if method.computed && !self.is_resolvable_property_key(&method.key) {
@@ -1239,6 +1251,28 @@ impl ModuleBuilder<'_> {
                                 method.kind,
                                 item,
                             ));
+                        }
+                        // Register a source-level accessor descriptor for a plain
+                        // getter so member reads dispatch to the computed method.
+                        if materialized.is_none() && method.kind == MethodDefinitionKind::Get {
+                            let name = self.property_key_symbol(&method.key)?;
+                            let read_ty = method
+                                .value
+                                .return_type
+                                .as_ref()
+                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                                .transpose()?
+                                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                            source_descriptors.push(smelt_hir::Descriptor {
+                                name,
+                                read_ty,
+                                write_ty: None,
+                                getter: Some(item),
+                                setter: None,
+                                data_descriptor: false,
+                                is_static: false,
+                                value_fields: Vec::new(),
+                            });
                         }
                         methods.push(item);
                         item
@@ -1370,15 +1404,16 @@ impl ModuleBuilder<'_> {
                 class_span,
             )?;
         }
-        let descriptors = materialized
-            .as_ref()
-            .map_or_else(Vec::new, |materialized_class| {
+        let descriptors = materialized.as_ref().map_or_else(
+            || source_descriptors,
+            |materialized_class| {
                 self.merge_materialized_class_descriptors(
                     materialized_class,
                     &descriptor_accessors,
                     class_span,
                 )
-            });
+            },
+        );
 
         let implements = class
             .implements
