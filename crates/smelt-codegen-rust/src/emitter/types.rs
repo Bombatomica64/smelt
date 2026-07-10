@@ -255,7 +255,18 @@ impl FunctionEmitter<'_> {
             Some(Type::String) => Ok(format!(
                 "{operand_text}.clone().is_some_and(|value| !value.is_empty())"
             )),
-            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never) => {
+            Some(Type::Union(_)) => {
+                // A concrete generated union (`SmeltUnionNNNN`) is not a
+                // `SmeltUnknown`, so its inner value cannot be matched against
+                // `SmeltUnknown::` arms directly. Erase it through the union's
+                // `IntoSmeltUnknown` boundary adapter first — truthiness is a
+                // genuine runtime-narrowing inspection of the tagged value, and
+                // only the resulting `bool` escapes, so no static shape is lost.
+                Ok(format!(
+                    "match {operand_text}.clone().map(|value| value.into_smelt_unknown()) {{ None => false, Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(value)) => value, Some(SmeltUnknown::Number(value)) => value != 0.0 && !value.is_nan(), Some(SmeltUnknown::String(value)) => !value.is_empty(), Some(SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) => true }}"
+                ))
+            }
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Never) => {
                 Ok(format!(
                     "match {operand_text}.clone() {{ None => false, Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(value)) => value, Some(SmeltUnknown::Number(value)) => value != 0.0 && !value.is_nan(), Some(SmeltUnknown::String(value)) => !value.is_empty(), Some(SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) => true }}"
                 ))
@@ -306,7 +317,15 @@ impl FunctionEmitter<'_> {
                 "{{ let smelt_number = ({value_text}); smelt_number != 0.0 && !smelt_number.is_nan() }}"
             )),
             Some(Type::String) => Ok(format!("!({value_text}).is_empty()")),
-            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never) => {
+            Some(Type::Union(_)) => {
+                // A concrete generated union is not a `SmeltUnknown`; erase it
+                // through its `IntoSmeltUnknown` boundary adapter before the
+                // runtime-narrowing truthiness match (see `optional_truthy_text`).
+                Ok(format!(
+                    "match ({value_text}).into_smelt_unknown() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}"
+                ))
+            }
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Never) => {
                 Ok(format!(
                     "match ({value_text}) {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}"
                 ))

@@ -76,6 +76,7 @@ blocker-logs/*.md
 !blocker-logs/reference-classes.md
 # reference-classes-diagnostics.md is the es-toolkit rust-diagnostics report after the feature
 !blocker-logs/reference-classes-diagnostics.md
+!blocker-logs/estk-e0308-round2.md
 
 # Generated docs site output
 _site/

@@ -1283,27 +1283,21 @@ impl FunctionEmitter<'_> {
         block: &BasicBlock,
         out: &mut String,
     ) -> Result<(), EmitError> {
-        self.emit_closure_block_inner(block, out, &mut Vec::new(), None)
+        self.emit_closure_block_inner(block, out, &mut Vec::new(), None, false)
     }
 
-    /// Emits an explicit Rust `return` for a closure block that directly returns.
+    /// Emits a closure body MIR `Return` as an explicit `return` statement.
     ///
-    /// Loop-shaped closure CFGs are rendered as statement-oriented `loop { ... }`
-    /// blocks, not Rust value expressions. If the loop exit is a MIR `Return`,
-    /// lowering it as a bare tail expression inside the loop's `else` arm makes
-    /// the closure body type `()`. In that context the MIR return must become an
-    /// explicit closure return statement.
-    fn emit_closure_explicit_return(
+    /// Used both for the direct loop-exit return and for any `Return` reached
+    /// while emitting a branch nested inside a loop-shaped closure body. Inside a
+    /// `loop { ... }` a value can only leave the closure through an explicit
+    /// `return`; a bare tail expression would instead type the loop-body block as
+    /// its value type and mismatch the required `()`.
+    fn emit_closure_return_statement(
         &self,
-        block: &BasicBlock,
+        operand: &Operand,
         out: &mut String,
-    ) -> Result<bool, EmitError> {
-        let Some(Terminator::Return(operand)) = &block.terminator else {
-            return Ok(false);
-        };
-        for statement in &block.statements {
-            self.emit_statement(statement, out)?;
-        }
+    ) -> Result<(), EmitError> {
         if self.function.return_ty == self.none_ty {
             if !matches!(operand, Operand::Const(Constant::None))
                 && self.operand_ty(operand)? != self.none_ty
@@ -1315,7 +1309,7 @@ impl FunctionEmitter<'_> {
             } else {
                 out.push_str("    return ();\n");
             }
-            return Ok(true);
+            return Ok(());
         }
         let operand_is_future = matches!(
             self.mir.types.get(self.operand_ty(operand)?),
@@ -1334,16 +1328,23 @@ impl FunctionEmitter<'_> {
         } else {
             out.push_str(&format!("    return {value};\n"));
         }
-        Ok(true)
+        Ok(())
     }
 
     /// Emits a closure block while guarding against unstructured CFG cycles.
+    ///
+    /// `in_loop` is set while emitting the branches of a loop-shaped closure
+    /// body. In that context a MIR `Return` must be lowered to an explicit
+    /// `return` statement rather than a bare Rust tail expression, because a
+    /// value produced as the tail of a `loop { ... }` body block would mistype
+    /// the block as its value type instead of the required `()`.
     fn emit_closure_block_inner(
         &self,
         block: &BasicBlock,
         out: &mut String,
         active: &mut Vec<*const BasicBlock>,
         stop: Option<smelt_mir::BlockId>,
+        in_loop: bool,
     ) -> Result<(), EmitError> {
         if Some(block.id) == stop {
             return Ok(());
@@ -1370,16 +1371,26 @@ impl FunctionEmitter<'_> {
             }
             let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
-            self.emit_closure_block_inner(self.block(*then_block)?, out, active, Some(block.id))?;
+            // Both branches run inside the generated `loop`, so any MIR `Return`
+            // they reach must become an explicit `return` (see `in_loop`). A
+            // branch that instead flows back to the header (`stop`) emits nothing
+            // and the loop naturally continues.
+            self.emit_closure_block_inner(
+                self.block(*then_block)?,
+                out,
+                active,
+                Some(block.id),
+                true,
+            )?;
             out.push_str("    } else {\n");
             self.restore_declared_locals(branch_declared.clone());
-            let else_block_ref = self.block(*else_block)?;
-            let else_returns = self.emit_closure_explicit_return(else_block_ref, out)?;
-            if !else_returns {
-                self.emit_closure_block_inner(else_block_ref, out, active, Some(block.id))?;
-                out.push_str("    ;\n");
-                out.push_str("    break;\n");
-            }
+            self.emit_closure_block_inner(
+                self.block(*else_block)?,
+                out,
+                active,
+                Some(block.id),
+                true,
+            )?;
             out.push_str("    }\n");
             out.push_str("    }\n");
             self.restore_declared_locals(branch_declared);
@@ -1390,6 +1401,13 @@ impl FunctionEmitter<'_> {
             self.emit_statement(statement, out)?;
         }
         let result = match terminator {
+            Terminator::Return(operand) if in_loop => {
+                // A `Return` reached inside a loop-shaped closure body can only
+                // leave the closure through an explicit `return`; the enclosing
+                // `loop { ... }` body must stay typed `()`.
+                self.emit_closure_return_statement(operand, out)?;
+                Ok(())
+            }
             Terminator::Return(operand) => {
                 if self.function.return_ty == self.none_ty {
                     if !matches!(operand, Operand::Const(Constant::None))
@@ -1438,7 +1456,7 @@ impl FunctionEmitter<'_> {
                 if Some(*target) == stop {
                     Ok(())
                 } else {
-                    self.emit_closure_block_inner(self.block(*target)?, out, active, stop)
+                    self.emit_closure_block_inner(self.block(*target)?, out, active, stop, in_loop)
                 }
             }
             Terminator::Call {
@@ -1456,7 +1474,7 @@ impl FunctionEmitter<'_> {
                     self.type_text_with_impl_trait(local.ty, false)?
                 ));
                 self.mark_local_declared(*dest);
-                self.emit_closure_block_inner(self.block(*target)?, out, active, stop)
+                self.emit_closure_block_inner(self.block(*target)?, out, active, stop, in_loop)
             }
             Terminator::Await {
                 future,
@@ -1472,7 +1490,7 @@ impl FunctionEmitter<'_> {
                     self.type_text_with_impl_trait(local.ty, false)?
                 ));
                 self.mark_local_declared(*dest);
-                self.emit_closure_block_inner(self.block(*target)?, out, active, stop)
+                self.emit_closure_block_inner(self.block(*target)?, out, active, stop, in_loop)
             }
             Terminator::Switch {
                 cond,
@@ -1481,10 +1499,22 @@ impl FunctionEmitter<'_> {
             } => {
                 let branch_declared = self.declared_locals_snapshot();
                 out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
-                self.emit_closure_block_inner(self.block(*then_block)?, out, active, stop)?;
+                self.emit_closure_block_inner(
+                    self.block(*then_block)?,
+                    out,
+                    active,
+                    stop,
+                    in_loop,
+                )?;
                 out.push_str("    } else {\n");
                 self.restore_declared_locals(branch_declared.clone());
-                self.emit_closure_block_inner(self.block(*else_block)?, out, active, stop)?;
+                self.emit_closure_block_inner(
+                    self.block(*else_block)?,
+                    out,
+                    active,
+                    stop,
+                    in_loop,
+                )?;
                 out.push_str("    }\n");
                 self.restore_declared_locals(branch_declared);
                 Ok(())
@@ -1493,7 +1523,7 @@ impl FunctionEmitter<'_> {
                 scrutinee,
                 arms,
                 default,
-            } => self.emit_closure_match(scrutinee, arms, *default, out, active, stop),
+            } => self.emit_closure_match(scrutinee, arms, *default, out, active, stop, in_loop),
             Terminator::Throw(operand) => {
                 out.push_str(&format!(
                     "    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
@@ -1524,6 +1554,7 @@ impl FunctionEmitter<'_> {
         out: &mut String,
         active: &mut Vec<*const BasicBlock>,
         stop: Option<smelt_mir::BlockId>,
+        in_loop: bool,
     ) -> Result<(), EmitError> {
         let join = self.match_join(arms, default)?;
         let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
@@ -1534,13 +1565,13 @@ impl FunctionEmitter<'_> {
                 "        {} => {{\n",
                 self.match_label_text(&arm.label)
             ));
-            self.emit_closure_block_inner(self.block(arm.target)?, out, active, join)?;
+            self.emit_closure_block_inner(self.block(arm.target)?, out, active, join, in_loop)?;
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared.clone());
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
-            self.emit_closure_block_inner(self.block(default_block)?, out, active, join)?;
+            self.emit_closure_block_inner(self.block(default_block)?, out, active, join, in_loop)?;
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared);
         } else {
@@ -1552,7 +1583,7 @@ impl FunctionEmitter<'_> {
             out.push_str("    }\n");
         }
         if let Some(join_block) = join {
-            self.emit_closure_block_inner(self.block(join_block)?, out, active, stop)?;
+            self.emit_closure_block_inner(self.block(join_block)?, out, active, stop, in_loop)?;
         }
         Ok(())
     }

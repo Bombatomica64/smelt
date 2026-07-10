@@ -1646,6 +1646,34 @@ impl FunctionEmitter<'_> {
     /// a defined coercion/default instead of turning those paths into generated
     /// Rust panics.
     pub(super) fn extract(&self, value: &Operand, target: TypeId) -> Result<String, EmitError> {
+        // The primitive-target arms of `extract_value_text` (`Bool`/`Int`/
+        // `Float`/`String`) match directly on a `SmeltUnknown` scrutinee. A
+        // caller that reaches here with an already-concrete `Option` source whose
+        // inner type is itself concrete — e.g. an `Option<String>` array element
+        // coerced to a `String` method receiver — must instead go through the
+        // general concrete coercion, which unwraps the `Option`. (List/Dict and
+        // other targets normalize their source through `into_smelt_unknown`
+        // first, so they still accept a non-erased source.) `value_at_type`
+        // handles a non-erased `Option` source directly without delegating back
+        // to `extract`, so this cannot recurse.
+        let source_ty = self.operand_ty(value)?;
+        let target_is_primitive = matches!(
+            self.mir.types.get(target),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+        );
+        let source_inner_is_erased = matches!(
+            self.mir.types.get(source_ty),
+            Some(Type::Optional(inner)) if matches!(
+                self.mir.types.get(*inner),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) || self.is_erased_class_type(*inner)
+        );
+        if target_is_primitive
+            && matches!(self.mir.types.get(source_ty), Some(Type::Optional(_)))
+            && !source_inner_is_erased
+        {
+            return self.value_at_type(value, target);
+        }
         let text = self.operand_text(value)?;
         self.extract_value_text(&text, target)
     }
