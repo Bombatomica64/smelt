@@ -643,14 +643,38 @@ const fromSource = new Set(source);
 ",
     );
 
-    assert!(source.contains("let values: Vec<f64>"), "{source}");
+    // A `Set<number>` (f64 elements) has no correct `HashSet` backing, so it
+    // uses the `SmeltJsSet` runtime container; a `Set<string>` keeps `HashSet`.
+    assert!(source.contains("let values: SmeltJsSet<f64>"), "{source}");
     assert!(
         source.contains("let empty: ::std::collections::HashSet<String>"),
         "{source}"
     );
-    assert!(source.contains(".iter().any(|value| *value == 2.0);"));
+    assert!(source.contains(".contains(&2.0)"));
     assert!(source.contains("::std::collections::HashSet::new();"));
-    assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));
+    assert!(source.contains(".iter().cloned().collect::<SmeltJsSet<_>>()"));
+}
+
+#[test]
+fn emits_smelt_js_set_container() {
+    // A `Set<number>` cannot use `HashSet` (`f64` has no `Eq`/`Hash`), so it
+    // routes through the `SmeltJsSet` runtime container with SameValueZero
+    // membership and insertion order. The dedup-from-array shape (`[...new
+    // Set(array)]`) collects into `SmeltJsSet` too.
+    let source = source_for(
+        r"
+const values: Set<number> = new Set([1, 2, 3]);
+const source: number[] = [1, 2, 3];
+const deduped = new Set(source);
+",
+    );
+
+    assert!(source.contains("SmeltJsSet<f64>"), "{source}");
+    assert!(source.contains("SmeltJsSet::from(["), "{source}");
+    assert!(
+        source.contains(".iter().cloned().collect::<SmeltJsSet<_>>()"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -664,7 +688,7 @@ const hits = values.filter((value) => selected.has(value));
     );
 
     assert!(
-        source.contains(".iter().any(|value| *value == closure_arg_0.clone())"),
+        source.contains(".contains(&closure_arg_0.clone())"),
         "{source}"
     );
 }

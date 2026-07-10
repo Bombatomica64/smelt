@@ -348,9 +348,18 @@ impl FunctionEmitter<'_> {
         let callback_text = self
             .closure_operand_text(callback)
             .or_else(|_| self.operand_text(callback))?;
-        let replacement = format!(
-            "|caps: &regex::Captures<'_>| ({callback_text})(caps.get(0).expect(\"regex match missing\").as_str().to_string())"
+        // JavaScript `String.prototype.replace(re, fn)` converts the callback's
+        // return value to a string (ToString) before substituting it. The Rust
+        // `regex` `Replacer` closure must therefore yield a `String`
+        // (`AsRef<str>`); a callback typed to return `unknown`/a union/etc.
+        // yields `SmeltUnknown`, which is not `AsRef<str>`. When the callback
+        // does not already return `String`, route its result through the erase +
+        // String-extract boundary so the closure hands `replace` a real string.
+        let call_expr = format!(
+            "({callback_text})(caps.get(0).expect(\"regex match missing\").as_str().to_string())"
         );
+        let replacement_expr = self.regex_replacement_as_string(call_expr, callback)?;
+        let replacement = format!("|caps: &regex::Captures<'_>| {replacement_expr}");
         Ok(match op {
             smelt_hir::StringReplaceOp::First => {
                 format!("{regex_text}.replace(&{haystack_text}, {replacement}).to_string()")
@@ -359,6 +368,31 @@ impl FunctionEmitter<'_> {
                 format!("{regex_text}.replace_all(&{haystack_text}, {replacement}).to_string()")
             }
         })
+    }
+
+    /// Coerce a regex replacement callback's return value to a Rust `String`.
+    ///
+    /// JS ToStrings the callback result before substituting. A callback already
+    /// returning `String` needs no wrapping (it is a valid `Replacer`); any
+    /// other return type is erased to `SmeltUnknown` and extracted back as a
+    /// `String`, applying the same ToString rules JS uses.
+    fn regex_replacement_as_string(
+        &self,
+        call_expr: String,
+        callback: &Operand,
+    ) -> Result<String, EmitError> {
+        let return_ty = match self.mir.types.get(self.operand_ty(callback)?) {
+            Some(Type::Function(function)) => function.return_ty,
+            _ => return Ok(call_expr),
+        };
+        if matches!(self.mir.types.get(return_ty), Some(Type::String)) {
+            return Ok(call_expr);
+        }
+        let Some(string_ty) = self.existing_type_id(Type::String) else {
+            return Ok(call_expr);
+        };
+        let erased = self.erase_value_text(&call_expr, return_ty)?;
+        self.extract_value_text(&erased, string_ty)
     }
 
     /// Converts regex replacement with an uppercase first-match callback.

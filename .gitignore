@@ -77,6 +77,8 @@ blocker-logs/*.md
 # reference-classes-diagnostics.md is the es-toolkit rust-diagnostics report after the feature
 !blocker-logs/reference-classes-diagnostics.md
 !blocker-logs/estk-e0308-round2.md
+# estk-jsset-and-tail.md documents the SmeltJsSet container and tail E0277/E0631 fixes
+!blocker-logs/estk-jsset-and-tail.md
 
 # Generated docs site output
 _site/

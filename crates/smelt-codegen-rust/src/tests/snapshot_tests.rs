@@ -180,16 +180,22 @@ function lookup(): number | undefined {
 }
 
 /// Snapshot set construction and membership emission.
+///
+/// Uses a `Set<string>`, whose value-equality element type keeps the plain
+/// `HashSet` backing (and therefore a small prelude). Non-primitive sets route
+/// through the `SmeltJsSet` runtime container, which pulls in the unknown
+/// carrier; that path is covered by the dedicated `emits_smelt_js_set_container`
+/// unit test and the end-to-end fixture instead of this whole-module snapshot.
 #[test]
 fn set_collection_emission() {
     assert_emitted_source_snapshot(
         "set_collection_emission",
-        r"
+        r#"
 function contains(): boolean {
-  const values = new Set<number>([1, 2]);
-  return values.has(2);
+  const values = new Set<string>(["a", "b"]);
+  return values.has("b");
 }
-",
+"#,
         None,
     );
 }

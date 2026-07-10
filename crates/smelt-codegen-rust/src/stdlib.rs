@@ -255,6 +255,23 @@ fn rvalue_needs_reqwest(rvalue: &Rvalue) -> bool {
     )
 }
 
+/// Returns whether a set element type backs a plain Rust `HashSet`.
+///
+/// Mirrors [`FunctionEmitter::type_is_hash_set_key_safe`] at module scope so
+/// the `needs_unknown` gate can decide whether a `Set` forces the `SmeltJsSet`
+/// runtime (and therefore the unknown carrier) on. Only value-equality
+/// primitives back a `HashSet`; everything else uses `SmeltJsSet`.
+fn module_hash_set_key_safe(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::Bool | Type::Int | Type::String) => true,
+        Some(Type::Optional(inner) | Type::Future(inner)) => {
+            module_hash_set_key_safe(mir, *inner)
+        }
+        Some(Type::Union(items)) => items.iter().all(|item| module_hash_set_key_safe(mir, *item)),
+        _ => false,
+    }
+}
+
 /// Returns true when generated Rust needs the opaque `unknown` carrier type.
 #[must_use]
 pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
@@ -289,6 +306,16 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
             .all()
             .iter()
             .any(|ty| matches!(ty, Type::Unknown | Type::Never | Type::Union(_)))
+        // A `Set` whose element type is not a value-equality primitive is
+        // emitted as the `SmeltJsSet` runtime container, whose SameValueZero
+        // membership projects elements through `IntoSmeltUnknown`. That carrier
+        // and its traits live in the `needs_unknown` prelude block, so such a
+        // set forces the unknown runtime on.
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::Set(item) if !module_hash_set_key_safe(mir, *item)))
         || mir.functions.iter().any(|function| {
             function.blocks.iter().any(|block| {
                 block.statements.iter().any(|statement| {

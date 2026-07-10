@@ -91,14 +91,25 @@ impl FunctionEmitter<'_> {
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list-to-set source must be a list"));
         };
-        if !matches!(self.mir.types.get(dest_ty), Some(Type::Set(dest_item)) if dest_item == item_ty)
+        let set_item_ty = *item_ty;
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Set(dest_item)) if *dest_item == set_item_ty)
         {
             return Err(EmitError::new(
                 "list-to-set destination must be set of the list item type",
             ));
         }
+        // Collect into whichever container the destination `Set` uses: a plain
+        // `HashSet` for value-equality primitives, or `SmeltJsSet` (SameValueZero
+        // membership, insertion order) for `f64`, unions, generics, and
+        // object-like elements. Both dedup on `FromIterator`, matching JS
+        // `new Set(array)`.
+        let container = if self.type_is_hash_set_key_safe(set_item_ty) {
+            "::std::collections::HashSet<_>"
+        } else {
+            "SmeltJsSet<_>"
+        };
         Ok(format!(
-            "{}.iter().cloned().collect::<::std::collections::HashSet<_>>()",
+            "{}.iter().cloned().collect::<{container}>()",
             self.operand_text(list)?
         ))
     }

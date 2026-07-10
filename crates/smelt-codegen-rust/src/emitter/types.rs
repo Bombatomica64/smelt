@@ -760,7 +760,7 @@ impl FunctionEmitter<'_> {
                 self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
             Type::Set(item) => Ok(format!(
-                "Vec<{}>",
+                "SmeltJsSet<{}>",
                 self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
             Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => Ok(format!(
@@ -881,7 +881,7 @@ impl FunctionEmitter<'_> {
             Type::Set(item) if self.type_is_hash_set_key_safe(*item) => {
                 Ok("::std::collections::HashSet::new()".to_owned())
             }
-            Type::Set(_) => Ok("Vec::new()".to_owned()),
+            Type::Set(_) => Ok("SmeltJsSet::new()".to_owned()),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
                 Ok("SmeltRecord::new()".to_owned())
             }

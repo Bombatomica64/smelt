@@ -7,9 +7,9 @@ expression: emitted
 
 // @smelt:prelude-end — generated program below
 fn contains() -> bool {
-    let _smelt_tmp_1: Vec<f64> = vec![1.0, 2.0];
-    let values: Vec<f64> = _smelt_tmp_1;
-    let _smelt_tmp_2: bool = values.iter().any(|value| *value == 2.0);
+    let _smelt_tmp_1: ::std::collections::HashSet<String> = ::std::collections::HashSet::from(["a".to_owned(), "b".to_owned()]);
+    let values: ::std::collections::HashSet<String> = _smelt_tmp_1;
+    let _smelt_tmp_2: bool = values.contains(&"b".to_owned());
     return _smelt_tmp_2;
 }
 

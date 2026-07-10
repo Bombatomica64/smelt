@@ -740,7 +740,7 @@ fn emit_source_with_free_function_router(
         writer.line("    fn eq(&self, other: &::std::collections::HashMap<K, V>) -> bool { self.values.borrow().eq(other) }");
         writer.line("}");
         writer.blank_line();
-        writer.line("#[derive(Clone)]");
+        writer.line("#[derive(Clone, Debug)]");
         writer.line("pub struct SmeltJsMap<K, V> {");
         writer.line("    entries: Vec<(K, V)>,");
         writer.line("}");
@@ -787,6 +787,55 @@ fn emit_source_with_free_function_router(
         writer.line("    fn eq(&self, other: &Self) -> bool { self.entries.len() == other.entries.len() && self.entries.iter().all(|(key, value)| other.get(key).is_some_and(|other_value| other_value == *value)) }");
         writer.line("}");
         writer.line("impl<K: SmeltJsKeyEq + Clone, V: Eq + Clone> Eq for SmeltJsMap<K, V> {}");
+        writer.blank_line();
+        // JS `Set` container with SameValueZero membership and insertion order.
+        //
+        // Rust `HashSet` demands `Eq + Hash`, which is impossible for `f64`,
+        // generated unions, and generic type parameters, and is the wrong
+        // equality besides: JavaScript `Set` compares objects/functions by
+        // reference identity and treats `NaN` as equal to itself. Rather than
+        // require a per-element `Eq + Hash`, membership projects each element
+        // through its `IntoSmeltUnknown` erasure and compares the resulting
+        // runtime values with `SmeltJsKeyEq::same_js_key` (the same erased-key
+        // projection `SmeltJsMap` uses for keys). This makes one uniform,
+        // JS-correct container work for every element type that can be erased.
+        // Elements are stored in a `Vec` so iteration preserves insertion order
+        // like a real JS `Set`.
+        writer.line("#[derive(Clone, Debug)]");
+        writer.line("pub struct SmeltJsSet<T> {");
+        writer.line("    entries: Vec<T>,");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("impl<T> SmeltJsSet<T> {");
+        writer.line("    fn new() -> Self { Self { entries: Vec::new() } }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("impl<T: Clone + IntoSmeltUnknown> SmeltJsSet<T> {");
+        writer.line("    /// SameValueZero equality via each element's erased runtime value.");
+        writer.line("    fn same_member(left: &T, right: &T) -> bool { left.clone().into_smelt_unknown().same_js_key(&right.clone().into_smelt_unknown()) }");
+        writer.line("    fn len(&self) -> usize { self.entries.len() }");
+        writer.line("    fn is_empty(&self) -> bool { self.entries.is_empty() }");
+        writer.line("    fn contains(&self, value: &T) -> bool { self.entries.iter().any(|existing| Self::same_member(existing, value)) }");
+        writer.line("    fn insert(&mut self, value: T) -> bool { if self.contains(&value) { false } else { self.entries.push(value); true } }");
+        writer.line("    fn remove(&mut self, value: &T) -> bool { if let Some(index) = self.entries.iter().position(|existing| Self::same_member(existing, value)) { self.entries.remove(index); true } else { false } }");
+        writer.line("    fn iter(&self) -> ::std::slice::Iter<'_, T> { self.entries.iter() }");
+        writer.line("    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) { for value in iter { self.insert(value); } }");
+        writer.line("    fn is_disjoint(&self, other: &Self) -> bool { self.entries.iter().all(|value| !other.contains(value)) }");
+        writer.line("    fn is_subset(&self, other: &Self) -> bool { self.entries.iter().all(|value| other.contains(value)) }");
+        writer.line("    fn is_superset(&self, other: &Self) -> bool { other.is_subset(self) }");
+        writer.line("    fn union<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { let mut out: Vec<&T> = self.entries.iter().collect(); for value in other.entries.iter() { if !out.iter().any(|existing| Self::same_member(existing, value)) { out.push(value); } } out.into_iter() }");
+        writer.line("    fn intersection<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { self.entries.iter().filter(|value| other.contains(value)).collect::<Vec<_>>().into_iter() }");
+        writer.line("    fn difference<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { self.entries.iter().filter(|value| !other.contains(value)).collect::<Vec<_>>().into_iter() }");
+        writer.line("    fn symmetric_difference<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { let mut out: Vec<&T> = self.entries.iter().filter(|value| !other.contains(value)).collect(); for value in other.entries.iter() { if !self.contains(value) { out.push(value); } } out.into_iter() }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("impl<T> Default for SmeltJsSet<T> { fn default() -> Self { Self::new() } }");
+        writer.line("impl<T: Clone + IntoSmeltUnknown, const N: usize> From<[T; N]> for SmeltJsSet<T> { fn from(values: [T; N]) -> Self { values.into_iter().collect() } }");
+        writer.line("impl<T: Clone + IntoSmeltUnknown> ::std::iter::FromIterator<T> for SmeltJsSet<T> { fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self { let mut set = Self::new(); set.extend(iter); set } }");
+        writer.line("impl<T> IntoIterator for SmeltJsSet<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { self.entries.into_iter() } }");
+        writer.line("impl<'smelt_set, T> IntoIterator for &'smelt_set SmeltJsSet<T> { type Item = &'smelt_set T; type IntoIter = ::std::slice::Iter<'smelt_set, T>; fn into_iter(self) -> Self::IntoIter { self.entries.iter() } }");
+        writer.line("impl<T: Clone + IntoSmeltUnknown> PartialEq for SmeltJsSet<T> { fn eq(&self, other: &Self) -> bool { self.entries.len() == other.entries.len() && self.entries.iter().all(|value| other.contains(value)) } }");
+        writer.line("impl<T: IntoSmeltUnknown> IntoSmeltUnknown for SmeltJsSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { let mut values = self.entries.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) } }");
         writer.blank_line();
         writer.line("pub trait SmeltJsKeyEq {");
         writer.line("    fn same_js_key(&self, other: &Self) -> bool;");
