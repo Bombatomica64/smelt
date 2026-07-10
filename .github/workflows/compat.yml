@@ -125,9 +125,16 @@ jobs:
 
       - name: Update COMPAT.md
         run: |
-          shopt -s nullglob
-          for metadata in target/compat-results/compat-*/metadata.env; do
+          # download-artifact extracts a single matched artifact directly into
+          # the target path (no per-artifact subdirectory), so locate every
+          # metadata.env at any depth instead of assuming one fixed layout, and
+          # fail loudly when none are found rather than silently committing
+          # nothing (the nullglob loop previously skipped zero matches).
+          found=0
+          while IFS= read -r metadata; do
+            found=1
             result_dir="$(dirname "$metadata")"
+            echo "Updating COMPAT.md from $metadata"
             . "$metadata"
             python3 scripts/update_compat.py \
               --compat COMPAT.md \
@@ -137,7 +144,12 @@ jobs:
               --run-url "$run_url" \
               --report "$result_dir/report.md" \
               --status "$status"
-          done
+          done < <(find target/compat-results -name metadata.env | sort)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::no compat metadata.env found under target/compat-results"
+            find target/compat-results -maxdepth 3 -print || true
+            exit 1
+          fi
 
       - name: Commit compatibility updates
         uses: stefanzweifel/git-auto-commit-action@v7
