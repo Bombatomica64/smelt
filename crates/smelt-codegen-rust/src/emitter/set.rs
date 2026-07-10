@@ -26,16 +26,10 @@ impl FunctionEmitter<'_> {
             let inner = *opt_inner;
             let set_text = self.operand_text(set)?;
             let body = if inner == item_ty {
-                if self.mir.types.get(item_ty) == Some(&Type::Float) {
-                    format!("{set_text}.iter().any(|value| *value == smelt_needle)")
-                } else if matches!(
-                    self.mir.types.get(item_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) {
-                    format!("{set_text}.iter().any(|value| value.same_js_key(&smelt_needle))")
-                } else {
-                    format!("{set_text}.contains(&smelt_needle)")
-                }
+                // The narrowed needle has the element type, so the container's
+                // own `contains` applies the correct membership (SameValueZero
+                // through `SmeltJsSet`, value equality for the `HashSet` backing).
+                format!("{set_text}.contains(&smelt_needle)")
             } else if matches!(
                 self.mir.types.get(inner),
                 Some(Type::Unknown | Type::TypeParam { .. })
@@ -53,28 +47,14 @@ impl FunctionEmitter<'_> {
             ));
         }
         let item_text = self.value_at_type(item, item_ty)?;
-        if self.mir.types.get(item_ty) == Some(&Type::Float) {
-            return Ok(format!(
-                "{}.iter().any(|value| *value == {item_text})",
-                self.operand_text(set)?
-            ));
-        }
-        // A `Set<unknown>` follows JS `Set.prototype.has` reference semantics
-        // (SameValueZero): objects/arrays match by identity, not structural
-        // contents — exactly like the data-first `Array.prototype.includes` path
-        // (`same_js_key`). `HashSet::contains` would instead use SmeltUnknown's
-        // structural `Eq`, so e.g. `new Set([obj]).has({...obj})` would wrongly
-        // report `true`. Primitive elements still compare by value because
-        // `same_js_key` falls through to `==` for them.
-        if matches!(
-            self.mir.types.get(item_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) {
-            return Ok(format!(
-                "{}.iter().any(|value| value.same_js_key(&{item_text}))",
-                self.operand_text(set)?
-            ));
-        }
+        // Membership goes through the container's own `contains`. For the
+        // `HashSet` backing (`bool`/`i64`/`String`) that is value equality, which
+        // matches JS SameValueZero for those primitives. For every other element
+        // type the set is a `SmeltJsSet`, whose `contains` applies SameValueZero
+        // via each element's erased runtime value: `NaN` equals `NaN`, `+0`
+        // equals `-0`, and objects/functions match by reference identity — the
+        // JS `Set.prototype.has` semantics — rather than `HashSet`'s structural
+        // `Eq`.
         Ok(format!(
             "{}.contains(&{})",
             self.operand_text(set)?,
@@ -136,21 +116,10 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("set add receiver must be a set"));
         };
         let item_text = self.value_at_type(item, *item_ty)?;
-        if self.mir.types.get(*item_ty) == Some(&Type::Float) {
-            return if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
-                Ok(format!(
-                    "{{ if !{set_text}.iter().any(|value| *value == {item_text}) {{ {set_text}.push({item_text}); }} () }}"
-                ))
-            } else if dest_ty == set_ty {
-                Ok(format!(
-                    "{{ if !{set_text}.iter().any(|value| *value == {item_text}) {{ {set_text}.push({item_text}); }} {set_text}.clone() }}"
-                ))
-            } else {
-                Err(EmitError::new(
-                    "set add destination must be None or the receiver set type",
-                ))
-            };
-        }
+        // Both backings (`HashSet` for value-equality primitives, `SmeltJsSet`
+        // for everything else) expose an `insert` that dedups, so a single
+        // insertion shape works for every element type — including `f64`, whose
+        // `SmeltJsSet` insert applies SameValueZero (`NaN` equals `NaN`).
         if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
             Ok(format!("{{ {set_text}.insert({item_text}); () }}"))
         } else if dest_ty == set_ty {

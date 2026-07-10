@@ -212,10 +212,10 @@ impl FunctionEmitter<'_> {
                 Ok(format!("vec![{items_text}]"))
             }
             Rvalue::Set(items) => {
-                let set_uses_vec = matches!(self.mir.types.get(dest_ty), Some(Type::Set(item)) if !self.type_is_hash_set_key_safe(*item));
+                let set_uses_js_set = matches!(self.mir.types.get(dest_ty), Some(Type::Set(item)) if !self.type_is_hash_set_key_safe(*item));
                 if items.is_empty() {
-                    return Ok(if set_uses_vec {
-                        "Vec::new()".to_owned()
+                    return Ok(if set_uses_js_set {
+                        "SmeltJsSet::new()".to_owned()
                     } else {
                         "::std::collections::HashSet::new()".to_owned()
                     });
@@ -235,8 +235,8 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                if set_uses_vec {
-                    return Ok(format!("vec![{items_text}]"));
+                if set_uses_js_set {
+                    return Ok(format!("SmeltJsSet::from([{items_text}])"));
                 }
                 Ok(format!("::std::collections::HashSet::from([{items_text}])"))
             }

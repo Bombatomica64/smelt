@@ -1722,7 +1722,7 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Find the ID of an already interned type.
-    fn existing_type_id(&self, ty: Type) -> Option<TypeId> {
+    pub(super) fn existing_type_id(&self, ty: Type) -> Option<TypeId> {
         self.mir
             .types
             .all()
@@ -4077,28 +4077,27 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
-    /// Returns whether a Rust `HashSet` can store values of this type.
+    /// Returns whether a Rust `HashSet` is a correct backing for a set of this
+    /// element type.
+    ///
+    /// `HashSet` is used only for value-equality primitives (`bool`, `i64`,
+    /// `String`) where Rust `Eq + Hash` both exists and matches JavaScript
+    /// SameValueZero. Every other element type — `f64` (no `Eq`), generated
+    /// unions and generic type parameters (no `Eq + Hash` bound), and
+    /// object-like values whose JS equality is by reference, not structure —
+    /// routes through the `SmeltJsSet` runtime container instead, which
+    /// projects each element through its `IntoSmeltUnknown` erasure for
+    /// SameValueZero membership and preserves insertion order.
     pub(super) fn type_is_hash_set_key_safe(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Float | Type::Dict(_, _) | Type::Set(_) | Type::Function(_)) => false,
-            Some(Type::List(_) | Type::Tuple(_)) => false,
+            Some(Type::Bool | Type::Int | Type::String) => true,
             Some(Type::Optional(inner) | Type::Future(inner)) => {
                 self.type_is_hash_set_key_safe(*inner)
             }
             Some(Type::Union(items)) => items
                 .iter()
                 .all(|item| self.type_is_hash_set_key_safe(*item)),
-            Some(
-                Type::Bool
-                | Type::Int
-                | Type::String
-                | Type::Unknown
-                | Type::Never
-                | Type::TypeParam { .. }
-                | Type::None
-                | Type::Class { .. },
-            )
-            | None => true,
+            _ => false,
         }
     }
 

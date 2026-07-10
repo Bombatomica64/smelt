@@ -1500,6 +1500,38 @@ export function localize(enNumber: number): string {
         !source.contains("|caps: &regex::Captures<'_>| (_smelt_tmp_"),
         "{source}"
     );
+    // A callback that already returns `String` is a valid `Replacer`, so it is
+    // handed to `replace_all` without a ToString wrapper.
+    assert!(
+        !source.contains("|caps: &regex::Captures<'_>| match ("),
+        "{source}"
+    );
+}
+
+#[test]
+fn coerces_non_string_regex_replace_callback_result() {
+    // The callback's result flows through an erased record lookup, so it is
+    // typed `unknown` (`SmeltUnknown`), which is not `AsRef<str>`. The regex
+    // replacement must ToString it so the `Replacer` closure yields a `String`.
+    let source = source_for(
+        r#"
+const htmlEscapes: Record<string, string> = { "&": "&amp;" };
+export function escape(str: string): string {
+  return str.replace(/[&<>"']/g, (match) => htmlEscapes[match]);
+}
+"#,
+    );
+
+    assert!(source.contains("replace_all"), "{source}");
+    // The replacement is wrapped in the SmeltUnknown -> String ToString match.
+    assert!(
+        source.contains("|caps: &regex::Captures<'_>| match ("),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Undefined => \"undefined\".to_owned()"),
+        "{source}"
+    );
 }
 
 #[test]
