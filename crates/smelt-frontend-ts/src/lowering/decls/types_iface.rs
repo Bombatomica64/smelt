@@ -576,6 +576,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<(), SmeltError> {
         let previous_statement_block = self.current_statement_block.replace(block);
         let result = match statement {
+            Statement::EmptyStatement(_) => Ok(()),
             Statement::VariableDeclaration(decl) => self.variable_declaration(decl, body, block),
             Statement::FunctionDeclaration(function) => {
                 self.local_function_declaration(function, body, block)
