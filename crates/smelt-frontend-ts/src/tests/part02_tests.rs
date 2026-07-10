@@ -740,6 +740,32 @@ const value = values[index++];
 }
 
 #[test]
+fn lowers_empty_statements_as_noops() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function answer(): number {
+  ;
+  {
+    ;
+  }
+  return 42;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+    ensure!(
+        matches!(body.stmts.as_slice(), [Stmt::Return(Some(_))]),
+        "expected empty statements to emit nothing before the return: {:?}",
+        body.stmts,
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn keeps_postfix_update_expression_side_effect_inside_loop_body() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
