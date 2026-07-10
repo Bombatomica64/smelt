@@ -2316,6 +2316,32 @@ impl FunctionEmitter<'_> {
         {
             return self.type_id(Type::Unknown);
         }
+        // A `String` receiver's builtin fields have concrete Rust types; keep
+        // this in sync with `string_field_text` so a caller coercing the field
+        // read does not treat the concrete result as an erased `SmeltUnknown`
+        // (e.g. `.length` is an `i64`, not a `SmeltUnknown::Number`).
+        if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
+            return match self.symbol_name(field)? {
+                "source" => self.type_id(Type::String),
+                "global" | "ignoreCase" | "ignore_case" | "multiline" => {
+                    self.type_id(Type::Bool)
+                }
+                "length" => self.type_id(Type::Int),
+                _ => self.type_id(Type::Unknown),
+            };
+        }
+        // Likewise for a concrete `RegExp` receiver (see `regexp_field_text`).
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
+            && self.is_regexp_class_symbol(*name)?
+        {
+            return match self.symbol_name(field)? {
+                "source" => self.type_id(Type::String),
+                "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky" | "unicode"
+                | "dotAll" | "dot_all" => self.type_id(Type::Bool),
+                "lastIndex" | "last_index" => self.type_id(Type::Float),
+                _ => self.type_id(Type::Unknown),
+            };
+        }
         let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
             return self.type_id(Type::Unknown);
         };

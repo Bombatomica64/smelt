@@ -1109,6 +1109,101 @@ export function rebindCb(cb: (value: unknown) => unknown): unknown {
     );
 }
 
+/// A loop-shaped closure body that `return`s from inside the loop must lower
+/// each MIR `Return` to an explicit Rust `return`, not a bare tail expression.
+///
+/// A closure whose body is a `for`/`while` loop is rendered as a statement
+/// `loop { ... }`. A `return value` reached inside the loop used to be emitted
+/// as a bare tail expression (`value`) followed by `; break;`, which mistyped
+/// the loop-body block as `value`'s type instead of the required `()` and left
+/// the `loop` yielding `()` — both E0308 mismatches. Every in-loop return must
+/// become `return value;` so the diverging `loop` unifies with the closure's
+/// declared result type.
+#[test]
+fn returns_from_loop_shaped_closure_body_use_explicit_return() {
+    let source = source_for(
+        r"
+export function firstMatch(pairs: Array<[number, string]>): (val: number) => string | undefined {
+  const length = pairs.length;
+  return function (val: number): string | undefined {
+    for (let i = 0; i < length; i++) {
+      const pair = pairs[i];
+      if (pair[0] === val) {
+        return pair[1];
+      }
+    }
+    return undefined;
+  };
+}
+",
+    );
+
+    assert!(
+        source.contains("return Some("),
+        "in-loop closure return was not an explicit return: {source}"
+    );
+    assert!(
+        !source.contains("    ;\n    break;\n"),
+        "loop-shaped closure body still emitted `value; break;`: {source}"
+    );
+}
+
+/// Truthiness of an `Option<ConcreteUnion>` must erase the inner concrete union
+/// to `SmeltUnknown` before matching `SmeltUnknown::` arms.
+///
+/// A generated union (`SmeltUnionNNNN`) is not a `SmeltUnknown`, so matching its
+/// inner value directly against `Some(SmeltUnknown::…)` arms is a type mismatch
+/// (E0308). The inner value must first pass through the union's
+/// `IntoSmeltUnknown` boundary adapter; only the resulting `bool` escapes.
+#[test]
+fn erases_optional_union_inner_before_truthiness_match() {
+    let source = source_for(
+        r"
+export function pickFlag(opts?: { separator?: string | number }): string {
+  const sep = opts?.separator;
+  if (sep) {
+    return 'has';
+  }
+  return 'none';
+}
+",
+    );
+
+    assert!(
+        source.contains(".map(|value| value.into_smelt_unknown())"),
+        "optional-union truthiness did not erase its inner union: {source}"
+    );
+}
+
+/// Coercing an already-concrete `Option<String>` to `String` must unwrap the
+/// `Option`, not route through the erased-`SmeltUnknown` extraction match.
+///
+/// `extract` narrows an erased `SmeltUnknown` and its arms only type-check
+/// against a `SmeltUnknown` scrutinee. When a caller reaches it with a concrete
+/// `Option<String>` source (e.g. an array element used as a `String(...)`
+/// argument), it must delegate to the general concrete coercion, which unwraps
+/// the option — otherwise the arms mismatch the `Option<String>` value (E0308).
+#[test]
+fn coerces_concrete_optional_source_without_unknown_extraction() {
+    let source = source_for(
+        r"
+export function firstLower(words: string[]): string {
+  const first: string | undefined = words[0];
+  return String(first).toLowerCase();
+}
+",
+    );
+
+    assert!(
+        source.contains("first.unwrap_or_default()"),
+        "concrete Option<String> source was not unwrapped for string coercion: {source}"
+    );
+    assert!(
+        !source.contains("match first.clone() { SmeltUnknown::"),
+        "concrete Option<String> source was routed through the SmeltUnknown extraction match: {source}"
+    );
+}
+
 /// A closure nested inside another shared-capture closure must reuse the
 /// already-rendered `smelt_capture_x` cell instead of wrapping it again.
 ///
