@@ -261,3 +261,57 @@ function run(): void { const w = new Widget(); w.defer(); }
         "{source}"
     );
 }
+
+#[test]
+fn classifies_field_map_mutation_as_reference() {
+    // Rule: a non-constructor method mutates a collection field in place
+    // (`this.data.set(...)`). The map's `set`/`delete` lower to `&mut`-taking
+    // methods on `this.data`, so the class must become a reference class to
+    // gain interior mutability; otherwise the `&self` method fails to borrow
+    // the field mutably (E0596).
+    let names = reference_class_names(
+        r"
+class Cache {
+  data: Map<string, number> = new Map();
+  set(key: string, value: number): void { this.data.set(key, value); }
+  remove(key: string): void { this.data.delete(key); }
+}
+function run(): void { const c = new Cache(); c.set('a', 1); }
+",
+    );
+    assert_eq!(names, vec!["Cache".to_owned()]);
+}
+
+#[test]
+fn classifies_field_array_push_as_reference() {
+    // The same rule for an in-place list mutation (`this.items.push(...)`).
+    let names = reference_class_names(
+        r"
+class Stack {
+  items: number[] = [];
+  push(value: number): void { this.items.push(value); }
+}
+function run(): void { const s = new Stack(); s.push(1); }
+",
+    );
+    assert_eq!(names, vec!["Stack".to_owned()]);
+}
+
+#[test]
+fn local_collection_mutation_is_not_reference() {
+    // A method mutating a *local* collection (not a field) borrows that local
+    // mutably and needs no shared cell, so the class stays a value class.
+    let names = reference_class_names(
+        r"
+class Builder {
+  build(): number {
+    const local: number[] = [];
+    local.push(1);
+    return local.length;
+  }
+}
+function run(): void { const b = new Builder(); b.build(); }
+",
+    );
+    assert!(names.is_empty(), "unexpected reference classes: {names:?}");
+}

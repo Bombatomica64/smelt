@@ -172,6 +172,7 @@ pub struct SmeltJsMap<K, V> {
 
 impl<K, V> SmeltJsMap<K, V> {
     fn new() -> Self { Self { entries: Vec::new() } }
+    fn clear(&mut self) { self.entries.clear(); }
 }
 
 impl<K: SmeltJsKeyEq + Clone, V: Clone> SmeltJsMap<K, V> {

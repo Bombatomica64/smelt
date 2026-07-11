@@ -1845,6 +1845,21 @@ impl<'mir> FunctionEmitter<'mir> {
         source: TypeId,
         target: TypeId,
     ) -> Result<Option<String>, EmitError> {
+        // A reference class is a handle newtype over `Rc<RefCell<Inner>>`, not a
+        // field-wise struct, so it cannot be rebuilt with a `Name { field: .. }`
+        // literal (that fails with E0560). When the source already has the
+        // target's reference-class type, cloning the handle is the correct
+        // adaptation: it shares the same underlying cell, matching JavaScript
+        // reference identity. (Cross-type adaptation into a reference class is
+        // not modeled here and falls through to `None`.)
+        if self.is_reference_class_type(target)
+            && matches!(
+                (self.mir.types.get(source), self.mir.types.get(target)),
+                (Some(Type::Class { name: src_name, .. }), Some(Type::Class { name: tgt_name, .. })) if src_name == tgt_name
+            )
+        {
+            return Ok(Some(format!("{value_text}.clone()")));
+        }
         let Some(adapted_fields) = self.structural_record_adapter_fields(source, target) else {
             return Ok(None);
         };

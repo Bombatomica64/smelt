@@ -747,6 +747,9 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("impl<K, V> SmeltJsMap<K, V> {");
         writer.line("    fn new() -> Self { Self { entries: Vec::new() } }");
+        // `clear` removes every entry without comparing keys, so it needs no
+        // `SmeltJsKeyEq`/`Clone` bounds and lives on the unbounded impl block.
+        writer.line("    fn clear(&mut self) { self.entries.clear(); }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K: SmeltJsKeyEq + Clone, V: Clone> SmeltJsMap<K, V> {");
