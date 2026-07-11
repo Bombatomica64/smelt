@@ -308,14 +308,24 @@ impl ModuleBuilder<'_> {
             }
             ty
         } else {
+            // An untyped `vi.fn()` mock has no declared implementation, so its
+            // parameter shape is genuinely dynamic: callers invoke it with any
+            // number of arguments (`spy(value)`, `spy(a, b)`, `spy()`), and the
+            // mock records whatever it receives. Modelling it as a fixed 0-arg
+            // function would reject every call site that passes arguments, so we
+            // give it the erased variadic shape `(...args: unknown[]) => unknown`
+            // (a `Type::List(Unknown)` rest parameter). This lowers to the
+            // runtime's `SmeltErasedFunction`, the documented dynamic-callable
+            // boundary that accepts an arbitrary argument vector.
             let unknown = self.ctx.krate.types.intern(Type::Unknown);
+            let rest_ty = self.ctx.krate.types.intern(Type::List(unknown));
             self.ctx
                 .krate
                 .types
                 .intern(Type::Function(smelt_hir::FunctionType {
-                    params: Vec::new(),
-                    rest: None,
-                    required_params: None,
+                    params: vec![rest_ty],
+                    rest: Some(0),
+                    required_params: Some(0),
                     mutable_params: Vec::new(),
                     return_ty: unknown,
                     is_async: false,

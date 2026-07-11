@@ -2959,8 +2959,17 @@ function hasLength(value: unknown): boolean {
         source.contains("SmeltUnknown::Array(values) => smelt_key == \"length\""),
         "{source}"
     );
+    // The `hasOwn` lowering must inspect the erased value directly, not cast it
+    // into a typed record. Scope the check to the emitted `has_length` function
+    // body: `SmeltRecord::with_id_from_entries` also legitimately appears in the
+    // runtime prelude's `SmeltFromUnknown for SmeltRecord` impl, which is
+    // unrelated to this program's behavior.
+    let function_body = source
+        .split("fn has_length")
+        .nth(1)
+        .expect("generated source defines has_length");
     assert!(
-        !source.contains("SmeltRecord::with_id_from_entries"),
+        !function_body.contains("SmeltRecord::with_id_from_entries"),
         "{source}"
     );
 }

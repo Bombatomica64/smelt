@@ -194,6 +194,17 @@ impl FunctionEmitter<'_> {
                             "({executor_text})(SmeltList::from(vec![smelt_resolve, smelt_reject]));"
                         )
                     }
+                    // An executor that declares no parameters (e.g.
+                    // `new Promise(() => {})`) ignores both callbacks; calling it
+                    // with either would be an arity error, so invoke it with no
+                    // arguments and let both callbacks stay unused.
+                    Some(Type::Function(function))
+                        if function.rest.is_none() && function.params.is_empty() =>
+                    {
+                        format!(
+                            "let _ = &smelt_resolve; let _ = &smelt_reject; ({executor_text})();"
+                        )
+                    }
                     // An executor that only declares `resolve` (e.g.
                     // `new Promise(resolve => …)`) is a 1-arg closure; calling it
                     // with both callbacks would be an arity error, so pass only
@@ -224,9 +235,9 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("Promise.then receiver must be a future"));
                 };
                 let future_text = self.await_operand_text(future)?;
-                let callback_text = self.operand_text(callback)?;
+                let invocation = self.promise_callback_invocation(callback, "smelt_value")?;
                 Ok(format!(
-                    "Box::pin(async move {{ let smelt_value = {future_text}.await?; let _ = ({callback_text})(smelt_value); Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }})"
+                    "Box::pin(async move {{ let smelt_value = {future_text}.await?; let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }})"
                 ))
             }
             smelt_hir::AsyncOp::Catch => {
@@ -240,10 +251,11 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("Promise.catch receiver must be a future"));
                 };
                 let future_text = self.await_operand_text(future)?;
-                let callback_text = self.operand_text(callback)?;
+                let invocation = self
+                    .promise_callback_invocation(callback, "SmeltUnknown::String(smelt_error.to_string())")?;
                 let default_value = self.default_value(*output_ty)?;
                 Ok(format!(
-                    "Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ let _ = ({callback_text})(SmeltUnknown::String(smelt_error.to_string())); Ok::<_, Box<dyn std::error::Error>>({default_value}) }} }} }})"
+                    "Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>({default_value}) }} }} }})"
                 ))
             }
             smelt_hir::AsyncOp::SpawnLocal => {
@@ -832,11 +844,60 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("indirect call target is not a function"));
                 };
                 let callee_text = self.operand_text(indirect_callee)?;
+                // An erased-unknown-rest callable value (e.g. an untyped
+                // `vi.fn()` spy) lowers to `SmeltErasedFunction`, whose call ABI
+                // is the `.call(vec![..])` method over an erased argument vector,
+                // not a direct `(f)(args)` invocation. Route the call through that
+                // method and erase every argument to `SmeltUnknown`.
+                if self.is_erased_unknown_rest_function(function) && !function.may_throw {
+                    return Ok(format!(
+                        "({callee_text}).call({})",
+                        self.erased_call_args_text(args)?
+                    ));
+                }
                 let rendered_args = self.indirect_call_args_text(function, args)?;
                 let suffix = if function.may_throw { "?" } else { "" };
                 Ok(format!("({callee_text})({rendered_args}){suffix}"))
             }
         }
+    }
+
+    /// Render the invocation of a promise-continuation callback (`.then`/`.catch`
+    /// handler) applied to a single already-erased `SmeltUnknown` argument
+    /// expression.
+    ///
+    /// An untyped callback (e.g. a `vi.fn()` spy passed as `then(spy)`) lowers to
+    /// `SmeltErasedFunction`, whose call ABI is `.call(vec![..])` rather than a
+    /// direct `(f)(arg)` invocation. Detect that shape and route accordingly; all
+    /// other callbacks keep the direct call.
+    fn promise_callback_invocation(
+        &self,
+        callback: &Operand,
+        arg_expr: &str,
+    ) -> Result<String, EmitError> {
+        let callback_text = self.operand_text(callback)?;
+        if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?)
+            && self.is_erased_unknown_rest_function(function)
+            && !function.may_throw
+        {
+            return Ok(format!(
+                "({callback_text}).call(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})])"
+            ));
+        }
+        Ok(format!("({callback_text})({arg_expr})"))
+    }
+
+    /// Render arguments for a call into an erased `SmeltErasedFunction`, erasing
+    /// each to `SmeltUnknown` and packing them into the `vec![..]` the runtime
+    /// `.call(..)` method consumes.
+    fn erased_call_args_text(&self, args: &[Operand]) -> Result<String, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let rendered = args
+            .iter()
+            .map(|arg| self.value_at_type(arg, unknown_ty))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        Ok(format!("vec![{rendered}]"))
     }
 
     /// Renders arguments for a first-class function call using the callee's

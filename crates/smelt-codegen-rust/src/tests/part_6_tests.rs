@@ -219,6 +219,54 @@ function makeValue(): Promise<number> {
 }
 
 #[test]
+fn emits_promise_constructor_executor_ignoring_callbacks() {
+    // `new Promise(() => {})` declares a zero-parameter executor. The executor is
+    // still called by the promise plumbing, so it must be invoked with no
+    // arguments (not the fallback two-callback call) or Rust reports an arity
+    // error against the `Fn()` closure.
+    let source = source_for(
+        r"
+function makeValue(): Promise<void> {
+  return new Promise<void>(() => {});
+}
+",
+    );
+
+    assert!(source.contains("smelt_promise_result"), "{source}");
+    // Both callbacks are marked used and the executor is invoked with no args.
+    assert!(source.contains("let _ = &smelt_resolve;"), "{source}");
+    assert!(source.contains("let _ = &smelt_reject;"), "{source}");
+}
+
+#[test]
+fn smelt_from_unknown_impls_cover_generic_containers() {
+    // Un-erasing a generic return into a typed container relies on
+    // `SmeltFromUnknown` impls for the runtime collection types.
+    let source = source_for(
+        r"
+function identity<T>(value: T): T {
+  return value;
+}
+function useList(values: number[]): number[] {
+  return identity(values);
+}
+function useRecord(values: Record<string, string>): Record<string, string> {
+  return identity(values);
+}
+",
+    );
+
+    assert!(
+        source.contains("impl<T: SmeltFromUnknown> SmeltFromUnknown for SmeltList<T>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltFromUnknown for SmeltRecord<K, V>"),
+        "{source}"
+    );
+}
+
+#[test]
 fn promise_settimeout_resolving_value_threads_resolve_not_bare_sleep() {
     // `new Promise(resolve => setTimeout(() => resolve(v), ms))` must flow
     // through the executor (AsyncOp::Promise) so the resolved value survives.

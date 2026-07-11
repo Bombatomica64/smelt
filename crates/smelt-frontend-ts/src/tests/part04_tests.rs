@@ -3305,6 +3305,31 @@ async function run(): Promise<void> {
 }
 
 #[test]
+fn untyped_vitest_mock_accepts_arguments_at_call_site() -> Result<(), String> {
+    // An untyped `vi.fn()` mock has no declared parameter shape, so it must accept
+    // calls that pass arguments (a fixed 0-arg function type would reject them).
+    // It lowers to the erased variadic function shape (`(...args: unknown[])`).
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { vi } from "vitest";
+
+function run(): void {
+  const spy = vi.fn();
+  spy(1);
+  spy("a", "b");
+  spy();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn keeps_captured_vitest_mock_callable_inside_async_argument() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -1802,6 +1802,21 @@ fn emit_source_with_free_function_router(
             );
         });
         writer.blank_line();
+        // Un-erasing a `SmeltUnknown` back into statically typed collections is the
+        // mirror of the `IntoSmeltUnknown` impls above: a returned generic value
+        // (e.g. `identity<T>(x): T` inferred at `SmeltRecord<String, String>`) is
+        // erased to `SmeltUnknown` inside the generic body and must be converted
+        // back element-wise at the typed binding site. Each impl reuses the source
+        // container's reference id so round-tripping preserves JS identity, and
+        // converts each element/entry through the element type's own
+        // `SmeltFromUnknown`. A non-matching `SmeltUnknown` variant yields an empty
+        // container (the JS-coercion fallback, matching the scalar impls above).
+        writer.line("impl<T: SmeltFromUnknown> SmeltFromUnknown for SmeltList<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => SmeltList::with_id(array.id, array.values.into_iter().map(T::smelt_from_unknown).collect()), _ => SmeltList::new(Vec::new()) } } }");
+        writer.blank_line();
+        writer.line("impl<K: SmeltFromUnknown + Eq + ::std::hash::Hash + Clone, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltRecord<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => SmeltRecord::with_id_from_entries(object.id, object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key)), V::smelt_from_unknown(value)))), _ => SmeltRecord::with_id_from_entries(smelt_next_object_id(), ::std::iter::empty()) } } }");
+        writer.blank_line();
+        writer.line("impl<K: SmeltFromUnknown + SmeltJsKeyEq + Clone, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltJsMap<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key)), V::smelt_from_unknown(value))).collect(), _ => SmeltJsMap::default() } } }");
+        writer.blank_line();
         writer.block("trait SmeltIntoF64", |trait_writer| {
             trait_writer.line("fn smelt_into_f64(self) -> f64;");
         });
