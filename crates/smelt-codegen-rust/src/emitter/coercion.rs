@@ -1063,6 +1063,16 @@ impl FunctionEmitter<'_> {
         else {
             return Ok(None);
         };
+        // Re-inlining the defining call here is only sound when its typed-callback
+        // binding is *also* suppressed (see
+        // `emit_call_terminator_statement`/`emit_statement`). Otherwise the binding
+        // is emitted *and* the call is re-rendered at this erase site, evaluating
+        // the call twice and double-moving its arguments (E0382). Pair the two
+        // decisions: when the binding survives, fall through so the erase reads the
+        // existing binding instead of re-inlining.
+        if !self.function_call_result_dead_when_erased(*local)? {
+            return Ok(None);
+        }
         let mut found = None;
         for block in &self.function.blocks {
             for statement in &block.statements {

@@ -6732,3 +6732,33 @@ export function pairLength(pair: [string, number]): number {
         "a tuple must not call the list `.len()` method\n{source}"
     );
 }
+
+#[test]
+fn erased_call_reassignment_reuses_binding_without_double_move() {
+    // Regression: `predicate = iteratee(predicate)` reassigns an erased local
+    // from a call that returns a first-class function value. The erase seam used
+    // to re-render the call at the reassignment site while ALSO emitting the
+    // call-result binding, evaluating the call twice and moving `predicate` into
+    // it twice (E0382). The erase must instead read the existing binding.
+    let source = source_for(
+        r"
+function iteratee(value: unknown): (item: unknown) => unknown {
+  return (item: unknown) => item;
+}
+export function normalize(predicate: unknown): unknown {
+  predicate = iteratee(predicate);
+  return predicate;
+}
+",
+    );
+
+    assert!(
+        source.contains("fn normalize"),
+        "expected the normalize function to be emitted\n{source}"
+    );
+    let normalize = &source[source.find("fn normalize").unwrap()..];
+    assert!(
+        normalize.matches("iteratee(").count() == 1,
+        "the reassigned call must be rendered exactly once, not re-inlined\n{normalize}"
+    );
+}
