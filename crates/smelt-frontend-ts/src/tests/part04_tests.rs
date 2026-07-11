@@ -3358,6 +3358,34 @@ function makeValue(): Promise<number> {
 }
 
 #[test]
+fn lowers_named_promise_constructor_executor_as_future() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function makeQueue(): Promise<number[]> {
+  const processor = async (resolve: (value: number[]) => void) => {
+    resolve([1, 2]);
+  };
+  return new Promise(processor);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::AsyncOp {
+            op: smelt_hir::AsyncOp::Promise,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_function_length_to_len_expr() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -1493,10 +1493,10 @@ impl ModuleBuilder<'_> {
         if callee.name != "Promise" {
             return Ok(None);
         }
-        let [Argument::ArrowFunctionExpression(executor)] = new_expr.arguments.as_slice() else {
+        let [executor_arg] = new_expr.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
-                "Promise constructor lowering supports one arrow executor",
+                "Promise constructor lowering requires one executor",
             ));
         };
         let output_ty = type_hint
@@ -1515,8 +1515,14 @@ impl ModuleBuilder<'_> {
         // timer callback does real work (e.g. `() => resolve(value)`) must flow
         // through `AsyncOp::Promise`, which threads `resolve`/`reject`; treating
         // it as `Sleep` would silently discard the resolved value.
-        let bare_delay_timer = Self::promise_executor_timer_call(executor)
-            .filter(|timer_call| Self::promise_executor_is_bare_delay(executor, timer_call));
+        let bare_delay_timer = match executor_arg {
+            Argument::ArrowFunctionExpression(executor) => {
+                Self::promise_executor_timer_call(executor).filter(|timer_call| {
+                    Self::promise_executor_is_bare_delay(executor, timer_call)
+                })
+            }
+            _ => None,
+        };
         let duration = if let Some(timer_call) = bare_delay_timer {
             let Some(duration_argument) = timer_call.arguments.get(1) else {
                 return Err(SmeltError::unsupported(
@@ -1561,9 +1567,6 @@ impl ModuleBuilder<'_> {
                 is_async: false,
                 may_throw: false,
             }));
-            let Some(executor_arg) = new_expr.arguments.first() else {
-                return Ok(None);
-            };
             let executor_expr = self.argument_with_hint(executor_arg, body, Some(executor_ty))?;
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::AsyncOp {
