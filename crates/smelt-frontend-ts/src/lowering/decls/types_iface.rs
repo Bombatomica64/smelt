@@ -567,6 +567,26 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Type hint for the value of a `return` statement in the current function.
+    ///
+    /// For a synchronous function this is simply the declared return type. For
+    /// an `async` function the declared return type is `Promise<Inner>`
+    /// (`Type::Future`), yet the value produced by a `return X` statement is the
+    /// resolved `Inner`, because the async lowering itself is responsible for
+    /// wrapping the body into the promise. Hinting the raw `Future` type here
+    /// makes literal returns (tuples, arrays, objects) get coerced into a
+    /// promise around a non-future value; unwrapping one `Future` layer keeps
+    /// the returned expression at the value type it actually has.
+    fn return_statement_value_hint(&self) -> Option<smelt_hir::TypeId> {
+        let return_ty = self.current_return_ty?;
+        if self.current_async
+            && let Some(inner) = self.future_inner_type(return_ty)
+        {
+            return Some(inner);
+        }
+        Some(return_ty)
+    }
+
     /// Lower a statement within a specific block.
     pub(in crate::lowering) fn statement_in_block(
         &mut self,
@@ -691,10 +711,19 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ReturnStatement(return_stmt) => {
+                // Inside an `async` function the declared return type is
+                // `Promise<Inner>` (a `Type::Future`), but a `return X` statement
+                // yields the *resolved* value `Inner`, not the promise itself:
+                // the async lowering wraps the whole body into the future. Hint
+                // the returned expression with the unwrapped inner type so a
+                // tuple/array/object literal lowers to `Inner` directly instead
+                // of being coerced into a `SmeltPromise::from_future(..)` around
+                // a non-future value.
+                let return_hint = self.return_statement_value_hint();
                 let value = return_stmt
                     .argument
                     .as_ref()
-                    .map(|argument| self.expression_with_hint(argument, body, self.current_return_ty))
+                    .map(|argument| self.expression_with_hint(argument, body, return_hint))
                     .transpose()?;
                 body.push_stmt_to_block(block, Stmt::Return(value));
                 Ok(())

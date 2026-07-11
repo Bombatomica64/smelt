@@ -2,6 +2,44 @@
 
 use super::*;
 
+/// A `return <literal>` statement inside an `async` function returns the
+/// *resolved* value, not a promise: the async lowering wraps the whole body
+/// into the future. When the declared return type is `Promise<[null, T]>` the
+/// returned tuple/array literal must lower to the erased value directly, never
+/// be coerced into a `SmeltPromise::from_future(..)` around a non-future value
+/// (which produced `let _tmp: Pin<Box<dyn Future<..>>> = vec![..];`, E0308).
+#[test]
+fn async_return_of_tuple_literal_lowers_to_value_not_promise_wrapper() {
+    let source = source_for(
+        r#"
+export async function attemptAsync<T, E>(func: () => Promise<T>): Promise<[null, T] | [E, null]> {
+  try {
+    const result = await func();
+    return [null, result];
+  } catch (error) {
+    return [error as E, null];
+  }
+}
+"#,
+    );
+
+    // The success return lowers to an erased array value, not a future wrapper.
+    assert!(
+        source.contains("SmeltUnknown::Array(vec![SmeltUnknown::Null, result"),
+        "{source}"
+    );
+    // No promise-from-future wrapper is emitted around the returned tuple, and
+    // no return temporary is typed as a boxed future initialized from a value.
+    assert!(
+        !source.contains("SmeltPromise::from_future(Box::pin(async move { let smelt_value = smelt_future.await"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>> = vec!"),
+        "{source}"
+    );
+}
+
 #[test]
 fn emits_concrete_union_enum_and_projects_typeof_narrowed_local() {
     let source = source_for(
