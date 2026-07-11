@@ -643,6 +643,19 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
         if !self.local_has_uses(dest) && self.mir.types.get(local.ty) == Some(&Type::None) {
+            // A discarded (void) call still needs the convert-in-place adapter
+            // when it forwards a `&mut` list whose element type differs from the
+            // callee's: the callee mutates the erased temporary and those
+            // mutations must be written back through the reference even though
+            // the returned value is dropped.
+            if let Callee::Static(func) = callee
+                && let Some(adapter) =
+                    self.static_call_mut_list_adapter_text(*func, args, local.ty)?
+            {
+                out.push_str(&format!("    let _ = {adapter};\n"));
+                self.mark_local_declared(dest);
+                return Ok(());
+            }
             let mut call_text = self.call_text(callee, args)?;
             if args.is_empty() && call_text.ends_with("(Vec::new())") {
                 call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));

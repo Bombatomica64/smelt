@@ -7010,3 +7010,72 @@ export function clampFrom(guard: boolean, fromIndex?: number): number {
         "branch-join narrowing should leave fromIndex as a concrete f64: {source}"
     );
 }
+
+#[test]
+fn concrete_list_length_in_map_closure_erases_to_unknown() {
+    // Regression (es-toolkit unzipWith): `arr.map(a => a.length)` where the map
+    // result feeds an erased (`SmeltUnknown`) list. `.length` on a CONCRETE list
+    // renders as `(x.len() as f64)` (an `f64`), so its resolved value type must
+    // be `Float` — otherwise the map closure's return is treated as already
+    // erased and the collected `Vec<f64>` cannot bridge to `SmeltList<SmeltUnknown>`.
+    // With `.length` typed `Float`, the closure return correctly erases the
+    // number to `SmeltUnknown::Number(..)`.
+    let source = source_for(
+        r"
+export function maxWidth(rows: unknown[][]): number {
+  return Math.max(...rows.map((r) => r.length));
+}
+",
+    );
+    assert!(
+        source.contains("SmeltUnknown::Number"),
+        "concrete list length in a map closure feeding an erased list must erase \
+         through SmeltUnknown::Number: {source}"
+    );
+    assert!(
+        !source.contains("Vec<f64>") && !source.contains("SmeltList<f64>"),
+        "the map result must not stay a concrete f64 list when the destination \
+         element is erased: {source}"
+    );
+}
+
+#[test]
+fn generic_mut_list_forwarded_to_erased_callee_uses_convert_in_place_adapter() {
+    // Regression (es-toolkit pull): a generic function forwards its `&mut T[]`
+    // parameter into an erased helper whose parameter is `&mut SmeltUnknown[]`.
+    // Rust `&mut` is invariant, so the reborrow needs a convert-in-place adapter:
+    // build an erased temp list, pass `&mut temp`, write the mutated elements
+    // back, and un-erase the returned value. The caller must STAY generic.
+    let source = source_for(
+        r#"
+function eraseInto(target: unknown[], value: unknown): void {
+  target.push(value);
+}
+export function pushTyped<T>(arr: T[], value: T): T[] {
+  eraseInto(arr, value);
+  return arr;
+}
+export function useNums(): number[] {
+  const xs: number[] = [1, 2, 3];
+  return pushTyped(xs, 4);
+}
+export function useStrs(): string[] {
+  const ys: string[] = [""];
+  return pushTyped(ys, "a");
+}
+"#,
+    );
+    assert!(
+        source.contains("fn push_typed<T"),
+        "the forwarding function must stay generic: {source}"
+    );
+    // The `&mut T[]` argument is erased into a temporary `SmeltUnknown` list
+    // (`into_smelt_unknown`) and the mutated temp is written back through the
+    // reference with per-element un-erasure (`smelt_from_unknown`).
+    assert!(
+        source.contains("smelt_mut_arg_0")
+            && source.contains("into_smelt_unknown")
+            && source.contains("smelt_from_unknown"),
+        "the forwarded &mut list must be adapted in place through erase/un-erase: {source}"
+    );
+}

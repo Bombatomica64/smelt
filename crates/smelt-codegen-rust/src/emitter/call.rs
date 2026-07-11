@@ -1022,6 +1022,238 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a function call to Rust text and coerces it to the destination type.
+    /// Builds a convert-in-place adapter block for a static call that forwards
+    /// a `&mut` list argument whose element type differs from the callee's
+    /// emitted parameter element type.
+    ///
+    /// A generic caller such as `pull<T>(arr: &mut SmeltList<T>)` may delegate
+    /// to an erased monomorphization `pull_127(arr: &mut SmeltList<SmeltUnknown>)`.
+    /// Rust `&mut` references are invariant in their element type, so
+    /// `&mut SmeltList<T>` cannot be passed where `&mut SmeltList<SmeltUnknown>`
+    /// is expected. This emits a block that:
+    ///   1. builds an erased temporary list from the argument's current
+    ///      contents (each element coerced to the callee's element type),
+    ///   2. passes `&mut temp` to the callee,
+    ///   3. writes the (possibly mutated) temp elements back through the
+    ///      original `&mut` argument, converting each element back to the
+    ///      caller's element type, and
+    ///   4. converts the callee's returned value to the destination type.
+    ///
+    /// Returns `None` when the call has no `&mut` list argument that is both a
+    /// forwarded mutable-reference parameter of the current function and needs
+    /// element conversion, leaving the ordinary call path untouched.
+    pub(super) fn static_call_mut_list_adapter_text(
+        &self,
+        func: FuncId,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let function = self
+            .mir
+            .functions
+            .get(id_index(func.0, "function index does not fit usize")?)
+            .ok_or_else(|| EmitError::new("call references an unknown function"))?;
+        // Throwing calls are emitted through a dedicated terminator path; keep
+        // this adapter to the ordinary (non-throwing) statement path.
+        if function.can_throw {
+            return Ok(None);
+        }
+        if args.len() != function.params.len() {
+            return Ok(None);
+        }
+        let rust_function_name = self.function_rust_name(function)?;
+        let emitted_params = self.emitted_function_param_types(&rust_function_name)?;
+        // Resolve each argument's effective (emitted) target parameter type.
+        let target_tys = function
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                let emitted = emitted_params
+                    .as_ref()
+                    .and_then(|params| params.get(index).copied());
+                match emitted {
+                    Some(ty) => Ok(ty),
+                    None => Ok(self.function_local_decl(function, *param)?.ty),
+                }
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?;
+        // Detect which arguments need the convert-in-place mutable-list adapter.
+        let callee_emits_generics = self.context.is_generic_function(func);
+        let caller_scope = self.current_function_type_params();
+        let mut needs_adapter = false;
+        for (index, arg) in args.iter().enumerate() {
+            if self
+                .mut_list_adapter_arg(function, index, arg, target_tys[index], callee_emits_generics)?
+                .is_some()
+            {
+                needs_adapter = true;
+            }
+        }
+        if !needs_adapter {
+            return Ok(None);
+        }
+        let mut prelude = String::new();
+        let mut rendered_args = Vec::with_capacity(args.len());
+        let mut writebacks = String::new();
+        for (index, arg) in args.iter().enumerate() {
+            let target_ty = target_tys[index];
+            if let Some(place) =
+                self.mut_list_adapter_arg(function, index, arg, target_ty, callee_emits_generics)?
+            {
+                let place_text = self.place_text(&place)?;
+                let arg_item = self.list_element_ty(self.place_ty(&place)?)?;
+                let caller_elem = self.type_text_with_scoped_type_params(
+                    arg_item,
+                    false,
+                    &caller_scope,
+                )?;
+                // The callee renders its erased element as `SmeltUnknown`; build
+                // the temporary at the callee's rendered parameter type so the
+                // `&mut` reborrow is type-correct.
+                let temp_ty = self.type_text_with_scoped_type_params(
+                    target_ty,
+                    false,
+                    &HashSet::new(),
+                )?;
+                let temp = format!("smelt_mut_arg_{index}");
+                prelude.push_str(&format!(
+                    "let mut {temp}: {temp_ty} = (*{place_text}).clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<{temp_ty}>(); "
+                ));
+                rendered_args.push(format!("&mut {temp}"));
+                writebacks.push_str(&format!(
+                    "*{place_text} = {temp}.into_iter().map(|smelt_element| <{caller_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>(); "
+                ));
+            } else if matches!(self.mir.types.get(target_ty), Some(Type::Function(_))) {
+                rendered_args.push(self.borrowed_function_argument_text(arg, target_ty)?);
+            } else {
+                rendered_args.push(self.value_at_type(arg, target_ty)?);
+            }
+        }
+        let arg_values = rendered_args.join(", ");
+        // Convert the callee's returned value to the destination type. The callee
+        // erases its list element to `SmeltUnknown` while the destination keeps
+        // the caller's element type, so a matching per-element un-erasure is
+        // applied when the returned value is a list whose rendered element type
+        // differs from the destination's.
+        let return_ty = self
+            .emitted_function_return_type(&rust_function_name)
+            .unwrap_or(function.return_ty);
+        let result_expr = self.mut_list_adapter_return_text(
+            "smelt_mut_call_result",
+            return_ty,
+            dest_ty,
+            &caller_scope,
+        )?;
+        Ok(Some(format!(
+            "{{ {prelude}let smelt_mut_call_result = {rust_function_name}({arg_values}); {writebacks}{result_expr} }}"
+        )))
+    }
+
+    /// Converts the value returned by a mutable-list adapter call to the
+    /// destination type. When both the callee's rendered return type and the
+    /// destination are lists whose rendered element types differ (the callee
+    /// erased its element to `SmeltUnknown` while the destination keeps the
+    /// caller's generic element), each element is un-erased through
+    /// `SmeltFromUnknown`. Otherwise the value is returned unchanged.
+    fn mut_list_adapter_return_text(
+        &self,
+        value_text: &str,
+        return_ty: TypeId,
+        dest_ty: TypeId,
+        caller_scope: &HashSet<Symbol>,
+    ) -> Result<String, EmitError> {
+        let (Some(Type::List(_)), Some(Type::List(dest_item))) =
+            (self.mir.types.get(return_ty), self.mir.types.get(dest_ty))
+        else {
+            return Ok(value_text.to_owned());
+        };
+        let return_render = self.type_text_with_scoped_type_params(return_ty, false, &HashSet::new())?;
+        let dest_render = self.type_text_with_scoped_type_params(dest_ty, false, caller_scope)?;
+        if return_render == dest_render {
+            return Ok(value_text.to_owned());
+        }
+        let dest_elem = self.type_text_with_scoped_type_params(*dest_item, false, caller_scope)?;
+        Ok(format!(
+            "{value_text}.into_iter().map(|smelt_element| <{dest_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>()"
+        ))
+    }
+
+    /// Returns the place of the `index`-th argument when it needs the
+    /// convert-in-place mutable-list adapter.
+    ///
+    /// The adapter applies when the argument is a forwarded `&mut` list
+    /// parameter of the current function, the callee needs a mutable reference
+    /// to that parameter, and the caller renders the list element type
+    /// differently from the callee (typically a generic `T` in a generic caller
+    /// versus `SmeltUnknown` in an erased callee). Because `&mut` references are
+    /// invariant, such a reborrow cannot type-check without element conversion.
+    fn mut_list_adapter_arg(
+        &self,
+        function: &MirFunction,
+        index: usize,
+        arg: &Operand,
+        target_ty: TypeId,
+        callee_emits_generics: bool,
+    ) -> Result<Option<Place>, EmitError> {
+        let Some(param) = function.params.get(index).copied() else {
+            return Ok(None);
+        };
+        if !self.parameter_needs_mutable_reference_in(function, param) {
+            return Ok(None);
+        }
+        let local = match arg {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
+            _ => return Ok(None),
+        };
+        // The argument must itself be a `&mut` list parameter of the current
+        // function; only then does the emitted argument text reborrow through a
+        // reference whose element type must match invariantly.
+        if self.function.id.0 == u32::MAX
+            || !self.function.params.contains(&local)
+            || !self.parameter_needs_mutable_reference(local)
+        {
+            return Ok(None);
+        }
+        let arg_ty = self.place_ty(&Place::Local(local))?;
+        let (Some(Type::List(arg_item)), Some(Type::List(target_item))) =
+            (self.mir.types.get(arg_ty), self.mir.types.get(target_ty))
+        else {
+            return Ok(None);
+        };
+        // Compare rendered element types: the MIR element types can be identical
+        // (a shared `TypeParam`) while the caller keeps it generic and the callee
+        // erases it. The callee renders its element with generics only when it
+        // emits real Rust generics.
+        let arg_element_text =
+            self.type_text_with_scoped_type_params(*arg_item, false, &self.current_function_type_params())?;
+        let callee_scope: HashSet<Symbol> = if callee_emits_generics {
+            function
+                .type_params
+                .iter()
+                .map(|type_param| type_param.name)
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        let param_element_text =
+            self.type_text_with_scoped_type_params(*target_item, false, &callee_scope)?;
+        if arg_element_text == param_element_text {
+            return Ok(None);
+        }
+        Ok(Some(Place::Local(local)))
+    }
+
+    /// Returns the element type of a list type, or an error when the type is
+    /// not a list.
+    fn list_element_ty(&self, list_ty: TypeId) -> Result<TypeId, EmitError> {
+        match self.mir.types.get(list_ty) {
+            Some(Type::List(item)) => Ok(*item),
+            _ => Err(EmitError::new("expected a list type")),
+        }
+    }
+
+    /// Converts a call expression to Rust, coercing the result to `dest_ty`.
     pub(super) fn call_text_for_dest(
         &self,
         callee: &Callee,
@@ -1033,6 +1265,11 @@ impl FunctionEmitter<'_> {
                 self.optional_indirect_call_text_for_dest(indirect_callee, args, dest_ty, false)?
         {
             return Ok(call_text);
+        }
+        if let Callee::Static(func) = callee
+            && let Some(adapter) = self.static_call_mut_list_adapter_text(*func, args, dest_ty)?
+        {
+            return Ok(adapter);
         }
         let mut call_text = self.call_text(callee, args)?;
         if args.is_empty() && call_text.ends_with("(Vec::new())") {

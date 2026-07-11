@@ -389,6 +389,19 @@ impl FunctionEmitter<'_> {
             Place::Local(local) => Ok(self.local_decl(*local)?.ty),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                // A `.length` read on a CONCRETE collection (typed list or set)
+                // renders as `({base}.len() as f64)` (see the matching arm in
+                // `place::field_read_text`), so its value type is `Float`, not the
+                // erased `Unknown` the struct-field fallback would otherwise
+                // report. Keeping the resolved type aligned with the rendered
+                // expression lets callers coerce from the concrete `f64` instead
+                // of treating an already-concrete value as erased.
+                if matches!(self.mir.types.get(base_ty), Some(Type::List(_) | Type::Set(_)))
+                    && smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
+                        == Some(smelt_stdlib::FieldRule::TsLength)
+                {
+                    return self.type_id(Type::Float);
+                }
                 if let Some((_, descriptor)) = self.descriptor_for_field(base_ty, *field) {
                     return Ok(descriptor.read_ty);
                 }

@@ -4876,9 +4876,54 @@ const ERASED_CARRIER_TOKENS: &[&str] = &[
 /// (`return x;`, `return xs.get(..)..;`) contains none of them and keeps its
 /// generics.
 fn body_needs_erased_carrier(body: &str) -> bool {
+    let stripped = strip_mut_list_adapter_blocks(body);
     ERASED_CARRIER_TOKENS
         .iter()
-        .any(|token| body.contains(token))
+        .any(|token| stripped.contains(token))
+}
+
+/// Removes convert-in-place mutable-list adapter blocks from a trial body.
+///
+/// The adapter (see `call::static_call_mut_list_adapter_text`) deliberately
+/// erases a generic element to `SmeltUnknown` and un-erases it again at a real
+/// dynamic boundary: a generic caller forwarding a `&mut` list into an erased
+/// callee. That controlled boundary conversion is not a `T` leak, so its erased
+/// carrier tokens must not disqualify the caller from emitting real generics.
+/// Each adapter block is delimited by its leading `smelt_mut_arg_` binding; this
+/// removes the enclosing brace-balanced block so the cleanliness check sees only
+/// the surrounding (opaque) body.
+fn strip_mut_list_adapter_blocks(body: &str) -> String {
+    const MARKER: &str = "let mut smelt_mut_arg_";
+    let mut result = body.to_owned();
+    while let Some(marker_pos) = result.find(MARKER) {
+        // Find the `{` that opens the adapter block (the nearest one before the
+        // marker binding).
+        let Some(open) = result[..marker_pos].rfind('{') else {
+            break;
+        };
+        // Brace-match forward from `open` to find the block's closing `}`.
+        let bytes = result.as_bytes();
+        let mut depth = 0_usize;
+        let mut close_pos = None;
+        for (offset, &byte) in bytes.iter().enumerate().skip(open) {
+            match byte {
+                b'{' => depth = depth.saturating_add(1),
+                b'}' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        close_pos = Some(offset);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(close_pos) = close_pos else {
+            break;
+        };
+        result.replace_range(open..=close_pos, "");
+    }
+    result
 }
 
 // Constant formatting continues in `literals.rs`.
