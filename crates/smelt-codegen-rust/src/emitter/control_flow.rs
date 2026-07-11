@@ -964,9 +964,22 @@ impl FunctionEmitter<'_> {
             return self.emit_block(self.block(*then_target)?, out);
         }
 
+        // This reconstruction runs the then-branch's statements, `break`s out of
+        // the synthetic label, then resumes at `else_target` — so it models
+        // `if cond { then… } else { else… }` where BOTH arms rejoin at
+        // `else_target`. It silently discards the then-branch's own `Goto`
+        // target. That is only sound when the then-branch actually rejoins the
+        // else continuation; when the then-branch instead diverges into its own
+        // terminating region (e.g. a `for` loop that always `return`s, as in
+        // es-toolkit `some`'s non-array branch), dropping `then_target` deletes
+        // that whole region and control wrongly falls through into the else
+        // continuation, reading its loop counter uninitialized (E0381). Leave
+        // such a diverging then-branch to the structured-if case below, which
+        // emits `then_target` in full inside the `if` arm.
         if let (Some(Terminator::Goto(then_target)), Some(Terminator::Goto(else_target))) =
             (&then.terminator, &else_.terminator)
             && then_target != else_target
+            && self.block_can_reach(*then_target, *else_target, &mut HashSet::new())
         {
             let branch_label = format!(
                 "'smelt_branch_{}_{}_{}_{}",

@@ -1201,6 +1201,34 @@ export function useOnce(): void {
 }
 ",
         },
+        Case {
+            // A `for` loop nested inside a branch that always diverges (every
+            // path `return`s) must keep its loop body when emitted. es-toolkit
+            // `some` has one such loop per branch of a conditional; the diverging
+            // non-array branch's loop was previously dropped down to `i = 0` plus
+            // a `break`, so control fell through into the sibling branch's loop
+            // and read its counter uninitialized (E0381).
+            name: "loop_in_diverging_branch",
+            area: "baseline",
+            source: r"
+export function anyMatch(useLeft: boolean, left: number[], right: number[]): boolean {
+  if (useLeft) {
+    for (let i = 0; i < left.length; i++) {
+      if (left[i] > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+  for (let i = 0; i < right.length; i++) {
+    if (right[i] > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+",
+        },
     ]
 }
 
