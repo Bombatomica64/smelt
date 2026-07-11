@@ -1332,6 +1332,26 @@ const no = isArray("value");
 }
 
 #[test]
+fn utility_namespace_sort_defers_before_array_arity_validation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as utility from "./utility";
+const result = utility.sort([3, 1, 2], value => value, true);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(!body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::ListSort { .. }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_string_trim_inside_filter_callback_body() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
