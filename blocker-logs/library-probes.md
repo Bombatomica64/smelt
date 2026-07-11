@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-07-10 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-07-11 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -13,7 +13,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
 | [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
-| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/async.ts` | 13 | non-working Rust (13r/0s) |
+| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/async.ts` | 12 | non-working Rust (12r/0s) |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/internals/helpers.ts` | 12 | non-working Rust (12r/0s) |
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/storages/globalConfig/globalConfig.ts` | 20 | non-working Rust (19r/1s) |
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 5 | non-working Rust (5r/0s) |
@@ -34,14 +34,13 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `sodiray/radash` @ `4cab1900d08e`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/async.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 19 · with blockers: 9
+- Files scanned: 19 · with blockers: 8
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
 | 1 | 1 | non-working Rust | call argument kind is not lowered yet: UpdateExpression(UpdateExpression { span: Span { st |
 | 1 | 1 | non-working Rust | Promise constructor lowering supports one arrow executor |
 | 1 | 1 | non-working Rust | local `X` is not callable (Some(None)) |
-| 1 | 1 | non-working Rust | statement kind is not lowered yet: EmptyStatement(EmptyStatement { span: Span { start: 151 |
 | 1 | 1 | non-working Rust | parseFloat requires a string argument |
 | 1 | 1 | non-working Rust | dynamic Date constructor calls require exactly one value argument |
 | 1 | 1 | non-working Rust | callback method `X` is not lowered into closure bodies yet |
@@ -57,7 +56,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `gvergnaud/ts-pattern` @ `c92ca435c7e1`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/internals/helpers.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 68 · with blockers: 17
+- Files scanned: 68 · with blockers: 18
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
