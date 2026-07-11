@@ -189,3 +189,36 @@ gate (1789) or the smelt unit suite, commit, repeat.
 - Regenerate/measure with `smelt probe`; track progress against this baseline.
 - Every codegen-affecting change must keep the Remeda gate green
   (`ci.yml` → `remeda-regression`, currently 1789/0) and the smelt suite (1230).
+
+## Compile campaign (2026-07-11) — branch `claude/estoolkit-compilation-29quxk`
+
+Goal shifted from probe blockers (9 residual, all `compat/**`) to making the
+emitted crate **compile**. Whole-crate `cargo check` errors: **184 → 37** over
+six integration rounds (2 Opus agents per round, isolated worktrees, every
+round gated on the full smelt suite + clippy + cross-language goldens).
+
+Landed (all general rules, no special cases):
+- **Emitter syntax family (26→0)**: shared-capture rewrites in binding
+  positions (`let` patterns, struct field keys, closure params — now hygienic
+  wrt closure shadowing via `closure_shadow_intervals`), cast parenthesization.
+- **Async ABI**: return-hint unwraps one `Future` layer; non-throwing async fns
+  `Ok(..)`-wrap returns.
+- **Generics**: array-callback closures inherit enclosing type params (fixes
+  `difference<T>` cascade erasure); `SmeltJsKeyEq` bound inference for map-key
+  class generics; nested-union flattening for composed type aliases.
+- **Flow typing**: optional-local narrowing after `x = x ?? d`; destructuring
+  defaults unify to unions; RegExp members typed concretely.
+- **Coercion seam**: concrete unions erased via `into_smelt_unknown()` at
+  equality/field/dispatch boundaries; erased-call results adapted through the
+  checked nullish boundary; optional/mixed relational ToNumber coercion.
+- **Classes**: collection-field mutation lifts classes to reference
+  representation; callable interfaces get a synthetic `__smelt_call` field with
+  `.apply`/`.call`/`.bind` routed through it (construction dataflow for
+  populating method fields deferred — runtime fidelity, not compile).
+
+Remaining 37 (all root-caused in `blocker-logs/estk-compile-round8.md` and
+agent handoff notes): E0308 20 (Math.max-spread reduction lowering, includes
+branch-join narrowing, delay/trim/xorBy/template while-cond, union injection),
+E0277 5 (future Default, serde bound), E0057 2 (Parameters<F>-over-union
+arity), E0599 2, singletons E0107/E0282/E0283/E0381/E0425/E0609/E0689 +
+cloneDeepWith borrowck lifetime.
