@@ -1137,7 +1137,7 @@ fn main() {
 
 impl User {
     fn new(name: String, scores: SmeltList<f64>) -> Self {
-    let mut this: Self = User { name: String::new(), scores: SmeltList::new(Vec::new()) };
+    let mut this: Self = User { name: String::new(), scores: SmeltList::new(Vec::<f64>::new()) };
     this.name = name.clone();
     this.scores = Into::<SmeltList<_>>::into(scores.clone());
     return this;
