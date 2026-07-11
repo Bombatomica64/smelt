@@ -84,6 +84,22 @@ impl FunctionEmitter<'_> {
         if let Some(index) = members.iter().position(|member| *member == source) {
             return Ok(Some(format!("{}::M{index}({value_text})", union_name(target))));
         }
+        // Structural injection: the source is not an exact member but shares a
+        // single member's collection shape (for example an empty
+        // `SmeltList<SmeltUnknown>` default flowing into a `SmeltList<String>`
+        // union arm). Coerce the value into that member's element types, then
+        // wrap it in the variant. Requiring a unique shape-compatible member
+        // keeps the choice unambiguous.
+        let structural: Vec<usize> = members
+            .iter()
+            .enumerate()
+            .filter(|(_, member)| self.union_member_shape_matches_source(source, **member))
+            .map(|(index, _)| index)
+            .collect();
+        if let [index] = structural.as_slice() {
+            let coerced = self.value_at_type_text(value_text, source, members[*index])?;
+            return Ok(Some(format!("{}::M{index}({coerced})", union_name(target))));
+        }
         // An erased source (object-field read, erased return, nullish default)
         // carries a `SmeltUnknown`; reconstruct the concrete union by routing the
         // runtime value to its matching variant. `value_text` must be an owned
@@ -98,6 +114,26 @@ impl FunctionEmitter<'_> {
             )));
         }
         Ok(None)
+    }
+
+    /// Whether `source` shares `member`'s collection shape while differing only
+    /// in element types.
+    ///
+    /// Used to inject a structurally-compatible value (such as an empty list
+    /// default whose element type erased to `SmeltUnknown`) into a concrete
+    /// union arm by coercing its elements, rather than requiring an exact type
+    /// match. Only collection shapes are considered so that unrelated scalar
+    /// members are never selected.
+    fn union_member_shape_matches_source(&self, source: TypeId, member: TypeId) -> bool {
+        if source == member {
+            return false;
+        }
+        matches!(
+            (self.mir.types.get(source), self.mir.types.get(member)),
+            (Some(Type::List(_)), Some(Type::List(_)))
+                | (Some(Type::Set(_)), Some(Type::Set(_)))
+                | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))
+        )
     }
 
     /// Project a guarded union value into a concrete member or narrower union.
