@@ -74,14 +74,20 @@ impl FunctionEmitter<'_> {
         // predicate bound to a single `item: &T` reference. The enumerate
         // iterator yields `(usize, &T)`, so `find` binds `item: &&T` and the
         // predicate is applied to `*item` (`&T`).
+        // Bind the predicate parameter to the concrete element type. When the
+        // closure is hoisted into its own `let smelt_predicate = ...` binding it
+        // is no longer inline in the iterator chain, so Rust cannot infer the
+        // element type from `&_`; spelling it out keeps the standalone binding
+        // well-typed (E0282).
+        let element_type_text = self.type_text(element_ty)?;
         let predicate = if self.list_item_uses_same_value_zero(element_ty) {
             if self.mir.types.get(element_ty) == Some(&Type::Float) {
-                "|item: &f64| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())"
+                "|item: &f64| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())".to_owned()
             } else {
-                "|item: &_| item.same_js_key(&smelt_needle)"
+                format!("|item: &{element_type_text}| item.same_js_key(&smelt_needle)")
             }
         } else {
-            "|item: &_| *item == smelt_needle"
+            format!("|item: &{element_type_text}| *item == smelt_needle")
         };
         let index_text = self.value_at_type(from_index_operand, self.type_id(Type::Float)?)?;
         // Normalize `fromIndex`: truncate toward zero, then translate a negative
