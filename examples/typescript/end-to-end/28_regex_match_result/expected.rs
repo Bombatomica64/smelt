@@ -263,8 +263,8 @@ fn main() {
     let mut _smelt_tmp_42: SmeltMatch;
     let mut _smelt_tmp_43: Option<String>;
     let mut _smelt_tmp_45: SmeltMatch;
-    let mut _smelt_tmp_11: SmeltRegExp = SmeltRegExp::new("(?P<letter>[a-z])(\\d)?".to_owned(), "g".to_owned());
-    let mut pattern: SmeltRegExp = _smelt_tmp_11;
+    let _smelt_tmp_11: SmeltRegExp = SmeltRegExp::new("(?P<letter>[a-z])(\\d)?".to_owned(), "g".to_owned());
+    let pattern: SmeltRegExp = _smelt_tmp_11;
     let _smelt_tmp_12: SmeltList<SmeltMatch> = Into::<SmeltList<_>>::into(pattern.match_all_indices(&"a1 b c3".to_owned()));
     let matches: SmeltList<SmeltMatch> = Into::<SmeltList<_>>::into(_smelt_tmp_12);
     let mut _smelt_tmp_13: f64 = 0.0;

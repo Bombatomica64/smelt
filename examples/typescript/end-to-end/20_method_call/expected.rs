@@ -10,8 +10,8 @@ struct Point {
 // @smelt:prelude-end — generated program below
 
 fn main() {
-    let mut p: Point;
-    let mut _smelt_tmp_1: Point = Point::new(2.0, 3.0);
+    let p: Point;
+    let _smelt_tmp_1: Point = Point::new(2.0, 3.0);
     p = _smelt_tmp_1;
     let _smelt_tmp_2: f64 = p.sum();
     let _ = { println!("{}", _smelt_tmp_2); };

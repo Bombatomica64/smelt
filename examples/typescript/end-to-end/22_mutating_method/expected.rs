@@ -27,8 +27,8 @@ impl ::std::fmt::Debug for Counter {
 // @smelt:prelude-end — generated program below
 
 fn main() {
-    let mut counter: Counter;
-    let mut _smelt_tmp_1: Counter = Counter::new(4.0);
+    let counter: Counter;
+    let _smelt_tmp_1: Counter = Counter::new(4.0);
     counter = _smelt_tmp_1;
     let _smelt_tmp_2: f64 = counter.inc(3.0);
     let _ = { println!("{}", _smelt_tmp_2); };

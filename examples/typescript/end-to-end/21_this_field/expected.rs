@@ -10,8 +10,8 @@ struct User {
 // @smelt:prelude-end — generated program below
 
 fn main() {
-    let mut user: User;
-    let mut _smelt_tmp_1: User = User::new("Ada".to_owned(), "Lovelace".to_owned());
+    let user: User;
+    let _smelt_tmp_1: User = User::new("Ada".to_owned(), "Lovelace".to_owned());
     user = _smelt_tmp_1;
     let _smelt_tmp_2: String = user.label();
     let _ = { println!("{}", _smelt_tmp_2); };

@@ -20,8 +20,8 @@ struct User {
 // @smelt:prelude-end — generated program below
 
 fn main() {
-    let mut user: User;
-    let mut _smelt_tmp_1: User = User::new("u1".to_owned());
+    let user: User;
+    let _smelt_tmp_1: User = User::new("u1".to_owned());
     user = _smelt_tmp_1;
     let _ = { println!("{}", user.id.clone()); };
     return;
