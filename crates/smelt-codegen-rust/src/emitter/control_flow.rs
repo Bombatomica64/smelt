@@ -295,12 +295,25 @@ impl FunctionEmitter<'_> {
                 {
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
-                    out.push_str(&format!(
-                        "    match &mut {} {{ SmeltUnknown::Object(map) => {{ map.insert({:?}.to_owned(), {rendered_value}); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({:?}.to_owned(), {rendered_value}); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }}\n",
-                        self.local_mut_value_text(*base)?,
-                        self.symbol_name(*field)?,
-                        self.symbol_name(*field)?
-                    ));
+                    let base_text = self.local_mut_value_text(*base)?;
+                    let field_name = self.symbol_name(*field)?;
+                    // When the assigned value reads the receiver (e.g. JS
+                    // self-aliasing `original.self = original`), evaluate it into a
+                    // temporary BEFORE taking the receiver's mutable borrow. Inlining
+                    // the value inside the `&mut` match arms would borrow the receiver
+                    // immutably while it is mutably borrowed (E0502). This mirrors the
+                    // `Index` erased-object path below. Non-self-referential values
+                    // keep the simpler inline form to avoid churn.
+                    let base_name = self.local_name(*base)?.to_owned();
+                    if rendered_value.contains(&base_name) {
+                        out.push_str(&format!(
+                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({field_name:?}.to_owned(), smelt_value); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }} }}\n"
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({field_name:?}.to_owned(), {rendered_value}); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }}\n"
+                        ));
+                    }
                     return Ok(());
                 }
                 // A dotted write to an UNDECLARED member on an index-signature

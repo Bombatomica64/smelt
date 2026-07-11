@@ -74,8 +74,15 @@ impl FunctionEmitter<'_> {
             } else {
                 "()".to_owned()
             };
+            // Materialize a self-referential pushed item into a temp before the
+            // `&mut` push (E0502); otherwise inline it.
+            let push_expr = if item_text.contains(&self.local_name(*local)?.to_owned()) {
+                format!("let smelt_push_item = {item_text}; {list_text}.push(smelt_push_item);")
+            } else {
+                format!("{list_text}.push({item_text});")
+            };
             return Ok(format!(
-                "{{ {list_text}.push({item_text}); let smelt_result = {result}; let smelt_value = SmeltUnknown::Array({list_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect()); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(::std::collections::HashMap::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
+                "{{ {push_expr} let smelt_result = {result}; let smelt_value = SmeltUnknown::Array({list_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect()); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(::std::collections::HashMap::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
             ));
         }
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list
@@ -99,8 +106,15 @@ impl FunctionEmitter<'_> {
             } else {
                 "()".to_owned()
             };
+            // Materialize a self-referential pushed item into a temp before the
+            // `&mut` push (E0502); otherwise inline it.
+            let push_expr = if item_text.contains(&self.local_name(*local)?.to_owned()) {
+                format!("let smelt_push_item = {item_text}; {list_text}.push(smelt_push_item);")
+            } else {
+                format!("{list_text}.push({item_text});")
+            };
             return Ok(format!(
-                "{{ {list_text}.push({item_text}); let smelt_result = {result}; {base_text}.insert({key_text}, {list_text}.clone()); smelt_result }}"
+                "{{ {push_expr} let smelt_result = {result}; {base_text}.insert({key_text}, {list_text}.clone()); smelt_result }}"
             ));
         }
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
@@ -110,12 +124,20 @@ impl FunctionEmitter<'_> {
         };
         let list_text = self.local_mut_value_text(*local)?;
         let item_text = self.value_at_type(item, *item_ty)?;
-        if returns_length {
-            Ok(format!(
-                "{{ {list_text}.push({item_text}); {list_text}.len() as f64 }}"
-            ))
+        // When the pushed item reads the receiver list (e.g. self-referential
+        // `array1.push(array1)`), evaluate it into a temporary BEFORE taking the
+        // list's mutable borrow in `.push`. Inlining the item inside `.push`
+        // would borrow the list immutably while it is mutably borrowed (E0502).
+        // Non-self-referential items keep the simpler inline form.
+        let push_expr = if item_text.contains(&self.local_name(*local)?.to_owned()) {
+            format!("let smelt_push_item = {item_text}; {list_text}.push(smelt_push_item);")
         } else {
-            Ok(format!("{{ {list_text}.push({item_text}); () }}"))
+            format!("{list_text}.push({item_text});")
+        };
+        if returns_length {
+            Ok(format!("{{ {push_expr} {list_text}.len() as f64 }}"))
+        } else {
+            Ok(format!("{{ {push_expr} () }}"))
         }
     }
 
