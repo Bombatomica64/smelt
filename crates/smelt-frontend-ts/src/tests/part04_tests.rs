@@ -3432,6 +3432,32 @@ function makeQueue(): Promise<number[]> {
 }
 
 #[test]
+fn preserves_optional_callback_local_in_async_generic_arrow() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+declare function range(start: number, end: number): number[];
+declare function sleep(milliseconds: number): Promise<void>;
+
+export const retry = async <TResponse>(options: {
+  times?: number;
+  backoff?: (count: number) => number;
+}): Promise<TResponse> => {
+  const times = options?.times ?? 3;
+  const backoff = options?.backoff ?? null;
+  for (const i of range(1, times)) {
+    if (backoff) await sleep(backoff(i));
+  }
+  return undefined as unknown as TResponse;
+};
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_postfix_update_as_call_argument() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
