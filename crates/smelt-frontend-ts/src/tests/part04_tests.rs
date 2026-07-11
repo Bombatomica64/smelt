@@ -1352,6 +1352,26 @@ const result = utility.sort([3, 1, 2], value => value, true);
 }
 
 #[test]
+fn utility_namespace_shift_defers_before_array_arity_validation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as utility from "./utility";
+const result = utility.shift([1, 2, 3], 2);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(!body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::ListShift { .. }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn utility_namespace_replace_defers_before_string_arity_validation() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

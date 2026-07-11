@@ -1681,6 +1681,12 @@ impl ModuleBuilder<'_> {
         if member.property.name != "shift" {
             return Ok(None);
         }
+        // A utility namespace can export a free function named
+        // `shift(list, amount)`. Defer it before applying the zero-argument
+        // contract of `Array.prototype.shift`.
+        if self.imported_utility_object(&member.object) {
+            return Ok(None);
+        }
         if !call.arguments.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
