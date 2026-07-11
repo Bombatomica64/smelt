@@ -1494,8 +1494,17 @@ impl FunctionEmitter<'_> {
                         matches!(emitter.mir.types.get(inner_ty), Some(Type::String))
                     })
             };
-            let lhs_erased_inner = lhs_inner.is_some_and(|inner| self.is_erased_relational(inner));
-            let rhs_erased_inner = rhs_inner.is_some_and(|inner| self.is_erased_relational(inner));
+            // A side counts as erased when its held value is erased: the inner
+            // type for an optional operand, or the operand's own type when it is
+            // a bare (non-optional) erased value. The latter covers comparing an
+            // optional number against an erased `SmeltUnknown` such as a
+            // `.length` read (es-toolkit `includes`).
+            let side_erased = |emitter: &Self, ty: TypeId, inner: Option<TypeId>| match inner {
+                Some(inner_ty) => emitter.is_erased_relational(inner_ty),
+                None => emitter.is_erased_relational(ty),
+            };
+            let lhs_erased_inner = side_erased(self, lhs_ty, lhs_inner);
+            let rhs_erased_inner = side_erased(self, rhs_ty, rhs_inner);
             if (lhs_erased_inner || rhs_erased_inner)
                 && !side_is_string(self, lhs_ty, lhs_inner)
                 && !side_is_string(self, rhs_ty, rhs_inner)
