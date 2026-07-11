@@ -1715,6 +1715,15 @@ impl FunctionEmitter<'_> {
         {
             return self.value_at_type(value, target);
         }
+        // A bare function value (`Rc<dyn Fn ...>`) crossing into a record/list
+        // extraction cannot be fed straight to the `into_smelt_unknown()` arms:
+        // the erased-function Rust type does not implement `IntoSmeltUnknown`.
+        // Wrap it into a `SmeltUnknown::Function` at the boundary first, then
+        // extract from that erased value (was E0599 in `isMatchWith`/`toolkit`).
+        if matches!(self.mir.types.get(source_ty), Some(Type::Function(_))) {
+            let erased = self.erase(value)?;
+            return self.extract_value_text(&erased, target);
+        }
         let text = self.operand_text(value)?;
         self.extract_value_text(&text, target)
     }
