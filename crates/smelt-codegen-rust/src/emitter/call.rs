@@ -321,24 +321,84 @@ impl FunctionEmitter<'_> {
                     .to_owned()
             });
         }
+        // A callback with a statically-known function type (e.g. `delay`'s
+        // `(...args: any[]) => any`) is a concrete `dyn Fn`, not a
+        // `SmeltUnknown`, so the erased callable probe below does not apply.
+        // Call it directly, adapting the forwarded argument vector to the
+        // declared parameters.
+        if let Some(Type::Function(function)) = self.mir.types.get(callback_ty).cloned() {
+            return self.timer_typed_callback_call_text(&function, extra);
+        }
         let call_args = if extra.is_some() {
             "smelt_timer_args.clone()"
         } else {
             "Vec::new()"
         };
-        // The erased callable probe below matches on `SmeltUnknown`. A callback
-        // with a statically-known function type (e.g. `delay`'s
-        // `(...args: any[]) => any`) is not a `SmeltUnknown`, so coerce it to
-        // the erased boundary first; an already-erased callback coerces to
-        // itself. The object arm binds through `get`, which yields a reference,
-        // so it must clone to match the owned handle produced by the function
-        // arm.
-        let unknown_ty = self.type_id(Type::Unknown)?;
-        let function_value =
-            self.value_at_type_text("smelt_timer_callback.clone()", callback_ty, unknown_ty)?;
+        // The erased callable probe matches on `SmeltUnknown`. The object arm
+        // binds through `get`, which yields a reference, so it must clone to
+        // match the owned handle produced by the function arm.
         Ok(format!(
-            "{{ let smelt_function_value = {function_value}; let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)({call_args}).map(|_| ()) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }} }}"
+            "{{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)({call_args}).map(|_| ()) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }} }}"
         ))
+    }
+
+    /// Render a direct call to a statically-typed timer callback.
+    ///
+    /// The forwarded argument vector (`smelt_timer_args`, present only when the
+    /// timer call has trailing `...args`) is adapted to the callback's declared
+    /// parameters: a rest parameter receives the remaining arguments as a list,
+    /// and each fixed parameter receives one positional argument (defaulting to
+    /// `undefined` when absent). The callback result is discarded and mapped to
+    /// the `Result<(), _>` shape the timer runtime expects.
+    fn timer_typed_callback_call_text(
+        &self,
+        function: &FunctionType,
+        extra: Option<&Operand>,
+    ) -> Result<String, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let unknown_list_ty = self.type_id(Type::List(unknown_ty))?;
+        let args_source = if extra.is_some() {
+            "smelt_timer_args"
+        } else {
+            "smelt_timer_args_empty"
+        };
+        let prelude = if extra.is_some() {
+            String::new()
+        } else {
+            "let smelt_timer_args_empty: Vec<SmeltUnknown> = Vec::new(); ".to_owned()
+        };
+        // The fully-erased `(...args: unknown[]) => unknown` callback lowers to a
+        // `SmeltErasedFunction` struct rather than a bare `dyn Fn`, and is
+        // invoked through its inherent `.call(...)` method (see the runtime
+        // prelude). The forwarded argument vector is passed straight through.
+        if self.is_erased_unknown_rest_function(function) && !function.may_throw {
+            let call = format!("smelt_timer_callback.call({args_source}.clone())");
+            return Ok(format!(
+                "{{ {prelude}let _ = {call}; Ok::<(), Box<dyn std::error::Error>>(()) }}"
+            ));
+        }
+        let mut call_args = Vec::new();
+        for (index, param) in function.params.iter().enumerate() {
+            if function.rest == Some(index) {
+                let rest_text = format!(
+                    "SmeltList::from({args_source}.iter().skip({index}).cloned().collect::<Vec<_>>())"
+                );
+                call_args.push(self.value_at_type_text(&rest_text, unknown_list_ty, *param)?);
+            } else {
+                let arg_text = format!(
+                    "{args_source}.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+                );
+                call_args.push(self.value_at_type_text(&arg_text, unknown_ty, *param)?);
+            }
+        }
+        let call = format!("(smelt_timer_callback)({})", call_args.join(", "));
+        if function.may_throw {
+            Ok(format!("{{ {prelude}({call}).map(|_| ()) }}"))
+        } else {
+            Ok(format!(
+                "{{ {prelude}let _ = {call}; Ok::<(), Box<dyn std::error::Error>>(()) }}"
+            ))
+        }
     }
 
     /// Render the `let smelt_timer_args = ...;` prelude for forwarded timer

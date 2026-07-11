@@ -452,8 +452,33 @@ fn callback_param_escapes_locally(
             _ => false,
         })
     });
+    // A callback passed as the function argument of a timer async op
+    // (`setTimeout`/`setInterval`) is wrapped by the backend into a `'static`
+    // timer closure (see the emitter's timer callback lowering). A borrowed
+    // `&dyn Fn` cannot escape into that `'static` closure, so the parameter must
+    // enter the function as an owned handle. Mirrors es-toolkit `delay`.
+    let escapes_into_timer = function.blocks.iter().any(|block| {
+        block.statements.iter().any(|statement| {
+            let value = match statement {
+                Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => value,
+                _ => return false,
+            };
+            matches!(
+                value,
+                Rvalue::AsyncOp {
+                    op: smelt_hir::AsyncOp::SetTimeout | smelt_hir::AsyncOp::SetInterval,
+                    args,
+                } if matches!(
+                    args.first(),
+                    Some(Operand::Copy(Place::Local(callback)) | Operand::Move(Place::Local(callback)))
+                        if *callback == local
+                )
+            )
+        })
+    });
     Ok(directly_returned
         || rebound_locally
+        || escapes_into_timer
         || erased_or_dynamic_escape
         || captured_by_erased_closure_value
         || captured_by_erased_return
