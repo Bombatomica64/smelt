@@ -415,6 +415,17 @@ impl ModuleBuilder<'_> {
         // property. The `methods` list is retained so class `implements`
         // validation continues to match a class method against the requirement.
         self.add_interface_method_fields(&mut fields, &methods);
+        // A callable interface (`interface F { (x: T): R; prop: … }`) is, at
+        // runtime, a function value that also carries own properties. The
+        // generated Rust interface struct stores the ordinary data/method
+        // fields, but it also needs a slot for the underlying callable so a
+        // value typed as this interface can be invoked. Append a synthetic
+        // `__smelt_call` storage field typed from the (first) call signature,
+        // so the struct def, `Default`, `into_smelt_unknown`, and struct-literal
+        // construction all pick it up through the existing field machinery. The
+        // erased callable is what `into_smelt_unknown` writes under the matching
+        // `"__smelt_call"` object key that call routing later extracts.
+        self.add_interface_call_signature_field(&mut fields, &call_signatures);
         let item = self.ctx.krate.push_item(Item::Interface(Interface {
             name,
             span: self.span(interface.span.start, interface.span.end),
@@ -493,6 +504,45 @@ impl ModuleBuilder<'_> {
                 span: method.span,
             });
         }
+    }
+
+    /// Add the synthetic `__smelt_call` storage field for a callable interface.
+    ///
+    /// A TypeScript interface with one or more call signatures
+    /// (`interface F { (x: T): R; … }`) describes a value that is invoked like a
+    /// function while still carrying its declared data/method fields. The
+    /// generated Rust interface struct cannot itself be a closure, so the
+    /// underlying callable is kept in a dedicated `__smelt_call` field typed
+    /// from the first call signature. Call routing invokes a value of this
+    /// interface by erasing it (`into_smelt_unknown`, which writes this field
+    /// under the `"__smelt_call"` object key) and extracting that callable.
+    ///
+    /// The name matches the object key produced by `CallableObjectAssign`
+    /// construction (`callable_object_assign_text`) and read by the erased-call
+    /// coercion. A pre-existing field named `__smelt_call` (which user source
+    /// cannot legally declare) is left untouched. Interfaces with no call
+    /// signature are unchanged.
+    pub(in crate::lowering) fn add_interface_call_signature_field(
+        &mut self,
+        fields: &mut Vec<Field>,
+        call_signatures: &[FunctionType],
+    ) {
+        let Some(signature) = call_signatures.first() else {
+            return;
+        };
+        let name = self.ctx.krate.symbols.intern("__smelt_call");
+        if fields.iter().any(|field| field.name == name) {
+            return;
+        }
+        let function_ty = self.ctx.krate.types.intern(Type::Function(signature.clone()));
+        let span = self.span(0, 0);
+        fields.push(Field {
+            name,
+            ty: function_ty,
+            visibility: Visibility::Public,
+            optional: false,
+            span,
+        });
     }
 
     /// Lower TypeScript namespace declarations that contain exported type declarations.
