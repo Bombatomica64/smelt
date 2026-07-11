@@ -111,6 +111,9 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(format!(
                 "{operand_text}.parse::<f64>().expect(\"float() parse failed\")"
             )),
+            (smelt_hir::PrimitiveCastOp::ParseFloat, Type::Float, Type::String) => Ok(format!(
+                "{operand_text}.parse::<f64>().unwrap_or(f64::NAN)"
+            )),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::Float)) =>
             {

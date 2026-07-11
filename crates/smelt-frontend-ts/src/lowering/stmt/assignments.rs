@@ -1454,10 +1454,22 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        if callee.name == "parseFloat" {
+            let operand = self.parse_float_operand("parseFloat", call, body)?;
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ParseFloat,
+                    operand,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let (op, result_ty) = match callee.name.as_str() {
             "String" => (PrimitiveCastOp::ToString, Type::String),
             "Number" => (PrimitiveCastOp::ToJsNumber, Type::Float),
-            "parseFloat" | "BigInt" => (PrimitiveCastOp::ToFloat, Type::Float),
+            "BigInt" => (PrimitiveCastOp::ToFloat, Type::Float),
             "Boolean" => (PrimitiveCastOp::ToBool, Type::Bool),
             _ => return Ok(None),
         };
@@ -1500,14 +1512,6 @@ impl ModuleBuilder<'_> {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "String currently supports number and string arguments",
-            ));
-        }
-        if matches!(callee.name.as_str(), "parseFloat" | "parseInt")
-            && operand_type != Some(&Type::String)
-        {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!("{} requires a string argument", callee.name),
             ));
         }
         let ty = self.ctx.krate.types.intern(result_ty);

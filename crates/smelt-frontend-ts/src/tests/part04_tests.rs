@@ -1240,7 +1240,7 @@ const checkFinite = take(isFinite);
         PrimitiveCastOp::ToString,   // String
         PrimitiveCastOp::ToBool,     // Boolean
         PrimitiveCastOp::ToInt,      // parseInt
-        PrimitiveCastOp::ToFloat,    // parseFloat
+        PrimitiveCastOp::ParseFloat, // parseFloat
     ] {
         ensure!(cast_ops.contains(&expected), "missing cast op {expected:?}");
     }

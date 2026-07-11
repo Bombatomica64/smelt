@@ -412,9 +412,10 @@ impl ModuleBuilder<'_> {
             "Boolean" => {
                 self.builtin_cast_closure_expression(PrimitiveCastOp::ToBool, Type::Bool, span, outer_body)
             }
-            // String-to-number parse functions used as callbacks. Both take a
-            // single string argument here (matching the direct-call lowering,
-            // which requires a string operand): callers that need JavaScript's
+            // String-to-number parse functions used as callbacks. Both expose a
+            // single string parameter here; direct `parseFloat` calls separately
+            // make JavaScript's implicit `ToString` coercion explicit. Callers
+            // that need JavaScript's
             // `(value, index)` arity (e.g. `arr.map(parseInt)`) wrap them in
             // `unary`/`ary` first, so a one-parameter closure is faithful. The
             // parameter is typed `string` so the cast emits the real numeric
@@ -425,7 +426,7 @@ impl ModuleBuilder<'_> {
                 outer_body,
             ),
             "parseFloat" => self.builtin_string_cast_closure_expression(
-                PrimitiveCastOp::ToFloat,
+                PrimitiveCastOp::ParseFloat,
                 span,
                 outer_body,
             ),

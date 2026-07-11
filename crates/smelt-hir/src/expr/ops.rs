@@ -95,6 +95,8 @@ pub enum PrimitiveCastOp {
     ToInt,
     /// Convert to floating-point number.
     ToFloat,
+    /// Parse a JavaScript-coerced string as a floating-point number.
+    ParseFloat,
     /// Convert with JavaScript `Number(...)` and unary-plus semantics.
     ToJsNumber,
     /// Convert to string.

@@ -36,7 +36,30 @@ const value = Number.parseFloat("42.5");
 "#,
     );
 
-    assert!(source.contains(".parse::<f64>().expect(\"float() parse failed\")"));
+    assert!(source.contains(".parse::<f64>().unwrap_or(f64::NAN)"));
+}
+
+#[test]
+fn emits_parse_float_string_coercion_for_erased_inputs() {
+    let source = source_for(
+        r#"
+function parseValue(value: any): number {
+  return parseFloat(value);
+}
+"#,
+    );
+    let program = source
+        .split_once(PRELUDE_END_MARKER)
+        .map_or(source.as_str(), |(_, program)| program);
+
+    assert!(
+        program.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"),
+        "expected erased input to pass through JavaScript string coercion: {program}"
+    );
+    assert!(
+        program.contains(".parse::<f64>().unwrap_or(f64::NAN)"),
+        "expected the coerced string to feed parseFloat: {program}"
+    );
 }
 
 #[test]
@@ -144,7 +167,7 @@ const floatValue = parseFloat("42.5");
     );
 
     assert!(source.contains(".parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"));
-    assert!(source.contains(".parse::<f64>().expect(\"float() parse failed\")"));
+    assert!(source.contains(".parse::<f64>().unwrap_or(f64::NAN)"));
 }
 
 #[test]

@@ -514,10 +514,50 @@ const value = Number.parseFloat("42.5");
     ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,
         ExprKind::PrimitiveCast {
-            op: PrimitiveCastOp::ToFloat,
+            op: PrimitiveCastOp::ParseFloat,
             ..
         }
     )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_parse_float_erased_inputs_through_string_coercion() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function parseValues(value: any): number[] {
+  return [parseFloat(value), Number.parseFloat(value)];
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+    let coerced_parse_count = body
+        .exprs
+        .iter()
+        .filter(|expr| {
+            let ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ParseFloat,
+                operand,
+            } = expr.kind
+            else {
+                return false;
+            };
+            usize::try_from(operand.0).ok().is_some_and(|index| {
+                matches!(
+                    body.exprs.get(index).map(|operand| &operand.kind),
+                    Some(ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToString,
+                        ..
+                    })
+                )
+            })
+        })
+        .count();
+    ensure_eq!(coerced_parse_count, 2);
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -3477,7 +3517,7 @@ const floatValue = parseFloat("42.5");
     ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,
         ExprKind::PrimitiveCast {
-            op: PrimitiveCastOp::ToFloat,
+            op: PrimitiveCastOp::ParseFloat,
             ..
         }
     )));

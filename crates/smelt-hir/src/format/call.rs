@@ -136,6 +136,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::PrimitiveCastOp::ToBool => "bool",
                 crate::expr::PrimitiveCastOp::ToInt => "int",
                 crate::expr::PrimitiveCastOp::ToFloat => "float",
+                crate::expr::PrimitiveCastOp::ParseFloat => "parse_float",
                 crate::expr::PrimitiveCastOp::ToJsNumber => "js_number",
                 crate::expr::PrimitiveCastOp::ToString => "string",
             };
