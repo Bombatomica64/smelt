@@ -1542,6 +1542,20 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let text = self.operand_text(value)?;
         let value_ty = self.operand_ty(value)?;
+        // A statically-`None` operand is an absent/`undefined` value (for
+        // example a reference to an ambient host global that Smelt's non-DOM
+        // profile does not model, such as `window`/`process`). It renders as the
+        // Rust unit `()`, which cannot be matched against a `SmeltUnknown` tag
+        // pattern (E0308). Fold the tag check to a compile-time constant with JS
+        // semantics: an `undefined` value is nullish (`== null`) and `typeof`
+        // `"undefined"`, but is not a boolean/number/string/object/etc.
+        if matches!(self.mir.types.get(value_ty), Some(Type::None)) {
+            let is_nullish = matches!(
+                kind,
+                smelt_hir::UnknownKind::Null | smelt_hir::UnknownKind::Undefined
+            );
+            return Ok(if is_nullish { "true" } else { "false" }.to_owned());
+        }
         if let Some(check) = self.concrete_union_tag_check(&text, value_ty, kind) {
             return Ok(check);
         }

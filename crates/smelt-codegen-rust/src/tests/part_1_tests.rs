@@ -2,6 +2,32 @@
 
 use super::*;
 
+/// A tag check against a statically-absent (`None`-typed) ambient global folds
+/// to a compile-time constant instead of emitting `matches!((), SmeltUnknown::…)`
+/// which does not type-check (E0308). Mirrors es-toolkit `isBrowser`/`isNode`,
+/// which guard on `typeof window !== 'undefined'` / `typeof process !==
+/// 'undefined'` where the ambient global is absent in the non-DOM profile.
+#[test]
+fn folds_tag_check_of_absent_ambient_global() {
+    let source = source_for(
+        "declare let window: { document: unknown } | undefined;\n\
+         export function isBrowser(): boolean {\n\
+           return typeof window !== 'undefined' && window?.document != null;\n\
+         }\n",
+    );
+
+    // No unit-vs-SmeltUnknown tag match is emitted for the absent global.
+    assert!(
+        !source.contains("matches!((), SmeltUnknown"),
+        "absent-global tag check must fold, not emit matches!((), ...): {source}"
+    );
+    // The absent global's nullish check folds to a constant boolean.
+    assert!(
+        source.contains("let _smelt_tmp_0: bool = true;"),
+        "absent-global nullish tag check should fold to true: {source}"
+    );
+}
+
 #[test]
 fn emits_main_with_console_log() {
     let source = source_for("let count = 42;\nconsole.log(count);\n");
