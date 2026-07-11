@@ -1123,7 +1123,7 @@ fn main() {
     let _smelt_tmp_11: Option<f64>;
     let _smelt_tmp_12: Option<String>;
     let _smelt_tmp_6: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0]; smelt_list_items }));
-    let mut _smelt_tmp_7: User = User::new("Ada".to_owned(), _smelt_tmp_6);
+    let _smelt_tmp_7: User = User::new("Ada".to_owned(), _smelt_tmp_6);
     present = Some(_smelt_tmp_7);
     missing = None::<User>;
     _smelt_tmp_8 = present.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
