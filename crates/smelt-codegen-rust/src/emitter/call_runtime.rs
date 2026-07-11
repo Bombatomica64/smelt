@@ -1457,6 +1457,61 @@ impl FunctionEmitter<'_> {
             return self.optional_equality_text(op, lhs, rhs, lhs_inner, rhs_inner);
         }
 
+        // JS relational operators (`<`, `>`, `<=`, `>=`) with an optional operand
+        // whose held value is erased (`unknown`, a concrete/erased union, a type
+        // param) coerce BOTH sides with `ToNumber` and compare as `f64` — an
+        // absent/`undefined`/non-numeric value becomes `NaN`, so every comparison
+        // against it is `false`, which `f64`'s own `NaN` ordering already yields.
+        // Without this arm the comparison falls through to a raw `Option<…> < f64`
+        // (E0277). Skip when a side is statically a `String` (JS does lexical
+        // string comparison there) so this stays a numeric-coercion path only.
+        if matches!(
+            op,
+            smelt_hir::BinOp::Lt
+                | smelt_hir::BinOp::Lte
+                | smelt_hir::BinOp::Gt
+                | smelt_hir::BinOp::Gte
+        ) {
+            let side_is_string = |emitter: &Self, ty: TypeId, inner: Option<TypeId>| {
+                matches!(emitter.mir.types.get(ty), Some(Type::String))
+                    || inner.is_some_and(|inner_ty| {
+                        matches!(emitter.mir.types.get(inner_ty), Some(Type::String))
+                    })
+            };
+            let lhs_erased_inner = lhs_inner.is_some_and(|inner| self.is_erased_relational(inner));
+            let rhs_erased_inner = rhs_inner.is_some_and(|inner| self.is_erased_relational(inner));
+            if (lhs_erased_inner || rhs_erased_inner)
+                && !side_is_string(self, lhs_ty, lhs_inner)
+                && !side_is_string(self, rhs_ty, rhs_inner)
+            {
+                let float_ty = self.type_id(Type::Float)?;
+                let unknown_ty = self.type_id(Type::Unknown)?;
+                // Coerce one operand to an `f64`. An optional side is first
+                // projected to a bare `SmeltUnknown` (`erase()` maps absence to
+                // `SmeltUnknown::Undefined`), then `ToNumber`-extracted; a numeric
+                // optional keeps the existing unwrap-with-default extraction; a
+                // non-optional side extracts directly at its own type.
+                let side_text = |emitter: &Self, operand: &Operand, inner: Option<TypeId>| {
+                    match inner {
+                        Some(inner_ty) if emitter.is_erased_relational(inner_ty) => {
+                            let erased = emitter.erase(operand)?;
+                            emitter.value_at_type_text(&erased, unknown_ty, float_ty)
+                        }
+                        Some(inner_ty) => {
+                            emitter.option_value_as_type_text(operand, inner_ty, float_ty)
+                        }
+                        None => emitter.value_at_type(operand, float_ty),
+                    }
+                };
+                let lhs_text = side_text(self, lhs, lhs_inner)?;
+                let rhs_text = side_text(self, rhs, rhs_inner)?;
+                return Ok(Some(format!(
+                    "({lhs_text}) {} ({rhs_text})",
+                    smelt_hir::bin_op_text(op)
+                )));
+            }
+        }
+
         if let Some(inner) = lhs_inner
             && rhs_inner.is_none()
             && self.is_numeric_type(inner)
@@ -1579,16 +1634,17 @@ impl FunctionEmitter<'_> {
         } else if lhs_is_none || rhs_is_none {
             "false".to_owned()
         } else if lhs_is_erased || rhs_is_erased {
-            let lhs_text = if lhs_is_erased {
-                self.operand_text(lhs)?
-            } else {
-                self.erase(lhs)?
-            };
-            let rhs_text = if rhs_is_erased {
-                self.operand_text(rhs)?
-            } else {
-                self.erase(rhs)?
-            };
+            // Both sides are compared through `SmeltUnknown`'s JS-equality impls,
+            // so both operands must be genuine `SmeltUnknown` values. `erase()` is
+            // idempotent for operands whose Rust representation is already
+            // `SmeltUnknown` (`Type::Unknown`, generic type params, erased class
+            // types, non-concrete unions), but a CONCRETE union renders as a
+            // tagged enum (`SmeltUnionN`) and must be projected via
+            // `into_smelt_unknown()` before `same_js_key`/`js_strict_eq`/`==`
+            // resolve. Routing both sides through `erase()` handles that case
+            // without special-casing the union arm.
+            let lhs_text = self.erase(lhs)?;
+            let rhs_text = self.erase(rhs)?;
             if js_strict {
                 // JavaScript `===`/`!==` on erased values: reference identity for
                 // objects/arrays/functions, value for primitives, NaN-unequal.
@@ -2194,6 +2250,17 @@ impl FunctionEmitter<'_> {
     /// Returns whether a type is a Rust numeric scalar.
     fn is_numeric_type(&self, ty: TypeId) -> bool {
         matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float))
+    }
+
+    /// Returns whether a type is erased for the purpose of a JS relational
+    /// comparison — an `unknown`, a union (concrete or erased), a generic type
+    /// param, or an erased class type. Such values must be coerced with
+    /// `ToNumber` before an `f64` `<`/`>`/`<=`/`>=` comparison resolves.
+    fn is_erased_relational(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(ty)
     }
 
     /// Chooses the Rust scalar type for mixed numeric arithmetic.

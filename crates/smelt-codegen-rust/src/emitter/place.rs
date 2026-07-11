@@ -48,6 +48,21 @@ impl FunctionEmitter<'_> {
                         "{base_text}.get(&{key_text}).cloned().expect(\"missing field\")"
                     ));
                 }
+                // A `.length` read on a CONCRETE collection (typed list or set)
+                // projects to the backing `Vec`/`HashSet` length as an `f64`,
+                // matching how list mutation helpers surface `.len() as f64`.
+                // Without this arm the read falls through to the raw struct-field
+                // fallback (`base.length`), which no collection type has. This
+                // mirrors the erased-receiver `TsLength` arm below but stays on
+                // the concrete representation instead of erasing.
+                if matches!(
+                    self.mir.types.get(base_ty),
+                    Some(Type::List(_) | Type::Set(_))
+                ) && smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
+                    == Some(smelt_stdlib::FieldRule::TsLength)
+                {
+                    return Ok(format!("({}.len() as f64)", self.local_value_text(*base)?));
+                }
                 if matches!(
                     self.mir.types.get(base_ty),
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
