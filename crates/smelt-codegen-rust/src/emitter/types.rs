@@ -1065,6 +1065,17 @@ impl FunctionEmitter<'_> {
                 )?
             )),
             Type::Function(function) => {
+                // An erased-unknown-rest function type renders as the concrete
+                // `SmeltErasedFunction` struct (see `type_text_with_scoped_type_params`),
+                // not a bare `Rc<dyn Fn(..)>`. Its default must therefore be a
+                // `SmeltErasedFunction` wrapping a no-op callback so a struct
+                // field default agrees with the field's declared type (a
+                // callable-interface `__smelt_call` slot). Without this guard the
+                // default below emits an `Rc<dyn Fn(..)>` closure whose type
+                // mismatches the `SmeltErasedFunction` field (E0308).
+                if self.is_erased_unknown_rest_function(function) && !function.may_throw {
+                    return Ok("SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null), length: 0.0, object: None }".to_owned());
+                }
                 let params = function
                     .params
                     .iter()
