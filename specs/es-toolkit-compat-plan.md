@@ -193,8 +193,8 @@ gate (1789) or the smelt unit suite, commit, repeat.
 ## Compile campaign (2026-07-11) — branch `claude/estoolkit-compilation-29quxk`
 
 Goal shifted from probe blockers (9 residual, all `compat/**`) to making the
-emitted crate **compile**. Whole-crate `cargo check` errors: **184 → 37** over
-six integration rounds (2 Opus agents per round, isolated worktrees, every
+emitted crate **compile**. Whole-crate `cargo check` errors: **184 → 0** over
+ten integration rounds (2 Opus agents per round, isolated worktrees, every
 round gated on the full smelt suite + clippy + cross-language goldens).
 
 Landed (all general rules, no special cases):
@@ -216,9 +216,19 @@ Landed (all general rules, no special cases):
   `.apply`/`.call`/`.bind` routed through it (construction dataflow for
   populating method fields deferred — runtime fidelity, not compile).
 
-Remaining 37 (all root-caused in `blocker-logs/estk-compile-round8.md` and
-agent handoff notes): E0308 20 (Math.max-spread reduction lowering, includes
-branch-join narrowing, delay/trim/xorBy/template while-cond, union injection),
-E0277 5 (future Default, serde bound), E0057 2 (Parameters<F>-over-union
-arity), E0599 2, singletons E0107/E0282/E0283/E0381/E0425/E0609/E0689 +
-cloneDeepWith borrowck lifetime.
+**DONE (2026-07-11): the generated crate compiles — `cargo check` passes with 0
+errors (714 warnings).** Final rounds landed: callable-slot erased defaults,
+tuple-assertion-on-list preservation, branch-join optional narrowing,
+union-of-function-types variadic unification, diverging-branch loop retention
+(a real correctness bug: the structurizer silently deleted loop bodies),
+bare-union relational ToNumber coercion, `&mut` generic→erased convert-in-place
+call adapters, concrete list `.length` typing, while-header bool conditions,
+borrowed rest-callback bindings, and switch fall-through shared-continuation
+re-emission (the final error, `compat/math/random.ts`).
+
+Next phases: (1) warning reduction (714: unused_mut 482, unused_assignments,
+unused_parens — the codegen-quality plan), (2) runtime fidelity — `smelt probe
+--run-tests` to get the generated test suite green like Remeda (deferred
+items: callable-object construction dataflow for debounce/throttle method
+fields, monkey-patching semantics), (3) the 9 residual probe blockers (all
+`compat/**`), then (4) add es-toolkit as a second CI regression gate.
