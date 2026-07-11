@@ -515,7 +515,7 @@ impl FunctionEmitter<'_> {
         let end_text = end
             .map(|operand| self.operand_text(operand))
             .transpose()?
-            .unwrap_or_else(|| "fill_len as f64".to_owned());
+            .unwrap_or_else(|| "(fill_len as f64)".to_owned());
         Ok(format!(
             "{{ let fill_len = {list_text}.len(); let fill_start = if {start_text} < 0.0 {{ fill_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(fill_len) }}; let fill_end = if {end_text} < 0.0 {{ fill_len.saturating_sub((-{end_text}) as usize) }} else {{ ({end_text} as usize).min(fill_len) }}; for fill_index in fill_start..fill_end {{ {list_text}[fill_index] = {value_text}.clone(); }} {list_text}.clone() }}"
         ))
@@ -547,7 +547,7 @@ impl FunctionEmitter<'_> {
         let end_text = end
             .map(|operand| self.operand_text(operand))
             .transpose()?
-            .unwrap_or_else(|| "copy_len as f64".to_owned());
+            .unwrap_or_else(|| "(copy_len as f64)".to_owned());
         Ok(format!(
             "{{ let copy_len = {list_text}.len(); let copy_target = if {target_text} < 0.0 {{ copy_len.saturating_sub((-{target_text}) as usize) }} else {{ ({target_text} as usize).min(copy_len) }}; let copy_start = if {start_text} < 0.0 {{ copy_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(copy_len) }}; let copy_end = if {end_text} < 0.0 {{ copy_len.saturating_sub((-{end_text}) as usize) }} else {{ ({end_text} as usize).min(copy_len) }}; let copy_items = {list_text}.iter().skip(copy_start).take(copy_end.saturating_sub(copy_start)).cloned().collect::<Vec<_>>(); for (offset, item) in copy_items.into_iter().enumerate() {{ if copy_target + offset < copy_len {{ {list_text}[copy_target + offset] = item; }} }} {list_text}.clone() }}"
         ))

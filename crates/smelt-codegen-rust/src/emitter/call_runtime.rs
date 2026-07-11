@@ -3042,7 +3042,12 @@ impl FunctionEmitter<'_> {
             "sticky" => format!("{receiver_text}.has_flag('y')"),
             "unicode" => format!("{receiver_text}.has_flag('u')"),
             "dotAll" | "dot_all" => format!("{receiver_text}.has_flag('s')"),
-            "lastIndex" | "last_index" => format!("*{receiver_text}.last_index.borrow() as f64"),
+            "lastIndex" | "last_index" => {
+                // Parenthesize the cast: the read may be followed by a postfix
+                // `.clone()` (or a comparison), and a bare `... as f64.clone()`
+                // mis-parses the `.clone()` as part of the cast target type.
+                format!("(*{receiver_text}.last_index.borrow() as f64)")
+            }
             "constructor" => {
                 "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([])))"
                     .to_owned()

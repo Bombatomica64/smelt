@@ -1117,6 +1117,25 @@ impl FunctionEmitter<'_> {
                             .get(&capture.source_local)
                             .cloned()
                             .unwrap_or_else(|| source_name.clone());
+                        // A capture that lives in shared `Rc<RefCell>` storage is
+                        // read through `(*smelt_capture_x.borrow_mut())` in the
+                        // body. The `async move` block must own its own `Rc` clone
+                        // of that cell, so clone the `smelt_capture_x` HANDLE into a
+                        // fresh binding of the same name. Re-binding the source name
+                        // here instead would be rewritten by the enclosing wrapper's
+                        // `replace_shared_capture_uses` into `let
+                        // (*smelt_capture_x.borrow_mut()) = ...` — a place
+                        // expression in a binding position, which is not a pattern.
+                        // The shared-storage decision mirrors the capture-name
+                        // rewrite above so prelude and body agree.
+                        if self.closure_capture_needs_shared_access(closure, capture)
+                            || self.local_uses_shared_capture_storage(capture.source_local)
+                        {
+                            let cell = format!("smelt_capture_{name}");
+                            return cloned_async_captures
+                                .insert(cell.clone())
+                                .then(|| format!("let {cell} = {cell}.clone();"));
+                        }
                         cloned_async_captures
                             .insert(name.clone())
                             .then(|| format!("let {name} = {source_name}.clone();"))
@@ -1826,6 +1845,14 @@ fn replace_shared_capture_uses(mut text: String, replacements: &[(String, String
 }
 
 /// Replaces complete Rust identifier occurrences in generated text.
+///
+/// Only value uses are rewritten. An identifier in a struct-literal field or
+/// map-key position (`name:` with a single colon, e.g. the `length:` field of
+/// `SmeltErasedFunction`) is a binding-position name, never a captured value, so
+/// it is left untouched; rewriting it would emit an invalid place expression as
+/// a field name (`(*smelt_capture_length.borrow_mut()): 0.0`). A path segment
+/// (`name::`, double colon) is excluded from this guard and handled by the
+/// identifier-boundary check below.
 fn replace_identifier(text: &str, source: &str, target: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut index = 0;
@@ -1834,8 +1861,13 @@ fn replace_identifier(text: &str, source: &str, target: &str) -> String {
         let end = start.saturating_add(source.len());
         out.push_str(&text[index..start]);
         let before = text[..start].chars().next_back();
-        let after = text[end..].chars().next();
-        if before.is_some_and(is_rust_ident_char) || after.is_some_and(is_rust_ident_char) {
+        let mut trailing = text[end..].chars();
+        let after = trailing.next();
+        let is_field_key = after == Some(':') && trailing.next() != Some(':');
+        if before.is_some_and(is_rust_ident_char)
+            || after.is_some_and(is_rust_ident_char)
+            || is_field_key
+        {
             out.push_str(source);
         } else {
             out.push_str(target);
@@ -1849,4 +1881,44 @@ fn replace_identifier(text: &str, source: &str, target: &str) -> String {
 /// Returns true for characters that can be part of emitted Rust identifiers.
 fn is_rust_ident_char(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphanumeric()
+}
+
+#[cfg(test)]
+mod replace_identifier_tests {
+    use super::replace_identifier;
+
+    /// A plain value use is rewritten to its shared-capture lvalue form.
+    #[test]
+    fn rewrites_value_use() {
+        assert_eq!(
+            replace_identifier("length + 1", "length", "(*smelt_capture_length.borrow_mut())"),
+            "(*smelt_capture_length.borrow_mut()) + 1"
+        );
+    }
+
+    /// A struct-literal field name (`length:`, a single colon) is a binding
+    /// position, never a captured value, so it must be left untouched — rewriting
+    /// it would emit an invalid place expression as a field name
+    /// (`(*smelt_capture_length.borrow_mut()): 0.0`).
+    #[test]
+    fn preserves_struct_field_name() {
+        assert_eq!(
+            replace_identifier(
+                "SmeltErasedFunction { callback: cb, length: 0.0, object: None }",
+                "length",
+                "(*smelt_capture_length.borrow_mut())",
+            ),
+            "SmeltErasedFunction { callback: cb, length: 0.0, object: None }"
+        );
+    }
+
+    /// A path segment (`Ty::assoc`, double colon) is not a field key and stays
+    /// subject to the ordinary identifier-boundary rule.
+    #[test]
+    fn rewrites_path_segment_value() {
+        assert_eq!(
+            replace_identifier("length::MAX", "length", "cell"),
+            "cell::MAX"
+        );
+    }
 }

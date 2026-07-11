@@ -106,7 +106,7 @@ impl FunctionEmitter<'_> {
                 Ok(format!("if {operand_text} {{ 1.0 }} else {{ 0.0 }}"))
             }
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Int) => {
-                Ok(format!("{operand_text} as f64"))
+                Ok(format!("({operand_text} as f64)"))
             }
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(format!(
                 "{operand_text}.parse::<f64>().expect(\"float() parse failed\")"
@@ -151,7 +151,7 @@ impl FunctionEmitter<'_> {
                 Ok(format!("if {operand_text} {{ 1.0 }} else {{ 0.0 }}"))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Int) => {
-                Ok(format!("{operand_text} as f64"))
+                Ok(format!("({operand_text} as f64)"))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::String) => {
                 Ok(self.js_number_from_string_text(&operand_text))

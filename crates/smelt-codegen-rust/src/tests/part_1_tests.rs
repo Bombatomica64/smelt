@@ -1295,3 +1295,89 @@ export function measure(str: string, chars?: string | string[]): number {
         "optional union `.length` did not inspect the erased value: {source}"
     );
 }
+/// Regression: a mutable variable captured by an async closure (read *and*
+/// written inside the closure body) is stored in shared `Rc<RefCell>` storage.
+/// The `Box::pin(async move { .. })` prelude must clone the `smelt_capture_*`
+/// handle, never re-bind the dereferenced `(*smelt_capture_x.borrow_mut())`
+/// lvalue in a `let` pattern position (which is not a valid pattern).
+#[test]
+fn async_shared_capture_prelude_clones_handle() {
+    let out = source_for(
+        r#"
+async function delayMs(ms: number): Promise<void> {}
+async function run(arr: number[]): Promise<void> {
+  let running = 0;
+  let maxRunning = 0;
+  const fn = async (item: number): Promise<boolean> => {
+    running = running + 1;
+    if (running > maxRunning) {
+      maxRunning = running;
+    }
+    await delayMs(20);
+    running = running - 1;
+    return item % 2 === 0;
+  };
+  await Promise.all(arr.map(fn));
+}
+"#,
+    );
+    assert!(
+        !out.contains("let (*smelt_capture"),
+        "capture lvalue text emitted in a `let` binding position: {out}"
+    );
+    assert!(
+        out.contains("let smelt_capture_max_running = smelt_capture_max_running.clone();"),
+        "async prelude did not clone the shared capture handle: {out}"
+    );
+}
+
+/// Regression: reading a numeric field that lowers to an `as f64` cast (here a
+/// RegExp `lastIndex`) must be parenthesized so a following postfix `.clone()`
+/// does not mis-parse as part of the cast target type
+/// (`... as f64.clone()` is invalid).
+#[test]
+fn numeric_field_cast_parenthesized_before_clone() {
+    let out = source_for(
+        r#"
+function f(): Record<string, unknown> {
+  const re = /a/g;
+  const out: Record<string, unknown> = {};
+  out["idx"] = re.lastIndex;
+  return out;
+}
+"#,
+    );
+    assert!(
+        !out.contains("as f64.clone()"),
+        "cast followed by `.clone()` was not parenthesized: {out}"
+    );
+    assert!(
+        out.contains("(*re.last_index.borrow() as f64).clone()"),
+        "expected parenthesized cast before clone: {out}"
+    );
+}
+
+/// Regression: `Array.prototype.fill` with no end argument defaults the end to a
+/// `len as f64` cast used in an `if X < 0.0` comparison. A bare `len as f64 <`
+/// mis-parses `<` as the start of generic arguments for `f64`, so the cast must
+/// be parenthesized.
+#[test]
+fn array_fill_length_cast_parenthesized_before_comparison() {
+    let out = source_for(
+        r#"
+function f(): number[] {
+  const a: number[] = [1, 2, 3];
+  a.fill(0);
+  return a;
+}
+"#,
+    );
+    assert!(
+        !out.contains("fill_len as f64 <"),
+        "cast followed by `<` was not parenthesized: {out}"
+    );
+    assert!(
+        out.contains("if (fill_len as f64) < 0.0"),
+        "expected parenthesized length cast in comparison: {out}"
+    );
+}
