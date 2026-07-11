@@ -37,6 +37,30 @@ function find(xs: unknown[], x: unknown, from: number): number {
 }
 
 #[test]
+fn generic_class_without_args_gets_inference_placeholders() {
+    // A local typed as a generic class but with no resolved type arguments must
+    // emit inference placeholders so the reference is not missing its generics
+    // (was E0107 in the generated `ImmutableCache`).
+    let source = source_for(
+        r"
+class Cache<T> {
+  data: T;
+  constructor(d: T) { this.data = d; }
+  clear(): Cache<T> { return new Cache<T>(this.data); }
+}
+",
+    );
+    assert!(
+        !source.contains(": Cache ="),
+        "generic class annotation must not drop its generic args:\n{source}"
+    );
+    assert!(
+        source.contains("Cache<_>"),
+        "expected inference placeholder for the class generic, got:\n{source}"
+    );
+}
+
+#[test]
 fn function_value_spread_into_record_is_erased_first() {
     // Spreading a bare function value into an object literal extracts it as a
     // record. The erased-function Rust type has no `IntoSmeltUnknown` impl, so

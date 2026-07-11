@@ -767,7 +767,25 @@ impl FunctionEmitter<'_> {
                 }
                 let type_name = sanitize_ident(self.symbol_name(*name)?);
                 if args.is_empty() {
-                    Ok(type_name)
+                    // A generic class referenced without resolved type
+                    // arguments (e.g. a local temp typed as bare
+                    // `ImmutableCache` for a `new ImmutableCache<T>()` result)
+                    // still needs its generic slots spelled so the reference is
+                    // well-formed. Emit inference placeholders `<_, _>` per
+                    // declared type parameter and let Rust unify them from the
+                    // initializer (was E0107 in the generated `ImmutableCache`).
+                    let declared_params = self
+                        .mir
+                        .classes
+                        .iter()
+                        .find(|class| class.name == *name)
+                        .map_or(0, |class| class.type_params.len());
+                    if declared_params == 0 {
+                        Ok(type_name)
+                    } else {
+                        let placeholders = vec!["_"; declared_params].join(", ");
+                        Ok(format!("{type_name}<{placeholders}>"))
+                    }
                 } else {
                     let arg_text = args
                         .iter()
