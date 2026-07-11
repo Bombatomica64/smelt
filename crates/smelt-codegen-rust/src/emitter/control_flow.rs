@@ -602,8 +602,15 @@ impl FunctionEmitter<'_> {
                 Ok(())
             }
             Terminator::Throw(operand) => {
+                // Annotate the `Result` error type at the `Err` construction so
+                // Rust never has to infer `E`. Throwing closures whose result is
+                // only stored (never called at a site that pins the error type)
+                // otherwise leave `E` ambiguous (E0283). Every fallible/async
+                // Smelt function models its error channel as
+                // `Box<dyn std::error::Error>`, so fixing it here is a general
+                // rule rather than a per-call special case.
                 out.push_str(&format!(
-                    "    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
+                    "    return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
                     self.operand_text(operand)?
                 ));
                 Ok(())

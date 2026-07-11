@@ -1420,6 +1420,7 @@ impl ModuleBuilder<'_> {
             .iter()
             .filter_map(|imp| self.implements_symbol(imp).transpose())
             .collect::<Result<Vec<_>, _>>()?;
+        self.inject_error_marker_fields(base, class_span, &mut fields);
         let item = self.ctx.krate.push_item(Item::Class(Class {
             name: class_name,
             span: self.span(class.span.start, class.span.end),
@@ -1881,7 +1882,14 @@ impl ModuleBuilder<'_> {
                 ty: *field_ty,
                 span: *span,
             });
-            let value = self.expression(initializer, body)?;
+            // Lower the initializer against the declared field type so empty
+            // collection literals (`new Map()`, `[]`, `{}`) and other
+            // contextually-typed expressions adopt the field's element/key
+            // types instead of defaulting to `Unknown`. Without the hint an
+            // empty `new Map()` for a `Map<T, string>` field infers
+            // `Map<Unknown, Unknown>`, forcing a lossy key conversion at the
+            // assignment that cannot collect into the generic field type (E0277).
+            let value = self.expression_with_hint(initializer, body, Some(*field_ty))?;
             body.push_stmt(Stmt::Assign { target, value });
         }
         Ok(())
@@ -1926,6 +1934,69 @@ impl ModuleBuilder<'_> {
             });
             body.push_stmt(Stmt::Assign { target, value });
         }
+    }
+
+    /// Inject the dynamic Error-instance marker fields into a class that extends
+    /// the JavaScript `Error` builtin (or one of its standard subclasses).
+    ///
+    /// The `Error` constructor is a modeled host builtin, not a source-declared
+    /// Smelt class, so `effective_class_fields` finds no base layout to inherit.
+    /// A subclass constructor nevertheless assigns and reads the inherited
+    /// `name`/`message`/`stack`/`cause` slots (`this.name = ...`, `super(msg)`),
+    /// which otherwise reference struct fields that were never declared (E0609).
+    ///
+    /// These four properties have no statically knowable Smelt shape from the
+    /// erased host `Error` boundary, so they are declared as `Unknown` — this is
+    /// a genuine interop boundary with the JS builtin, matching the `SmeltUnknown`
+    /// assignment the constructor body already lowers. Fields the subclass
+    /// redeclares itself are left untouched. Only the direct Error-extending class
+    /// needs injection; deeper subclasses inherit these through the normal
+    /// flattened class layout.
+    fn inject_error_marker_fields(
+        &mut self,
+        base: Option<smelt_hir::Symbol>,
+        class_span: Span,
+        fields: &mut Vec<Field>,
+    ) {
+        let Some(base) = base else {
+            return;
+        };
+        let Some(base_name) = self.ctx.krate.symbols.get(base) else {
+            return;
+        };
+        let extends_error = matches!(
+            base_name,
+            "Error"
+                | "EvalError"
+                | "RangeError"
+                | "ReferenceError"
+                | "SyntaxError"
+                | "TypeError"
+                | "URIError"
+                | "AggregateError"
+        );
+        if !extends_error {
+            return;
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let mut injected = Vec::new();
+        for marker in ["name", "message", "stack", "cause"] {
+            let symbol = self.ctx.krate.symbols.intern(marker);
+            if fields.iter().any(|field| field.name == symbol) {
+                continue;
+            }
+            injected.push(Field {
+                name: symbol,
+                ty: unknown_ty,
+                visibility: Visibility::Public,
+                optional: false,
+                span: class_span,
+            });
+        }
+        // Inherited slots come first so the flattened layout mirrors a real base
+        // class (`effective_class_fields` orders base fields before own fields).
+        injected.extend(std::mem::take(fields));
+        *fields = injected;
     }
 
     /// Lower the single supported TypeScript `extends` shape for class declarations.

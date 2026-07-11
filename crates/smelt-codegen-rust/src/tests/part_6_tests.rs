@@ -526,7 +526,7 @@ console.log(result);
     // as each arm's own tail rather than one hoisted join.
     assert!(source.contains("=> {"), "{source}");
     assert!(source.contains("while"), "{source}");
-    assert!(source.contains("return Err(std::io::Error::new("), "{source}");
+    assert!(source.contains("return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new("), "{source}");
 }
 
 #[test]
@@ -540,7 +540,7 @@ fail();
     );
 
     assert!(source.contains("fn fail() -> Result<(), Box<dyn std::error::Error>> {"));
-    assert!(source.contains("return Err(std::io::Error::new("));
+    assert!(source.contains("return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new("));
     assert!(source.contains("fn main() -> Result<(), Box<dyn std::error::Error>> {"));
     assert!(source.contains("let _ = fail()?;"));
     assert!(source.contains("return Ok(());"));
@@ -726,5 +726,120 @@ export function nextHour(): number {
     assert!(
         !source.contains("with_hour"),
         "setHours must preserve JavaScript overflow semantics: {source}"
+    );
+}
+
+/// A class extending the `Error` builtin must declare the inherited dynamic
+/// marker fields (`name`/`message`/`stack`/`cause`) so its constructor's
+/// `this.name = ...` assignment references a real struct field (regression for
+/// generated `E0609: no field \`name\``).
+#[test]
+fn error_subclass_declares_inherited_marker_fields() {
+    let source = source_for(
+        r#"
+class HttpError extends Error {
+  code: number;
+  constructor(message: string, code: number) {
+    super(message);
+    this.name = 'CustomError';
+    this.code = code;
+  }
+}
+export function make(): HttpError { return new HttpError('x', 400); }
+"#,
+    );
+
+    assert!(source.contains("name:"), "missing name field: {source}");
+    assert!(source.contains("message:"), "missing message field: {source}");
+    assert!(
+        source.contains("this.name ="),
+        "constructor should assign name: {source}"
+    );
+}
+
+/// An empty collection literal used as a class field initializer must adopt the
+/// declared field's key/value types in a generic class rather than defaulting to
+/// `Unknown`, so the assignment does not need a lossy key conversion that cannot
+/// collect into the generic field type (regression for generated `E0277` on
+/// `SmeltJsMap<T, String>`).
+#[test]
+fn empty_map_field_initializer_adopts_declared_types() {
+    let source = source_for(
+        r#"
+class Cache<T> {
+  private data: Map<T, string> = new Map();
+  size(): number { return this.data.size; }
+}
+export function make(): Cache<string> { return new Cache<string>(); }
+"#,
+    );
+
+    assert!(
+        !source.contains("SmeltJsMap<SmeltUnknown, SmeltUnknown> = SmeltJsMap::from([])"),
+        "empty map field initializer should not default to Unknown keys: {source}"
+    );
+}
+
+/// `console.log` of a value with no Rust `Display` impl (a generic type
+/// parameter, class instance, union, or function) must erase to the runtime
+/// `SmeltUnknown` form, which implements `Display` (regression for generated
+/// `E0277: \`A\` doesn't implement Display`).
+#[test]
+fn console_log_of_non_display_value_erases_to_unknown() {
+    let source = source_for(
+        r#"
+export function show<A>(value: A): void {
+  console.log(value);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("into_smelt_unknown()"),
+        "console.log of a generic value should erase to SmeltUnknown: {source}"
+    );
+}
+
+/// A borrowed callback parameter that flows into a callee's owned callback sink
+/// (an `Optional<fn(..)>` parameter lowered to `Option<Rc<dyn Fn>>`) must itself
+/// be emitted as an owned `Rc<dyn Fn>`, otherwise codegen wraps the non-`'static`
+/// borrow in an escaping `Rc::new(..)` adapter that fails borrowck (regression
+/// for "lifetime may not live long enough").
+#[test]
+fn callback_flowing_into_owned_sink_is_owned() {
+    let source = source_for(
+        r"
+function inner(cb?: (x: number) => number): number { return cb ? cb(1) : 0; }
+export function outer(cb: (x: number) => number): number { return inner(cb); }
+",
+    );
+
+    let outer_sig = source
+        .lines()
+        .find(|line| line.contains("fn outer"))
+        .unwrap_or("");
+    assert!(
+        outer_sig.contains("Rc<dyn Fn"),
+        "outer's callback param should be owned: {outer_sig}"
+    );
+}
+
+/// A closure whose body only ever throws must carry an explicit
+/// `-> Result<_, Box<dyn Error>>` return annotation, otherwise neither the `Ok`
+/// nor the error type can be inferred from the diverging body (regression for
+/// `E0282`/`E0283` on a throw-only arrow).
+#[test]
+fn throw_only_closure_annotates_result_return_type() {
+    let source = source_for(
+        r#"
+export function makeThrower(): () => number {
+  return () => { throw new Error('nope'); };
+}
+"#,
+    );
+
+    assert!(
+        source.contains("-> Result<") && source.contains("Box<dyn std::error::Error>"),
+        "throw-only closure should annotate its Result return type: {source}"
     );
 }

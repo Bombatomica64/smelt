@@ -1183,8 +1183,20 @@ impl FunctionEmitter<'_> {
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_) | Type::Optional(_))
         ) {
             Ok(("{:?}", self.operand_text(operand)?))
-        } else {
+        } else if matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
+        ) {
+            // These render through their own `Display` impl (`SmeltUnknown`
+            // implements `Display` via the JS `String()` coercion).
             Ok(("{}", self.operand_text(operand)?))
+        } else {
+            // A class instance, generic type parameter, union, function, or set
+            // has no Rust `Display` impl, so `{}` would fail to compile (E0277).
+            // Erase to the runtime `SmeltUnknown` form, which does implement
+            // `Display`, matching how the same values stringify everywhere else.
+            let ty = self.operand_ty(operand)?;
+            Ok(("{}", self.erase_value_text(&self.operand_text(operand)?, ty)?))
         }
     }
 

@@ -786,7 +786,7 @@ def test_truth():
     assert!(
         source.contains("#[test]\nfn test_truth() -> Result<(), Box<dyn std::error::Error>> {")
     );
-    assert!(source.contains("return Err(std::io::Error::new"));
+    assert!(source.contains("return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new"));
     assert!(source.contains("return Ok(());"));
 }
 

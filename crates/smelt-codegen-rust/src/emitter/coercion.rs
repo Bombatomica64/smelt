@@ -1996,7 +1996,13 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_function = match {text}.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ let smelt_callback: {target_text} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}); smelt_callback }} }} else {{ {default_callback} }} }}"
                 ))
             }
-            Some(Type::Future(_)) => Ok("Default::default()".to_owned()),
+            // A `dyn Future` has no `Default`, so a bare `Default::default()`
+            // here fails to compile (E0277). There is also no way to recover a
+            // real future from an already-erased `SmeltUnknown`, so extract to a
+            // ready future at the declared `Output` type instead. `default_value`
+            // renders exactly `Box::pin(async { Ok(<default output>) }) as <ty>`
+            // for `Type::Future`, matching the future ABI used everywhere else.
+            Some(Type::Future(_)) => self.default_value(target),
             _ => Err(EmitError::new(
                 "checked extraction from unknown to this type is not implemented yet",
             )),

@@ -296,7 +296,9 @@ fn compute_owned_callback_params(mir: &Mir) -> Result<HashSet<(FuncId, LocalId)>
                 };
                 let closure_defs = closure_definitions(function)?;
                 for (arg, callee_param) in args.iter().zip(callee.params.iter()) {
-                    if !owned.contains(&(callee.id, *callee_param)) {
+                    if !owned.contains(&(callee.id, *callee_param))
+                        && !callee_param_is_owned_callback_sink(mir, callee, *callee_param)
+                    {
                         continue;
                     }
                     let Some(arg_local) = operand_local(arg) else {
@@ -326,6 +328,37 @@ fn compute_owned_callback_params(mir: &Mir) -> Result<HashSet<(FuncId, LocalId)>
     }
 
     Ok(owned)
+}
+
+/// Return whether a callee parameter is a position that always stores an owned
+/// callback handle, so any callback argument passed into it must itself be owned.
+///
+/// An `Optional<fn(..)>` (and any container-wrapped function) parameter cannot be
+/// emitted as a borrowed `&dyn Fn`: it lowers to `Option<Rc<dyn Fn>>` (an owned,
+/// `'static` handle). Passing a borrowed callback parameter straight into such a
+/// sink forces codegen to wrap it in an escaping `Rc::new(move || borrowed(..))`
+/// adapter, and a non-`'static` borrow cannot satisfy the `Rc`'s `'static` bound
+/// (borrowck "lifetime may not live long enough"). Treating these sinks as
+/// ownership requirements propagates ownership back to the caller's parameter so
+/// it is emitted as an owned `Rc<dyn Fn>` in the first place. A bare `Type::Function`
+/// sink is handled separately through the `owned` set (it may still be borrowed).
+fn callee_param_is_owned_callback_sink(
+    mir: &Mir,
+    callee: &MirFunction,
+    param: LocalId,
+) -> bool {
+    let Ok(index) = id_index(param.0, "local index does not fit usize") else {
+        return false;
+    };
+    let Some(local) = callee.locals.get(index) else {
+        return false;
+    };
+    match mir.types.get(local.ty) {
+        Some(Type::Optional(inner)) => {
+            matches!(mir.types.get(*inner), Some(Type::Function(_)))
+        }
+        _ => false,
+    }
 }
 
 /// Returns whether a callback parameter escapes inside its own function body.

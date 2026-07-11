@@ -1263,6 +1263,18 @@ impl FunctionEmitter<'_> {
                 format!(
                     "|{params_text}| {{ {async_capture_prelude}Box::pin(async move {{\n        let smelt_async_value = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>> }}"
                 )
+            } else if function.can_throw {
+                // A fallible closure returns `Result<T, Box<dyn Error>>`. When its
+                // body only ever throws (every path is `return Err(..)`), neither
+                // the `Ok` type nor the error type can be inferred from the body
+                // alone (E0282/E0283). Spell the return type explicitly so both
+                // parameters are pinned; the `Ok::<T, _>` returns emitted for this
+                // closure already use this same `T`, so the annotation is exact.
+                let return_ty_text =
+                    emitter.type_text_with_impl_trait(function.return_ty, false)?;
+                format!(
+                    "|{params_text}| -> Result<{return_ty_text}, Box<dyn std::error::Error>> {{\n{body_text}    }}"
+                )
             } else {
                 // Shared captures are emitted as safe `Rc<RefCell<T>>` and accessed via
                 // `borrow_mut()` (see core.rs), so the closure body contains no `unsafe`
@@ -1658,8 +1670,11 @@ impl FunctionEmitter<'_> {
                 default,
             } => self.emit_closure_match(scrutinee, arms, *default, out, active, stop, in_loop),
             Terminator::Throw(operand) => {
+                // Same rationale as the function-level throw terminator: pin the
+                // `Result` error type to `Box<dyn std::error::Error>` at the `Err`
+                // construction so a throwing closure never leaves `E` ambiguous.
                 out.push_str(&format!(
-                    "    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
+                    "    return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
                     self.operand_text(operand)?
                 ));
                 Ok(())
