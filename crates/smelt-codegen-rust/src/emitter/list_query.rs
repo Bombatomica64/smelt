@@ -1861,7 +1861,18 @@ fn replace_shared_capture_uses(mut text: String, replacements: &[(String, String
 /// a field name (`(*smelt_capture_length.borrow_mut()): 0.0`). A path segment
 /// (`name::`, double colon) is excluded from this guard and handled by the
 /// identifier-boundary check below.
+///
+/// Occurrences inside a closure that rebinds `source` as one of its parameters
+/// are also left untouched. Synthesized coercion adapters bind throwaway
+/// parameters (`|value| …`, `|(key, value)| …`) whose names can collide with a
+/// user shared-capture local; such a parameter shadows the outer local for the
+/// whole closure, so rewriting either the binding or a body use is wrong.
+/// Rewriting the binding emits invalid syntax
+/// (`|(*smelt_capture_value.borrow_mut())|`), and rewriting a body use would
+/// silently read the captured value instead of the closure argument. See
+/// [`closure_shadow_intervals`].
 fn replace_identifier(text: &str, source: &str, target: &str) -> String {
+    let shadows = closure_shadow_intervals(text, source);
     let mut out = String::with_capacity(text.len());
     let mut index = 0;
     while let Some(offset) = text[index..].find(source) {
@@ -1872,9 +1883,13 @@ fn replace_identifier(text: &str, source: &str, target: &str) -> String {
         let mut trailing = text[end..].chars();
         let after = trailing.next();
         let is_field_key = after == Some(':') && trailing.next() != Some(':');
+        let is_shadowed = shadows
+            .iter()
+            .any(|&(begin, finish)| start >= begin && start < finish);
         if before.is_some_and(is_rust_ident_char)
             || after.is_some_and(is_rust_ident_char)
             || is_field_key
+            || is_shadowed
         {
             out.push_str(source);
         } else {
@@ -1884,6 +1899,160 @@ fn replace_identifier(text: &str, source: &str, target: &str) -> String {
     }
     out.push_str(&text[index..]);
     out
+}
+
+/// Returns byte ranges `[param_open, body_end)` for closures that rebind
+/// `source` as a parameter, so [`replace_identifier`] can leave their contents
+/// alone.
+///
+/// The scan recognizes closure parameter lists of the form `|pattern|` (a `|`
+/// that is neither part of `||` nor a bitwise operator, followed only by
+/// pattern characters up to the closing `|`). When the pattern binds `source`,
+/// the closure body — a single expression extending to the enclosing top-level
+/// comma, statement terminator, or closing delimiter — is included so that both
+/// the binding and every shadowed body use are protected. String and character
+/// literals in the body are skipped so their delimiters do not end the body
+/// prematurely.
+fn closure_shadow_intervals(text: &str, source: &str) -> Vec<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut intervals = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'|'
+            && bytes.get(i + 1) != Some(&b'|')
+            && (i == 0 || bytes[i - 1] != b'|')
+            && let Some(close) = closure_param_close(bytes, i)
+        {
+            if pattern_binds_identifier(&text[i + 1..close], source) {
+                let body_end = closure_body_end(bytes, close + 1);
+                intervals.push((i, body_end));
+                i = body_end;
+                continue;
+            }
+            // Skip past a non-binding parameter list so its interior `|` (none
+            // occur today, but paths change) cannot be mistaken for a new list.
+            i = close + 1;
+            continue;
+        }
+        i += 1;
+    }
+    intervals
+}
+
+/// Returns the byte index of the `|` closing a closure parameter list that opens
+/// at `open`, or `None` when the run after `open` is not a parameter list.
+///
+/// Only characters that can appear in the emitted adapter parameter patterns are
+/// permitted (identifiers, `_`, `,`, whitespace, parentheses, `&`, `:`, and the
+/// `<`/`>` of type annotations). Any other character means the `|` was a bitwise
+/// operator, not a closure.
+fn closure_param_close(bytes: &[u8], open: usize) -> Option<usize> {
+    let mut i = open + 1;
+    while i < bytes.len() {
+        let ch = bytes[i];
+        if ch == b'|' {
+            return Some(i);
+        }
+        let is_param_char = ch.is_ascii_alphanumeric()
+            || matches!(
+                ch,
+                b'_' | b',' | b' ' | b'\t' | b'\n' | b'(' | b')' | b'&' | b':' | b'<' | b'>'
+            );
+        if !is_param_char {
+            return None;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Returns true when a closure parameter pattern binds `source` as one of its
+/// names (a whole-identifier occurrence bounded by non-identifier characters).
+fn pattern_binds_identifier(pattern: &str, source: &str) -> bool {
+    let bytes = pattern.as_bytes();
+    let mut index = 0;
+    while let Some(offset) = pattern[index..].find(source) {
+        let start = index + offset;
+        let end = start + source.len();
+        let before = start.checked_sub(1).map(|prev| bytes[prev] as char);
+        let after = pattern[end..].chars().next();
+        if !before.is_some_and(is_rust_ident_char) && !after.is_some_and(is_rust_ident_char) {
+            return true;
+        }
+        index = end;
+    }
+    false
+}
+
+/// Returns the byte index at which a closure body starting at `start` ends.
+///
+/// The body is a single expression; it ends at the first top-level comma,
+/// semicolon, or closing delimiter (which belongs to an enclosing group), or at
+/// end of input. Bracket depth is tracked so delimiters inside nested groups do
+/// not terminate the body, and string/character literals are skipped whole so
+/// their delimiters are ignored.
+fn closure_body_end(bytes: &[u8], start: usize) -> usize {
+    let mut depth: i32 = 0;
+    let mut i = start;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                i = skip_string_literal(bytes, i);
+                continue;
+            }
+            b'\'' => {
+                i = skip_char_or_lifetime(bytes, i);
+                continue;
+            }
+            b'(' | b'[' | b'{' => depth = depth.saturating_add(1),
+            b')' | b']' | b'}' if depth == 0_i32 => return i,
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            b',' | b';' if depth == 0_i32 => return i,
+            _ => {}
+        }
+        i = i.saturating_add(1);
+    }
+    bytes.len()
+}
+
+/// Returns the index just past a double-quoted string literal starting at the
+/// opening quote `start`, honoring backslash escapes.
+fn skip_string_literal(bytes: &[u8], start: usize) -> usize {
+    let mut i = start + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b'"' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// Returns the index just past a character literal, or just past the tick of a
+/// lifetime, starting at the tick `start`.
+///
+/// A character literal (`'x'`, `'\n'`) is skipped whole; a lifetime (`'a`) has
+/// no closing tick, so only the tick is consumed and the following identifier is
+/// scanned normally.
+fn skip_char_or_lifetime(bytes: &[u8], start: usize) -> usize {
+    // Escaped char literal: `'\n'`, `'\\'`, `'\''`.
+    if bytes.get(start + 1) == Some(&b'\\') {
+        let mut i = start + 2;
+        while i < bytes.len() {
+            if bytes[i] == b'\'' {
+                return i + 1;
+            }
+            i += 1;
+        }
+        return bytes.len();
+    }
+    // Simple char literal: a single byte followed by a closing tick.
+    if bytes.get(start + 2) == Some(&b'\'') {
+        return start + 3;
+    }
+    // Otherwise a lifetime tick with no closing quote.
+    start + 1
 }
 
 /// Returns true for characters that can be part of emitted Rust identifiers.
@@ -1927,6 +2096,75 @@ mod replace_identifier_tests {
         assert_eq!(
             replace_identifier("length::MAX", "length", "cell"),
             "cell::MAX"
+        );
+    }
+
+    /// A shared-capture local named `value` flowing through a list coercion
+    /// adapter must not clobber the adapter's own `|value|` parameter. Both the
+    /// binding and the shadowed body use belong to the closure, not the capture,
+    /// so the whole closure is left untouched. Regression for es-toolkit `wrap`.
+    #[test]
+    fn preserves_shadowing_closure_adapter() {
+        assert_eq!(
+            replace_identifier(
+                "arg1.clone().into_iter().map(|value| value.into_smelt_unknown()).collect::<SmeltList<_>>()",
+                "value",
+                "(*smelt_capture_value.borrow_mut())",
+            ),
+            "arg1.clone().into_iter().map(|value| value.into_smelt_unknown()).collect::<SmeltList<_>>()"
+        );
+    }
+
+    /// A free use of the capture outside any shadowing closure is still
+    /// rewritten, even when a shadowing adapter closure precedes it.
+    #[test]
+    fn rewrites_free_use_alongside_shadowing_closure() {
+        assert_eq!(
+            replace_identifier(
+                "xs.map(|value| value.len()) + value",
+                "value",
+                "(*smelt_capture_value.borrow_mut())",
+            ),
+            "xs.map(|value| value.len()) + (*smelt_capture_value.borrow_mut())"
+        );
+    }
+
+    /// A destructuring adapter parameter (`|(key, value)|`) also shadows the
+    /// capture across the closure body.
+    #[test]
+    fn preserves_destructuring_closure_adapter() {
+        assert_eq!(
+            replace_identifier(
+                "m.into_iter().map(|(key, value)| (key, value)).collect()",
+                "value",
+                "(*smelt_capture_value.borrow_mut())",
+            ),
+            "m.into_iter().map(|(key, value)| (key, value)).collect()"
+        );
+    }
+
+    /// A string literal inside a shadowing closure body must not end the body
+    /// early: its delimiters (`)`, `,`) are ignored so the whole closure stays
+    /// protected.
+    #[test]
+    fn string_literal_does_not_truncate_shadow() {
+        assert_eq!(
+            replace_identifier(
+                "xs.map(|value| panic!(\"bad, value)\", value)) + value",
+                "value",
+                "CAP",
+            ),
+            "xs.map(|value| panic!(\"bad, value)\", value)) + CAP"
+        );
+    }
+
+    /// A bitwise/logical `|` between value uses is not a closure parameter list,
+    /// so both operands are still rewritten.
+    #[test]
+    fn does_not_treat_bitwise_or_as_closure() {
+        assert_eq!(
+            replace_identifier("flag || value", "value", "CAP"),
+            "flag || CAP"
         );
     }
 }
