@@ -1975,6 +1975,20 @@ return_ty: function.return_ty,
                 ) {
                     return Ok(self.ctx.krate.types.intern(Type::Unknown));
                 }
+                // `RegExp` is a builtin stdlib class backed by the generated
+                // `SmeltRegExp` runtime type, whose data properties have
+                // statically known concrete field types. Resolve them here so
+                // reads such as `re.source`, `re.flags`, and `re.lastIndex`
+                // type as the concrete Rust fields codegen actually emits
+                // (`regexp_field_text`) instead of falling through to the
+                // erased `Unknown` boundary. Erasing them would make arg
+                // coercion into `RegExp::new`'s `String` params emit a
+                // stringify-of-`SmeltUnknown` match against an already-`String`
+                // scrutinee, and would drop the erasure adapter when the read
+                // flows into a `SmeltUnknown` slot.
+                if let Some(field_ty) = self.regexp_field_type_for(name, field) {
+                    return Ok(field_ty);
+                }
                 let class_item = self.class_by_symbol(name).cloned();
                 if class_item.is_none()
                     && let Some(ty) = self.in_progress_class_method_member_type(name, field)
@@ -2805,6 +2819,43 @@ return_ty: function.return_ty,
     }
 
     /// Return the HIR type used for JavaScript `RegExp` values.
+    /// Resolve a data-property read on a builtin `RegExp` receiver to its
+    /// concrete field type, or `None` when `name` is not the `RegExp` class or
+    /// the field is not a modeled `RegExp` data property.
+    ///
+    /// The concrete types mirror the generated `SmeltRegExp` runtime shape and
+    /// codegen's `regexp_field_text`/`field_access_type`: `source`/`flags` are
+    /// `String`, the boolean flag accessors are `bool`, and `lastIndex` is a
+    /// `number`. Callable members (`test`, `exec`, …) return `None` so the
+    /// general method-resolution paths keep handling them.
+    fn regexp_field_type_for(
+        &mut self,
+        name: smelt_hir::Symbol,
+        field: smelt_hir::Symbol,
+    ) -> Option<smelt_hir::TypeId> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(name)
+            .or_else(|| self.ctx.krate.symbols.get(name))?;
+        if class_name != "RegExp" {
+            return None;
+        }
+        let field_name = self.ctx.krate.symbols.get(field)?;
+        let ty = match field_name {
+            "source" | "flags" => Type::String,
+            "lastIndex" | "last_index" => Type::Float,
+            "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky" | "unicode"
+            | "dotAll" | "dot_all" => Type::Bool,
+            _ => return None,
+        };
+        Some(self.ctx.krate.types.intern(ty))
+    }
+
+    /// Return the HIR type for a JavaScript `RegExp` value, modeled as the
+    /// builtin `RegExp` stdlib class backed by the generated `SmeltRegExp`
+    /// runtime type.
     pub(in crate::lowering) fn regexp_type(&mut self) -> smelt_hir::TypeId {
         let name = self.intern_type_name("RegExp");
         self.ctx.krate.types.intern(Type::Class {

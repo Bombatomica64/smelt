@@ -3944,6 +3944,34 @@ const matches = first.test("Nov");
 }
 
 #[test]
+fn regexp_metadata_fields_resolve_to_concrete_types() {
+    // A data-property read on a concrete `RegExp` receiver must type as the
+    // concrete `SmeltRegExp` field (`source`/`flags` are `String`), not the
+    // erased `Unknown` boundary. Otherwise passing the read into
+    // `new RegExp(...)`'s `String` parameters emits a stringify-of-
+    // `SmeltUnknown` match against an already-`String` scrutinee (E0308).
+    let source = source_for(
+        r#"
+export function cloneRe(obj: unknown): RegExp {
+  const regExp = obj as unknown as RegExp;
+  return new RegExp(regExp.source, regExp.flags);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltRegExp::new(reg_exp.source.clone().clone(), reg_exp.flags.clone().clone())"),
+        "{source}"
+    );
+    // The erased stringify coercion must not be applied to the concrete
+    // `String` field reads.
+    assert!(
+        !source.contains("match reg_exp.source"),
+        "{source}"
+    );
+}
+
+#[test]
 fn preserves_regex_arrays_inside_static_object_consts() {
     let source = source_for(
         r#"

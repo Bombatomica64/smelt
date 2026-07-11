@@ -397,6 +397,25 @@ impl FunctionEmitter<'_> {
                 {
                     return self.match_field_ty(kind, *field);
                 }
+                // A concrete builtin `RegExp` receiver exposes data properties
+                // with statically known concrete field types backed by the
+                // generated `SmeltRegExp` runtime shape. Resolve them here so
+                // the field operand's type agrees with `regexp_field_text` and
+                // `field_access_type`; without this the generic class arm below
+                // (which only knows user classes/interfaces) would erase the
+                // read to `Unknown` and make callers re-coerce an already
+                // concrete value.
+                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+                    && self.is_regexp_class_symbol(*name)?
+                {
+                    return match self.symbol_name(*field)? {
+                        "source" | "flags" => self.type_id(Type::String),
+                        "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky"
+                        | "unicode" | "dotAll" | "dot_all" => self.type_id(Type::Bool),
+                        "lastIndex" | "last_index" => self.type_id(Type::Float),
+                        _ => self.type_id(Type::Unknown),
+                    };
+                }
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(_, value)) => Ok(*value),
                     Some(Type::Optional(inner)) => {

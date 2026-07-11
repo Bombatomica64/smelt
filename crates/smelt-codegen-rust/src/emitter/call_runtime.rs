@@ -2413,7 +2413,7 @@ impl FunctionEmitter<'_> {
             && self.is_regexp_class_symbol(*name)?
         {
             return match self.symbol_name(field)? {
-                "source" => self.type_id(Type::String),
+                "source" | "flags" => self.type_id(Type::String),
                 "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky" | "unicode"
                 | "dotAll" | "dot_all" => self.type_id(Type::Bool),
                 "lastIndex" | "last_index" => self.type_id(Type::Float),
@@ -3114,6 +3114,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         Ok(match self.symbol_name(field)? {
             "source" => format!("{receiver_text}.source.clone()"),
+            "flags" => format!("{receiver_text}.flags.clone()"),
             "global" => format!("{receiver_text}.has_flag('g')"),
             "ignoreCase" | "ignore_case" => format!("{receiver_text}.has_flag('i')"),
             "multiline" => format!("{receiver_text}.has_flag('m')"),
