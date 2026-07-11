@@ -365,13 +365,18 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("numeric_{op_text} {}", operand_text(operand))
         }
-        Rvalue::NumericExtrema { op, args } => {
+        Rvalue::NumericExtrema { op, args, spread } => {
             let op_text = match op {
                 smelt_hir::NumericExtremaOp::Min => "min",
                 smelt_hir::NumericExtremaOp::Max => "max",
             };
             let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
-            format!("numeric_{op_text} {arg_list}")
+            spread.as_ref().map_or_else(
+                || format!("numeric_{op_text} {arg_list}"),
+                |spread_operand| {
+                    format!("numeric_{op_text} {arg_list} ...{}", operand_text(spread_operand))
+                },
+            )
         }
         Rvalue::NumericHypot { args } => {
             let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");

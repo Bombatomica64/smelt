@@ -377,7 +377,11 @@ impl ModuleBuilder<'_> {
             ));
         }
         Ok(body.push_expr(HirExpr {
-            kind: ExprKind::NumericExtrema { op, args },
+            kind: ExprKind::NumericExtrema {
+                op,
+                args,
+                spread: None,
+            },
             ty,
             span,
         }))

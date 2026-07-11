@@ -164,6 +164,7 @@ impl FunctionEmitter<'_> {
         &self,
         op: smelt_hir::NumericExtremaOp,
         args: &[Operand],
+        spread: Option<&Operand>,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dest_is_int = matches!(self.mir.types.get(dest_ty), Some(Type::Int));
@@ -188,9 +189,6 @@ impl FunctionEmitter<'_> {
             smelt_hir::NumericExtremaOp::Min => "min",
             smelt_hir::NumericExtremaOp::Max => "max",
         };
-        let Some((first, rest)) = args.split_first() else {
-            return Ok(identity.to_owned());
-        };
         let render_arg = |arg: &Operand| -> Result<String, EmitError> {
             let text = self.value_at_type(arg, dest_ty)?;
             if !dest_is_int && matches!(arg, Operand::Const(Constant::Float(_))) {
@@ -199,9 +197,31 @@ impl FunctionEmitter<'_> {
                 Ok(text)
             }
         };
-        let mut rendered = render_arg(first)?;
-        for arg in rest {
-            rendered = format!("{rendered}.{method_name}({})", render_arg(arg)?);
+        // Fold the scalar arguments into a seed value, or fall back to the
+        // identity element when the extrema is driven purely by a spread list
+        // (`Math.max(...values)` with no leading scalar operands).
+        let mut rendered = match args.split_first() {
+            Some((first, rest)) => {
+                let mut seed = render_arg(first)?;
+                for arg in rest {
+                    seed = format!("{seed}.{method_name}({})", render_arg(arg)?);
+                }
+                seed
+            }
+            None => identity.to_owned(),
+        };
+        // Reduce every element of a spread numeric list with the same
+        // `min`/`max` method, converting each element to the destination type.
+        if let Some(spread) = spread {
+            let list_text = self.operand_text(spread)?;
+            let element_ty = match self.mir.types.get(self.operand_ty(spread)?) {
+                Some(Type::List(element_ty)) => *element_ty,
+                _ => return Err(EmitError::new("numeric extrema spread must be a list")),
+            };
+            let element_text = self.value_at_type_text("smelt_element", element_ty, dest_ty)?;
+            rendered = format!(
+                "{list_text}.iter().cloned().fold({rendered}, |smelt_acc, smelt_element| smelt_acc.{method_name}({element_text}))"
+            );
         }
         Ok(rendered)
     }

@@ -200,6 +200,42 @@ const lowest = Math.min(first, second, -1);
 }
 
 #[test]
+fn lowers_math_extrema_spread_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const highest = Math.max(...values);
+const bounded = Math.min(0, ...values);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    // The spread list is carried by the `spread` operand rather than being
+    // treated as a single scalar `TypeAssert`-to-float argument.
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        &expr.kind,
+        ExprKind::NumericExtrema {
+            op: NumericExtremaOp::Max,
+            args,
+            spread: Some(_),
+        } if args.is_empty()
+    )));
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        &expr.kind,
+        ExprKind::NumericExtrema {
+            op: NumericExtremaOp::Min,
+            args,
+            spread: Some(_),
+        } if args.len() == 1
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_string_case_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

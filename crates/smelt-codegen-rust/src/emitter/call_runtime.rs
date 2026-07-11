@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
     /// snippet.
     fn dynamic_callable_dispatch_text(&self, callee_text: &str, args_expr: &str) -> String {
         format!(
-            "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
+            "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
         )
     }
 
@@ -633,7 +633,9 @@ impl FunctionEmitter<'_> {
             Rvalue::Len(operand) => self.len_text(operand, dest_ty),
             Rvalue::NumericAbs(operand) => self.numeric_abs_text(operand),
             Rvalue::NumericRound { op, operand } => self.numeric_round_text(*op, operand, dest_ty),
-            Rvalue::NumericExtrema { op, args } => self.numeric_extrema_text(*op, args, dest_ty),
+            Rvalue::NumericExtrema { op, args, spread } => {
+                self.numeric_extrema_text(*op, args, spread.as_ref(), dest_ty)
+            }
             Rvalue::NumericHypot { args } => self.numeric_hypot_text(args),
             Rvalue::NumericPredicate { op, operand } => self.numeric_predicate_text(*op, operand),
             Rvalue::NumericUnaryFunc { op, operand } => self.numeric_unary_func_text(*op, operand),

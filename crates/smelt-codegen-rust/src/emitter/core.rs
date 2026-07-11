@@ -4622,11 +4622,16 @@ fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         | Rvalue::Closure {
             captures: items, ..
         }
-        | Rvalue::NumericExtrema { args: items, .. }
         | Rvalue::NumericHypot { args: items }
         | Rvalue::AsyncOp { args: items, .. } => items
             .iter()
             .any(|operand| operand_uses_local(operand, local)),
+        Rvalue::NumericExtrema { args, spread, .. } => {
+            args.iter().any(|operand| operand_uses_local(operand, local))
+                || spread
+                    .as_ref()
+                    .is_some_and(|operand| operand_uses_local(operand, local))
+        }
         Rvalue::Dict(entries) => entries.iter().any(|(key, entry_value)| {
             operand_uses_local(key, local) || operand_uses_local(entry_value, local)
         }),

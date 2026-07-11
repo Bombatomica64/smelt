@@ -748,9 +748,15 @@ fn rewrite_rvalue(
                     rewrite_operand_except(last_modified_operand, aliases, dest)
                 })
         }
-        Rvalue::NumericExtrema { args, .. } => args.iter_mut().fold(false, |changed, arg| {
-            rewrite_operand_except(arg, aliases, dest) | changed
-        }),
+        Rvalue::NumericExtrema { args, spread, .. } => {
+            let mut changed = args.iter_mut().fold(false, |changed, arg| {
+                rewrite_operand_except(arg, aliases, dest) | changed
+            });
+            if let Some(spread_operand) = spread {
+                changed |= rewrite_operand_except(spread_operand, aliases, dest);
+            }
+            changed
+        }
         Rvalue::NumericHypot { args } => args.iter_mut().fold(false, |changed, arg| {
             rewrite_operand_except(arg, aliases, dest) | changed
         }),

@@ -479,23 +479,46 @@ return_ty: string_ty,
             "min" => NumericExtremaOp::Min,
             _ => return Ok(None),
         };
-        let mut args = call
+        // A single spread argument (`Math.max(...values)`) reduces the numeric
+        // list rather than treating it as one scalar operand. Separate any
+        // spread from the scalar arguments so the extrema can fold the list.
+        // Bail (returning `None`) on the uncommon multi-spread case so the
+        // generic call path is left untouched.
+        let spread_count = call
             .arguments
             .iter()
-            .map(|argument| self.argument(argument, body))
-            .collect::<Result<Vec<_>, _>>()?;
+            .filter(|argument| matches!(argument, Argument::SpreadElement(_)))
+            .count();
+        if spread_count > 1 {
+            return Ok(None);
+        }
         let ty = self.ctx.krate.types.intern(Type::Float);
-        for arg in &mut args {
-            if self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float) {
-                *arg = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: *arg },
+        let mut args = Vec::new();
+        let mut spread = None;
+        for argument in &call.arguments {
+            let lowered = self.argument(argument, body)?;
+            if matches!(argument, Argument::SpreadElement(_)) {
+                // The extrema reduction coerces each spread element to `Float`
+                // in the backend, so the list is taken as lowered.
+                spread = Some(lowered);
+                continue;
+            }
+            let arg = if matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, lowered)),
+                Some(&Type::Float)
+            ) {
+                lowered
+            } else {
+                body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: lowered },
                     ty,
                     span: self.span(call.span.start, call.span.end),
-                });
-            }
+                })
+            };
+            args.push(arg);
         }
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::NumericExtrema { op, args },
+            kind: ExprKind::NumericExtrema { op, args, spread },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

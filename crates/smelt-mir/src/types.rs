@@ -659,6 +659,9 @@ pub enum Rvalue {
         op: smelt_hir::NumericExtremaOp,
         /// Numeric operands to compare.
         args: Vec<Operand>,
+        /// Optional numeric list folded alongside `args`, produced when the
+        /// source spreads a list into `Math.max`/`Math.min`.
+        spread: Option<Operand>,
     },
     /// Compute the Euclidean norm of floating-point operands.
     NumericHypot {

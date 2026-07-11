@@ -157,6 +157,36 @@ function double(values: number[]): number[] {
 ",
         },
         Case {
+            name: "math_extrema_spread",
+            area: "numeric",
+            // `Math.max`/`Math.min` over a spread list reduce the list rather
+            // than treating it as a single scalar operand. The reduction must
+            // coerce each element (here an erased length result) to `f64`.
+            // Mirrors es-toolkit `zipWith`/`unzipWith`.
+            source: r"
+function widestRow(rows: number[][]): number {
+  return Math.max(...rows.map((row) => row.length));
+}
+
+function boundedMin(values: number[]): number {
+  return Math.min(0, ...values);
+}
+",
+        },
+        Case {
+            name: "timer_typed_callback",
+            area: "closures",
+            // A `setTimeout` whose callback has a statically-known function type
+            // and forwarded arguments must erase the callback to the
+            // `SmeltUnknown` callable boundary before the dispatch probe rather
+            // than assuming it is already erased. Mirrors es-toolkit `delay`.
+            source: r"
+function schedule(func: (...args: unknown[]) => unknown, wait: number, ...args: unknown[]): number {
+  return setTimeout(func, wait, ...args);
+}
+",
+        },
+        Case {
             name: "function_item_value_identity",
             area: "closures",
             source: r"

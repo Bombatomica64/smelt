@@ -66,12 +66,21 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("numeric_{op_name} {}", expr_ref(*operand))
         }
-        ExprKind::NumericExtrema { op, args } => {
+        ExprKind::NumericExtrema { op, args, spread } => {
             let op_name = match op {
                 crate::expr::NumericExtremaOp::Min => "min",
                 crate::expr::NumericExtremaOp::Max => "max",
             };
-            format!("numeric_{op_name} {}", expr_list_text(args))
+            spread.as_ref().map_or_else(
+                || format!("numeric_{op_name} {}", expr_list_text(args)),
+                |spread| {
+                    format!(
+                        "numeric_{op_name} {} ...{}",
+                        expr_list_text(args),
+                        expr_ref(*spread)
+                    )
+                },
+            )
         }
         ExprKind::NumericHypot { args } => format!("numeric_hypot {}", expr_list_text(args)),
         ExprKind::NumericPredicate { op, operand } => {

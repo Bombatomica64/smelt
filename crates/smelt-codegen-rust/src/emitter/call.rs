@@ -309,9 +309,9 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         extra: Option<&Operand>,
     ) -> Result<String, EmitError> {
+        let callback_ty = self.operand_ty(callback)?;
         if extra.is_none()
-            && let Some(Type::Function(function)) =
-                self.mir.types.get(self.operand_ty(callback)?)
+            && let Some(Type::Function(function)) = self.mir.types.get(callback_ty)
             && function.params.is_empty()
         {
             return Ok(if function.may_throw {
@@ -326,8 +326,18 @@ impl FunctionEmitter<'_> {
         } else {
             "Vec::new()"
         };
+        // The erased callable probe below matches on `SmeltUnknown`. A callback
+        // with a statically-known function type (e.g. `delay`'s
+        // `(...args: any[]) => any`) is not a `SmeltUnknown`, so coerce it to
+        // the erased boundary first; an already-erased callback coerces to
+        // itself. The object arm binds through `get`, which yields a reference,
+        // so it must clone to match the owned handle produced by the function
+        // arm.
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let function_value =
+            self.value_at_type_text("smelt_timer_callback.clone()", callback_ty, unknown_ty)?;
         Ok(format!(
-            "{{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)({call_args}).map(|_| ()) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }} }}"
+            "{{ let smelt_function_value = {function_value}; let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)({call_args}).map(|_| ()) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }} }}"
         ))
     }
 

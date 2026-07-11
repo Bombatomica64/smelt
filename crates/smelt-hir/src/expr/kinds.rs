@@ -107,6 +107,11 @@ pub enum ExprKind {
     NumericExtrema {
         op: NumericExtremaOp,
         args: Vec<ExprId>,
+        /// Optional numeric list reduced alongside `args`, produced when the
+        /// source spreads a list into `Math.max`/`Math.min`
+        /// (e.g. `Math.max(...values)`). The reduction folds every element of
+        /// this list with the scalar `args` using the same extrema operation.
+        spread: Option<ExprId>,
     },
     NumericHypot {
         args: Vec<ExprId>,

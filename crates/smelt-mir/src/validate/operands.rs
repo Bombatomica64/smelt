@@ -647,9 +647,12 @@ impl Rvalue {
             Self::HostGlobalWrite { value, .. } => {
                 visit(value);
             }
-            Self::NumericExtrema { args, .. } => {
+            Self::NumericExtrema { args, spread, .. } => {
                 for arg in args {
                     visit(arg);
+                }
+                if let Some(spread_operand) = spread {
+                    visit(spread_operand);
                 }
             }
             Self::NumericHypot { args } => {
@@ -1352,9 +1355,12 @@ impl Rvalue {
             Self::HostGlobalWrite { value, .. } => {
                 visit(value);
             }
-            Self::NumericExtrema { args, .. } => {
+            Self::NumericExtrema { args, spread, .. } => {
                 for arg in args.iter_mut() {
                     visit(arg);
+                }
+                if let Some(spread_operand) = spread {
+                    visit(spread_operand);
                 }
             }
             Self::NumericHypot { args } => {

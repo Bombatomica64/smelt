@@ -135,9 +135,10 @@ impl ExprKind {
                 op,
                 operand: f(operand)?,
             },
-            Self::NumericExtrema { op, args } => Self::NumericExtrema {
+            Self::NumericExtrema { op, args, spread } => Self::NumericExtrema {
                 op,
                 args: map_vec(args, f)?,
+                spread: map_opt(spread, f)?,
             },
             Self::NumericHypot { args } => Self::NumericHypot {
                 args: map_vec(args, f)?,

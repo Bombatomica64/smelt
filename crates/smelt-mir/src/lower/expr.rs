@@ -363,17 +363,19 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::NumericExtrema { op, args } => {
+            ExprKind::NumericExtrema { op, args, spread } => {
                 let lowered_args = args
                     .iter()
                     .map(|arg| self.lower_expr(*arg))
                     .collect::<Result<Vec<_>, _>>()?;
+                let lowered_spread = spread.map(|s| self.lower_expr(s)).transpose()?;
                 self.assign_temp(
                     expr.ty,
                     expr.span,
                     Rvalue::NumericExtrema {
                         op: *op,
                         args: lowered_args,
+                        spread: lowered_spread,
                     },
                 )?
             }
