@@ -99,6 +99,38 @@ const merged = Object.assign({}, source, { b: 2 });
 }
 
 #[test]
+fn emits_callable_interface_smelt_call_field_and_apply_routing() {
+    // A callable interface (a call signature plus data/method members) lowers
+    // to a record struct carrying a synthetic `__smelt_call` slot for the
+    // underlying callable. `.apply` on such a value must read that slot and
+    // erase it rather than accessing a non-existent `apply` struct field.
+    let source = source_for(
+        r"
+interface Callable {
+  (x: number): number;
+  tag(): string;
+}
+function useApply(c: Callable): number {
+  return c.apply(undefined, [1]) as number;
+}
+",
+    );
+
+    assert!(
+        source.contains("__smelt_call"),
+        "expected a synthetic __smelt_call field on the callable interface struct: {source}"
+    );
+    assert!(
+        source.contains(".__smelt_call.clone()") && source.contains("into_smelt_unknown()"),
+        "expected .apply to erase the __smelt_call slot: {source}"
+    );
+    assert!(
+        !source.contains(".apply.clone()") && !source.contains(".apply)"),
+        "expected no direct `.apply` struct field access: {source}"
+    );
+}
+
+#[test]
 fn emits_object_assign_call_on_callable_target() {
     let source = source_for(
         r"
