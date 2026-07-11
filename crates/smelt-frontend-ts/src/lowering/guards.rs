@@ -943,13 +943,14 @@ impl ModuleBuilder<'_> {
             return self.expression(expression, body);
         }
         let target = self.ts_type_to_hir(annotation)?;
-        if self.concrete_type_requires_never_value(target)
-            && !Self::is_empty_object_expression(expression)
-        {
-            return Err(SmeltError::unsupported(
-                self.span(span.start, span.end),
-                "type assertion cannot construct a never value",
-            ));
+        if self.concrete_type_requires_never_value(target) {
+            // TypeScript assertions are erased at runtime. An assertion such
+            // as `null as unknown as never` does not construct an impossible
+            // value; it evaluates the original `null`. Keep the operand's real
+            // shape instead of forcing an uninhabited Rust destination. Actual
+            // declarations/containers whose storage type requires `never`
+            // remain rejected by their declaration and literal checks.
+            return self.expression(expression, body);
         }
         if let Some(parsed) = self.json_parse_call_with_target(expression, target, span, body)? {
             return Ok(parsed);
@@ -984,26 +985,6 @@ impl ModuleBuilder<'_> {
                     TSTypeName::IdentifierReference(name) if name.name == "const"
                 )
         )
-    }
-
-    /// Return whether an expression is an empty object literal after TS-only wrappers.
-    pub(super) fn is_empty_object_expression(expression: &Expression<'_>) -> bool {
-        match expression {
-            Expression::ObjectExpression(object) => object.properties.is_empty(),
-            Expression::ParenthesizedExpression(parenthesized) => {
-                Self::is_empty_object_expression(&parenthesized.expression)
-            }
-            Expression::TSAsExpression(assertion) => {
-                Self::is_empty_object_expression(&assertion.expression)
-            }
-            Expression::TSSatisfiesExpression(assertion) => {
-                Self::is_empty_object_expression(&assertion.expression)
-            }
-            Expression::TSNonNullExpression(assertion) => {
-                Self::is_empty_object_expression(&assertion.expression)
-            }
-            _ => false,
-        }
     }
 
     /// Lower a function call argument.
