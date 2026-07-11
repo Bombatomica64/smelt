@@ -3490,8 +3490,19 @@ impl<'mir> FunctionEmitter<'mir> {
             "Vec<SmeltUnknown>"
         };
         let closure = format!("move |smelt_args: {smelt_args_ty}| {return_text}");
+        // When the source callback is NOT itself a function parameter, the
+        // adapter body references it through a `smelt_callback` binding (see
+        // `callback_text`), so that binding must be introduced in the emitted
+        // scope. The borrowed (`&mut`) path also needs it: without the enclosing
+        // `let smelt_callback = ..`, the moved closure references an unbound
+        // `smelt_callback` (E0425). A function-parameter source binds nothing
+        // because the closure captures the parameter directly.
         Ok(Some(if borrowed {
-            format!("&mut {closure}")
+            if is_borrowed_param {
+                format!("&mut {closure}")
+            } else {
+                format!("&mut {{ let smelt_callback = {function_text}.clone(); {closure} }}")
+            }
         } else if is_borrowed_param {
             format!("::std::rc::Rc::new({closure})")
         } else {

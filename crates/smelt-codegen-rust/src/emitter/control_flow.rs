@@ -1286,8 +1286,12 @@ impl FunctionEmitter<'_> {
         if dest != cond_local {
             return Ok(None);
         }
+        // Render the condition at the switch local's (boolean) type. Using the
+        // default `none` destination would make a truthiness `PrimitiveCast`
+        // (`ToBool`) fall through to the unit default and emit `while ()`.
+        let cond_ty = self.local_decl(*cond_local)?.ty;
         Ok(Some((
-            self.rvalue_text(value)?,
+            self.rvalue_text_for_dest(value, cond_ty)?,
             *then_block,
             *else_block,
             idx,
@@ -1531,8 +1535,12 @@ impl FunctionEmitter<'_> {
         if dest != cond_local {
             return Ok(None);
         }
+        // Render the condition at the switch local's (boolean) type so a
+        // truthiness `PrimitiveCast` does not fall through to the unit default
+        // and emit `while ()` (see `while_header`).
+        let cond_ty = self.local_decl(*cond_local)?.ty;
         Ok(Some((
-            self.rvalue_text(value)?,
+            self.rvalue_text_for_dest(value, cond_ty)?,
             *then_block,
             latch_block,
             *else_block,

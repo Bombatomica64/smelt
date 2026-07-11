@@ -7079,3 +7079,58 @@ export function useStrs(): string[] {
         "the forwarded &mut list must be adapted in place through erase/un-erase: {source}"
     );
 }
+
+#[test]
+fn loop_body_if_guard_condition_renders_at_bool_type() {
+    // Regression (es-toolkit template): an `if`-guard nested inside a for-of loop
+    // is emitted through the structured while-header path when its then-branch
+    // can reach the header again via the enclosing loop's back edge. The header
+    // condition (a truthiness `PrimitiveCast`/`ToBool` of an optional) must be
+    // rendered at the switch local's boolean type; rendering it at the default
+    // `none` destination made the cast fall through to the unit default and emit
+    // an uncompilable `while ()` (expected `bool`, found `()`).
+    let source = source_for(
+        r#"
+export function joinTruthy(parts: (string | undefined)[]): string {
+  let out = "";
+  for (const part of parts) {
+    if (part) {
+      out += part;
+    }
+  }
+  return out;
+}
+"#,
+    );
+    assert!(
+        !source.contains("while ()"),
+        "a loop-body guard must not emit an empty `while ()` condition: {source}"
+    );
+}
+
+#[test]
+fn borrowed_rest_callback_adapter_binds_smelt_callback() {
+    // Regression (es-toolkit template): a non-parameter local callback forwarded
+    // by mutable reference into an erased variadic-rest parameter is wrapped in a
+    // `move |smelt_args| (smelt_callback)(..)` adapter. The borrowed (`&mut`) path
+    // must introduce the `let smelt_callback = ..` binding the closure captures;
+    // otherwise the emitted closure references an unbound `smelt_callback`
+    // (E0425).
+    let source = source_for(
+        r#"
+function attempt(func: (...args: unknown[]) => unknown): unknown {
+  return func();
+}
+export function useAttempt(): unknown {
+  return attempt(() => {
+    throw new Error("no");
+  });
+}
+"#,
+    );
+    assert!(
+        source.contains("&mut { let smelt_callback ="),
+        "the borrowed rest-callback adapter must bind smelt_callback inside the \
+         &mut block it captures: {source}"
+    );
+}
