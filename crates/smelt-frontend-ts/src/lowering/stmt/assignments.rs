@@ -14,7 +14,7 @@ use oxc::ast::ast::{
 use smelt_hir::{
     BinOp, Body, CaptureMode, ClosureCapture, DictProjectionOp, Expr, ExprKind, FunctionType, Item,
     Literal, LocalDecl, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, Pattern,
-    PrimitiveCastOp, Span, Stmt, Type,
+    PrimitiveCastOp, Span, Stmt, Type, UnknownKind,
 };
 
 impl ModuleBuilder<'_> {
@@ -338,6 +338,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.number_predicate_member_expression(member, body) {
             return Ok(expr);
         }
+        if let Some(expr) = self.array_is_array_member_expression(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.object_static_function_member(member, body) {
             return Ok(expr);
         }
@@ -472,6 +475,83 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::Field { receiver, field },
             ty,
             span: self.span(member.span.start, member.span.end),
+        }))
+    }
+
+    /// Lower `Array.isArray` in value position to a callable runtime probe.
+    ///
+    /// The parameter is intentionally `Unknown`: JavaScript defines this
+    /// predicate for every runtime value, so inspecting the tagged dynamic
+    /// representation is the genuine boundary rather than erased type-level
+    /// plumbing. Concrete callers are adapted into that boundary normally.
+    pub(in crate::lowering) fn array_is_array_member_expression(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        outer_body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Array"
+            || member.property.name != "isArray"
+            || self.builtin_call_identifier_is_shadowed("Array")
+        {
+            return None;
+        }
+        let span = self.span(member.span.start, member.span.end);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let value_name = self.intern_source_name("value");
+        let mut closure_body = Body::new(None, span);
+        let value_local = closure_body.push_local(LocalDecl {
+            name: Some(value_name),
+            ty: unknown_ty,
+            mutable: false,
+            span,
+        });
+        closure_body.params.push(value_local);
+        let value = closure_body.push_expr(Expr {
+            kind: ExprKind::Local(value_local),
+            ty: unknown_ty,
+            span,
+        });
+        let result = closure_body.push_expr(Expr {
+            kind: ExprKind::UnknownIs {
+                value,
+                kind: UnknownKind::Array,
+            },
+            ty: bool_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Return(Some(result)));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![unknown_ty],
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: bool_ty,
+            is_async: false,
+            may_throw: false,
+        }));
+        Some(outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: vec![Param {
+                    name: value_name,
+                    local: value_local,
+                    ty: unknown_ty,
+                    span,
+                }],
+                rest: None,
+                required_params: None,
+                return_ty: bool_ty,
+                captures: Vec::new(),
+                body: body_id,
+                function_item: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
         }))
     }
 

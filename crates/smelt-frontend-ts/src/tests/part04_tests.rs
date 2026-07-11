@@ -1299,6 +1299,63 @@ const finite = [1, 2, 3].filter(isFinite);
 }
 
 #[test]
+fn lowers_array_is_array_as_first_class_function_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const isArray = Array.isArray;
+const yes = isArray([1]);
+const no = isArray("value");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Closure(_)))
+    );
+    ensure!(
+        ctx.krate.bodies.iter().any(
+            |closure_body| closure_body.exprs.iter().any(|expr| matches!(
+                expr.kind,
+                ExprKind::UnknownIs {
+                    kind: smelt_hir::UnknownKind::Array,
+                    ..
+                }
+            ))
+        )
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn first_class_array_is_array_respects_shadowing() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const Array = { isArray: (value: unknown): boolean => false };
+const predicate = Array.isArray;
+const result = predicate([1]);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(!body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::UnknownIs {
+            kind: smelt_hir::UnknownKind::Array,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_object_projection_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
