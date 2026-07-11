@@ -118,6 +118,58 @@ function countPositive(values: number[]): number {
 }
 ",
         },
+        Case {
+            // Regression: a `switch` whose case bodies fall through and use a
+            // bare `break` to rejoin shared post-switch code, inside a fallible
+            // (`throw`-capable) function. The structured-control-flow emitter
+            // reconstructs the fallthrough as a labeled block; the `break` path
+            // must still reach the shared continuation so the reconstructed
+            // region diverges (every path returns) instead of leaving a `()`
+            // value in the function's tail position (E0308). Mirrors
+            // es-toolkit `compat/math/random.ts`.
+            name: "switch_fallthrough_break_shared_continuation",
+            area: "baseline",
+            source: r"
+function pick(...args: any[]): number {
+  let lo = 0;
+  let hi = 1;
+  let flag = false;
+  switch (args.length) {
+    case 1: {
+      if (typeof args[0] === 'boolean') {
+        flag = args[0];
+      } else {
+        hi = args[0];
+      }
+      break;
+    }
+    case 2: {
+      if (typeof args[1] === 'boolean') {
+        hi = args[0];
+        flag = args[1];
+        break;
+      } else {
+        lo = args[0];
+        hi = args[1];
+      }
+    }
+    // eslint-disable-next-line no-fallthrough
+    case 3: {
+      lo = args[0];
+      hi = args[1];
+      flag = args[2];
+    }
+  }
+  if (lo > hi) {
+    throw new Error('bad range');
+  }
+  if (flag) {
+    return lo + hi;
+  }
+  return hi - lo;
+}
+",
+        },
         // --- SmeltUnknown erasure / extraction (Coercion) --------------------
         Case {
             name: "typed_coercion",

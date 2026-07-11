@@ -1090,6 +1090,19 @@ impl FunctionEmitter<'_> {
                 self.emit_block_until_goto(else_, then_target, None, out)?;
                 out.push_str("    };\n");
                 self.restore_declared_locals(branch_declared);
+                // After the labeled block, the `break {branch_label}` path (the
+                // then-branch) rejoins the shared continuation at `then_target`.
+                // When that continuation always diverges (returns/throws), re-emit
+                // it here so the reconstructed region itself diverges rather than
+                // falling off the labeled-block statement with a `()` value in a
+                // tail/value position (E0308). This mirrors the forward-join
+                // reconstruction above, which re-emits `else_target` after its
+                // labeled block. True loop latches — backward edges whose target
+                // does not eventually terminate — keep the previous behavior so we
+                // do not re-emit a loop body outside its loop.
+                if self.block_eventually_terminates(then_target, &mut HashSet::new())? {
+                    return self.emit_block(self.block(then_target)?, out);
+                }
                 return Ok(());
             }
             out.push_str(&format!("    break {branch_label};\n"));
