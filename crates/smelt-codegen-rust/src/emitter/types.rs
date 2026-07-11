@@ -675,7 +675,17 @@ impl FunctionEmitter<'_> {
     /// free function it is the function's own declared type parameters, which
     /// lets a generic free function emit real Rust generics rather than routing
     /// its `T`-typed parameters and return through the runtime unknown carrier.
-    fn current_function_type_params(&self) -> HashSet<Symbol> {
+    pub(super) fn current_function_type_params(&self) -> HashSet<Symbol> {
+        // A closure (or other nested) sub-emitter inherits the type parameters
+        // that are in scope in the enclosing Rust output. That set was captured
+        // from the enclosing emitter at construction time, so it is already
+        // gated by the enclosing function's suppress/erasure decision: it is
+        // empty when the enclosing signature erased its generics, and holds the
+        // in-scope `T`s otherwise. Honoring it keeps closure bodies rendering
+        // `T` exactly when the enclosing signature declares it.
+        if !self.enclosing_type_params.is_empty() {
+            return self.enclosing_type_params.clone();
+        }
         let class_name = match self.function.origin {
             HirOrigin::ClassConstructor { class, .. }
             | HirOrigin::ClassMethod { class, .. }

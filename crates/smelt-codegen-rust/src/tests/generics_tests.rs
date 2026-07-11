@@ -299,3 +299,33 @@ class Box<T> {
     // class impl block is checked: its generic bound must not include it.
     assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Box<T>"));
 }
+
+#[test]
+fn generic_function_array_callback_preserves_type_param() {
+    // A generic free function whose body filters a `T[]` with an inline callback
+    // must keep its generics: the callback closure is emitted inside the generic
+    // function, so its `T`-typed parameter stays `T` rather than erasing to
+    // `SmeltUnknown`. Previously the callback rendered `closure_arg_0:
+    // SmeltUnknown`, which tripped the body-cleanliness trial and forced the
+    // whole `difference<T>` signature to erase (regression for the es-toolkit
+    // `difference`/`without`/`isSubset` E0308 family).
+    let source = source_for(
+        r"
+export function difference<T>(firstArr: readonly T[], secondArr: readonly T[]): T[] {
+  const secondSet = new Set(secondArr);
+  return firstArr.filter(item => !secondSet.has(item));
+}
+",
+    );
+
+    // The signature keeps real generics over `T`.
+    assert!(source.contains(
+        "fn difference<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(first_arr: SmeltList<T>, second_arr: SmeltList<T>) -> SmeltList<T>"
+    ));
+    // The inline `.filter` callback keeps the element parameter typed as `T`.
+    assert!(source.contains("closure_arg_0: T,"));
+    // The captured set keeps its generic element type.
+    assert!(source.contains("SmeltJsSet<T>"));
+    // The erased carrier does not leak into the callback element position.
+    assert!(!source.contains("closure_arg_0: SmeltUnknown"));
+}

@@ -49,6 +49,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 },
             },
             suppress_type_params: RefCell::new(false),
+            enclosing_type_params: HashSet::new(),
         })
     }
 
@@ -2641,6 +2642,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 },
             },
             suppress_type_params: RefCell::new(false),
+            enclosing_type_params: HashSet::new(),
         }
         .type_text_with_impl_trait(ty, false)
     }
@@ -2684,6 +2686,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 },
             },
             suppress_type_params: RefCell::new(false),
+            enclosing_type_params: HashSet::new(),
         }
         .type_text_with_scoped_type_params(ty, false, scoped_type_params)
     }
@@ -2724,6 +2727,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 },
             },
             suppress_type_params: RefCell::new(false),
+            enclosing_type_params: HashSet::new(),
         }
         .default_value(ty)
     }
@@ -2761,6 +2765,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 },
             },
             suppress_type_params: RefCell::new(false),
+            enclosing_type_params: HashSet::new(),
         }
         .default_value_with_scoped_type_params(ty, scoped_type_params)
     }

@@ -735,6 +735,20 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// `T`-typed value), emission falls back to the fully erased signature by
     /// setting this flag and re-rendering. See [`FunctionEmitter::emit`].
     suppress_type_params: RefCell<bool>,
+    /// Type parameters that are in scope in the enclosing Rust output but are
+    /// not declared by this emitter's own function.
+    ///
+    /// A closure is emitted inline inside its enclosing function, so any generic
+    /// parameters that function declares (`fn difference<T>`) are visible to the
+    /// closure body in the generated Rust. The closure is rendered through a
+    /// *separate* synthetic [`MirFunction`] with no type parameters of its own,
+    /// so without this the sub-emitter would erase every `T`-typed closure
+    /// parameter to `SmeltUnknown` and force the enclosing signature to erase too
+    /// (see [`FunctionEmitter::current_function_type_params`]). The set is
+    /// populated from the enclosing emitter's in-scope type parameters at
+    /// construction time, so it is already gated by the enclosing function's
+    /// erasure decision.
+    enclosing_type_params: HashSet<Symbol>,
 }
 
 /// How to compute the default end bound for a slice.

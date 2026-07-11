@@ -971,6 +971,14 @@ impl FunctionEmitter<'_> {
                 entry: closure.entry,
             };
             let mut emitter = FunctionEmitter::new(self.mir, self.context, &function)?;
+            // The closure is emitted inline inside the enclosing function, so
+            // the enclosing function's in-scope type parameters remain visible
+            // in the generated Rust. Propagate them so `T`-typed closure
+            // parameters keep their generic shape instead of erasing to
+            // `SmeltUnknown` (which would otherwise force the enclosing generic
+            // signature to erase as well). The enclosing set is already gated by
+            // that function's own erasure decision.
+            emitter.enclosing_type_params = self.current_function_type_params();
             for (index, param) in closure.params.iter().enumerate() {
                 emitter.names.insert(*param, format!("closure_arg_{index}"));
             }
