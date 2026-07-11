@@ -6174,6 +6174,27 @@ export function pick(keys: Array<string | number>, i: number): string | number {
 }
 
 #[test]
+fn unifies_array_destructuring_default_of_different_type() {
+    // `const [s, n = 0] = str.split('e')` binds `n` from a `string` element with
+    // a numeric `0` default: JavaScript types it `string | number`. The binding
+    // must unify into that union (a concrete `SmeltUnion…`) rather than assert
+    // the numeric default to `String`, which would leave a runtime `f64` typed
+    // as `String` (E0308).
+    let source = source_for(
+        r#"
+export function adjust(value: number): number {
+  const [magnitude, exponent = 0] = value.toString().split("e");
+  return Number(`${magnitude}e${Number(exponent)}`);
+}
+"#,
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    // `source_for` panics on a blocker; reaching codegen and generating a union
+    // for the mixed-type default proves the unification path was taken.
+}
+
+#[test]
 fn lowers_function_expression_array_callback() {
     // A `function (...) { ... }` expression callback (issue #86) must lower into
     // the array method's callback closure just like the equivalent arrow, rather

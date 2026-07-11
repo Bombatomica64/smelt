@@ -3375,25 +3375,59 @@ impl ModuleBuilder<'_> {
                                 block,
                             );
                         }
-                        let fallback = if fallback_ty == non_null_ty
+                        // The default's type either already fits the element type
+                        // (equal, numerically compatible, or a member of an
+                        // element union that can inject it) or it does not. In the
+                        // latter case the JavaScript binding is the *union* of the
+                        // element and default types — e.g. `const [s, n = 0] =
+                        // str.split('e')` types `n` as `string | number`, the
+                        // string element defaulting to the numeric `0`. Force-
+                        // asserting a numeric default to a `String` element would
+                        // leave a runtime `f64` statically typed as `String`; unify
+                        // into the union instead and let the coercion seam inject
+                        // each arm.
+                        let element_can_hold_fallback = fallback_ty == non_null_ty
                             || self.numeric_type_compatible(non_null_ty, fallback_ty)
-                        {
-                            fallback
-                        } else {
+                            || matches!(
+                                self.ctx.krate.types.get(non_null_ty),
+                                Some(Type::Union(_) | Type::Unknown)
+                            );
+                        if element_can_hold_fallback {
+                            let fallback = if fallback_ty == non_null_ty
+                                || self.numeric_type_compatible(non_null_ty, fallback_ty)
+                            {
+                                fallback
+                            } else {
+                                body.push_expr(Expr {
+                                    kind: ExprKind::TypeAssert { value: fallback },
+                                    ty: non_null_ty,
+                                    span: self
+                                        .span(assign.right.span().start, assign.right.span().end),
+                                })
+                            };
                             body.push_expr(Expr {
-                                kind: ExprKind::TypeAssert { value: fallback },
+                                kind: ExprKind::OptionalCoalesce {
+                                    optional: value,
+                                    fallback,
+                                },
                                 ty: non_null_ty,
-                                span: self.span(assign.right.span().start, assign.right.span().end),
+                                span: self.span(assign.span.start, assign.span.end),
                             })
-                        };
-                        body.push_expr(Expr {
-                            kind: ExprKind::OptionalCoalesce {
-                                optional: value,
-                                fallback,
-                            },
-                            ty: non_null_ty,
-                            span: self.span(assign.span.start, assign.span.end),
-                        })
+                        } else {
+                            let unified = self
+                                .ctx
+                                .krate
+                                .types
+                                .intern(Type::Union(vec![non_null_ty, fallback_ty]));
+                            body.push_expr(Expr {
+                                kind: ExprKind::OptionalCoalesce {
+                                    optional: value,
+                                    fallback,
+                                },
+                                ty: unified,
+                                span: self.span(assign.span.start, assign.span.end),
+                            })
+                        }
                     } else {
                         value
                     }
