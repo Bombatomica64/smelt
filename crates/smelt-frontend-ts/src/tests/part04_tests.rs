@@ -3720,6 +3720,44 @@ interface Logger {
 }
 
 #[test]
+fn narrows_optional_local_after_nullish_default_assignment() -> Result<(), String> {
+    // `x = x ?? default` (defaulting an optional parameter) narrows `x` to its
+    // non-optional inner type for later reads in the same flow. A subsequent
+    // `let i = x` must bind a concrete `number`, not `Option<number>`, or the
+    // generated `i = i + 1` assignment mismatches (es-toolkit indexOf/findLast
+    // E0308: expected `Option<f64>`, found `f64`).
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function idx<T>(array: T[], fromIndex?: number): number {
+  fromIndex = fromIndex ?? 0;
+  let i = fromIndex;
+  i = i + 1;
+  return i;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "idx")?;
+    let body = function_body(&ctx, function)?;
+    let has_float_i = body.locals.iter().any(|local| {
+        local
+            .name
+            .and_then(|name| ctx.krate.names.get(name))
+            .map(|name| name == "i")
+            .unwrap_or(false)
+            && matches!(ctx.krate.types.get(local.ty), Some(Type::Float | Type::Int))
+    });
+    ensure!(
+        has_float_i,
+        "expected `i` to bind a concrete numeric type after the nullish default",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn flattens_nested_union_from_composed_type_alias() -> Result<(), String> {
     // Composing a union-typed alias (`Criterion` = A | B | null) with another
     // arm (`Criterion | { ... }`) must produce a *flat* union. A nested union

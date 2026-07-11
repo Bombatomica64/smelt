@@ -1976,6 +1976,17 @@ impl ModuleBuilder<'_> {
             }
             return;
         }
+        // Assigning a provably non-null value into an optional local narrows it
+        // to the non-optional inner type for later reads in this flow. This is
+        // the `x = x ?? default` / `x = x!` defaulting idiom: the declared
+        // storage stays `Optional`, but subsequent reads (`let i = x; i + 1`)
+        // must see the concrete inner type instead of `Option<T>`. A later
+        // assignment of a possibly-null value reconciles through the
+        // narrowed-type branch above, so the fact cannot outlive its flow.
+        if let Some(inner) = self.optional_inner_for_narrowing(base_ty, observed_ty) {
+            self.apply_narrowing(name.to_owned(), inner);
+            return;
+        }
         if self.ctx.krate.types.get(base_ty) != Some(&Type::Unknown) {
             return;
         }
@@ -1983,6 +1994,40 @@ impl ModuleBuilder<'_> {
             return;
         }
         self.apply_narrowing(name.to_owned(), observed_ty);
+    }
+
+    /// Return the non-optional inner type when an assignment removes optionality.
+    ///
+    /// Applies when the declared storage is `Optional(inner)` and the assigned
+    /// value's type is provably non-null and inhabits `inner` — either an exact
+    /// match, or (when `inner` is itself a union) a member of it. Returns `None`
+    /// when the value could still be null/undefined (the local keeps its
+    /// optional storage type) so this never hides a real optional value.
+    fn optional_inner_for_narrowing(
+        &self,
+        base_ty: smelt_hir::TypeId,
+        observed_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty) else {
+            return None;
+        };
+        let inner_ty = *inner;
+        if matches!(
+            self.ctx.krate.types.get(observed_ty),
+            Some(Type::Optional(_) | Type::None | Type::Unknown)
+        ) {
+            return None;
+        }
+        if observed_ty == inner_ty {
+            return Some(inner_ty);
+        }
+        if matches!(
+            self.ctx.krate.types.get(inner_ty),
+            Some(Type::Union(items)) if items.contains(&observed_ty)
+        ) {
+            return Some(observed_ty);
+        }
+        None
     }
 
     /// Return whether `candidate` is compatible with a `current` narrowed type.
