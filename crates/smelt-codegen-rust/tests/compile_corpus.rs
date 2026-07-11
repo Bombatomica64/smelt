@@ -1229,6 +1229,20 @@ export function anyMatch(useLeft: boolean, left: number[], right: number[]): boo
 }
 ",
         },
+        Case {
+            // A JavaScript relational comparison (`<`) between a number and a
+            // value typed as a numeric-bearing union (`string | number`, as in
+            // es-toolkit `rangeRight`) must coerce the union side with `ToNumber`
+            // and compare as `f64`; a bare `f64 < SmeltUnion` does not type-check
+            // (E0277).
+            name: "relational_number_vs_union",
+            area: "numeric",
+            source: r"
+export function ascending(start: number, end: string | number): boolean {
+  return start < end;
+}
+",
+        },
     ]
 }
 

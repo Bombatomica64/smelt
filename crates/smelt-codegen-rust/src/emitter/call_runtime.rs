@@ -368,6 +368,9 @@ impl FunctionEmitter<'_> {
                 if let Some(text) = self.mixed_string_number_relational_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }
+                if let Some(text) = self.bare_erased_relational_text(*op, lhs, rhs)? {
+                    return Ok(text);
+                }
                 if let Some(text) = self.numeric_comparison_text(*op, lhs, rhs, dest_ty)? {
                     return Ok(text);
                 }
@@ -1827,6 +1830,71 @@ impl FunctionEmitter<'_> {
     /// inferred as `number` and the other as an integer-like literal. Rust does
     /// not compare `i64` and `f64` directly, so this keeps generated assertions
     /// and branch predicates type-directed instead of relying on literal shape.
+    /// Emits a JS relational comparison (`<`, `<=`, `>`, `>=`) where at least one
+    /// bare (non-optional) operand is erased for relational purposes — an
+    /// `unknown`, a concrete/erased union (e.g. `string | number`), a type param,
+    /// or an erased class — and neither operand is statically a `String`.
+    ///
+    /// JavaScript's relational algorithm runs `ToNumber` on both operands unless
+    /// *both* are strings (the lexical case, left to other arms). A comparison of
+    /// a number against a `string | number` union therefore coerces the union side
+    /// with `ToNumber` and compares as `f64`; a non-numeric value becomes `NaN`, so
+    /// every comparison against it is `false`, which `f64`'s own `NaN` ordering
+    /// already yields. Without this arm such a comparison reaches a raw
+    /// `f64 {op} SmeltUnion…` which does not type-check (E0277).
+    ///
+    /// This mirrors the erased-relational coercion in `optional_binary_text`, but
+    /// for operands whose erased value is held directly rather than behind an
+    /// `Option`. It only fires when every side is either numeric or erased, so the
+    /// coercion to `f64` is always well-defined.
+    fn bare_erased_relational_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(
+            op,
+            smelt_hir::BinOp::Lt
+                | smelt_hir::BinOp::Lte
+                | smelt_hir::BinOp::Gt
+                | smelt_hir::BinOp::Gte
+        ) {
+            return Ok(None);
+        }
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        // Optional operands are handled earlier by `optional_binary_text`; a
+        // statically `String` side is handled by the lexical / mixed arms.
+        if self.optional_inner_ty(lhs_ty).is_some() || self.optional_inner_ty(rhs_ty).is_some() {
+            return Ok(None);
+        }
+        if matches!(self.mir.types.get(lhs_ty), Some(Type::String))
+            || matches!(self.mir.types.get(rhs_ty), Some(Type::String))
+        {
+            return Ok(None);
+        }
+        let lhs_erased = self.is_erased_relational(lhs_ty);
+        let rhs_erased = self.is_erased_relational(rhs_ty);
+        if !lhs_erased && !rhs_erased {
+            return Ok(None);
+        }
+        // Every side must be either numeric or erased so `ToNumber` coercion is
+        // well-defined; anything else falls through to the remaining arms.
+        if !(lhs_erased || self.is_numeric_type(lhs_ty))
+            || !(rhs_erased || self.is_numeric_type(rhs_ty))
+        {
+            return Ok(None);
+        }
+        let float_ty = self.type_id(Type::Float)?;
+        let lhs_text = self.value_at_type(lhs, float_ty)?;
+        let rhs_text = self.value_at_type(rhs, float_ty)?;
+        Ok(Some(format!(
+            "({lhs_text}) {} ({rhs_text})",
+            smelt_hir::bin_op_text(op)
+        )))
+    }
+
     fn numeric_comparison_text(
         &self,
         op: smelt_hir::BinOp,
