@@ -877,7 +877,13 @@ impl FunctionEmitter<'_> {
             Type::Unknown => Ok(self.null_value_text()),
             Type::Never => Ok(self.null_value_text()),
             Type::None => Ok("()".to_owned()),
-            Type::List(_) => Ok("SmeltList::new(Vec::new())".to_owned()),
+            // Annotate the element type: a bare `Vec::new()` is uninferable when
+            // the default is used as a `.into_iter()`/`.map()` receiver whose
+            // element type is not otherwise constrained (E0282).
+            Type::List(item) => Ok(format!(
+                "SmeltList::new(Vec::<{}>::new())",
+                self.type_text_with_impl_trait(*item, false)?
+            )),
             Type::Set(item) if self.type_is_hash_set_key_safe(*item) => {
                 Ok("::std::collections::HashSet::new()".to_owned())
             }

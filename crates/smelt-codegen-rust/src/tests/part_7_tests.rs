@@ -2884,7 +2884,7 @@ function group(values: string[]): Record<string, string[]> {
     );
 
     assert!(
-        source.contains(".cloned().unwrap_or(SmeltList::new(Vec::new()))"),
+        source.contains(".cloned().unwrap_or(SmeltList::new(Vec::<String>::new()))"),
         "{source}"
     );
     assert!(
@@ -3790,7 +3790,7 @@ function choose(flag: boolean): unknown[] {
     );
 
     assert!(
-        source.contains("let mut values: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::new(Vec::new()));"),
+        source.contains("let mut values: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::new(Vec::<SmeltUnknown>::new()));"),
         "{source}"
     );
 }

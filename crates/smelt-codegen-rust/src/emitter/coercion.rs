@@ -471,6 +471,23 @@ impl FunctionEmitter<'_> {
         if let Some(projected) = self.project_union_value_text(value_text, source, target)? {
             return Ok(projected);
         }
+        // A bare `Default::default()` is an ambiguous inference source for the
+        // collection adapters below, which drive `.clone().into_iter().map(…)`
+        // off the receiver and cannot infer its element type (E0282). When the
+        // source is a collection, substitute its concrete typed default (e.g.
+        // `SmeltList::new(Vec::new())`): the same value, but element-typed so the
+        // adapter's iterator resolves.
+        let normalized_default;
+        let value_text = if value_text == "Default::default()"
+            && matches!(
+                self.mir.types.get(source),
+                Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _))
+            ) {
+            normalized_default = self.default_value(source)?;
+            normalized_default.as_str()
+        } else {
+            value_text
+        };
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
         }
