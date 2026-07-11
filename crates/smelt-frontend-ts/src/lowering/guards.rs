@@ -967,6 +967,21 @@ impl ModuleBuilder<'_> {
                 span: self.span(span.start, span.end),
             }));
         }
+        // A TypeScript tuple assertion applied to a list-typed value
+        // (`xs.filter(...) as [T]`) is type-level only: at runtime the value is
+        // still a JS array. Smelt lowers tuples to Rust tuples and lists to the
+        // identity-bearing `SmeltList`, which are incompatible representations,
+        // so materializing the tuple would repackage the whole list into a
+        // 1-tuple (`(SmeltUnknown,)`) that no longer satisfies a `SmeltList`
+        // callee. Preserve the list value and its type; the tuple spelling is
+        // erased.
+        if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::List(_))
+        ) && matches!(self.ctx.krate.types.get(target), Some(Type::Tuple(_)))
+        {
+            return Ok(value);
+        }
         Ok(body.push_expr(Expr {
             kind: ExprKind::TypeAssert { value },
             ty: target,
