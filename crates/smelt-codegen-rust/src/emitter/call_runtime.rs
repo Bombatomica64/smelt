@@ -2483,6 +2483,14 @@ impl FunctionEmitter<'_> {
                 _ => self.type_id(Type::Unknown),
             };
         }
+        // A concrete match-result receiver reached through an optional chain
+        // types its fields the same way the direct accessor does (see
+        // `match_field_ty`): named groups are `Option<String>`.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
+            && let Some(kind) = self.match_class_kind(*name)?
+        {
+            return self.match_field_ty(kind, field);
+        }
         let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
             return self.type_id(Type::Unknown);
         };
@@ -3030,6 +3038,16 @@ impl FunctionEmitter<'_> {
             && self.is_regexp_class_symbol(*name)?
         {
             return self.regexp_field_text(receiver_text, field);
+        }
+        // A `SmeltMatch`/`MatchGroups` receiver reached through an optional chain
+        // (e.g. `withoutSeparator?.groups.result`) must keep its typed match
+        // accessor: a named-group read routes through `named_group_owned` rather
+        // than falling through to raw struct field access, which has no such
+        // field on `SmeltMatch`.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
+            && let Some(kind) = self.match_class_kind(*name)?
+        {
+            return self.match_field_text(receiver_text, kind, field);
         }
         if self.storage_field_is_function(receiver_ty, field) {
             return Ok(format!(

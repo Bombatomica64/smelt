@@ -6862,3 +6862,77 @@ export function invokeWith(func: (...args: unknown[]) => unknown, args: unknown[
         "an erased-rest function parameter must not be invoked via the unstable Fn::call trait method\n{body}"
     );
 }
+
+#[test]
+fn optional_chain_named_group_read_uses_named_group_owned() {
+    // Regression: a named capture group read reached through an optional chain
+    // (`m?.groups.result`) lost the `MatchGroups` receiver type inside the
+    // `.as_ref().map(..)` closure and fell through to raw struct field access
+    // (`_smelt_value.result`), which does not exist on `SmeltMatch` (E0609). The
+    // optional field read must keep the typed match accessor.
+    let source = source_for(
+        r#"
+export function firstGroup(input: string): string | undefined {
+  const m = /(?<result>\w+)/.exec(input);
+  return m?.groups.result;
+}
+"#,
+    );
+    assert!(
+        source.contains(".named_group_owned(\"result\")"),
+        "optional-chain named group read should use named_group_owned: {source}"
+    );
+}
+
+#[test]
+fn mutated_parameter_captured_by_escaping_closure_uses_shared_cell() {
+    // Regression: a function parameter mutated inside an escaping closure (stored
+    // as `Rc<dyn Fn>`) needs a shared `Rc<RefCell<..>>` cell so the closure can
+    // mutate it through interior mutability. The capture classifier previously
+    // excluded parameters, so the closure body borrowed the parameter as mutable
+    // through a shared `Rc` (E0596). This mirrors es-toolkit `after`/`before`.
+    let source = source_for(
+        r"
+export function afterN(n: number, func: () => void): () => void {
+  return () => {
+    n = n - 1;
+    if (n <= 0) {
+      func();
+    }
+  };
+}
+",
+    );
+    assert!(
+        source.contains("smelt_capture_n"),
+        "a parameter mutated inside an escaping closure should use a shared capture cell: {source}"
+    );
+}
+
+#[test]
+fn erased_callback_optional_return_adapts_through_checked_boundary() {
+    // Regression: invoking an erased callable adapter whose source return type is
+    // an optional (`boolean | void`) produced `.call(..).clone().map(..)`, calling
+    // `Option` methods on the bare `SmeltUnknown` the erased call yields (E0599),
+    // then double-evaluating the argument-consuming call (E0382). The erased call
+    // result must be adapted from `Unknown` through a single checked nullish guard.
+    let source = source_for(
+        r"
+function run(cb: (a: unknown, b: unknown) => boolean | void, x: unknown, y: unknown): boolean {
+  const r = cb(x, y);
+  if (r !== undefined) {
+    return r;
+  }
+  return false;
+}
+export function useRun(fn: (...args: unknown[]) => boolean | void): boolean {
+  return run(fn, 1, 2);
+}
+",
+    );
+    assert!(
+        source.contains("smelt_unknown_is_nullish")
+            || source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => None"),
+        "erased optional-return adapter should use a checked nullish boundary: {source}"
+    );
+}

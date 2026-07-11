@@ -1290,12 +1290,17 @@ impl<'mir> FunctionEmitter<'mir> {
             return true;
         }
         if closure.escapes
-            && !self.function.params.contains(&capture.source_local)
             && !self
                 .local_decl(capture.source_local)
                 .is_ok_and(|local| matches!(self.mir.types.get(local.ty), Some(Type::Function(_))))
             && self.escaping_closure_capture_is_mutated(capture.source_local)
         {
+            // A binding mutated inside an escaping closure needs a shared cell so
+            // the closure (stored as an `Rc<dyn Fn>`, hence only `Fn`) can mutate
+            // it through interior mutability instead of requiring `FnMut`. This
+            // holds whether the binding is an outer `let` or a function parameter
+            // (e.g. `after`/`before`, which decrement their captured `n`
+            // parameter on each call), so parameters are not excluded here.
             return true;
         }
         if capture.mode == smelt_hir::CaptureMode::ByValue {
@@ -3734,6 +3739,16 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let converted_return_text = if source_returns_future && uses_adapted_callback {
             call_value.clone()
+        } else if source_is_erased {
+            // An erased callable is invoked through `SmeltErasedFunction::call`,
+            // which yields a bare `SmeltUnknown` at runtime regardless of the
+            // source function's declared return type. Coerce the call result
+            // from `Unknown` so the target coercion emits a checked adapter
+            // (e.g. `SmeltUnknown` -> `Option<...>` via a Null/Undefined guard)
+            // rather than treating the value as if it already had the source
+            // return type and calling `Option` methods on a `SmeltUnknown`.
+            let unknown_ty = self.type_id(Type::Unknown)?;
+            self.value_at_type_text(&call_value, unknown_ty, target_function.return_ty)?
         } else {
             self.value_at_type_text(&call_value, source.return_ty, target_function.return_ty)?
         };

@@ -562,7 +562,7 @@ impl FunctionEmitter<'_> {
     /// concrete types are already interned by the frontend that typed the read,
     /// so `find_type_id` resolves them; an unmodeled field on the match value
     /// itself falls back to the erased boundary only if the program interned it.
-    fn match_field_ty(
+    pub(super) fn match_field_ty(
         &self,
         kind: smelt_stdlib::StdlibClass,
         field: Symbol,

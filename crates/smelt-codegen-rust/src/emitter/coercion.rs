@@ -1839,12 +1839,25 @@ impl FunctionEmitter<'_> {
             )),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(Type::Optional(inner)) => {
-                let inner_text = self.extract_value_text(text, *inner)?;
                 if self.optional_inner_preserves_erased_singletons(*inner) {
+                    let inner_text = self.extract_value_text(text, *inner)?;
                     return Ok(format!("Some({inner_text})"));
                 }
+                // The nullish guard and the `Some(...)` arm both read the source,
+                // so a side-effecting `text` (e.g. an erased `.call(..)` that
+                // consumes its argument list) would be evaluated twice and move
+                // its inputs. Bind non-trivial sources to a single temporary so
+                // the value is produced exactly once; a bare identifier is cheap
+                // to re-read and keeps generated output stable.
+                if is_trivial_reeval_expr(text) {
+                    let inner_text = self.extract_value_text(text, *inner)?;
+                    return Ok(format!(
+                        "if smelt_unknown_is_nullish(&{text}.clone()) {{ None }} else {{ Some({inner_text}) }}"
+                    ));
+                }
+                let inner_text = self.extract_value_text("smelt_optional_source", *inner)?;
                 Ok(format!(
-                    "if smelt_unknown_is_nullish(&{text}.clone()) {{ None }} else {{ Some({inner_text}) }}"
+                    "{{ let smelt_optional_source = {text}; if smelt_unknown_is_nullish(&smelt_optional_source.clone()) {{ None }} else {{ Some({inner_text}) }} }}"
                 ))
             }
             Some(Type::Tuple(items)) => {
@@ -2045,4 +2058,12 @@ impl FunctionEmitter<'_> {
     }
 
     // Converts an awaited future operand without cloning it.
+}
+
+/// Whether an expression is cheap and side-effect-free to evaluate more than
+/// once. Bare locals and dotted field reads (`x`, `foo.bar.baz`) qualify; any
+/// expression containing a call (`(`) may run side effects or move its inputs
+/// and must be bound to a temporary before being read twice.
+fn is_trivial_reeval_expr(text: &str) -> bool {
+    !text.contains('(')
 }
