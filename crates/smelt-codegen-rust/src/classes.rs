@@ -106,10 +106,73 @@ pub(crate) fn class_type_args_text(mir: &Mir, class: &MirClass) -> Result<String
     class_type_params_text(mir, class)
 }
 
+/// Return whether the class type parameter `name` is used as a map (`Dict`) key
+/// in any of the class's stored fields.
+///
+/// A `SmeltJsMap<K, V>`'s methods (`get`, `insert`, `contains_key`, `remove`,
+/// `len`, `clear`) require `K: SmeltJsKeyEq + Clone` because keys are compared
+/// through the erased JS key-equality projection. When a class stores a field
+/// of type `SmeltJsMap<T, ..>` keyed by its own generic parameter `T`, the impl
+/// block that calls those methods must carry the `SmeltJsKeyEq` bound on `T` or
+/// the generated code fails to type-check (`E0599`/`E0277` "trait bounds were
+/// not satisfied"). This scans field types for `T` appearing in a `Dict` key
+/// position so the bound can be inferred from field usage generally, rather
+/// than special-casing any particular class.
+fn class_type_param_used_as_map_key(mir: &Mir, class: &MirClass, name: Symbol) -> bool {
+    class
+        .fields
+        .iter()
+        .any(|field| type_param_in_dict_key(mir, field.ty, name))
+}
+
+/// Return whether `name` occurs in a `Dict` key position anywhere within `ty`.
+///
+/// Descends through value wrappers and nested shapes so a `T` used as the key
+/// of a map nested inside a list/tuple/other map is still detected. Only the
+/// key slot of a `Dict` counts; the value slot and non-`Dict` positions do not
+/// require `SmeltJsKeyEq`.
+fn type_param_in_dict_key(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::Dict(key, value)) => {
+            type_param_occurs(mir, *key, name) || type_param_in_dict_key(mir, *value, name)
+        }
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+            type_param_in_dict_key(mir, *item, name)
+        }
+        Some(Type::Tuple(items) | Type::Union(items)) => items
+            .iter()
+            .any(|item| type_param_in_dict_key(mir, *item, name)),
+        Some(Type::Class { args, .. }) => args
+            .iter()
+            .any(|arg| type_param_in_dict_key(mir, *arg, name)),
+        Some(Type::Function(function)) => {
+            function
+                .params
+                .iter()
+                .any(|param| type_param_in_dict_key(mir, *param, name))
+                || type_param_in_dict_key(mir, function.return_ty, name)
+        }
+        Some(
+            Type::TypeParam { .. }
+            | Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::Unknown
+            | Type::Never
+            | Type::None,
+        )
+        | None => false,
+    }
+}
+
 /// Render the generic parameter suffix used on inherent impl blocks.
 ///
 /// The helper is intentionally separate from struct rendering because impl
 /// blocks are the first place bounds may be introduced as class codegen grows.
+/// A type parameter used as a map key in any field additionally gains the
+/// `SmeltJsKeyEq` bound the map methods require (see
+/// [`class_type_param_used_as_map_key`]).
 pub(crate) fn class_impl_generics_text(mir: &Mir, class: &MirClass) -> Result<String, EmitError> {
     if class.type_params.is_empty() {
         return Ok(String::new());
@@ -121,10 +184,14 @@ pub(crate) fn class_impl_generics_text(mir: &Mir, class: &MirClass) -> Result<St
             mir.symbols
                 .get(param.name)
                 .map(|name| {
-                    format!(
+                    let mut bound = format!(
                         "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
                         RustIdent::new(name).into_string()
-                    )
+                    );
+                    if class_type_param_used_as_map_key(mir, class, param.name) {
+                        bound.push_str(" + SmeltJsKeyEq");
+                    }
+                    bound
                 })
                 .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
         })

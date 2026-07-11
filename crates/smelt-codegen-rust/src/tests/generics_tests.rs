@@ -251,3 +251,51 @@ function makeOk(v: number): Outcome<number, string> {
     assert!(source.contains("struct Outcome<T, E>"));
     assert!(source.contains("-> Outcome<f64, String>"));
 }
+
+#[test]
+fn generic_class_map_key_gains_key_eq_bound() {
+    // A class whose generic parameter is used as a `Map` key must carry the
+    // `SmeltJsKeyEq` bound on its impl block, because `SmeltJsMap`'s methods
+    // (`get`, `set`, `has`, ...) require the key type to implement it. Without
+    // this bound the generated method calls fail with E0599/E0277 ("trait
+    // bounds were not satisfied"). The bound is inferred generally from the
+    // field's key position, not special-cased per class.
+    let source = source_for(
+        r"
+class Cache<T> {
+  data: Map<T, string> = new Map();
+  get(key: T): string | undefined { return this.data.get(key); }
+  set(key: T, value: string): void { this.data.set(key, value); }
+}
+",
+    );
+
+    assert!(
+        source.contains("SmeltJsKeyEq"),
+        "impl block should carry the SmeltJsKeyEq bound on the map-key generic"
+    );
+    // The bound is added on top of the standard class-generic bounds.
+    assert!(source.contains(
+        "Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static + SmeltJsKeyEq"
+    ));
+}
+
+#[test]
+fn generic_class_without_map_key_has_no_key_eq_bound() {
+    // A generic parameter that is never used as a map key must NOT gain the
+    // `SmeltJsKeyEq` bound, so unrelated generic classes keep the minimal
+    // bound set.
+    let source = source_for(
+        r"
+class Box<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  get(): T { return this.value; }
+}
+",
+    );
+
+    // The runtime prelude always defines the `SmeltJsKeyEq` trait, so only the
+    // class impl block is checked: its generic bound must not include it.
+    assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Box<T>"));
+}
