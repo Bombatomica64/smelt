@@ -761,6 +761,32 @@ const upper = word.toUpperCase();
 }
 
 #[test]
+fn emits_string_trim_inside_filter_callback_body() {
+    let source = source_for(
+        r#"
+const values = [" a ", " "].filter(value => !!value.trim());
+"#,
+    );
+
+    assert!(source.contains(".trim().to_owned()"), "{source}");
+    assert!(source.contains(".filter("), "{source}");
+}
+
+#[test]
+fn emits_erased_string_coercion_before_callback_trim() {
+    let source = source_for(
+        r#"
+function clean(value: any): any[] {
+  return [value].filter(item => !!item.trim());
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
+    assert!(source.contains(".trim().to_owned()"), "{source}");
+}
+
+#[test]
 fn emits_string_trim_method() {
     let source = source_for(
         r#"

@@ -7,6 +7,7 @@ use crate::lowering::{
     FunctionType, HashMap, ListSearchOp, Literal, LocalCallbackDefault, LocalDecl, ModuleBuilder,
     Param, PrimitiveCastOp, SmeltError, Span, Stmt, StringAffixOp, StringCaseOp, Type,
 };
+use smelt_hir::StringTrimSide;
 
 impl ModuleBuilder<'_> {
     /// Validate the inferred callback return type for an array method.
@@ -801,6 +802,23 @@ impl ModuleBuilder<'_> {
                         needle,
                     },
                     ty,
+                    span,
+                }))
+            }
+            "trim" if args.is_empty()
+                && matches!(
+                    self.ctx.krate.types.get(receiver_ty),
+                    Some(Type::String | Type::Unknown | Type::TypeParam { .. })
+                ) =>
+            {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let operand = Self::callback_coerce_to_string(receiver, string_ty, body, span);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::StringTrim {
+                        operand,
+                        side: StringTrimSide::Both,
+                    },
+                    ty: string_ty,
                     span,
                 }))
             }

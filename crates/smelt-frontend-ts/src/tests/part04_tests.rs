@@ -1332,6 +1332,58 @@ const no = isArray("value");
 }
 
 #[test]
+fn lowers_string_trim_inside_filter_callback_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values = [" a ", " "].filter(value => !!value.trim());
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(
+        |expr| matches!(
+            expr.kind,
+            ExprKind::StringTrim {
+                side: StringTrimSide::Both,
+                ..
+            }
+        )
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn coerces_erased_string_trim_receiver_inside_callback_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function clean(value: any): any[] {
+  return [value].filter(item => !!item.trim());
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            let ExprKind::StringTrim { operand, .. } = expr.kind else {
+                return false;
+            };
+            usize::try_from(operand.0).ok().is_some_and(|index| {
+                matches!(
+                    body.exprs.get(index).map(|operand| &operand.kind),
+                    Some(ExprKind::TypeAssert { .. })
+                )
+            })
+        })
+    }));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn first_class_array_is_array_respects_shadowing() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
