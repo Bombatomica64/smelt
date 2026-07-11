@@ -1085,6 +1085,7 @@ impl ModuleBuilder<'_> {
             }
             Argument::LogicalExpression(logical) => self.logical_expression(logical, body),
             Argument::UnaryExpression(unary) => self.unary_expression(unary, body),
+            Argument::UpdateExpression(update) => self.update_expression(update, body),
             Argument::ArrayExpression(array) => self.array_expression(array, body, None),
             Argument::ObjectExpression(object) => self.object_expression(object, body, None),
             Argument::CallExpression(call) => self.call_expression(call, body),

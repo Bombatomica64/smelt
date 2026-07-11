@@ -3386,6 +3386,29 @@ function makeQueue(): Promise<number[]> {
 }
 
 #[test]
+fn lowers_postfix_update_as_call_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function collect(value: number): number {
+  return value;
+}
+let index = 0;
+const previous = collect(index++);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::Call { .. })));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_function_length_to_len_expr() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
