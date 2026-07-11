@@ -458,6 +458,24 @@ impl FunctionEmitter<'_> {
         self.operand_text(operand)
     }
 
+    /// Returns whether rendered value text is a trivial place that can be
+    /// duplicated for free.
+    ///
+    /// A trivial place is a bare local name or a dotted field/tuple path such as
+    /// `foo` or `foo.bar.0`. Duplicating one re-reads the same binding with no
+    /// re-evaluation and no repeated move of by-value operands. Anything
+    /// containing call/operator/whitespace syntax is treated as a non-trivial
+    /// expression that must be materialized into a temporary before it is used
+    /// more than once (see the tuple-to-tuple coercion in
+    /// [`Self::value_at_type_text`]).
+    fn expression_text_is_trivial_place(value_text: &str) -> bool {
+        !value_text.is_empty()
+            && value_text.chars().all(|ch| {
+                ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == ':'
+            })
+            && !value_text.starts_with(|ch: char| ch.is_ascii_digit())
+    }
+
     /// Coerces already-rendered Rust value text from a known source type to a destination type.
     pub(super) fn value_at_type_text(
         &self,
@@ -510,23 +528,41 @@ impl FunctionEmitter<'_> {
             (self.mir.types.get(source), self.mir.types.get(target))
             && source_items.len() == target_items.len()
         {
+            // Element-wise coercion references `{value_text}.{index}` once per
+            // field. When `value_text` is a non-trivial expression (e.g. an
+            // inlined call `partition(arr, cb)`), duplicating it would evaluate
+            // the call — and re-move any by-value arguments — once per element,
+            // producing E0382. Materialize such an expression into a single
+            // temporary and project the binding instead. A trivial place (a bare
+            // name or field path) is safe to duplicate and kept inline to avoid
+            // churn.
+            let (prefix, base) = if Self::expression_text_is_trivial_place(value_text) {
+                (String::new(), value_text.to_owned())
+            } else {
+                ("let smelt_tuple_src = ".to_owned(), "smelt_tuple_src".to_owned())
+            };
             let items_text = source_items
                 .iter()
                 .zip(target_items.iter())
                 .enumerate()
                 .map(|(index, (source_item, target_item))| {
                     self.value_at_type_text(
-                        &format!("{value_text}.{index}"),
+                        &format!("{base}.{index}"),
                         *source_item,
                         *target_item,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
-            return if target_items.len() == 1 {
-                Ok(format!("({items_text},)"))
+            let tuple_text = if target_items.len() == 1 {
+                format!("({items_text},)")
             } else {
-                Ok(format!("({items_text})"))
+                format!("({items_text})")
+            };
+            return if prefix.is_empty() {
+                Ok(tuple_text)
+            } else {
+                Ok(format!("{{ {prefix}{value_text}; {tuple_text} }}"))
             };
         }
         if matches!(self.mir.types.get(target), Some(Type::Function(_)))

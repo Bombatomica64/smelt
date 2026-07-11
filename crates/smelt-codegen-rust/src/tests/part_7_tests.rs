@@ -3036,6 +3036,72 @@ function assign(value: unknown): unknown {
 }
 
 #[test]
+fn tuple_to_tuple_coercion_materializes_nontrivial_source_once() {
+    // Regression: element-wise tuple coercion references the source once per
+    // field. When the source is a non-trivial expression (an inlined call), it
+    // must be materialized into a single temporary so by-value arguments are
+    // not moved once per element (E0382).
+    let source = source_for(
+        r"
+function pair(values: number[]): [number[], number[]] {
+  return [values, values];
+}
+function widen(values: number[]): [unknown[], unknown[]] {
+  return pair(values);
+}
+",
+    );
+
+    // The coercion must never emit the source call more than once: one
+    // definition plus one call site. Duplicating it would re-move `values`
+    // (E0382). This holds whether the call is bound to a temp (trivial source,
+    // inlined coercion) or inlined into the coercion (non-trivial source,
+    // materialized into `smelt_tuple_src`).
+    assert_eq!(source.matches("pair(").count(), 2, "{source}");
+}
+
+#[test]
+fn self_aliasing_unknown_field_assignment_evaluates_value_before_borrow() {
+    // Regression: JS self-aliasing `value.self = value` must evaluate the
+    // assigned value into a temporary BEFORE taking the receiver's mutable
+    // borrow, or the value's read of the receiver conflicts with the `&mut`
+    // borrow (E0502).
+    let source = source_for(
+        r"
+function link(value: unknown): unknown {
+  value.self = value;
+  return value;
+}
+",
+    );
+
+    assert!(source.contains("let smelt_value ="), "{source}");
+    assert!(source.contains("match &mut value"), "{source}");
+    assert!(
+        source.contains("map.insert(\"self\".to_owned(), smelt_value);"),
+        "{source}"
+    );
+}
+
+#[test]
+fn self_referential_list_push_evaluates_item_before_borrow() {
+    // Regression: `array.push(array)` must evaluate the pushed item into a
+    // temporary BEFORE taking the list's mutable borrow, or the item's read of
+    // the list conflicts with the `&mut` push (E0502).
+    let source = source_for(
+        r"
+function grow(): number {
+  const array: unknown[] = [];
+  return array.push(array);
+}
+",
+    );
+
+    assert!(source.contains("let smelt_push_item ="), "{source}");
+    assert!(source.contains(".push(smelt_push_item)"), "{source}");
+}
+
+#[test]
 fn coerces_optional_unknown_field_to_optional_callable_destination() {
     let source = source_for(
         r"
