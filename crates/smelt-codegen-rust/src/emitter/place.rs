@@ -182,6 +182,23 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(self.null_value_text());
                 }
+                // `.apply` / `.call` / `.bind` on a callable-interface value are
+                // Function.prototype methods on the *underlying callable*, not
+                // named struct fields. The interface struct has no such field
+                // (reading `receiver.apply` is an `E0609`), so read the synthetic
+                // `__smelt_call` storage slot and erase that callable to a
+                // `SmeltUnknown::Function`. The erased-call coercion the caller
+                // wraps this read in extracts and invokes it; `.bind` routes the
+                // same way and yields a closure over the erased callable. Erasing
+                // only the `__smelt_call` field (rather than the whole struct)
+                // keeps the callable live — a whole-struct `into_smelt_unknown`
+                // erases every function field to `Null`.
+                if matches!(self.symbol_source_name(*field)?, "apply" | "call" | "bind")
+                    && let Some(call_ty) = self.callable_interface_call_field_ty(base_ty)
+                {
+                    let call_field = format!("{}.__smelt_call.clone()", self.local_value_text(*base)?);
+                    return self.erase_value_text(&call_field, call_ty);
+                }
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
                     return self.string_field_text(&self.local_value_text(*base)?, *field);
                 }

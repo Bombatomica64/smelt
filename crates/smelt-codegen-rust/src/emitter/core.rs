@@ -4236,6 +4236,30 @@ impl<'mir> FunctionEmitter<'mir> {
             })
     }
 
+    /// Returns whether a type is a callable-interface struct.
+    ///
+    /// A callable interface (a TypeScript interface with one or more call
+    /// signatures) lowers to a class record carrying a synthetic `__smelt_call`
+    /// storage field for its underlying callable (see the frontend
+    /// `add_interface_call_signature_field`). Detecting that field is how the
+    /// emitter recognizes a value that is invoked like a function — for direct
+    /// calls and for `.apply`/`.call`/`.bind`, which must operate on the erased
+    /// callable rather than on a (non-existent) named struct field.
+    pub(super) fn callable_interface_call_field_ty(&self, ty: TypeId) -> Option<TypeId> {
+        // Interfaces live in `mir.interfaces` and classes in `mir.classes`;
+        // `structural_record_fields` resolves the effective field list for
+        // either, so the `__smelt_call` probe works for both record shapes. The
+        // returned type is the (function-typed) storage slot for the underlying
+        // callable, which the caller erases to invoke the value.
+        let fields = self.structural_record_fields(ty)?;
+        fields.iter().find_map(|candidate| {
+            self.symbol_source_name(candidate.name)
+                .ok()
+                .filter(|source| *source == "__smelt_call")
+                .map(|_| candidate.ty)
+        })
+    }
+
     /// Returns whether a place is a declared-field read on a reference class.
     ///
     /// Such a read is lowered as `base.0.borrow().field.clone()`, which is
