@@ -3720,6 +3720,43 @@ interface Logger {
 }
 
 #[test]
+fn flattens_nested_union_from_composed_type_alias() -> Result<(), String> {
+    // Composing a union-typed alias (`Criterion` = A | B | null) with another
+    // arm (`Criterion | { ... }`) must produce a *flat* union. A nested union
+    // arm would be treated atomically by typeof/nullish narrowing and coercion,
+    // e.g. `typeof x === 'function'` narrowing would drop the whole inner union
+    // (losing `PropertyKey` and `PropertyKey[]`) and collapse to just the object
+    // arm. This is the root cause of the es-toolkit `orderBy` E0308 family
+    // (`expected String, found SmeltRecord`).
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Criterion<T> = ((item: T) => unknown) | PropertyKey | PropertyKey[] | null | undefined;
+export function pick<T>(
+  criterion: Criterion<T> | { key: PropertyKey; path: string[] },
+  object: T,
+): T {
+  return object;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "pick")?;
+    let Some(Type::Union(items)) = ctx.krate.types.get(function.params[0].ty) else {
+        return Err("expected the composed criterion parameter to be a union".to_owned());
+    };
+    for &item in items {
+        ensure!(
+            !matches!(ctx.krate.types.get(item), Some(Type::Union(_))),
+            "composed union alias must be flat: found a nested union arm",
+        );
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn preserves_required_arity_on_callable_type_alias() -> Result<(), String> {
     // A callable type alias `(a, b?) => T` must record its required arity so
     // under-application through the alias stays typed. Previously

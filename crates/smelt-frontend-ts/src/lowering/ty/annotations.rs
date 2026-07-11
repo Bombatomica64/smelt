@@ -75,12 +75,24 @@ impl ModuleBuilder<'_> {
                     {
                         member_ty = self.ctx.krate.types.intern(Type::Unknown);
                     }
-                    if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Never)) {
-                        saw_never = true;
-                    } else if matches!(self.ctx.krate.types.get(member_ty), Some(Type::None)) {
-                        nullish.push(member_ty);
-                    } else if !lowered.contains(&member_ty) {
-                        lowered.push(member_ty);
+                    // Flatten members that are themselves unions/optionals so the
+                    // resulting union has only concrete top-level arms. Type
+                    // aliases such as `type Criterion = A | B | null` lower to a
+                    // `Type::Union`, and composing them (`Criterion | C`) would
+                    // otherwise nest a union inside a union. Downstream typeof
+                    // narrowing, nullish narrowing, and coercion all inspect only
+                    // the top-level arms, so a nested union arm is treated as one
+                    // atomic member and gets dropped or mishandled wholesale.
+                    for flat_ty in self.flatten_union_member_types(member_ty) {
+                        if matches!(self.ctx.krate.types.get(flat_ty), Some(Type::Never)) {
+                            saw_never = true;
+                        } else if matches!(self.ctx.krate.types.get(flat_ty), Some(Type::None)) {
+                            if !nullish.contains(&flat_ty) {
+                                nullish.push(flat_ty);
+                            }
+                        } else if !lowered.contains(&flat_ty) {
+                            lowered.push(flat_ty);
+                        }
                     }
                 }
                 if let Some(list_ty) = self.list_union_type(&lowered) {
@@ -346,6 +358,39 @@ return_ty: function.return_ty,
                 self.span(0, 0),
                 "rest parameter type must resolve to an array type",
             )),
+        }
+    }
+
+    /// Expand a union member into its flat constituent arms.
+    ///
+    /// A union arm may itself resolve to a `Type::Union` (composed type alias)
+    /// or a `Type::Optional` (`inner | undefined`). TypeScript unions are
+    /// always flat, and every consumer that walks union arms — typeof
+    /// narrowing, nullish narrowing, key/value coercion — assumes flat arms.
+    /// Returning the nested arms here keeps that invariant so no arm is hidden
+    /// inside another union. Non-union members are returned unchanged.
+    pub(in crate::lowering) fn flatten_union_member_types(
+        &mut self,
+        ty: smelt_hir::TypeId,
+    ) -> Vec<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Union(items)) => {
+                let items = items.clone();
+                items
+                    .into_iter()
+                    .flat_map(|item| self.flatten_union_member_types(item))
+                    .collect()
+            }
+            Some(Type::Optional(inner)) => {
+                let inner_ty = *inner;
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let mut out = self.flatten_union_member_types(inner_ty);
+                if !out.contains(&none_ty) {
+                    out.push(none_ty);
+                }
+                out
+            }
+            _ => vec![ty],
         }
     }
 
