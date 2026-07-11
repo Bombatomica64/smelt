@@ -438,7 +438,13 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let pattern_text = self.regexp_operand_text(pattern)?;
         let haystack_text = self.string_like_operand_text(haystack, "regex find")?;
-        Ok(format!("{pattern_text}.match_string(&{haystack_text})"))
+        // `SmeltRegExp::match_string` returns the match array as a raw
+        // `Option<Vec<String>>`; the Smelt type of `String.prototype.match` is
+        // `Option<SmeltList<String>>`, so project the present arm through
+        // `SmeltList::from` to agree with the declared slot type.
+        Ok(format!(
+            "{pattern_text}.match_string(&{haystack_text}).map(SmeltList::from)"
+        ))
     }
 
     /// Converts JavaScript `RegExp.prototype.exec` to a concrete match result.
