@@ -390,12 +390,11 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns whether the first Rust binding for `local` must be mutable.
     pub(super) fn local_binding_needs_mut(&self, local: LocalId) -> bool {
-        if self
-            .local_decl(local)
-            .ok()
-            .and_then(|decl| self.mir.types.get(decl.ty))
-            .is_some_and(|ty| matches!(ty, Type::Class { .. }))
-        {
+        // A parameter emitted as `&mut T` needs a mutable binding when it is
+        // reborrowed into another mutable callback. Other structural values do
+        // not need unconditional `mut`; the assignment and mutation analysis
+        // below handles their actual writes.
+        if self.function.params.contains(&local) && self.parameter_needs_mutable_reference(local) {
             return true;
         }
         if self.predeclared_locals.contains(&local)
