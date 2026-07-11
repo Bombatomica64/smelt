@@ -625,7 +625,34 @@ impl FunctionEmitter<'_> {
 
     /// Converts a non-escaping MIR closure into a Rust closure literal.
     pub(super) fn closure_text(&self, id: smelt_mir::ClosureId) -> Result<String, EmitError> {
-        self.closure_text_with_extra_params(id, &[], None)
+        self.closure_text_with_extra_params(id, &[], &[], None)
+    }
+
+    /// Whether a contextual `target_ty` re-types a closure parameter whose own
+    /// MIR local (`local_ty`) dropped an optional wrapper.
+    ///
+    /// This is true when `target_ty` is `Optional(inner)` and either:
+    /// * `inner` is (structurally) the same type as the flat `local_ty` — the
+    ///   source spelled the param optional (`x?: T`) but the closure body's own
+    ///   local is the bare `T`; or
+    /// * the closure body already erased the param to `Unknown`, in which case
+    ///   the body treats it dynamically and unwrapping any optional erased
+    ///   contextual value is lossless.
+    ///
+    /// Restricting to these cases keeps the emitted body rebind a lossless
+    /// `unwrap_or`, so we never re-type a parameter whose contextual type is a
+    /// genuinely different shape (which would break the body).
+    pub(super) fn optional_target_matches_flat_local(
+        &self,
+        target_ty: TypeId,
+        local_ty: TypeId,
+    ) -> bool {
+        let Some(Type::Optional(inner)) = self.mir.types.get(target_ty) else {
+            return false;
+        };
+        *inner == local_ty
+            || self.mir.types.get(*inner) == self.mir.types.get(local_ty)
+            || matches!(self.mir.types.get(local_ty), Some(Type::Unknown))
     }
 
     /// Converts a MIR closure into a Rust closure literal shaped for `dest_ty`.
@@ -695,8 +722,37 @@ impl FunctionEmitter<'_> {
             Some(Type::Function(function)) => Some(function.return_ty),
             _ => None,
         };
-        let closure =
-            self.closure_text_with_extra_params(id, &extra_param_tys, target_return_ty)?;
+        // The contextual function type may spell an overlapping parameter more
+        // loosely than the closure's own MIR param local (e.g. an optional
+        // `target?: V` lowers to `Option<SmeltUnknown>` in the destination
+        // `dyn Fn` while the closure body declares its param as bare
+        // `SmeltUnknown`). Thread those target param types into closure-param
+        // emission so the emitted signature matches the `dyn Fn` it is cast to;
+        // the body rebinds each param back to its own local type.
+        let target_param_tys: Vec<TypeId> = match self.mir.types.get(dest_ty) {
+            Some(Type::Function(function)) => {
+                let closure = self
+                    .mir
+                    .closures
+                    .get(id_index(id.0, "closure id does not fit usize")?)
+                    .ok_or_else(|| {
+                        EmitError::new("closure rvalue references an unknown closure")
+                    })?;
+                function
+                    .params
+                    .iter()
+                    .take(closure.params.len())
+                    .copied()
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        let closure = self.closure_text_with_extra_params(
+            id,
+            &extra_param_tys,
+            &target_param_tys,
+            target_return_ty,
+        )?;
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
             let adjusted_closure = if !has_captures
                 || closure.starts_with("move ")
@@ -871,6 +927,7 @@ impl FunctionEmitter<'_> {
         &self,
         id: smelt_mir::ClosureId,
         extra_param_tys: &[TypeId],
+        target_param_tys: &[TypeId],
         return_override: Option<TypeId>,
     ) -> Result<String, EmitError> {
         let closure = self
@@ -898,9 +955,20 @@ impl FunctionEmitter<'_> {
                         .locals
                         .get(local_index)
                         .ok_or_else(|| EmitError::new("closure param has no local declaration"))?;
+                    // The body ignores these params (it returns a default
+                    // value), so honour the contextual type when the
+                    // destination `dyn Fn` dropped an optional wrapper the
+                    // closure local kept flat (see the main path below).
+                    let param_ty = target_param_tys
+                        .get(index)
+                        .copied()
+                        .filter(|target_ty| {
+                            self.optional_target_matches_flat_local(*target_ty, local.ty)
+                        })
+                        .unwrap_or(local.ty);
                     Ok(format!(
                         "arg{index}: {}",
-                        self.type_text_with_impl_trait(local.ty, false)?
+                        self.type_text_with_impl_trait(param_ty, false)?
                     ))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
@@ -1018,21 +1086,53 @@ impl FunctionEmitter<'_> {
                     emitter.mark_local_declared(target);
                 }
             }
+            // When the contextual `dyn Fn` spells a parameter with a different
+            // (looser) type than the closure's own MIR local, emit the closure
+            // parameter with the contextual type and rebind it to the local
+            // type in a body prelude. This keeps the closure signature
+            // assignable to the target `dyn Fn` while the body continues to see
+            // its own local type. Rebinds are collected so they precede the body.
+            let mut param_rebinds = String::new();
             let mut params = closure
                 .params
                 .iter()
-                .map(|param| {
+                .enumerate()
+                .map(|(index, param)| {
                     let local = emitter.local_decl(*param)?;
-                    let mutability = if emitter.local_binding_needs_mut(*param) {
-                        "mut "
-                    } else {
-                        ""
-                    };
-                    Ok(format!(
-                        "{mutability}{}: {}",
-                        emitter.local_name(*param)?,
-                        emitter.type_text_with_impl_trait(local.ty, false)?
-                    ))
+                    let needs_mut = emitter.local_binding_needs_mut(*param);
+                    let mutability = if needs_mut { "mut " } else { "" };
+                    let name = emitter.local_name(*param)?.to_owned();
+                    let local_ty_text = emitter.type_text_with_impl_trait(local.ty, false)?;
+                    // Only re-type a parameter when the contextual function
+                    // dropped an optional wrapper the closure's own local kept
+                    // flat (source `target?: V` lowers the destination param to
+                    // `Option<Inner>` while the closure body declares `target`
+                    // as the bare `Inner`). Restricting to this dropped-optional
+                    // case keeps the coercion a lossless `unwrap_or` and avoids
+                    // re-typing params whose contextual type is a genuinely
+                    // different shape (which would break the body).
+                    let retype = target_param_tys
+                        .get(index)
+                        .copied()
+                        .filter(|target_ty| {
+                            emitter.optional_target_matches_flat_local(*target_ty, local.ty)
+                        });
+                    match retype {
+                        Some(target_ty) => {
+                            let target_ty_text =
+                                emitter.type_text_with_impl_trait(target_ty, false)?;
+                            let coerced = emitter.value_at_type_text(
+                                &name,
+                                target_ty,
+                                local.ty,
+                            )?;
+                            param_rebinds.push_str(&format!(
+                                "let {mutability}{name}: {local_ty_text} = {coerced};\n"
+                            ));
+                            Ok(format!("{name}: {target_ty_text}"))
+                        }
+                        None => Ok(format!("{mutability}{name}: {local_ty_text}")),
+                    }
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
             for (index, extra_ty) in extra_param_tys.iter().enumerate() {
@@ -1042,7 +1142,7 @@ impl FunctionEmitter<'_> {
                 ));
             }
             let params_text = params.join(", ");
-            let mut body_text = String::new();
+            let mut body_text = param_rebinds;
             emitter.emit_mutable_local_preludes(&mut body_text)?;
             emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
             let returns_future = matches!(
