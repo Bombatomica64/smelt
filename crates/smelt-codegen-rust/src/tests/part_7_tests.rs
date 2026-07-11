@@ -2591,11 +2591,11 @@ export function getDefaultOptions(): DefaultOptions {
     );
 
     assert!(
-        source.contains("let mut _smelt_tmp_1: SmeltUnknown = SmeltUnknown::Object"),
+        source.contains("let _smelt_tmp_1: SmeltUnknown = SmeltUnknown::Object"),
         "{source}"
     );
     assert!(
-        !source.contains("let mut _smelt_tmp_1: SmeltUnknown = _smelt_tmp_0.clone();"),
+        !source.contains("let _smelt_tmp_1: SmeltUnknown = _smelt_tmp_0.clone();"),
         "{source}"
     );
 }

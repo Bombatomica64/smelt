@@ -12,7 +12,7 @@ fn plus_one(values: SmeltList<f64>) -> SmeltList<f64> {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + 1.0;
     _smelt_tmp_3.clone()
     });
-    let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into({ let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + 1.0;
     _smelt_tmp_3.clone()
     }); let smelt_array = values.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });
@@ -24,7 +24,7 @@ fn lower(values: SmeltList<String>) -> SmeltList<String> {
     let _smelt_tmp_3: SmeltUnknown = SmeltUnknown::String(closure_arg_0.clone().to_lowercase());
     _smelt_tmp_3.clone()
     });
-    let _smelt_tmp_2: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: SmeltList<String>| {
+    let _smelt_tmp_2: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: SmeltList<String>| {
     let _smelt_tmp_3: SmeltUnknown = SmeltUnknown::String(closure_arg_0.clone().to_lowercase());
     _smelt_tmp_3.clone()
     }); let smelt_array = values.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });
@@ -41,7 +41,7 @@ fn spread(values: SmeltList<f64>, args: SmeltList<f64>, func: &dyn Fn(SmeltList<
     _smelt_tmp_7.clone()
     }
 });
-    let _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into({ let mut smelt_callback = ::std::rc::Rc::new({
+    let _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
     let mut args = args.clone();
     move |closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
     let _smelt_tmp_5: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![closure_arg_0.clone()]; smelt_list_items }));
@@ -79,12 +79,12 @@ fn collect_indices(values: SmeltList<f64>) -> SmeltList<f64> {
 }
 
 fn iso(values: SmeltList<SmeltUnknown>) -> SmeltList<String> {
-    let _smelt_tmp_1 = ::std::rc::Rc::new(|mut closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: SmeltList<SmeltUnknown>| {
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: SmeltList<SmeltUnknown>| {
     let _smelt_tmp_3: String = (closure_arg_0.clone()).to_iso_string();
     let _smelt_tmp_4: SmeltUnknown = SmeltUnknown::String(_smelt_tmp_3.clone());
     _smelt_tmp_4.clone()
     });
-    let _smelt_tmp_2: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let mut smelt_callback = ::std::rc::Rc::new(|mut closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: SmeltList<SmeltUnknown>| {
+    let _smelt_tmp_2: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: SmeltList<SmeltUnknown>| {
     let _smelt_tmp_3: String = (closure_arg_0.clone()).to_iso_string();
     let _smelt_tmp_4: SmeltUnknown = SmeltUnknown::String(_smelt_tmp_3.clone());
     _smelt_tmp_4.clone()

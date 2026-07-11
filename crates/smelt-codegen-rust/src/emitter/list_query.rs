@@ -183,7 +183,7 @@ impl FunctionEmitter<'_> {
             self.value_truthy_text(&raw_call_text, function_ty.return_ty)?
         };
         let prefix = format!(
-            "let mut smelt_callback = {closure_text}; {prefix}",
+            "let smelt_callback = {closure_text}; {prefix}",
             prefix = list_iteration.prefix
         );
         let iter_text = list_iteration.iter_text;
@@ -285,7 +285,7 @@ impl FunctionEmitter<'_> {
         let value_text =
             self.value_at_type_text(&call_text, function_ty.return_ty, *dest_item_ty)?;
         Ok(format!(
-            "{{ let mut smelt_callback = {closure_text}; {}{}.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>() }}",
+            "{{ let smelt_callback = {closure_text}; {}{}.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>() }}",
             list_iteration.prefix, list_iteration.iter_text
         ))
     }
@@ -315,7 +315,7 @@ impl FunctionEmitter<'_> {
         let call_args = list_iteration.call_args;
         let call_text = format!("(smelt_callback)({})", call_args.join(", "));
         Ok(format!(
-            "{{ let mut smelt_callback = {closure_text}; {}{}.iter().enumerate().for_each(|(index, item)| {{ let _ = {call_text}; }}); () }}",
+            "{{ let smelt_callback = {closure_text}; {}{}.iter().enumerate().for_each(|(index, item)| {{ let _ = {call_text}; }}); () }}",
             list_iteration.prefix, list_iteration.iter_text
         ))
     }
@@ -364,7 +364,7 @@ impl FunctionEmitter<'_> {
             }
         };
         Ok(format!(
-            "{{ let mut smelt_callback = {closure_text}; {}{}.iter().enumerate().flat_map(|(index, item)| {{ let smelt_result = {call_text}; {flattened_text} }}).collect::<Vec<_>>() }}",
+            "{{ let smelt_callback = {closure_text}; {}{}.iter().enumerate().flat_map(|(index, item)| {{ let smelt_result = {call_text}; {flattened_text} }}).collect::<Vec<_>>() }}",
             list_iteration.prefix, list_iteration.iter_text
         ))
     }
@@ -475,7 +475,7 @@ impl FunctionEmitter<'_> {
         }
         let call_text = format!("(smelt_callback)({})", call_args.join(", "));
         Ok(format!(
-            "{{ let mut smelt_callback = {closure_text}; let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|index| {call_text}).collect::<Vec<_>>() }}"
+            "{{ let smelt_callback = {closure_text}; let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|index| {call_text}).collect::<Vec<_>>() }}"
         ))
     }
 

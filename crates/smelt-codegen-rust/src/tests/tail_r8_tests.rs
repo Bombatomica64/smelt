@@ -101,3 +101,26 @@ function flatten(xs: unknown[]): unknown[] {
         "expected depth cast to f64 before `.max`, got:\n{source}"
     );
 }
+
+#[test]
+fn flat_helper_depth_is_not_rewritten_as_an_outer_capture() {
+    // Capture rewriting runs after rvalue rendering. The helper's recursion
+    // counter must therefore use a collision-resistant internal name rather
+    // than the source capture name `depth`.
+    let source = source_for(
+        r"
+function makeFlattener(depth: number): (value: unknown[]) => unknown[] {
+  return (value) => value.flat(depth);
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_remaining_depth: i64"),
+        "expected an internal flat recursion counter, got:\n{source}"
+    );
+    assert!(
+        !source.contains("if (*smelt_capture_depth.borrow"),
+        "the flat helper must not capture its enclosing closure:\n{source}"
+    );
+}

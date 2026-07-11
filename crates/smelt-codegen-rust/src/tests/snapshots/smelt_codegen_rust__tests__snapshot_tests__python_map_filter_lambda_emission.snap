@@ -14,7 +14,7 @@ fn main() {
     let _smelt_tmp_1: i64 = closure_arg_0.clone() * 2;
     _smelt_tmp_1.clone()
     });
-    let _smelt_tmp_5: SmeltList<i64> = Into::<SmeltList<_>>::into({ let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
+    let _smelt_tmp_5: SmeltList<i64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
     let _smelt_tmp_1: i64 = closure_arg_0.clone() * 2;
     _smelt_tmp_1.clone()
     }); values.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone()) }).collect::<Vec<_>>() });
@@ -23,7 +23,7 @@ fn main() {
     let _smelt_tmp_1: bool = closure_arg_0.clone() > 1;
     _smelt_tmp_1.clone()
     });
-    let _smelt_tmp_7: SmeltList<i64> = Into::<SmeltList<_>>::into({ let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
+    let _smelt_tmp_7: SmeltList<i64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
     let _smelt_tmp_1: bool = closure_arg_0.clone() > 1;
     _smelt_tmp_1.clone()
     }); values.iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone()) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
