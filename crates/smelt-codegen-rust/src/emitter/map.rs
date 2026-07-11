@@ -770,6 +770,18 @@ impl FunctionEmitter<'_> {
                 "JSON parse destination must be JSON-compatible",
             ));
         }
+        // `JSON.parse` yields a dynamic JS value. Record/map destinations lower
+        // to `SmeltRecord`/`SmeltJsMap`, which do not implement `Deserialize`,
+        // so deserializing directly into them fails (was E0277 in `isJSON`).
+        // Parse into the erased `SmeltUnknown` (which is `Deserialize`) and then
+        // run the ordinary coercion into the concrete destination.
+        if matches!(self.mir.types.get(dest_ty), Some(Type::Dict(_, _))) {
+            let parsed = format!(
+                "serde_json::from_str::<SmeltUnknown>(&{}).expect(\"JSON parse failed\")",
+                self.operand_text(text)?
+            );
+            return self.extract_value_text(&parsed, dest_ty);
+        }
         Ok(format!(
             "serde_json::from_str::<{}>(&{}).expect(\"JSON parse failed\")",
             self.type_text(dest_ty)?,

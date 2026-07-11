@@ -509,8 +509,14 @@ const values = JSON.parse(text);
 "#,
     );
 
+    // A record destination is not `Deserialize`; parse into the erased
+    // `SmeltUnknown` (which is) and coerce into the record afterwards.
     assert!(
-        ts_source.contains("serde_json::from_str::<SmeltRecord<String, SmeltUnknown>>(&"),
+        ts_source.contains("serde_json::from_str::<SmeltUnknown>(&"),
+        "{ts_source}"
+    );
+    assert!(
+        !ts_source.contains("serde_json::from_str::<SmeltRecord<String, SmeltUnknown>>(&"),
         "{ts_source}"
     );
     assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
@@ -539,8 +545,14 @@ const bag = JSON.parse(text) as Record<string, unknown>;
         ts_source.contains("serde_json::from_str::<ServerConfig>(&")
             || ts_source.contains("serde_json::from_str::<SmeltUnknown>(&")
     );
+    // The `Record<string, unknown>` destination routes through `SmeltUnknown`
+    // rather than deserializing straight into the non-`Deserialize` record.
     assert!(
-        ts_source.contains("serde_json::from_str::<SmeltRecord<String, SmeltUnknown>>(&"),
+        ts_source.contains("serde_json::from_str::<SmeltUnknown>(&"),
+        "{ts_source}"
+    );
+    assert!(
+        !ts_source.contains("serde_json::from_str::<SmeltRecord<String, SmeltUnknown>>(&"),
         "{ts_source}"
     );
     assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
