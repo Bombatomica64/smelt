@@ -826,6 +826,26 @@ impl ModuleBuilder<'_> {
                 {
                     self.apply_narrowing(name, non_null_ty);
                 }
+                // Branch-join narrowing for the two-armed form
+                // `if (cond) { x = <nonnull>; } else { x = <nonnull>; }`: both
+                // arms leave `x` non-null on their respective paths, so `x` is
+                // non-null after the join regardless of which arm ran. Narrow
+                // every optional local that is reassigned to a non-null value at
+                // the top level of *both* arms to its non-null type; this lets
+                // later reads/writes see the concrete type instead of the
+                // declared `Optional<T>` (e.g. `fromIndex?: number` reassigned in
+                // both arms then indexed as `f64`).
+                if let Some(alternate) = &if_stmt.alternate {
+                    for name in Self::branch_top_level_assigned_names(&if_stmt.consequent) {
+                        if Self::branch_reassigns_to_nonnull(&if_stmt.consequent, &name)
+                            && Self::branch_reassigns_to_nonnull(alternate, &name)
+                            && let Some(non_null_ty) =
+                                self.optional_local_nonnull_type(&name, body)
+                        {
+                            self.apply_narrowing(name, non_null_ty);
+                        }
+                    }
+                }
                 Ok(())
             }
             Statement::WhileStatement(while_stmt) => {

@@ -1317,6 +1317,73 @@ impl ModuleBuilder<'_> {
         reassigned_nonnull
     }
 
+    /// Collect the identifier names assigned at the top level of a branch.
+    ///
+    /// Only unconditionally reached `name = <expr>` statements are gathered
+    /// (assignments nested inside a further branch are excluded), so callers
+    /// can reason about facts that hold on every path through the branch. Used
+    /// with [`branch_reassigns_to_nonnull`] to compute branch-join narrowing.
+    pub(in crate::lowering) fn branch_top_level_assigned_names(
+        statement: &Statement<'_>,
+    ) -> Vec<String> {
+        let statements = match statement {
+            Statement::BlockStatement(block) => block.body.as_slice(),
+            other => std::slice::from_ref(other),
+        };
+        let mut names = Vec::new();
+        for branch_statement in statements {
+            let Statement::ExpressionStatement(expr_stmt) = branch_statement else {
+                continue;
+            };
+            let Expression::AssignmentExpression(assign) = &expr_stmt.expression else {
+                continue;
+            };
+            let oxc::ast::ast::AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left
+            else {
+                continue;
+            };
+            let name = target.name.to_string();
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        names
+    }
+
+    /// Return the non-null type of an optional local currently in scope.
+    ///
+    /// Reads the local's active (possibly already-narrowed) type and, when it
+    /// is `Optional<T>` or a nullable union, returns the type with the
+    /// `None`/`undefined` member removed. Returns `None` for locals that are
+    /// unknown here or not nullable. Used to narrow a local after both arms of
+    /// an if/else reassign it to a non-null value (branch-join narrowing).
+    pub(in crate::lowering) fn optional_local_nonnull_type(
+        &mut self,
+        name: &str,
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let local = self.locals.get(name).copied()?;
+        let local_ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        match self.ctx.krate.types.get(local_ty).cloned() {
+            Some(Type::Optional(inner)) => Some(inner),
+            Some(Type::Union(items)) => {
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let remaining = items
+                    .into_iter()
+                    .filter(|item| *item != none_ty)
+                    .collect::<Vec<_>>();
+                match remaining.as_slice() {
+                    [single] => Some(*single),
+                    [] => None,
+                    _ => Some(self.ctx.krate.types.intern(Type::Union(remaining))),
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Return whether an expression is a `null` or `undefined` literal.
     fn expression_is_nullish_literal(expression: &Expression<'_>) -> bool {
         match expression {

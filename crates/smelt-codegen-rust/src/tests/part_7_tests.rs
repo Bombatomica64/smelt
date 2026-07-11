@@ -6936,3 +6936,77 @@ export function useRun(fn: (...args: unknown[]) => boolean | void): boolean {
         "erased optional-return adapter should use a checked nullish boundary: {source}"
     );
 }
+
+#[test]
+fn callable_interface_call_slot_default_is_erased_function() {
+    // Regression (es-toolkit main.rs): a callable interface's synthetic
+    // `__smelt_call` storage field is declared `SmeltErasedFunction`, but the
+    // generated `Default` impl initialized it with the concrete-signature
+    // `Rc<dyn Fn(..)>` default because `default_value_with_scoped_type_params`
+    // lacked the erased-function guard that the field's TYPE text applies. The
+    // field type and its default must agree (E0308).
+    let source = source_for(
+        r"
+interface Formatter {
+  (...args: unknown[]): unknown;
+  label: string;
+}
+export function makeFormatter(): Formatter {
+  return { label: 'x' } as Formatter;
+}
+",
+    );
+    assert!(
+        source.contains("__smelt_call: SmeltErasedFunction {"),
+        "callable-interface `__smelt_call` default must be a SmeltErasedFunction, \
+         not an Rc<dyn Fn> closure: {source}"
+    );
+}
+
+#[test]
+fn tuple_assertion_on_list_value_preserves_list_representation() {
+    // Regression (es-toolkit xorBy): a TypeScript tuple assertion applied to a
+    // list value (`xs.filter(...) as [T]`) is type-level only. Materializing the
+    // tuple would repackage the whole list into a 1-tuple `(SmeltUnknown,)` that
+    // no longer satisfies a `SmeltList` consumer (E0308). The list value and its
+    // type must be preserved.
+    let source = source_for(
+        r"
+export function pickList(xs: unknown[]): unknown[] {
+  const ys = xs.filter(x => x != null) as [unknown];
+  return ys;
+}
+",
+    );
+    assert!(
+        !source.contains("(SmeltUnknown,)"),
+        "tuple assertion on a list must not build a 1-tuple: {source}"
+    );
+}
+
+#[test]
+fn branch_join_narrows_optional_reassigned_in_both_arms() {
+    // Regression (es-toolkit includes): when both arms of an if/else reassign an
+    // optional local to a non-null value, the local is non-null after the join
+    // and should narrow to its inner type so later arithmetic/indexing type-checks
+    // against the concrete type instead of the declared `Optional<T>`.
+    let source = source_for(
+        r"
+export function clampFrom(guard: boolean, fromIndex?: number): number {
+  if (guard || !fromIndex) {
+    fromIndex = 0;
+  } else {
+    fromIndex = fromIndex + 1;
+  }
+  return fromIndex + 1;
+}
+",
+    );
+    // The post-join read of `fromIndex` must be a plain `f64`, not an
+    // `Option<f64>` unwrapped at the use site.
+    assert!(
+        !source.contains("from_index.unwrap")
+            && !source.contains("from_index.clone().expect"),
+        "branch-join narrowing should leave fromIndex as a concrete f64: {source}"
+    );
+}
