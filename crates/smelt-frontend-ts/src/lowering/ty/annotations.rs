@@ -95,6 +95,57 @@ impl ModuleBuilder<'_> {
                         }
                     }
                 }
+                // A union whose arms are all function types but whose call
+                // shapes disagree (different parameter counts, or a rest arm
+                // mixed with a fixed-arity arm) has no single call signature to
+                // select: TypeScript would require a caller to satisfy every
+                // arm. Picking one arm inconsistently at different points (the
+                // `func` parameter type, the packed-argument wrapper, the
+                // `SmeltUnknown::Function` adapter) is exactly what produces
+                // mismatched arities in generated Rust (E0057 — e.g. es-toolkit
+                // `once<F extends (() => any) | ((...args: any[]) => void)>`).
+                //
+                // The honest JavaScript semantics of *calling* such a value is a
+                // variadic call: arguments are passed positionally and the result
+                // is observed dynamically. Collapse the arms into one variadic
+                // erased-rest signature (`(...args: unknown[]) => unknown`) so
+                // every consumer agrees on arity. Function unions that already
+                // share one call shape are left untouched so their concrete
+                // parameter/return types survive.
+                if lowered.len() >= 2
+                    && lowered.iter().all(|arm_ty| {
+                        matches!(self.ctx.krate.types.get(*arm_ty), Some(Type::Function(_)))
+                    })
+                {
+                    let mut shapes = lowered.iter().filter_map(|arm_ty| {
+                        if let Some(Type::Function(signature)) = self.ctx.krate.types.get(*arm_ty) {
+                            Some((signature.params.len(), signature.rest.is_some()))
+                        } else {
+                            None
+                        }
+                    });
+                    let first_shape = shapes.next();
+                    let arities_differ = shapes.any(|shape| Some(shape) != first_shape);
+                    if arities_differ {
+                        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                        let return_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let unified =
+                            self.ctx.krate.types.intern(Type::Function(FunctionType {
+                                params: vec![rest_list_ty],
+                                rest: Some(0),
+                                required_params: Some(0),
+                                mutable_params: Vec::new(),
+                                return_ty,
+                                is_async: false,
+                                may_throw: false,
+                            }));
+                        if nullish.is_empty() {
+                            return Ok(unified);
+                        }
+                        lowered = vec![unified];
+                    }
+                }
                 if let Some(list_ty) = self.list_union_type(&lowered) {
                     if nullish.is_empty() {
                         return Ok(list_ty);

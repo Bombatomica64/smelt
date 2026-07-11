@@ -1170,6 +1170,37 @@ export function raw(name: string): string {
 }
 ",
         },
+        Case {
+            // Calling a value typed as a union of function types with *different*
+            // arities (es-toolkit `once`). The arms must unify into one variadic
+            // erased-rest signature so the `func` parameter, the packed-argument
+            // wrapper, and the `SmeltUnknown::Function` adapter all agree on
+            // arity; selecting arms inconsistently previously emitted a
+            // 0-argument callee called with one argument and vice versa (E0057).
+            // Exercised for both a zero-arg and a multi-arg call of the wrapper.
+            name: "union_function_arity_once",
+            area: "closures",
+            source: r"
+function once<F extends (() => any) | ((...args: any[]) => void)>(func: F): F {
+  let called = false;
+  let cache: ReturnType<F>;
+  return function (...args: Parameters<F>): ReturnType<F> {
+    if (!called) {
+      called = true;
+      cache = func(...args);
+    }
+    return cache;
+  } as F;
+}
+
+export function useOnce(): void {
+  const nullary = once(() => 1);
+  nullary();
+  const variadic = once((...values: number[]): void => {});
+  variadic(1, 2, 3);
+}
+",
+        },
     ]
 }
 
