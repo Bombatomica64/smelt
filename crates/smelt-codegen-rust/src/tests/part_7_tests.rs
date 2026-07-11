@@ -6762,3 +6762,29 @@ export function normalize(predicate: unknown): unknown {
         "the reassigned call must be rendered exactly once, not re-inlined\n{normalize}"
     );
 }
+
+#[test]
+fn erased_rest_function_parameter_is_called_directly_not_via_fn_traits() {
+    // Regression: an erased-rest (`(...args) => unknown`) function parameter is
+    // emitted as a bare `&dyn Fn(...)` handle. Invoking it as `func.call(args)`
+    // resolved to the unstable `Fn::call` trait method (E0658) and expected a
+    // tuple argument (E0308). A function-parameter callee must use direct call
+    // syntax, taking precedence over the erased-rest inherent `.call()`.
+    let source = source_for(
+        r"
+export function invokeWith(func: (...args: unknown[]) => unknown, args: unknown[]): unknown {
+  return func(...args);
+}
+",
+    );
+
+    assert!(
+        source.contains("fn invoke_with"),
+        "expected the function to be emitted\n{source}"
+    );
+    let body = &source[source.find("fn invoke_with").unwrap()..];
+    assert!(
+        !body.contains(".call("),
+        "an erased-rest function parameter must not be invoked via the unstable Fn::call trait method\n{body}"
+    );
+}

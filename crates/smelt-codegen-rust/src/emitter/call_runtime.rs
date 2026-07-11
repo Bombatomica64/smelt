@@ -921,10 +921,14 @@ impl FunctionEmitter<'_> {
                     Some(Type::Function(function))
                         if self.is_erased_unknown_rest_function(function) && !function.may_throw
                 );
+                // Function parameters and borrowed callback captures are emitted as
+                // bare `dyn Fn`/`impl Fn` handles, which are invoked with direct
+                // call syntax. Only a non-parameter erased-rest value is the
+                // inherent-`.call()`-bearing `SmeltErasedFunction`, so these
+                // parameter branches must take precedence over the erased-rest
+                // branch — otherwise `.call()` resolves to the unstable `Fn::call`
+                // trait method on the borrowed `dyn Fn` (E0658).
                 let call_text = match callee {
-                    _ if callee_is_erased_rest => {
-                        format!("{callee_text}.call({args_text})")
-                    }
                     Operand::Copy(place) | Operand::Move(place)
                         if self.is_function_parameter_place(place)? =>
                     {
@@ -935,6 +939,9 @@ impl FunctionEmitter<'_> {
                     }
                     _ if self.is_borrowed_callback_capture_name(&callee_text) => {
                         format!("{callee_text}({args_text})")
+                    }
+                    _ if callee_is_erased_rest => {
+                        format!("{callee_text}.call({args_text})")
                     }
                     _ => format!("({callee_text})({args_text})"),
                 };
@@ -987,10 +994,11 @@ impl FunctionEmitter<'_> {
                     // positional+rest text (reads `smelt_spread_args`) or the
                     // packed list verbatim.
                     let inner_args = split_args.as_deref().unwrap_or(&args_text);
+                    // See the `ClosureCall` arm: parameter/borrowed-capture handles
+                    // are bare `dyn Fn` and must be invoked directly, taking
+                    // precedence over the erased-rest inherent `.call()` so we never
+                    // emit the unstable `Fn::call` trait method (E0658).
                     let inner_call = match callee {
-                        _ if callee_is_erased_rest => {
-                            format!("{callee_text}.call({inner_args})")
-                        }
                         Operand::Copy(place) | Operand::Move(place)
                             if self.is_function_parameter_place(place)? =>
                         {
@@ -1001,6 +1009,9 @@ impl FunctionEmitter<'_> {
                         }
                         _ if self.is_borrowed_callback_capture_name(&callee_text) => {
                             format!("{callee_text}({inner_args})")
+                        }
+                        _ if callee_is_erased_rest => {
+                            format!("{callee_text}.call({inner_args})")
                         }
                         _ => format!("({callee_text})({inner_args})"),
                     };
