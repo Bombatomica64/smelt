@@ -666,6 +666,8 @@ fn seed_written_host_globals(sources: &[&ManifestSource], state: &mut FrontendLo
     }
 }
 
+/// Lowers the manifest sources, in manifest order, into one HIR crate, seeding
+/// host-global write scanning and applying prepared specialization results.
 fn lower_ordered_manifest_sources(
     sources: &[&ManifestSource],
     specialization: &crate::specialization::PreparedSpecialization,
