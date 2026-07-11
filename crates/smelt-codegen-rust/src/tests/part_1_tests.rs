@@ -968,6 +968,43 @@ const asBool = Boolean("");
     assert!(source.contains(".is_empty()"));
 }
 
+/// A JS relational comparison mixing a `string` operand with a numeric operand
+/// must `ToNumber`-coerce the string side (non-numeric text -> `NaN`, so the
+/// comparison is `false`), matching JS semantics. Without the coercion the
+/// emitter would produce a raw `String >= f64` that does not type-check. This
+/// mirrors `es-toolkit`'s `cloneDeepWith`, which assigns named properties on an
+/// array value (`result['index']`), driving a `'index' >= 0 && 'index' < len`
+/// index guard. String-vs-string comparison must stay lexical.
+#[test]
+fn emits_tonumber_coercion_for_mixed_string_number_relational() {
+    let source = source_for(
+        r#"
+export function mixedRelational(key: string, len: number): boolean {
+  return key >= 0 && key < len;
+}
+export function lexicalRelational(a: string, b: string): boolean {
+  return a < b;
+}
+"#,
+    );
+
+    // The string side of a string-vs-number comparison is ToNumber-coerced.
+    assert!(
+        source.contains(").parse::<f64>().unwrap_or(f64::NAN)) >= (0.0)"),
+        "string >= number must ToNumber-coerce the string side: {source}"
+    );
+    // A raw, non-coerced `String >= 0.0` must never be emitted.
+    assert!(
+        !source.contains("\"\".to_owned() >= 0.0"),
+        "raw String relational must not be emitted"
+    );
+    // String-vs-string comparison stays lexical (no ToNumber coercion applied).
+    assert!(
+        source.contains("< b") && !source.contains("(a).parse::<f64>"),
+        "string-vs-string comparison must stay lexical: {source}"
+    );
+}
+
 #[test]
 fn emits_captured_class_method_call_inside_map_callback() {
     // Issue #64: a captured class instance whose method is called inside a

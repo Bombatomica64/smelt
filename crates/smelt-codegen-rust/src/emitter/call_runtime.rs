@@ -365,6 +365,9 @@ impl FunctionEmitter<'_> {
                 if let Some(text) = self.heterogeneous_equality_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }
+                if let Some(text) = self.mixed_string_number_relational_text(*op, lhs, rhs)? {
+                    return Ok(text);
+                }
                 if let Some(text) = self.numeric_comparison_text(*op, lhs, rhs, dest_ty)? {
                     return Ok(text);
                 }
@@ -1840,6 +1843,66 @@ impl FunctionEmitter<'_> {
             self.value_at_type_text(&lhs_text, lhs_ty, common_ty)?,
             smelt_hir::bin_op_text(op),
             self.value_at_type_text(&rhs_text, rhs_ty, common_ty)?
+        )))
+    }
+
+    /// Emits a JS relational comparison (`<`, `<=`, `>`, `>=`) where exactly one
+    /// operand is statically a `String` and the other is numeric.
+    ///
+    /// JavaScript's relational algorithm runs `ToNumber` on both operands unless
+    /// *both* are strings (then it compares lexically). A `String`-vs-number
+    /// comparison therefore coerces the string side with `ToNumber`: numeric
+    /// strings parse to their value and non-numeric strings become `NaN`, so
+    /// every comparison against them is `false` — matching JS. Without this arm
+    /// the operands reach a raw `String {op} f64` which does not type-check
+    /// (E0308). String-vs-string lexical comparison is left untouched (handled by
+    /// the default path), and cases where a side is optional are handled earlier
+    /// by `optional_binary_text`.
+    fn mixed_string_number_relational_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(
+            op,
+            smelt_hir::BinOp::Lt
+                | smelt_hir::BinOp::Lte
+                | smelt_hir::BinOp::Gt
+                | smelt_hir::BinOp::Gte
+        ) {
+            return Ok(None);
+        }
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        let lhs_is_string = matches!(self.mir.types.get(lhs_ty), Some(Type::String));
+        let rhs_is_string = matches!(self.mir.types.get(rhs_ty), Some(Type::String));
+        // Only a genuine string-vs-number mix; string-vs-string stays lexical and
+        // number-vs-number is handled by `numeric_comparison_text`.
+        if lhs_is_string == rhs_is_string {
+            return Ok(None);
+        }
+        let numeric_side_ty = if lhs_is_string { rhs_ty } else { lhs_ty };
+        if !self.is_numeric_type(numeric_side_ty) {
+            return Ok(None);
+        }
+        // `ToNumber` a string operand: parse to `f64`, non-numeric text -> `NaN`,
+        // mirroring the `SmeltUnknown` ToNumber path used elsewhere in codegen.
+        let string_to_number = |text: String| format!("({text}).parse::<f64>().unwrap_or(f64::NAN)");
+        let float_ty = self.type_id(Type::Float)?;
+        let lhs_text = if lhs_is_string {
+            string_to_number(self.operand_text(lhs)?)
+        } else {
+            self.value_at_type(lhs, float_ty)?
+        };
+        let rhs_text = if rhs_is_string {
+            string_to_number(self.operand_text(rhs)?)
+        } else {
+            self.value_at_type(rhs, float_ty)?
+        };
+        Ok(Some(format!(
+            "({lhs_text}) {} ({rhs_text})",
+            smelt_hir::bin_op_text(op)
         )))
     }
 
