@@ -1372,6 +1372,27 @@ const result = utility.shift([1, 2, 3], 2);
 }
 
 #[test]
+fn imported_namespace_reduce_defers_async_callback_contract() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as utility from "./utility";
+const sum = async (left: number, right: number): Promise<number> => left + right;
+const result = utility.reduce([1, 2, 3], sum, 0);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(!body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::ListReduce { .. })));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn utility_namespace_replace_defers_before_string_arity_validation() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

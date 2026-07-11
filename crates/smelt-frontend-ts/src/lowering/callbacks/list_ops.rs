@@ -748,6 +748,18 @@ impl ModuleBuilder<'_> {
         if member.property.name != "reduce" {
             return Ok(None);
         }
+        // A star-imported namespace owns its exported `reduce` function. Its
+        // callback contract may differ from `Array.prototype.reduce` (for
+        // example, an async reducer returning `Promise<T>`), so leave opaque
+        // imports to generic namespace-call lowering. Locally registered
+        // utility objects can still use the modeled static reduce form below.
+        if matches!(
+            &member.object,
+            Expression::Identifier(object)
+                if self.namespace_imports.contains(object.name.as_str())
+        ) {
+            return Ok(None);
+        }
         if Self::is_static_reduce_utility_call(call) {
             return self.static_reduce_utility_call(call, body, member);
         }
