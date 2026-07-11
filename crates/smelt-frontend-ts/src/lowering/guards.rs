@@ -943,13 +943,14 @@ impl ModuleBuilder<'_> {
             return self.expression(expression, body);
         }
         let target = self.ts_type_to_hir(annotation)?;
-        if self.concrete_type_requires_never_value(target)
-            && !Self::is_empty_object_expression(expression)
-        {
-            return Err(SmeltError::unsupported(
-                self.span(span.start, span.end),
-                "type assertion cannot construct a never value",
-            ));
+        if self.concrete_type_requires_never_value(target) {
+            // TypeScript assertions are erased at runtime. An assertion such
+            // as `null as unknown as never` does not construct an impossible
+            // value; it evaluates the original `null`. Keep the operand's real
+            // shape instead of forcing an uninhabited Rust destination. Actual
+            // declarations/containers whose storage type requires `never`
+            // remain rejected by their declaration and literal checks.
+            return self.expression(expression, body);
         }
         if let Some(parsed) = self.json_parse_call_with_target(expression, target, span, body)? {
             return Ok(parsed);
@@ -999,26 +1000,6 @@ impl ModuleBuilder<'_> {
                     TSTypeName::IdentifierReference(name) if name.name == "const"
                 )
         )
-    }
-
-    /// Return whether an expression is an empty object literal after TS-only wrappers.
-    pub(super) fn is_empty_object_expression(expression: &Expression<'_>) -> bool {
-        match expression {
-            Expression::ObjectExpression(object) => object.properties.is_empty(),
-            Expression::ParenthesizedExpression(parenthesized) => {
-                Self::is_empty_object_expression(&parenthesized.expression)
-            }
-            Expression::TSAsExpression(assertion) => {
-                Self::is_empty_object_expression(&assertion.expression)
-            }
-            Expression::TSSatisfiesExpression(assertion) => {
-                Self::is_empty_object_expression(&assertion.expression)
-            }
-            Expression::TSNonNullExpression(assertion) => {
-                Self::is_empty_object_expression(&assertion.expression)
-            }
-            _ => false,
-        }
     }
 
     /// Lower a function call argument.
@@ -1119,6 +1100,7 @@ impl ModuleBuilder<'_> {
             }
             Argument::LogicalExpression(logical) => self.logical_expression(logical, body),
             Argument::UnaryExpression(unary) => self.unary_expression(unary, body),
+            Argument::UpdateExpression(update) => self.update_expression(update, body),
             Argument::ArrayExpression(array) => self.array_expression(array, body, None),
             Argument::ObjectExpression(object) => self.object_expression(object, body, None),
             Argument::CallExpression(call) => self.call_expression(call, body),
@@ -1527,10 +1509,10 @@ impl ModuleBuilder<'_> {
         if callee.name != "Promise" {
             return Ok(None);
         }
-        let [Argument::ArrowFunctionExpression(executor)] = new_expr.arguments.as_slice() else {
+        let [executor_arg] = new_expr.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
-                "Promise constructor lowering supports one arrow executor",
+                "Promise constructor lowering requires one executor",
             ));
         };
         let output_ty = type_hint
@@ -1549,8 +1531,14 @@ impl ModuleBuilder<'_> {
         // timer callback does real work (e.g. `() => resolve(value)`) must flow
         // through `AsyncOp::Promise`, which threads `resolve`/`reject`; treating
         // it as `Sleep` would silently discard the resolved value.
-        let bare_delay_timer = Self::promise_executor_timer_call(executor)
-            .filter(|timer_call| Self::promise_executor_is_bare_delay(executor, timer_call));
+        let bare_delay_timer = match executor_arg {
+            Argument::ArrowFunctionExpression(executor) => {
+                Self::promise_executor_timer_call(executor).filter(|timer_call| {
+                    Self::promise_executor_is_bare_delay(executor, timer_call)
+                })
+            }
+            _ => None,
+        };
         let duration = if let Some(timer_call) = bare_delay_timer {
             let Some(duration_argument) = timer_call.arguments.get(1) else {
                 return Err(SmeltError::unsupported(
@@ -1595,9 +1583,6 @@ impl ModuleBuilder<'_> {
                 is_async: false,
                 may_throw: false,
             }));
-            let Some(executor_arg) = new_expr.arguments.first() else {
-                return Ok(None);
-            };
             let executor_expr = self.argument_with_hint(executor_arg, body, Some(executor_ty))?;
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::AsyncOp {

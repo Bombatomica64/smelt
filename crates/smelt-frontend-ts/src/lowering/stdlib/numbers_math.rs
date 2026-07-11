@@ -26,6 +26,12 @@ impl ModuleBuilder<'_> {
             "replaceAll" => StringReplaceOp::All,
             _ => return Ok(None),
         };
+        // Utility namespaces may export a collection helper named `replace`
+        // with a wider signature. Defer before applying String/RegExp instance
+        // arity rules so the namespace member-call path owns that invocation.
+        if self.imported_utility_object(&member.object) {
+            return Ok(None);
+        }
         let [pattern_arg, replacement_arg] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -663,28 +669,57 @@ return_ty: string_ty,
         if object.name != "Number" || member.property.name != "parseFloat" {
             return Ok(None);
         }
-        let [argument] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "Number.parseFloat requires exactly one string argument",
-            ));
-        };
-        let operand = self.argument(argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "Number.parseFloat requires a string argument",
-            ));
-        }
+        let operand = self.parse_float_operand("Number.parseFloat", call, body)?;
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::PrimitiveCast {
-                op: PrimitiveCastOp::ToFloat,
+                op: PrimitiveCastOp::ParseFloat,
                 operand,
             },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower one JavaScript `parseFloat` operand through its `ToString` step.
+    ///
+    /// ECMAScript parses the string representation of its input rather than
+    /// requiring the runtime value to already be a string. Keeping this as an
+    /// explicit nested primitive cast preserves erased `any`/`unknown` values
+    /// until the existing string coercion boundary instead of asserting that
+    /// their runtime representation is a Rust `String`.
+    pub(in crate::lowering) fn parse_float_operand(
+        &mut self,
+        source_name: &str,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("{source_name} requires exactly one argument"),
+            ));
+        };
+        let operand = self.argument(argument, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) == Some(&Type::String) {
+            return Ok(operand);
+        }
+        if !self.primitive_cast_accepts_operand(PrimitiveCastOp::ToString, operand_ty) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("{source_name} argument cannot be coerced to a string"),
+            ));
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToString,
+                operand,
+            },
+            ty: string_ty,
+            span: self.span(argument.span().start, argument.span().end),
+        }))
     }
 
     /// Lower direct TypeScript `Number.parseInt(...)` calls.

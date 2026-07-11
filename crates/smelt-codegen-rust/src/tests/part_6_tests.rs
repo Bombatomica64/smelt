@@ -49,6 +49,30 @@ const no = Array.isArray(1);
 }
 
 #[test]
+fn emits_first_class_array_is_array_runtime_probe() {
+    let source = source_for(
+        r#"
+const isArray = Array.isArray;
+const arrayResult = isArray([1]);
+const stringResult = isArray("value");
+"#,
+    );
+
+    assert!(
+        source.contains("matches!(closure_arg_0.clone(), SmeltUnknown::Array(_))"),
+        "expected the first-class builtin to retain its runtime array probe: {source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Array("),
+        "expected concrete arrays to adapt into the runtime-inspection boundary: {source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::String("),
+        "expected concrete primitives to adapt into the runtime-inspection boundary: {source}"
+    );
+}
+
+#[test]
 fn emits_object_projection_methods() {
     let source = source_for(
         r#"

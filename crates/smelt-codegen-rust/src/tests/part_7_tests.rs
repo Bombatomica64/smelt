@@ -2071,6 +2071,28 @@ function isArray(value: unknown): boolean {
 }
 
 #[test]
+fn preserves_runtime_value_through_never_assertion() {
+    let source = source_for(
+        r#"
+function consume(value: unknown): boolean {
+  return value === null;
+}
+const result = consume(null as unknown as never);
+const tuple = [1] as unknown as [never];
+const record = {} as Record<string, never>;
+"#,
+    );
+
+    assert!(
+        source.contains(": SmeltUnknown = SmeltUnknown::Null;")
+            && source.contains("consume(_smelt_tmp_")
+            && source.contains("SmeltUnknown::Array(vec![SmeltUnknown::Number(1.0 as f64)]")
+            && source.contains("SmeltRecord::from([])"),
+        "erased direct and compound assertions must retain their runtime values: {source}"
+    );
+}
+
+#[test]
 fn emits_array_entries_for_guarded_erased_generic() {
     let source = source_for(
         r"

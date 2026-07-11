@@ -1240,7 +1240,7 @@ const checkFinite = take(isFinite);
         PrimitiveCastOp::ToString,   // String
         PrimitiveCastOp::ToBool,     // Boolean
         PrimitiveCastOp::ToInt,      // parseInt
-        PrimitiveCastOp::ToFloat,    // parseFloat
+        PrimitiveCastOp::ParseFloat, // parseFloat
     ] {
         ensure!(cast_ops.contains(&expected), "missing cast op {expected:?}");
     }
@@ -1294,6 +1294,196 @@ const finite = [1, 2, 3].filter(isFinite);
             })
         });
     ensure!(has_to_js_number, "map(Number) callback did not lower to a ToJsNumber cast");
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_is_array_as_first_class_function_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const isArray = Array.isArray;
+const yes = isArray([1]);
+const no = isArray("value");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Closure(_)))
+    );
+    ensure!(
+        ctx.krate.bodies.iter().any(
+            |closure_body| closure_body.exprs.iter().any(|expr| matches!(
+                expr.kind,
+                ExprKind::UnknownIs {
+                    kind: smelt_hir::UnknownKind::Array,
+                    ..
+                }
+            ))
+        )
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn utility_namespace_sort_defers_before_array_arity_validation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as utility from "./utility";
+const result = utility.sort([3, 1, 2], value => value, true);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(!body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::ListSort { .. }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn utility_namespace_shift_defers_before_array_arity_validation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as utility from "./utility";
+const result = utility.shift([1, 2, 3], 2);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(!body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::ListShift { .. }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn imported_namespace_reduce_defers_async_callback_contract() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as utility from "./utility";
+const sum = async (left: number, right: number): Promise<number> => left + right;
+const result = utility.reduce([1, 2, 3], sum, 0);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(!body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::ListReduce { .. })));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn utility_namespace_replace_defers_before_string_arity_validation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as utility from "./utility";
+const result = utility.replace(["a"], "b", value => value === "a");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(!body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::StringReplace { .. }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_trim_inside_filter_callback_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values = [" a ", " "].filter(value => !!value.trim());
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(
+        |expr| matches!(
+            expr.kind,
+            ExprKind::StringTrim {
+                side: StringTrimSide::Both,
+                ..
+            }
+        )
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn coerces_erased_string_trim_receiver_inside_callback_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function clean(value: any): any[] {
+  return [value].filter(item => !!item.trim());
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            let ExprKind::StringTrim { operand, .. } = expr.kind else {
+                return false;
+            };
+            usize::try_from(operand.0).ok().is_some_and(|index| {
+                matches!(
+                    body.exprs.get(index).map(|operand| &operand.kind),
+                    Some(ExprKind::TypeAssert { .. })
+                )
+            })
+        })
+    }));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn first_class_array_is_array_respects_shadowing() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const Array = { isArray: (value: unknown): boolean => false };
+const predicate = Array.isArray;
+const result = predicate([1]);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(!body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::UnknownIs {
+            kind: smelt_hir::UnknownKind::Array,
+            ..
+        }
+    )));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -3184,6 +3374,57 @@ function makeValue(): Promise<number> {
     )?;
     let _module = module(&ctx, module_id)?;
 
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_named_promise_constructor_executor_as_future() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function makeQueue(): Promise<number[]> {
+  const processor = async (resolve: (value: number[]) => void) => {
+    resolve([1, 2]);
+  };
+  return new Promise(processor);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::AsyncOp {
+            op: smelt_hir::AsyncOp::Promise,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_postfix_update_as_call_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function collect(value: number): number {
+  return value;
+}
+let index = 0;
+const previous = collect(index++);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::Call { .. })));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

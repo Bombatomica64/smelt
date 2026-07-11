@@ -305,6 +305,50 @@ fn rejects_runtime_never_values() -> Result<(), String> {
 }
 
 #[test]
+fn preserves_runtime_value_of_never_assertions() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function intersects<T>(left: readonly T[], right: readonly T[]): boolean {
+  return false;
+}
+
+const left = intersects(null as unknown as never, []);
+const right = intersects([], null as unknown as never);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let calls = body
+        .exprs
+        .iter()
+        .filter_map(|expr| match &expr.kind {
+            ExprKind::Call { args, .. } => Some(args),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ensure_eq!(calls.len(), 2);
+    for args in calls {
+        ensure!(args.iter().any(|argument| {
+            let Some(ExprKind::TypeAssert { value }) = body
+                .exprs
+                .get(argument.0 as usize)
+                .map(|expr| &expr.kind)
+            else {
+                return false;
+            };
+            matches!(
+                body.exprs.get(value.0 as usize).map(|expr| &expr.kind),
+                Some(ExprKind::Literal(Literal::None))
+            )
+        }));
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn allows_never_inside_uninhabited_union_assertion_branch() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

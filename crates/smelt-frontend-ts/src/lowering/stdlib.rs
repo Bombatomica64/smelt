@@ -1681,6 +1681,12 @@ impl ModuleBuilder<'_> {
         if member.property.name != "shift" {
             return Ok(None);
         }
+        // A utility namespace can export a free function named
+        // `shift(list, amount)`. Defer it before applying the zero-argument
+        // contract of `Array.prototype.shift`.
+        if self.imported_utility_object(&member.object) {
+            return Ok(None);
+        }
         if !call.arguments.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -1772,6 +1778,13 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         if member.property.name != "sort" {
+            return Ok(None);
+        }
+        // A star-import/object utility namespace may export a free function
+        // named `sort(list, getter, descending)`. It is not an invocation of
+        // `Array.prototype.sort`, so defer before validating instance-method
+        // arity or lowering a comparator.
+        if self.imported_utility_object(&member.object) {
             return Ok(None);
         }
         let comparator_argument = match call.arguments.as_slice() {

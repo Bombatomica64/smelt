@@ -452,6 +452,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::PrimitiveCastOp::ToBool => "bool",
                 smelt_hir::PrimitiveCastOp::ToInt => "int",
                 smelt_hir::PrimitiveCastOp::ToFloat => "float",
+                smelt_hir::PrimitiveCastOp::ParseFloat => "parse_float",
                 smelt_hir::PrimitiveCastOp::ToJsNumber => "js_number",
                 smelt_hir::PrimitiveCastOp::ToString => "string",
             };
