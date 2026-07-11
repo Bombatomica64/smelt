@@ -547,10 +547,30 @@ impl FunctionEmitter<'_> {
                     } else {
                         out.push_str(&format!("    return {};\n", self.operand_text(operand)?));
                     }
-                } else if self.function.can_throw {
-                    if self.function.return_ty == self.none_ty {
+                } else if self.function.return_ty == self.none_ty {
+                    // A `void`/`None` return still evaluates its operand for
+                    // side effects when one is present. The Rust output type is
+                    // `Result<(), _>` whenever the function is fallible *or*
+                    // async (async lowering always produces a `Result` output),
+                    // so wrap the terminator in `Ok(())` in both those cases.
+                    if !matches!(operand, Operand::Const(Constant::None))
+                        && self.operand_ty(operand)? != self.none_ty
+                    {
+                        out.push_str(&format!("    {};\n", self.operand_text(operand)?));
+                    }
+                    if self.function.can_throw || self.function.is_async {
                         out.push_str("    return Ok(());\n");
-                    } else if matches!(operand, Operand::Const(Constant::None))
+                    } else {
+                        out.push_str("    return;\n");
+                    }
+                } else if self.function.can_throw || self.function.is_async {
+                    // Fallible and async functions both return `Result<T, _>` in
+                    // Rust, so the returned value must be wrapped in `Ok(..)`.
+                    // Async is the addition here: an `async fn` desugars to a
+                    // future whose `Output` is `Result<T, _>` even when the
+                    // source body never throws, so a bare `return value;` would
+                    // mismatch the `Result` output (E0308).
+                    if matches!(operand, Operand::Const(Constant::None))
                         && self.has_plain_default_value(self.function.return_ty)
                     {
                         out.push_str(&format!(
@@ -562,17 +582,6 @@ impl FunctionEmitter<'_> {
                             "    return Ok({});\n",
                             self.value_at_type(operand, self.function.return_ty)?
                         ));
-                    }
-                } else if self.function.return_ty == self.none_ty {
-                    if !matches!(operand, Operand::Const(Constant::None))
-                        && self.operand_ty(operand)? != self.none_ty
-                    {
-                        out.push_str(&format!("    {};\n", self.operand_text(operand)?));
-                    }
-                    if self.function.is_async {
-                        out.push_str("    return Ok(());\n");
-                    } else {
-                        out.push_str("    return;\n");
                     }
                 } else if self.mir.types.get(self.function.return_ty) == Some(&Type::Unknown)
                     && let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =

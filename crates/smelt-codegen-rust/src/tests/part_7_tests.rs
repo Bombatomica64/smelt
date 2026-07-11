@@ -40,6 +40,33 @@ export async function attemptAsync<T, E>(func: () => Promise<T>): Promise<[null,
     );
 }
 
+/// An `async` function desugars to a future whose `Output` is
+/// `Result<T, Box<dyn Error>>`, even when the source body never throws. A
+/// `return value;` inside such a body must therefore be wrapped in `Ok(..)`;
+/// emitting a bare `return value;` mismatched the `Result` output (E0308). This
+/// exercises a non-throwing async function returning a concrete value.
+#[test]
+fn async_non_throwing_return_is_ok_wrapped() {
+    let source = source_for(
+        r#"
+export async function firstEven(values: number[]): Promise<number> {
+  for (const value of values) {
+    if (value % 2 === 0) {
+      return value;
+    }
+  }
+  return -1;
+}
+"#,
+    );
+
+    assert!(source.contains("async fn first_even"), "{source}");
+    // Both the mid-body and trailing return are wrapped in Ok(..).
+    assert!(source.contains("return Ok("), "{source}");
+    // No bare numeric return leaks past the Result output.
+    assert!(!source.contains("return -1.0;"), "{source}");
+}
+
 #[test]
 fn emits_concrete_union_enum_and_projects_typeof_narrowed_local() {
     let source = source_for(

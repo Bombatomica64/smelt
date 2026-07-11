@@ -19,7 +19,7 @@ fn run() -> Result<f64, Box<dyn std::error::Error>> {
     let _smelt_tmp_3: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<f64, Box<dyn std::error::Error>>>>> = (lift)(4.0);
     let _smelt_tmp_4: f64 = _smelt_tmp_3.await?;
     let result: f64 = _smelt_tmp_4;
-    return result;
+    return Ok(result);
 }
 
 fn main() {
