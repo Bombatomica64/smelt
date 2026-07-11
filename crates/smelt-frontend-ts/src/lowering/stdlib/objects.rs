@@ -1663,6 +1663,9 @@ return_ty,
             "replaceAll" => StringReplaceOp::All,
             _ => return Ok(None),
         };
+        if self.imported_utility_object(&member.object) {
+            return Ok(None);
+        }
         let [pattern_argument, replacement_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),

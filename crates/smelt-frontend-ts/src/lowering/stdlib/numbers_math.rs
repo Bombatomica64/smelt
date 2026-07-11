@@ -26,6 +26,12 @@ impl ModuleBuilder<'_> {
             "replaceAll" => StringReplaceOp::All,
             _ => return Ok(None),
         };
+        // Utility namespaces may export a collection helper named `replace`
+        // with a wider signature. Defer before applying String/RegExp instance
+        // arity rules so the namespace member-call path owns that invocation.
+        if self.imported_utility_object(&member.object) {
+            return Ok(None);
+        }
         let [pattern_arg, replacement_arg] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
