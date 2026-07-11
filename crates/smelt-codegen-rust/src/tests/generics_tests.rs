@@ -329,3 +329,40 @@ export function difference<T>(firstArr: readonly T[], secondArr: readonly T[]): 
     // The erased carrier does not leak into the callback element position.
     assert!(!source.contains("closure_arg_0: SmeltUnknown"));
 }
+
+#[test]
+fn spread_call_erases_optional_union_callee() {
+    // A callee captured into a closure whose static type is an
+    // `Optional<union>` (here `iteratee` popped off a rest array, then narrowed)
+    // renders as `Option<SmeltUnknown>`. The runtime dynamic-dispatch snippet
+    // matches the callee over `SmeltUnknown` discriminants, so the callee must
+    // be erased to the bare runtime carrier before the match. Previously the
+    // raw `Option<SmeltUnknown>` was fed into the match, producing an
+    // `Option<SmeltUnknown>` vs `SmeltUnknown` mismatch (es-toolkit `zipWith`
+    // E0308 family).
+    let source = source_for(
+        r"
+export function zipLike<T, R>(
+  ...combine: Array<((...g: T[]) => R) | ArrayLike<T>>
+): R[] {
+  const iteratee = combine.pop();
+  const groups = combine as Array<ArrayLike<T>>;
+  if (iteratee == null) {
+    return [];
+  }
+  return groups.map(group => iteratee(...(group as T[]))) as R[];
+}
+",
+    );
+    let dispatch = source
+        .lines()
+        .find(|line| line.contains("let smelt_function_value = iteratee"))
+        .expect("expected a dynamic-dispatch snippet over the optional callee");
+    // The callee is erased to the runtime carrier before the discriminant match
+    // instead of a bare `Option` being matched directly.
+    assert!(
+        dispatch.contains("iteratee.clone().clone().map_or("),
+        "optional callee must be erased before the runtime match: {dispatch}"
+    );
+    assert!(dispatch.contains("match smelt_function_value { SmeltUnknown::Function"));
+}

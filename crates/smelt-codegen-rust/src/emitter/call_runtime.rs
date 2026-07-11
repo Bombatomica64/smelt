@@ -1031,7 +1031,18 @@ impl FunctionEmitter<'_> {
                     }
                     return self.value_at_type_text(&call_text, function.return_ty, dest_ty);
                 }
-                let call_text = self.dynamic_callable_dispatch_text(&callee_text, &args_text);
+                // The runtime dispatch snippet matches the callee over
+                // `SmeltUnknown` discriminants, so the callee value must be the
+                // bare erased carrier. A callee typed as `Optional<..>` or a
+                // concrete union renders as `Option<SmeltUnknown>` /
+                // `SmeltUnion..`, not `SmeltUnknown`; erase it to the runtime
+                // carrier first (flow can narrow an optional callable to a
+                // definitely-present function, and this unwraps it) so the match
+                // sees the shape it expects instead of failing to type-check
+                // (E0308). An already-`Unknown` callee coerces to itself.
+                let erased_callee =
+                    self.value_at_type_text(&callee_text, self.operand_ty(callee)?, unknown_ty)?;
+                let call_text = self.dynamic_callable_dispatch_text(&erased_callee, &args_text);
                 if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                     return Ok(call_text);
                 }
