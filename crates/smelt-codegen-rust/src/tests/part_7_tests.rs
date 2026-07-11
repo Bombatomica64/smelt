@@ -6149,6 +6149,31 @@ function opt(record: Record<string, unknown>): boolean | number {
 }
 
 #[test]
+fn indexes_concrete_union_list_with_union_missing_default() {
+    // Out-of-bounds element access on a `SmeltList<SmeltUnion…>` must default to
+    // a union value, not the erased `SmeltUnknown::Undefined`. The list element
+    // is a tagged `SmeltUnion…`, so `.get(idx).cloned().unwrap_or(default)`
+    // requires the default to be an actual union value (E0308 otherwise).
+    let source = source_for(
+        r"
+export function pick(keys: Array<string | number>, i: number): string | number {
+  return keys[i];
+}
+",
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    assert!(
+        source.contains(".cloned().unwrap_or(SmeltUnion"),
+        "missing element default must be a concrete union value: {source}"
+    );
+    assert!(
+        !source.contains(".cloned().unwrap_or(SmeltUnknown::Undefined)"),
+        "concrete-union element default must not be the erased undefined: {source}"
+    );
+}
+
+#[test]
 fn lowers_function_expression_array_callback() {
     // A `function (...) { ... }` expression callback (issue #86) must lower into
     // the array method's callback closure just like the equivalent arrow, rather

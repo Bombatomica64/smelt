@@ -2945,8 +2945,19 @@ impl FunctionEmitter<'_> {
         ) || self.is_erased_class_type(receiver_ty)
         {
             let field_name = self.symbol_source_name(field)?;
+            // A concrete generated union (`SmeltUnion…`) is not a `SmeltUnknown`,
+            // so the object-narrowing match below must first erase it through its
+            // `IntoSmeltUnknown` boundary. `receiver_text` may be a borrow (e.g.
+            // an `.as_ref().map(|_smelt_value| …)` closure parameter), so clone
+            // before consuming. Genuine `Unknown` receivers already carry the
+            // erased value and are matched directly.
+            let scrutinee = if self.concrete_union_members(receiver_ty).is_some() {
+                format!("{receiver_text}.clone().into_smelt_unknown()")
+            } else {
+                receiver_text.to_owned()
+            };
             return Ok(format!(
-                "match {receiver_text} {{ SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                "match {scrutinee} {{ SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
             ));
         }
         if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {

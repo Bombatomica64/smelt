@@ -274,12 +274,18 @@ impl FunctionEmitter<'_> {
                             Some(Type::TypeParam { name })
                                 if self.current_function_has_type_param(*name)
                         );
+                        // A concrete generated union element is a tagged
+                        // `SmeltUnion…`, not a `SmeltUnknown`, so its missing
+                        // value must be a union value (`default_value` produces
+                        // one) rather than the erased `SmeltUnknown::Undefined`
+                        // used for genuinely erased element types.
                         let missing = if item_is_in_scope_type_param {
                             self.default_value(*item_ty)?
                         } else if matches!(
                             self.mir.types.get(*item_ty),
                             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                        ) {
+                        ) && self.concrete_union_members(*item_ty).is_none()
+                        {
                             "SmeltUnknown::Undefined".to_owned()
                         } else {
                             self.default_value(*item_ty)?
