@@ -1542,3 +1542,30 @@ class Latch {
         "value-class async method still emitted as `async fn`: {out}"
     );
 }
+
+/// Regression (throwing-await output ABI): awaiting a future whose output type
+/// differs from the destination binding must coerce from the future's inner
+/// item type, not bind the raw awaited value. A value awaited in `void`/`()`
+/// context inside a `try` (the throwing-await path) is discarded rather than
+/// bound to a `()`-typed local as a `SmeltUnknown` (previously E0308, seen in
+/// es-toolkit `withTimeout` specs).
+#[test]
+fn throwing_await_discards_value_in_void_context() {
+    let out = source_for(
+        r#"
+async function makeValue(): Promise<number> {
+  return 1;
+}
+async function run(): Promise<void> {
+  try {
+    await makeValue();
+  } catch (e) {}
+}
+"#,
+    );
+    assert!(
+        !out.contains(": () = __smelt_value;"),
+        "throwing await bound a non-() awaited value to a () local: {out}"
+    );
+}
+

@@ -853,6 +853,18 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
+        // The awaited value has the future's inner item type, which may differ
+        // from the destination local's type. A `void`/`()` await destination
+        // discards its result, but the future's actual output is often a real
+        // value (e.g. `withTimeout` yields `SmeltUnknown`) whose MIR item type
+        // has been erased to `None` on the void-context future local. Binding
+        // that value to a `()` local directly is E0308, so a `()` destination
+        // always consumes and drops the awaited value. Otherwise coerce from the
+        // future's output type to the binding type.
+        let awaited_ty = match self.mir.types.get(self.operand_ty(future)?) {
+            Some(Type::Future(item)) => *item,
+            _ => local.ty,
+        };
         if matches!(
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
@@ -860,9 +872,14 @@ impl FunctionEmitter<'_> {
             out.push_str(&format!(
                 "            let {mutability}{name} = __smelt_value;\n"
             ));
-        } else {
+        } else if self.mir.types.get(local.ty) == Some(&Type::None) {
             out.push_str(&format!(
-                "            let {mutability}{name}: {} = __smelt_value;\n",
+                "            let {mutability}{name}: () = {{ let _ = __smelt_value; }};\n"
+            ));
+        } else {
+            let value_text = self.value_at_type_text("__smelt_value", awaited_ty, local.ty)?;
+            out.push_str(&format!(
+                "            let {mutability}{name}: {} = {value_text};\n",
                 self.type_text_with_impl_trait(local.ty, false)?
             ));
         }
