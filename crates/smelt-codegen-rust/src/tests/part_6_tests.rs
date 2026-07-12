@@ -944,3 +944,83 @@ async function run(p: Promise<number>, cb: (v: number) => void): Promise<void> {
         .expect("async block after hoist");
     assert!(async_block > 0, "hoist must come before async move: {source}");
 }
+
+/// A zero-arity `.then`/`.catch` continuation callback must be invoked with NO
+/// arguments even though the promise machinery always has a resolved value on
+/// hand: JavaScript passes the value, but a 0-parameter Rust closure would
+/// reject it (was E0057). The value is dropped through `let _ = ..`.
+#[test]
+fn promise_then_zero_arity_callback_dropped_value() {
+    let source = source_for(
+        r"
+async function run(p: Promise<number>): Promise<void> {
+  const cb = () => { return; };
+  await p.then(cb);
+}
+",
+    );
+    assert!(
+        source.contains("let _ = smelt_value; (smelt_promise_callback)()"),
+        "0-arity then callback must be called with no args, value dropped: {source}"
+    );
+}
+
+/// A throwing async callback returns a future whose Rust type is
+/// `-> SmeltFuture<..>` with no outer `Result` (the throw lives in the future's
+/// output). An adapter chain / promise erasure around such a callback must NOT
+/// re-wrap the forwarded future in `Ok(..)`, or the await seam observes a nested
+/// `Result<Result<Future, _>, _>` (was E0277).
+#[test]
+fn throwing_async_callback_future_not_double_wrapped() {
+    let source = source_for(
+        r"
+export function limitAsync(
+  fn: (...args: unknown[]) => Promise<unknown>,
+  concurrency: number
+): (...args: unknown[]) => Promise<unknown> {
+  return fn;
+}
+
+async function run(): Promise<void> {
+  const callback = async (item: number): Promise<number> => {
+    if (item === 2) {
+      throw new Error('fail');
+    }
+    return item;
+  };
+  const limited = limitAsync(callback, 2);
+  await limited(1);
+}
+",
+    );
+    assert!(
+        !source.contains("Ok::<_, Box<dyn std::error::Error>>((smelt_callback)(smelt_args"),
+        "future-returning adapter must forward the bare future, not re-wrap in Ok: {source}"
+    );
+}
+
+/// A local declared with an explicit `any` annotation is the erased dynamic
+/// boundary by source spelling, so a later concrete object assignment must not
+/// flow-narrow it to that value's record type. Otherwise a self-referential
+/// write (`o.b = o`) demands a concrete record value the erased shape cannot
+/// supply (was E0308: expected `f64`, found `SmeltRecord<String, f64>`).
+#[test]
+fn explicit_any_local_not_narrowed_by_assignment() {
+    let source = source_for(
+        r#"
+export function run(): void {
+  let o: any = { a: true };
+  o = { a: 1, b: 2, c: 3 };
+  o.b = o;
+}
+"#,
+    );
+    assert!(
+        source.contains("let mut o: SmeltUnknown"),
+        "explicit any local must keep its erased SmeltUnknown storage type: {source}"
+    );
+    assert!(
+        source.contains("match &mut o { SmeltUnknown::Object(map)"),
+        "write through an explicit any local must go through the erased boundary: {source}"
+    );
+}

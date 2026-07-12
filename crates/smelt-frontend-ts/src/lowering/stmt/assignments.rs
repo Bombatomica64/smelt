@@ -2077,6 +2077,14 @@ impl ModuleBuilder<'_> {
         if self.ctx.krate.types.get(observed_ty) == Some(&Type::Unknown) {
             return;
         }
+        // A local declared with an explicit `any` annotation stays pinned to the
+        // erased `Unknown` boundary by source spelling. Narrowing it to a concrete
+        // assignment's type would let later writes through the boundary (e.g.
+        // `obj.b = obj` where `obj` is a self-referential `any`) demand a concrete
+        // record value type that the erased shape cannot supply.
+        if self.explicit_any_locals.contains(&local) {
+            return;
+        }
         self.apply_narrowing(name.to_owned(), observed_ty);
     }
 

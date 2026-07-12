@@ -552,6 +552,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
+        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
         // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
         // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
         // must not leak into a sibling test that declares its own same-named
@@ -607,6 +608,7 @@ impl ModuleBuilder<'_> {
         }
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
+        self.explicit_any_locals = saved_explicit_any_locals;
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.restore_test_case_class_scope(&class_scope);
@@ -670,6 +672,7 @@ return_ty: none,
 
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
+        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
         // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
         // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
         // must not leak into a sibling test that declares its own same-named
@@ -738,6 +741,7 @@ return_ty: none,
         self.current_arguments_arities.pop();
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
+        self.explicit_any_locals = saved_explicit_any_locals;
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.restore_test_case_class_scope(&class_scope);

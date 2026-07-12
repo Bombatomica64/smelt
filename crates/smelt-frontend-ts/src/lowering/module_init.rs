@@ -87,6 +87,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ctx,
             locals: HashMap::new(),
             date_value_locals: HashSet::new(),
+            explicit_any_locals: HashSet::new(),
             module_globals: HashMap::new(),
             mutable_global_items: HashMap::new(),
             items,

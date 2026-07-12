@@ -494,6 +494,11 @@ struct ModuleBuilder<'ctx> {
     locals: HashMap<String, smelt_hir::LocalId>,
     /// Local values statically known to retain JavaScript `Date` identity.
     date_value_locals: HashSet<smelt_hir::LocalId>,
+    /// Locals declared with an explicit `any` annotation. Their storage type is
+    /// the erased `Unknown` boundary by source spelling, so a later concrete
+    /// assignment must not flow-narrow them to that value's type; the source
+    /// deliberately opted out of static shape tracking.
+    explicit_any_locals: HashSet<smelt_hir::LocalId>,
     /// Typed top-level mutable bindings visible from nested function bodies.
     module_globals: HashMap<String, smelt_hir::TypeId>,
     /// Module-level `let`/`var` bindings lifted to mutable globals, mapped to

@@ -3168,6 +3168,14 @@ impl ModuleBuilder<'_> {
                 {
                     self.date_value_locals.insert(local);
                 }
+                // An explicit `any` annotation pins the local to the erased
+                // `Unknown` boundary: record it so later concrete assignments do
+                // not flow-narrow its storage type away from `Unknown`.
+                if annotated_ty.is_some_and(|annotated| {
+                    matches!(self.ctx.krate.types.get(annotated), Some(Type::Unknown))
+                }) {
+                    self.explicit_any_locals.insert(local);
+                }
                 self.locals.insert(name.to_owned(), local);
                 let pat = body.push_pattern(Pattern::Binding(local));
                 body.push_stmt_to_block(block, Stmt::Let { pat, ty, value });
