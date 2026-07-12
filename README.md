@@ -151,7 +151,7 @@ Fork the repo and submit a pr :)
 | `smelt-asyncio` | 100.00% | 90.91% | 0.00% |
 | `smelt-codegen-rust` | 81.73% | 77.69% | 60.69% |
 | `smelt-frontend-py` | 78.25% | 74.47% | 67.39% |
-| `smelt-frontend-ts` | 81.83% | 75.40% | 65.39% |
+| `smelt-frontend-ts` | 81.83% | 75.39% | 65.39% |
 | `smelt-gui` | 13.89% | 13.72% | 81.25% |
 | `smelt-hir` | 57.02% | 30.62% | 56.90% |
 | `smelt-mir` | 78.33% | 76.18% | 68.65% |
@@ -162,6 +162,7 @@ Fork the repo and submit a pr :)
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
 | `smelt-transpiler` | 67.89% | 65.99% | 55.28% |
 <!-- COVERAGE:END -->
+
 
 
 
