@@ -30,6 +30,7 @@ mod coercion;
 mod control_flow;
 mod control_flow_match;
 mod core;
+mod host_interop;
 mod list;
 mod list_mutation;
 mod list_ordering;
