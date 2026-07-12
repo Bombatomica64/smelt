@@ -269,6 +269,22 @@ impl FunctionEmitter<'_> {
         match place {
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                // A JavaScript `RegExp.lastIndex` write stores into a
+                // `RefCell<usize>`, so the numeric right-hand side (typed
+                // `f64`) is narrowed back to `usize` at the write seam. The
+                // matching read path lives in `regexp_field_text`.
+                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+                    && self.is_regexp_class_symbol(*name)?
+                    && matches!(self.symbol_name(*field)?, "lastIndex" | "last_index")
+                {
+                    let rendered_value =
+                        self.rvalue_text_for_dest(value, self.type_id(Type::Float)?)?;
+                    out.push_str(&format!(
+                        "    *{}.last_index.borrow_mut() = ({rendered_value}) as usize;\n",
+                        self.local_value_text(*base)?
+                    ));
+                    return Ok(());
+                }
                 if let Some(statement) =
                     self.descriptor_setter_statement(*base, *field, value)?
                 {
