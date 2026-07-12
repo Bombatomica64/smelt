@@ -7373,3 +7373,87 @@ export function run(): unknown | undefined {
          `SmeltUnknown` result in `Some(..)`\n{source}"
     );
 }
+
+/// A `RegExp.lastIndex` write must target the backing `RefCell<usize>` through
+/// `borrow_mut()`, narrowing the numeric right-hand side back to `usize`. The
+/// former read-path text `(*regex.last_index.borrow() as f64)` is not a valid
+/// assignment target (E0070).
+#[test]
+fn regexp_last_index_write_targets_borrow_mut() {
+    let source = source_for(
+        r#"
+export function run(): number {
+  const regex = /a/g;
+  regex.lastIndex = 10;
+  return regex.lastIndex;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("*regex.last_index.borrow_mut() = (") && source.contains(") as usize;"),
+        "lastIndex write should go through borrow_mut with a usize cast\n{source}"
+    );
+    assert!(
+        !source.contains("borrow() as f64) = "),
+        "the invalid cast-as-lvalue read form must not be used for writes\n{source}"
+    );
+}
+
+/// Comparing a combinator result (already an erased `Rc<dyn Fn(...) -> _>`)
+/// against a locally bound concrete closure by identity must coerce both
+/// operands to the common `Rc<dyn Fn(...)>` type before `Rc::ptr_eq`, or the
+/// two distinct `Rc<T>` types fail to unify (E0308).
+#[test]
+fn function_ptr_eq_coerces_operands_to_common_dyn_type() {
+    let source = source_for(
+        r#"
+export function run(fns: Array<() => unknown>): boolean {
+  const a = fns[0];
+  const b = fns[1];
+  return a === b;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("::std::rc::Rc::ptr_eq(&{ let smelt_lhs_fn:")
+            && source.contains("let smelt_rhs_fn:"),
+        "function identity comparison must coerce both operands to a common \
+         dyn-Fn type before ptr_eq\n{source}"
+    );
+}
+
+/// A `never`-returning predicate (`(value: never) => value`) evaluates to a
+/// real erased `SmeltUnknown` at runtime. Coercing that result into a concrete
+/// `bool` parameter must route through JS-truthiness extraction rather than
+/// handing the raw `SmeltUnknown` to a `bool` slot (E0308).
+#[test]
+fn never_return_coerces_to_bool_via_truthiness() {
+    let source = source_for(
+        r#"
+function pickBy(obj: Record<string, unknown>, pred: (v: unknown) => boolean): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key in obj) {
+    if (pred(obj[key])) {
+      out[key] = obj[key];
+    }
+  }
+  return out;
+}
+
+export function run(): Record<string, unknown> {
+  const obj = {};
+  const shouldPick = (value: never) => value;
+  return pickBy(obj, shouldPick);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Bool(value) => value")
+            && source.contains("=> false"),
+        "a never-returning predicate result must be coerced to bool via \
+         truthiness\n{source}"
+    );
+}

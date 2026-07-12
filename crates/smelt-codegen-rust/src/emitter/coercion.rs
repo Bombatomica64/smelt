@@ -604,7 +604,13 @@ impl FunctionEmitter<'_> {
         }
         if matches!(
             self.mir.types.get(source),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            // A `never`-returning source (e.g. a `(value: never) => value`
+            // predicate) still evaluates to a real value at runtime, which the
+            // emitter renders as an erased `SmeltUnknown`. Extract it into the
+            // concrete target through the same `SmeltUnknown` discriminant path
+            // as `Unknown`, so e.g. a `bool` target gets JS-truthiness coercion
+            // rather than the raw erased value (E0308).
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Never)
         ) || self.is_erased_class_type(source)
         {
             // A concrete union stores a tagged `SmeltUnion…` enum, but the erased
