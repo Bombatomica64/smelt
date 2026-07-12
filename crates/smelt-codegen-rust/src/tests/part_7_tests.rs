@@ -7457,3 +7457,32 @@ export function run(): Record<string, unknown> {
          truthiness\n{source}"
     );
 }
+
+/// An object literal passed where a `number | Options` union is expected must
+/// be injected into the record-shaped union arm. Previously only collection
+/// shapes were shape-matched, so a `Dict`/record source against a class arm
+/// found no member and the raw record was passed (E0308). Mirrors es-toolkit's
+/// `retry(fn, { retries })`.
+#[test]
+fn object_literal_injects_into_record_union_arm() {
+    let source = source_for(
+        r#"
+interface Options {
+  retries?: number;
+}
+
+function retry(fn: () => number, options: number | Options): number {
+  return fn();
+}
+
+export function run(): number {
+  return retry(() => 1, { retries: 3 });
+}
+"#,
+    );
+
+    assert!(
+        source.contains("::M1("),
+        "an object literal must be injected into the record-shaped union arm\n{source}"
+    );
+}
