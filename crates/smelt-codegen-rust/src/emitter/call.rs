@@ -794,6 +794,41 @@ impl FunctionEmitter<'_> {
                         )?);
                         continue;
                     }
+                    // A composite parameter that mentions one of the callee's own
+                    // generics (`arr: T[]` -> `SmeltList<T>`) is monomorphized at
+                    // this call site to the concrete argument shape. This is only
+                    // taken for callees that return one of their own type
+                    // parameters (e.g. `sample<T>(arr: T[]): T`): there the return
+                    // dest pins `T` to a concrete type, so the argument must be
+                    // rendered at its own concrete shape (`SmeltList<f64>`) to bind
+                    // `T = f64`; coercing to the bare `SmeltList<T>` target would
+                    // erase elements to `SmeltUnknown` and clash with the
+                    // monomorphization (E0308). Restricting to type-param-returning
+                    // callees keeps functions that merely consume a generic list
+                    // (and are emitted with erased or independently-inferred
+                    // parameters) on the ordinary coercion path.
+                    if !free_function_type_params.is_empty()
+                        && self.free_function_returns_own_type_param(function)
+                    {
+                        let source_ty = self.operand_ty(arg)?;
+                        if source_ty != target_ty
+                            && self.generic_param_instantiated_by(
+                                source_ty,
+                                target_ty,
+                                &free_function_type_params,
+                            )
+                        {
+                            rendered_args.push(self.value_at_type(arg, source_ty)?);
+                            continue;
+                        }
+                    }
+                    // A composite parameter that mentions one of the callee's own
+                    // generics (`arr: T[]` -> `SmeltList<T>`) is monomorphized at
+                    // this call site to the concrete argument shape. Render the
+                    // argument at its own type so Rust binds the type parameter
+                    // (`SmeltList<f64>` -> `T = f64`); coercing to the bare
+                    // `SmeltList<T>` target would erase elements to `SmeltUnknown`
+                    // and clash with the monomorphization (E0308).
                     if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
                         && param.is_some_and(|target_param| {
                             !self
@@ -1010,6 +1045,57 @@ impl FunctionEmitter<'_> {
             .iter()
             .map(|param| param.name)
             .collect()
+    }
+
+    /// Returns whether a concrete `source` argument type is exactly the callee
+    /// parameter `target` with its own generic `params` instantiated.
+    ///
+    /// A bare `TypeParam` argument (`x: T`) is passed through concretely so Rust
+    /// monomorphizes the callee (see the call-site pass-through). A composite
+    /// parameter that *contains* a type parameter (`arr: T[]` lowering to
+    /// `SmeltList<T>`) is instantiated at the concrete argument shape at the same
+    /// call site, so its argument must likewise pass through at its own concrete
+    /// element type rather than be erased to `SmeltList<SmeltUnknown>` — erasing
+    /// would clash with the monomorphized `SmeltList<f64>` the callee expects.
+    ///
+    /// The match is exact so pass-through only fires when Rust can actually bind
+    /// the parameters from the argument: a `TypeParam` position accepts any
+    /// source subtree (it is the binding site), every other constructor must
+    /// agree in shape, and a concrete target must equal the source. When the
+    /// argument has a different or erased shape (`SmeltUnknown` against
+    /// `SmeltList<T>`), this returns `false` and the caller falls back to the
+    /// ordinary coercion so the value is erased as before.
+    fn generic_param_instantiated_by(
+        &self,
+        source: TypeId,
+        target: TypeId,
+        params: &HashSet<Symbol>,
+    ) -> bool {
+        match (self.mir.types.get(target), self.mir.types.get(source)) {
+            (Some(Type::TypeParam { name }), _) if params.contains(name) => true,
+            (Some(Type::List(target_item)), Some(Type::List(source_item)))
+            | (Some(Type::Set(target_item)), Some(Type::Set(source_item)))
+            | (Some(Type::Optional(target_item)), Some(Type::Optional(source_item)))
+            | (Some(Type::Future(target_item)), Some(Type::Future(source_item))) => {
+                self.generic_param_instantiated_by(*source_item, *target_item, params)
+            }
+            (Some(Type::Dict(target_key, target_value)), Some(Type::Dict(source_key, source_value))) => {
+                self.generic_param_instantiated_by(*source_key, *target_key, params)
+                    && self.generic_param_instantiated_by(*source_value, *target_value, params)
+            }
+            (Some(Type::Tuple(target_items)), Some(Type::Tuple(source_items)))
+            | (Some(Type::Union(target_items)), Some(Type::Union(source_items)))
+                if target_items.len() == source_items.len() =>
+            {
+                target_items
+                    .iter()
+                    .zip(source_items.iter())
+                    .all(|(target_item, source_item)| {
+                        self.generic_param_instantiated_by(*source_item, *target_item, params)
+                    })
+            }
+            _ => source == target,
+        }
     }
 
     /// Return whether a generic free function's declared return type is one of
@@ -1408,6 +1494,25 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
+        let source_ty = self.call_emitted_source_ty(callee, dest_ty)?;
+        self.value_at_type_text(&call_text, source_ty, dest_ty)
+    }
+
+    /// Returns the Rust type a call *actually* evaluates to in the emitted code.
+    ///
+    /// Unlike [`Self::call_source_ty`] (which returns the callee's declared MIR
+    /// return type), this resolves the type the generated call expression really
+    /// produces, accounting for erasure: async functions yield
+    /// `Future<return_ty>`, functions whose emitted signature erased a return
+    /// type parameter yield the emitted return type, and monomorphized generic
+    /// returns pass through at the concrete `dest_ty`. Callers coerce the call
+    /// value from this type to the destination, so it must match the emitted
+    /// signature, not the frontend's specialized view of the call site.
+    pub(super) fn call_emitted_source_ty(
+        &self,
+        callee: &Callee,
+        dest_ty: TypeId,
+    ) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
             Callee::Static(func) => {
                 let function = self
@@ -1448,7 +1553,7 @@ impl FunctionEmitter<'_> {
             }
             _ => self.call_source_ty(callee)?,
         };
-        self.value_at_type_text(&call_text, source_ty, dest_ty)
+        Ok(source_ty)
     }
 
     /// Converts a function call inside a Rust closure body.
