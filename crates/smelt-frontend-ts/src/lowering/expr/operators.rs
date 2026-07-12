@@ -6,14 +6,14 @@
 //! feed construction. The helpers classify receiver and argument types and
 //! emit the concrete HIR construction and projection kinds.
 
+use crate::RestParam;
 use crate::lowering::{
     Argument, ArrayExpressionElement, AsyncOp, BinOp, BinaryOperator, BindingPattern, Body,
     CaptureMode, ClosureCapture, DictProjectionOp, Expr, ExprKind, Expression, Field, FunctionType,
-    HashSet, Literal, LocalDecl, LogicalOperator, ModuleBuilder, ObjectPropertyKind, Param,
+    HashSet, Item, Literal, LocalDecl, LogicalOperator, ModuleBuilder, ObjectPropertyKind, Param,
     PrimitiveCastOp, PropertyKey, PropertyKind, SetProjectionOp, SmeltError, Span, Statement, Type,
     UnaryOp, UnaryOperator,
 };
-use crate::RestParam;
 use oxc::span::GetSpan;
 
 /// One lowered element of a spread-containing array literal.
@@ -327,8 +327,7 @@ impl ModuleBuilder<'_> {
         let ty = self.ctx.krate.types.intern(Type::List(item_ty));
         let length = if let Some(argument) = new_expr.arguments.first() {
             let value = self.argument(argument, body)?;
-            let value_ty =
-                self.type_param_constraint_or_self(Self::expr_ty(body, value));
+            let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
             match self.ctx.krate.types.get(value_ty) {
                 Some(Type::Int | Type::Float) => Some(value),
                 // `new Uint8Array(other)` over an existing array-like copies
@@ -497,7 +496,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type can act as a JavaScript string split separator.
-    pub(in crate::lowering) fn string_split_separator_type_is_supported(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn string_split_separator_type_is_supported(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         match self
             .ctx
             .krate
@@ -521,7 +523,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type can act as a JavaScript string split limit.
-    pub(in crate::lowering) fn string_split_limit_type_is_supported(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn string_split_limit_type_is_supported(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         match self
             .ctx
             .krate
@@ -723,8 +728,7 @@ impl ModuleBuilder<'_> {
                 let item_ty = match self.ctx.krate.types.get(list_ty).cloned() {
                     Some(Type::List(item_ty)) => item_ty,
                     Some(Type::Optional(inner)) => {
-                        if let Some(Type::List(item_ty)) =
-                            self.ctx.krate.types.get(inner).cloned()
+                        if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(inner).cloned()
                         {
                             list = body.push_expr(Expr {
                                 kind: ExprKind::TypeAssert { value: list },
@@ -757,8 +761,7 @@ impl ModuleBuilder<'_> {
                     }
                     _ if self.erased_or_union_surface(list_ty) => {
                         let item_ty = self.ctx.krate.types.intern(Type::Unknown);
-                        let asserted_list_ty =
-                            self.ctx.krate.types.intern(Type::List(item_ty));
+                        let asserted_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                         list = body.push_expr(Expr {
                             kind: ExprKind::TypeAssert { value: list },
                             ty: asserted_list_ty,
@@ -885,10 +888,7 @@ impl ModuleBuilder<'_> {
                     // entry type and keeps Map inference consistent with the
                     // array-literal path.
                     let keys = entries.iter().map(|(key, _)| *key).collect::<Vec<_>>();
-                    let values = entries
-                        .iter()
-                        .map(|(_, value)| *value)
-                        .collect::<Vec<_>>();
+                    let values = entries.iter().map(|(_, value)| *value).collect::<Vec<_>>();
                     let key_ty = self.array_literal_item_type(&keys, body);
                     let value_ty = self.array_literal_item_type(&values, body);
                     self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
@@ -1689,7 +1689,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the item type for a value that can participate in an array fallback.
-    pub(in crate::lowering) fn list_fallback_item_ty(&mut self, value_ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn list_fallback_item_ty(
+        &mut self,
+        value_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
         match self.ctx.krate.types.get(value_ty).cloned() {
             Some(Type::List(item_ty)) => Some(item_ty),
             Some(Type::Optional(inner_ty)) => self.list_fallback_item_ty(inner_ty),
@@ -1855,7 +1858,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the type left after removing TypeScript nullish values.
-    pub(in crate::lowering) fn non_nullish_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn non_nullish_type(
+        &mut self,
+        ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
         smelt_hir::type_normalize::non_nullish_type(&mut self.ctx.krate.types, ty)
     }
 
@@ -2014,8 +2020,10 @@ impl ModuleBuilder<'_> {
         let receiver = self.expression(&binary.right, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
         let mut key = self.expression(&binary.left, body)?;
-        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Optional(_)))
-            && matches!(&binary.left, Expression::StringLiteral(value) if value.value == "done")
+        if matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Optional(_))
+        ) && matches!(&binary.left, Expression::StringLiteral(value) if value.value == "done")
         {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(true)),
@@ -2267,8 +2275,7 @@ impl ModuleBuilder<'_> {
             // element count differs (a ragged expected value such as
             // `cartesianProduct`'s rows) would force a wrong tuple shape, so drop
             // the hint and let the element infer its own type instead.
-            let element_hint =
-                self.array_element_hint_matches_arity(element, element_hint, body);
+            let element_hint = self.array_element_hint_matches_arity(element, element_hint, body);
             let item = if let ArrayExpressionElement::Elision(elision) = element {
                 let ty = element_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
                 body.push_expr(Expr {
@@ -2667,7 +2674,7 @@ impl ModuleBuilder<'_> {
                             params: Vec::new(),
                             rest: None,
                             required_params: None,
-                    mutable_params: Vec::new(),
+                            mutable_params: Vec::new(),
                             return_ty: unknown_ty,
                             is_async: false,
                             may_throw: false,
@@ -2948,7 +2955,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Strip transparent wrappers around an object-spread source condition.
-    pub(in crate::lowering) fn object_spread_condition_source<'a>(argument: &'a Expression<'a>) -> &'a Expression<'a> {
+    pub(in crate::lowering) fn object_spread_condition_source<'a>(
+        argument: &'a Expression<'a>,
+    ) -> &'a Expression<'a> {
         match argument {
             Expression::ParenthesizedExpression(parenthesized) => {
                 Self::object_spread_condition_source(&parenthesized.expression)
@@ -3022,10 +3031,16 @@ impl ModuleBuilder<'_> {
     /// Report whether `text` contains `identifier` as a standalone JavaScript
     /// identifier (not as a substring of a longer identifier such as a property
     /// name or a different variable).
-    pub(in crate::lowering) fn source_slice_mentions_identifier(text: &str, identifier: &str) -> bool {
+    pub(in crate::lowering) fn source_slice_mentions_identifier(
+        text: &str,
+        identifier: &str,
+    ) -> bool {
         let bytes = text.as_bytes();
         let mut search_from = 0;
-        while let Some(offset) = text.get(search_from..).and_then(|tail| tail.find(identifier)) {
+        while let Some(offset) = text
+            .get(search_from..)
+            .and_then(|tail| tail.find(identifier))
+        {
             let match_start = search_from + offset;
             let match_end = match_start + identifier.len();
             let before_ok = match_start
@@ -3315,10 +3330,9 @@ impl ModuleBuilder<'_> {
                 });
             }
         }
-        let generator_yields =
-            function
-                .generator
-                .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
+        let generator_yields = function
+            .generator
+            .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
         self.current_generator_yields = generator_yields;
         // A non-arrow `function` expression introduces its own `arguments`
         // binding, so make the array-like `arguments` object available while
@@ -3436,14 +3450,17 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for computed symbol keys that getter/method enumeration ignores.
-    pub(in crate::lowering) fn is_computed_symbol_key(object_property: &oxc::ast::ast::ObjectProperty<'_>) -> bool {
+    pub(in crate::lowering) fn is_computed_symbol_key(
+        object_property: &oxc::ast::ast::ObjectProperty<'_>,
+    ) -> bool {
         if !object_property.computed {
             return false;
         }
-        Self::is_direct_computed_symbol_call_key(object_property) || matches!(
-            &object_property.key,
-            PropertyKey::Identifier(identifier) if identifier.name.contains("SYMBOL")
-        )
+        Self::is_direct_computed_symbol_call_key(object_property)
+            || matches!(
+                &object_property.key,
+                PropertyKey::Identifier(identifier) if identifier.name.contains("SYMBOL")
+            )
     }
 
     /// Return true when a computed key is a direct `Symbol(...)` expression.
@@ -3574,7 +3591,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether JavaScript object spread treats a source as an empty object.
-    pub(in crate::lowering) fn object_spread_source_erases_to_empty(&self, source_ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn object_spread_source_erases_to_empty(
+        &self,
+        source_ty: smelt_hir::TypeId,
+    ) -> bool {
         matches!(
             self.ctx.krate.types.get(source_ty),
             Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None)
@@ -3587,7 +3607,10 @@ impl ModuleBuilder<'_> {
     /// heterogeneous property values. Without a contextual record type, later
     /// explicit properties must not force those copied fields into their own
     /// value type.
-    pub(in crate::lowering) fn object_spread_source_needs_unknown_record(&self, source_ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn object_spread_source_needs_unknown_record(
+        &self,
+        source_ty: smelt_hir::TypeId,
+    ) -> bool {
         match self.ctx.krate.types.get(source_ty) {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => true,
             Some(Type::Optional(inner)) => self.object_spread_source_needs_unknown_record(*inner),
@@ -3810,12 +3833,28 @@ impl ModuleBuilder<'_> {
                 format!("namespace import has no exported member `{member_name}`"),
             ));
         };
-        let ty = self.item_expr_type(item, span)?;
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Item(item),
-            ty,
-            span,
-        })))
+        match self.item_ref(item).clone() {
+            Item::Function(_) => Ok(Some(self.item_function_closure_expression(
+                item,
+                member.span.start,
+                member.span.end,
+                body,
+            )?)),
+            Item::Const(const_item) => Ok(Some(self.const_item_expression(
+                &const_item,
+                member.span.start,
+                member.span.end,
+                body,
+            )?)),
+            _ => {
+                let ty = self.item_expr_type(item, span)?;
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::Item(item),
+                    ty,
+                    span,
+                })))
+            }
+        }
     }
 
     // Continued in the next split builder file.
