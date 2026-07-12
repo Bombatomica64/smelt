@@ -387,3 +387,55 @@ function run(): void { const h = new Handler(() => {}); }
         "callback-field class must not derive PartialEq: {derive_window}"
     );
 }
+
+#[test]
+fn reference_class_erased_to_object_reads_through_borrow() {
+    // A reference class stores its fields inside the shared `Rc<RefCell<Inner>>`
+    // cell. Erasing an instance to a plain object (here via `JSON.stringify`)
+    // must read each field through `.0.borrow()` and clone it out, never a
+    // direct named-field access against the tuple-struct handle (was E0609 /
+    // E0507 in the record round-trip and object-spread paths).
+    let source = source_for(
+        r#"
+class Counter {
+  value: number;
+  label: string;
+  constructor() { this.value = 0; this.label = "x"; }
+  bump(): void { this.value = this.value + 1; }
+}
+function dump(c: Counter): unknown { return c; }
+"#,
+    );
+    assert!(
+        source.contains("struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>)"),
+        "Counter should be a reference-class handle newtype: {source}"
+    );
+    assert!(
+        source.contains(".0.borrow().value") && source.contains(".0.borrow().label"),
+        "erased reference-class fields must be read through .0.borrow(): {source}"
+    );
+    assert!(
+        !source.contains("smelt_object_value.value"),
+        "erasure must not access newtype fields directly: {source}"
+    );
+}
+
+#[test]
+fn readonly_constructor_parameter_property_declares_field() {
+    // `constructor(readonly innerError: ...)` is a parameter property even with
+    // no explicit accessibility modifier: it must declare a public instance
+    // field and assign the argument into it, so later `.innerError` reads have a
+    // concrete field (was E0609 on the erased/accessed field).
+    let source = source_for(
+        r"
+class FetcherError {
+  constructor(readonly innerError: number) {}
+}
+function read(e: FetcherError): number { return e.innerError; }
+",
+    );
+    assert!(
+        source.contains("inner_error"),
+        "readonly parameter property should declare an inner_error field: {source}"
+    );
+}

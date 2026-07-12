@@ -1479,6 +1479,15 @@ impl FunctionEmitter<'_> {
             })
             .unwrap_or_default();
 
+        // A reference class stores its fields inside the shared `Rc<RefCell<Inner>>`
+        // cell, so erasing one to a plain object must read each field through
+        // `.0.borrow()` rather than a direct named-field access against the
+        // newtype (was E0609).
+        let field_base = if self.is_reference_class_type(target) {
+            "smelt_object_value.0.borrow()"
+        } else {
+            "smelt_object_value"
+        };
         let entries_result = fields
             .iter()
             .filter(|field| !matches!(field.visibility, smelt_hir::Visibility::Private))
@@ -1488,16 +1497,23 @@ impl FunctionEmitter<'_> {
                 if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                     let field_value = self.erase_value_text("value", *inner)?;
                     return Ok(format!(
-                        "if let Some(value) = smelt_object_value.{field_name}.clone() {{ smelt_object_entries.insert({source_name:?}.to_owned(), {field_value}); }}"
+                        "if let Some(value) = {field_base}.{field_name}.clone() {{ smelt_object_entries.insert({source_name:?}.to_owned(), {field_value}); }}"
                     ));
                 }
                 let field_value = if let Some(value) =
                     self.virtual_method_storage_field_text(target, target, field.name)?
                 {
                     self.erase_value_text(&value, field.ty)?
+                } else if self.is_reference_class_type(target) {
+                    // Reading through `.0.borrow()` yields a `Ref` guard; the value
+                    // must be cloned out rather than moved (was E0507).
+                    self.erase_value_text(
+                        &format!("{field_base}.{field_name}.clone()"),
+                        field.ty,
+                    )?
                 } else {
                     self.erase_value_text(
-                        &format!("smelt_object_value.{field_name}"),
+                        &format!("{field_base}.{field_name}"),
                         field.ty,
                     )?
                 };

@@ -1042,7 +1042,11 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             for param in &method.value.params.items {
-                if param.accessibility.is_none() {
+                // `readonly x` (with no explicit accessibility) is still a
+                // parameter property and declares a public instance field, so a
+                // constructor arg such as `constructor(readonly innerError: Error)`
+                // must produce a field (was E0609 on `.innerError`).
+                if param.accessibility.is_none() && !param.readonly {
                     continue;
                 }
                 let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
@@ -1964,6 +1968,12 @@ impl ModuleBuilder<'_> {
         let Some(base_name) = self.ctx.krate.symbols.get(base) else {
             return;
         };
+        // Error-like host bases carry the same `name`/`message`/`stack`/`cause`
+        // slots as `Error`. `DOMException` (and its runtime fallback to `Error`)
+        // is not a source-declared class nor a `mir.classes` entry — it is a
+        // const alias to a host constructor — so a subclass such as
+        // `AbortError extends DOMException` inherits no fields unless we inject the
+        // Error marker slots here too (was E0609 on `.message`).
         let extends_error = matches!(
             base_name,
             "Error"
@@ -1974,6 +1984,7 @@ impl ModuleBuilder<'_> {
                 | "TypeError"
                 | "URIError"
                 | "AggregateError"
+                | "DOMException"
         );
         if !extends_error {
             return;
@@ -2426,7 +2437,7 @@ impl ModuleBuilder<'_> {
                 ty,
                 span,
             });
-            if is_constructor && param.accessibility.is_some() {
+            if is_constructor && (param.accessibility.is_some() || param.readonly) {
                 let field = Field {
                     name: param_name,
                     ty,

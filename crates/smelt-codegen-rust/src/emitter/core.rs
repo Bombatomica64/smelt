@@ -2335,6 +2335,16 @@ impl<'mir> FunctionEmitter<'mir> {
         if !args.is_empty() {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
+        // A reference class is a `Rc<RefCell<Inner>>` newtype, not a named-field
+        // struct. The record round-trip must mint a fresh shared cell around the
+        // reconstructed inner record rather than emit a struct literal against a
+        // tuple struct (was E0560/E0609).
+        if self.context.is_reference_class(*name) {
+            return Ok(Some(format!(
+                "{{ let smelt_record_map = {value_text}.clone(); {target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }}))) }}",
+                field_text.join(", ")
+            )));
+        }
         Ok(Some(format!(
             "{{ let smelt_record_map = {value_text}.clone(); {target_name} {{ {} }} }}",
             field_text.join(", ")
@@ -2363,11 +2373,19 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(None);
         }
 
+        // A reference-class source keeps its fields inside the shared cell, so
+        // the read must go through `.0.borrow()` rather than a direct named-field
+        // access against the newtype (was E0609).
+        let source_is_reference_class = self.is_reference_class_type(source);
         let mut entries = Vec::new();
         for field in source_fields {
             let key = self.symbol_name(field.name)?;
             let field_name = sanitize_ident(key);
-            let source_value = format!("smelt_struct_value.{field_name}.clone()");
+            let source_value = if source_is_reference_class {
+                format!("smelt_struct_value.0.borrow().{field_name}.clone()")
+            } else {
+                format!("smelt_struct_value.{field_name}.clone()")
+            };
             let value = if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 let mapped = self.value_at_type_text("value", *inner, target_value)?;
                 format!(
