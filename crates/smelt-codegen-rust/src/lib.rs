@@ -1709,6 +1709,43 @@ fn emit_source_with_free_function_router(
             },
         );
         writer.blank_line();
+        // JavaScript's Abstract Relational Comparison (`<`, `<=`, `>`, `>=`) for
+        // two erased values: when *both* operands are strings it compares them
+        // lexically (byte order over the UTF-8 encoding, matching JS's UTF-16
+        // code-unit order for the BMP), otherwise it runs `ToNumber` on both and
+        // compares as `f64`. A `NaN` on either side yields `None` (an unordered
+        // result), so every relational operator reports `false` — exactly the JS
+        // outcome. Codegen routes the both-erased relational arms here so a
+        // runtime string comparison stays lexical instead of collapsing to
+        // `NaN`-vs-`NaN` under blind numeric coercion.
+        writer.block(
+            "fn smelt_unknown_js_relational_ordering(left: &SmeltUnknown, right: &SmeltUnknown) -> Option<::std::cmp::Ordering>",
+            |fn_writer| {
+                fn_writer.block("match (left, right)", |match_writer| {
+                    match_writer.line("(SmeltUnknown::String(left), SmeltUnknown::String(right)) => Some(left.cmp(right)),");
+                    match_writer.line("_ => smelt_unknown_to_number(left).partial_cmp(&smelt_unknown_to_number(right)),");
+                });
+            },
+        );
+        writer.blank_line();
+        // `ToNumber` for an erased value, mirroring the inline coercion codegen
+        // emits when a `SmeltUnknown` flows into a numeric context: numeric
+        // strings parse to their value, non-numeric strings become `NaN`, booleans
+        // map to `0`/`1`, `__smelt_date` objects surface their timestamp, and
+        // every remaining shape is `NaN`.
+        writer.block(
+            "fn smelt_unknown_to_number(value: &SmeltUnknown) -> f64",
+            |fn_writer| {
+                fn_writer.block("match value", |match_writer| {
+                    match_writer.line("SmeltUnknown::Number(value) => *value,");
+                    match_writer.line("SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },");
+                    match_writer.line("SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),");
+                    match_writer.line("SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },");
+                    match_writer.line("SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,");
+                });
+            },
+        );
+        writer.blank_line();
         writer.block("pub trait IntoSmeltUnknown", |trait_writer| {
             trait_writer.line("fn into_smelt_unknown(self) -> SmeltUnknown;");
         });
