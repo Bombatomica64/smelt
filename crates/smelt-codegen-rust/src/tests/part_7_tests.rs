@@ -7513,3 +7513,29 @@ export function run(args: string[]): unknown {
         "the bare-Vec slice must not be assigned directly to a SmeltUnknown\n{source}"
     );
 }
+
+/// A callback that returns a future, adapted to a target whose expected return
+/// is a plain (non-future) value, must have its future result wrapped as a
+/// `SmeltUnknown::Promise` rather than leaking a raw `Pin<Box<dyn Future>>`
+/// into the value slot (E0308). Mirrors es-toolkit's `attempt(async () => 1)`,
+/// where the synchronous `attempt` receives the returned promise as its value.
+#[test]
+fn async_callback_into_sync_slot_wraps_future_as_promise() {
+    let source = source_for(
+        r#"
+function attempt(fn: () => unknown): unknown {
+  return fn();
+}
+
+export function run(): unknown {
+  return attempt(async () => 1);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Promise(SmeltPromise::from_future"),
+        "an async callback flowing into a non-future value slot must be wrapped \
+         as a promise\n{source}"
+    );
+}
