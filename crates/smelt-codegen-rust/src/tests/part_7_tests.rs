@@ -7229,5 +7229,47 @@ export function useAttempt(): unknown {
         source.contains("&mut { let smelt_callback ="),
         "the borrowed rest-callback adapter must bind smelt_callback inside the \
          &mut block it captures: {source}"
+);
+}
+
+#[test]
+fn wraps_erased_rest_call_result_in_option_for_optional_return() {
+    // The fully-erased `SmeltErasedFunction::call` ABI always yields a bare
+    // `SmeltUnknown`, even when the callee's declared return type is
+    // `ReturnType<F> | undefined` (which lowers to `Option<SmeltUnknown>`).
+    // The call result must therefore be coerced at the assignment seam — a
+    // raw `SmeltUnknown` stored into an `Option<SmeltUnknown>` place is a
+    // type error (E0308). This mirrors es-toolkit's `after`/`before`.
+    let source = source_for(
+        r#"
+type AnyFn = (...args: unknown[]) => unknown;
+
+function after(n: number, func: AnyFn): (...args: unknown[]) => unknown | undefined {
+  let count = 0;
+  return (...args: unknown[]) => {
+    count += 1;
+    if (count >= n) {
+      return func(...args);
+    }
+    return undefined;
+  };
+}
+
+export function run(): unknown | undefined {
+  const gated = after(0, () => 1);
+  const result = gated();
+  return result;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("Option<SmeltUnknown>"),
+        "the optional erased return should lower to `Option<SmeltUnknown>`\n{source}"
+    );
+    assert!(
+        source.contains(".call(") && source.contains("Some("),
+        "an erased-rest call feeding an optional return must wrap its \
+         `SmeltUnknown` result in `Some(..)`\n{source}"
     );
 }

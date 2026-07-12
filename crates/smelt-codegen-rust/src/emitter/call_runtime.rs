@@ -964,7 +964,20 @@ impl FunctionEmitter<'_> {
                         } else {
                             call_text
                         };
-                        (function.return_ty, throwing_call_text)
+                        // The fully-erased `SmeltErasedFunction::call` ABI always
+                        // yields a bare `SmeltUnknown`, regardless of the callee's
+                        // declared return type. Coercing the call result from the
+                        // declared `return_ty` (e.g. `T | undefined`, which lowers
+                        // to `Option<SmeltUnknown>`) would suppress the wrap the
+                        // destination needs, so treat the erased-rest call's source
+                        // type as `Unknown` and let `value_at_type_text` inject the
+                        // correct `Some(..)`/extraction at the assignment seam.
+                        let source_ty = if callee_is_erased_rest {
+                            self.type_id(Type::Unknown)?
+                        } else {
+                            function.return_ty
+                        };
+                        (source_ty, throwing_call_text)
                     }
                     _ => (dest_ty, call_text),
                 };
