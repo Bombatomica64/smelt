@@ -632,17 +632,41 @@ impl<'builder> ModuleBuilder<'builder> {
                         span: self.span(call.span.start, call.span.end),
                     }));
                 };
-            let mut rest = self.function_rests.get(callee_ident.name.as_str()).copied();
-            if rest.is_none()
-                && let Some(index) = item_rest
+            // The concretely resolved `item` is the source of truth for a rest
+            // parameter. The name-keyed `function_rests` map is a fallback for
+            // callees whose resolved item does not itself carry a rest index
+            // (re-exported stubs, arrow bindings), but keying it on the bare
+            // function name lets a rest slot from a *different* same-named
+            // function in another module leak in — e.g. compat's
+            // `delay(fn, wait, ...args)` contaminating promise `delay(ms,
+            // options)`, synthesizing a spurious empty rest list for the
+            // omitted `options`. So derive the rest from this item first, and
+            // consult `function_rests` only when it names a valid rest
+            // position within *this* item's own parameters.
+            let mut rest = if let Some(index) = item_rest
                 && let Some(Type::List(item_ty)) = params
                     .get(index)
                     .and_then(|param| self.ctx.krate.types.get(*param))
             {
-                rest = Some(RestParam {
+                Some(RestParam {
                     index,
                     item_ty: *item_ty,
-                });
+                })
+            } else {
+                None
+            };
+            if rest.is_none()
+                && let Some(candidate) =
+                    self.function_rests.get(callee_ident.name.as_str()).copied()
+                && candidate.index < params.len()
+                && matches!(
+                    params
+                        .get(candidate.index)
+                        .and_then(|param| self.ctx.krate.types.get(*param)),
+                    Some(Type::List(_))
+                )
+            {
+                rest = Some(candidate);
             }
             let selected_overload = match self.selected_overload_signature(
                 callee_ident.name.as_str(),
