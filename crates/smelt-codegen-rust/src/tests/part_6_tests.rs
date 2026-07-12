@@ -915,3 +915,32 @@ export function makeThrower(): () => number {
         "throw-only closure should annotate its Result return type: {source}"
     );
 }
+
+#[test]
+fn promise_then_hoists_captured_callback_out_of_async_move() {
+    // `.then(cb)` runs its callback inside a `Box::pin(async move { .. })` block,
+    // which captures referenced outer bindings by move. A callback naming a live
+    // outer variable must be cloned into a binding OUTSIDE the async block (JS
+    // `.then` does not consume `cb`), so the source binding stays usable after
+    // the call (was E0382: borrow of moved value).
+    let source = source_for(
+        r"
+async function run(p: Promise<number>, cb: (v: number) => void): Promise<void> {
+  await p.then(cb);
+  cb(1);
+}
+",
+    );
+    assert!(
+        source.contains("let smelt_promise_callback = (cb).clone();"),
+        "then callback should be hoisted and cloned before the async block: {source}"
+    );
+    // The clone binding precedes the async block, never inside it.
+    let hoist = source
+        .find("let smelt_promise_callback")
+        .expect("hoist binding present");
+    let async_block = source[hoist..]
+        .find("async move")
+        .expect("async block after hoist");
+    assert!(async_block > 0, "hoist must come before async move: {source}");
+}

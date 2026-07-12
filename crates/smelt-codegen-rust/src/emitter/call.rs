@@ -235,9 +235,11 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("Promise.then receiver must be a future"));
                 };
                 let future_text = self.await_operand_text(future)?;
-                let invocation = self.promise_callback_invocation(callback, "smelt_value")?;
+                let (prelude, callback_expr) = self.promise_callback_hoist(callback)?;
+                let invocation =
+                    self.promise_callback_invocation_with(callback, &callback_expr, "smelt_value")?;
                 Ok(format!(
-                    "Box::pin(async move {{ let smelt_value = {future_text}.await?; let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }})"
+                    "{{ {prelude}Box::pin(async move {{ let smelt_value = {future_text}.await?; let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }}) }}"
                 ))
             }
             smelt_hir::AsyncOp::Catch => {
@@ -251,11 +253,15 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("Promise.catch receiver must be a future"));
                 };
                 let future_text = self.await_operand_text(future)?;
-                let invocation = self
-                    .promise_callback_invocation(callback, "SmeltUnknown::String(smelt_error.to_string())")?;
+                let (prelude, callback_expr) = self.promise_callback_hoist(callback)?;
+                let invocation = self.promise_callback_invocation_with(
+                    callback,
+                    &callback_expr,
+                    "SmeltUnknown::String(smelt_error.to_string())",
+                )?;
                 let default_value = self.default_value(*output_ty)?;
                 Ok(format!(
-                    "Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>({default_value}) }} }} }})"
+                    "{{ {prelude}Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>({default_value}) }} }} }}) }}"
                 ))
             }
             smelt_hir::AsyncOp::SpawnLocal => {
@@ -870,12 +876,16 @@ impl FunctionEmitter<'_> {
     /// `SmeltErasedFunction`, whose call ABI is `.call(vec![..])` rather than a
     /// direct `(f)(arg)` invocation. Detect that shape and route accordingly; all
     /// other callbacks keep the direct call.
-    fn promise_callback_invocation(
+    /// Render a `.then`/`.catch` callback invocation using an explicit callback
+    /// expression `callback_text` (e.g. a hoisted clone binding) rather than the
+    /// operand's own place text. The operand is still consulted for its function
+    /// type so the erased-`SmeltErasedFunction` calling convention is preserved.
+    fn promise_callback_invocation_with(
         &self,
         callback: &Operand,
+        callback_text: &str,
         arg_expr: &str,
     ) -> Result<String, EmitError> {
-        let callback_text = self.operand_text(callback)?;
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?)
             && self.is_erased_unknown_rest_function(function)
             && !function.may_throw
@@ -885,6 +895,32 @@ impl FunctionEmitter<'_> {
             ));
         }
         Ok(format!("({callback_text})({arg_expr})"))
+    }
+
+    /// Hoist a `.then`/`.catch` callback out of the `Box::pin(async move { .. })`
+    /// block it is invoked in.
+    ///
+    /// An `async move` block captures every referenced outer binding by move, so
+    /// a callback that names a live outer variable would be consumed by the
+    /// future even though JavaScript's `.then(cb)`/`.catch(cb)` do not consume
+    /// `cb` (was E0382). Returns a `(prelude, callback_expr)` pair: for a
+    /// place-based callback the prelude binds a clone in an enclosing block and
+    /// the future moves that clone; an inline callback (a literal closure) is not
+    /// live afterward and is left in place with an empty prelude.
+    fn promise_callback_hoist(
+        &self,
+        callback: &Operand,
+    ) -> Result<(String, String), EmitError> {
+        let callback_text = self.operand_text(callback)?;
+        if matches!(callback, Operand::Copy(_) | Operand::Move(_)) {
+            let binding = "smelt_promise_callback";
+            Ok((
+                format!("let {binding} = ({callback_text}).clone(); "),
+                binding.to_owned(),
+            ))
+        } else {
+            Ok((String::new(), callback_text))
+        }
     }
 
     /// Render arguments for a call into an erased `SmeltErasedFunction`, erasing
