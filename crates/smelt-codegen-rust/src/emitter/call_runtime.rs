@@ -1898,6 +1898,34 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
+        // When BOTH operands are erased, either could hold a string at runtime.
+        // JavaScript's relational algorithm compares two strings *lexically*, so
+        // blind `ToNumber` coercion (`NaN` for non-numeric text) would make every
+        // string comparison `false` and break generic string-keyed sorts / binary
+        // searches (remeda's `sortedIndex`, `firstBy`, `sortBy`, …). Route these
+        // through the runtime abstract-relational helper, which stays lexical for
+        // two strings and falls back to `ToNumber` for every other pairing.
+        if lhs_erased && rhs_erased {
+            let lhs_text = self.erase(lhs)?;
+            let rhs_text = self.erase(rhs)?;
+            // The guard at the top of this function restricts `op` to the four
+            // relational operators, so the `Gte` wildcard is the only remaining
+            // case (`match` cannot see through that earlier guard).
+            let ordering_pattern = match op {
+                smelt_hir::BinOp::Lt => "::std::cmp::Ordering::Less",
+                smelt_hir::BinOp::Lte => {
+                    "::std::cmp::Ordering::Less | ::std::cmp::Ordering::Equal"
+                }
+                smelt_hir::BinOp::Gt => "::std::cmp::Ordering::Greater",
+                _ => "::std::cmp::Ordering::Greater | ::std::cmp::Ordering::Equal",
+            };
+            return Ok(Some(format!(
+                "matches!(smelt_unknown_js_relational_ordering(&({lhs_text}), &({rhs_text})), Some({ordering_pattern}))"
+            )));
+        }
+        // Exactly one side is erased and the other is statically numeric: JS keeps
+        // this on the `ToNumber` path (only the both-strings case is lexical), so
+        // coerce both operands to `f64` and compare directly.
         let float_ty = self.type_id(Type::Float)?;
         let lhs_text = self.value_at_type(lhs, float_ty)?;
         let rhs_text = self.value_at_type(rhs, float_ty)?;
@@ -1907,6 +1935,9 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Emits an equality or relational comparison between two statically numeric
+    /// operands, coercing both to a shared scalar type (`i64`/`f64`) first so Rust
+    /// does not reject a mixed `i64`-vs-`f64` comparison.
     fn numeric_comparison_text(
         &self,
         op: smelt_hir::BinOp,
