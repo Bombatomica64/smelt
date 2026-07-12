@@ -217,6 +217,7 @@ pub struct SmeltJsSet<T> {
 
 impl<T> SmeltJsSet<T> {
     fn new() -> Self { Self { entries: Vec::new() } }
+    fn clear(&mut self) { self.entries.clear(); }
 }
 
 impl<T: Clone + IntoSmeltUnknown> SmeltJsSet<T> {
@@ -258,6 +259,7 @@ impl SmeltJsKeyEq for String { fn same_js_key(&self, other: &Self) -> bool { sel
 impl SmeltJsKeyEq for bool { fn same_js_key(&self, other: &Self) -> bool { self == other } }
 impl SmeltJsKeyEq for i64 { fn same_js_key(&self, other: &Self) -> bool { self == other } }
 impl SmeltJsKeyEq for f64 { fn same_js_key(&self, other: &Self) -> bool { (self.is_nan() && other.is_nan()) || self == other } }
+impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } }
 
 pub trait SmeltJsStrictEq {
     fn js_strict_eq(&self, other: &Self) -> bool;
