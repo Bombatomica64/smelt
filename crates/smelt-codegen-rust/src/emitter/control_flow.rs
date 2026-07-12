@@ -1547,6 +1547,31 @@ impl FunctionEmitter<'_> {
                 break_target,
                 visited,
             )?),
+            Some(Terminator::Match { arms, default, .. }) => {
+                // A `switch` in the loop body is a control-flow fork just like a
+                // `Switch`: the block exits to the loop only when every arm (and
+                // the default) does. Without this, a loop whose body is a
+                // `switch` (e.g. `for (...) { switch (typeof x) { ... } }`)
+                // fails `while_header` recognition and is emitted as a run-once
+                // straight-line block instead of a loop.
+                let mut all_exit = true;
+                for target in arms
+                    .iter()
+                    .map(|arm| arm.target)
+                    .chain(default.iter().copied())
+                {
+                    if !self.block_exits_to_loop(
+                        self.block(target)?,
+                        continue_target,
+                        break_target,
+                        visited,
+                    )? {
+                        all_exit = false;
+                        break;
+                    }
+                }
+                Ok(all_exit)
+            }
             Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => {
                 Ok(true)
             }
@@ -1709,6 +1734,16 @@ impl FunctionEmitter<'_> {
         let Some(Terminator::Switch { .. }) = &block.terminator else {
             return Ok(None);
         };
+        // Blocks that strictly dominate the header `H`. A genuine loop back-edge
+        // re-enters `H` from a block dominated by `H` (i.e. from inside the
+        // loop), so it can reach `H` without passing through any of these. When a
+        // candidate's "repeating" branch can only reach `H` by crossing a strict
+        // dominator of `H`, that path is the back-edge of an *enclosing* loop
+        // feeding forward into `H`, not `H`'s own loop, and `H` is not a loop
+        // header at all. Avoiding these dominators on the repeat test rejects
+        // that false positive (e.g. omit's inner `if` guard block, whose only
+        // path back to itself runs through the outer `for` header).
+        let header_dominators = self.strict_dominators(block.id);
         // Locate the decision block `D` that every forward condition path from
         // `H` funnels into and that actually decides the loop (one branch
         // back-edges to `H`, the other exits). Scanning in block order and
@@ -1751,6 +1786,7 @@ impl FunctionEmitter<'_> {
             }
             let mut branch_avoid = vec![candidate.id];
             branch_avoid.extend_from_slice(avoid);
+            branch_avoid.extend_from_slice(&header_dominators);
             let then_repeats = self.block_reaches_target_avoiding(
                 *then_block,
                 block.id,
@@ -1774,6 +1810,32 @@ impl FunctionEmitter<'_> {
             return Ok(Some((candidate.id, body_entry, exit_entry, then_repeats)));
         }
         Ok(None)
+    }
+
+    /// Returns the blocks that strictly dominate `header`.
+    ///
+    /// A block `d` strictly dominates `header` when `d != header` and every path
+    /// from the function entry to `header` passes through `d`; equivalently, the
+    /// entry cannot reach `header` while avoiding `d`. Used by
+    /// [`Self::compound_while`] to distinguish a real loop back-edge (which
+    /// re-enters the header from inside the loop, avoiding every strict
+    /// dominator) from an enclosing loop's edge that merely flows forward into
+    /// the header through one of its dominators.
+    fn strict_dominators(&self, header: smelt_mir::BlockId) -> Vec<smelt_mir::BlockId> {
+        self.function
+            .blocks
+            .iter()
+            .map(|candidate| candidate.id)
+            .filter(|&candidate| {
+                candidate != header
+                    && !self.block_reaches_target_avoiding(
+                        self.function.entry,
+                        header,
+                        &[candidate],
+                        &mut HashSet::new(),
+                    )
+            })
+            .collect()
     }
 
     /// Returns whether every forward path from `block_id` reaches `decision`.
@@ -1997,6 +2059,19 @@ impl FunctionEmitter<'_> {
                 out.push_str("    }\n");
                 Ok(())
             }
+            Some(Terminator::Match {
+                scrutinee,
+                arms,
+                default,
+            }) if break_target.is_some() => self.emit_loop_match(
+                scrutinee,
+                arms,
+                *default,
+                stop,
+                break_target,
+                out,
+                visited,
+            ),
             Some(terminator) => self.emit_terminator(block.id, terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }
@@ -2021,7 +2096,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Emits a branch inside a loop while guarding against join-block cycles.
-    fn emit_loop_branch_inner(
+    pub(super) fn emit_loop_branch_inner(
         &self,
         block: &BasicBlock,
         continue_target: smelt_mir::BlockId,
@@ -2106,6 +2181,19 @@ impl FunctionEmitter<'_> {
                 out.push_str("    }\n");
                 Ok(())
             }
+            Some(Terminator::Match {
+                scrutinee,
+                arms,
+                default,
+            }) => self.emit_loop_match(
+                scrutinee,
+                arms,
+                *default,
+                continue_target,
+                break_target,
+                out,
+                visited,
+            ),
             Some(terminator) => self.emit_terminator(block.id, terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }

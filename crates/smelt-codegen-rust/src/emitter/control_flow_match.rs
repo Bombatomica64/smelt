@@ -73,6 +73,65 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
+    /// Emits a `match` that appears inside a loop body, routing each arm's tail
+    /// through the loop's back-edge/exit machinery.
+    ///
+    /// Unlike [`Self::emit_match`], no shared join is hoisted: a loop-body
+    /// `switch` arm reaches the loop's latch/exit only transitively (through the
+    /// increment block, a `break`, or a nested loop), so each arm renders its own
+    /// tail via [`Self::emit_loop_branch_inner`], where a `Goto` to
+    /// `continue_target` becomes `continue` and a `Goto` to `break_target`
+    /// becomes `break`. This lets a loop whose body is a `switch`
+    /// (`for (...) { switch (...) { ... } }`) emit as a real loop instead of a
+    /// run-once straight-line block. Each arm gets its own clone of `visited`
+    /// because sibling arms legitimately converge on the same latch block.
+    pub(super) fn emit_loop_match(
+        &self,
+        scrutinee: &Operand,
+        arms: &[smelt_mir::MatchArm],
+        default: Option<smelt_mir::BlockId>,
+        continue_target: smelt_mir::BlockId,
+        break_target: Option<smelt_mir::BlockId>,
+        out: &mut String,
+        visited: &HashSet<smelt_mir::BlockId>,
+    ) -> Result<(), EmitError> {
+        let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
+        let scrutinee_ty = self.operand_ty(scrutinee)?;
+        out.push_str(&format!("    match {scrutinee_text} {{\n"));
+        let match_declared = self.declared_locals_snapshot();
+        for arm in arms {
+            out.push_str(&format!(
+                "        {} => {{\n",
+                self.match_label_text_for_scrutinee(&arm.label, scrutinee_ty)
+            ));
+            self.emit_loop_branch_inner(
+                self.block(arm.target)?,
+                continue_target,
+                break_target,
+                out,
+                &mut visited.clone(),
+            )?;
+            out.push_str("        }\n");
+            self.restore_declared_locals(match_declared.clone());
+        }
+        if let Some(default_block) = default {
+            out.push_str("        _ => {\n");
+            self.emit_loop_branch_inner(
+                self.block(default_block)?,
+                continue_target,
+                break_target,
+                out,
+                &mut visited.clone(),
+            )?;
+            out.push_str("        }\n");
+            self.restore_declared_locals(match_declared);
+        } else {
+            out.push_str("        _ => {}\n");
+        }
+        out.push_str("    }\n");
+        Ok(())
+    }
+
     /// Emits a single arm body, dispatching on whether a shared join was hoisted.
     ///
     /// With a hoisted join the arm drops its trailing `Goto` to it; without one
