@@ -1393,6 +1393,32 @@ const result = utility.reduce([1, 2, 3], sum, 0);
 }
 
 #[test]
+fn direct_generic_initializer_outweighs_contextual_callback_inference() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function iterate<T>(count: number, step: (value: T) => T, initial: T): T {
+  return initial;
+}
+function uid(length: number): string {
+  return iterate(length, value => value + "x", "");
+}
+const result = uid(10);
+const length = result.length;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::Len { .. })));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn utility_namespace_replace_defers_before_string_arity_validation() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
