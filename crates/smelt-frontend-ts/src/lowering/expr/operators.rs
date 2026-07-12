@@ -1767,9 +1767,11 @@ impl ModuleBuilder<'_> {
         } else if matches!(
             self.ctx.krate.types.get(ty),
             Some(Type::Union(items)) if items.contains(&fallback_ty)
-        ) || self.allow_unknown_index_access
-        {
-            fallback_ty
+        ) {
+            // The fallback is already one arm of the value surface. Selecting
+            // it does not narrow every successful left-hand value to that one
+            // arm: `value ?? null` must retain the other union members.
+            ty
         } else if self.nullish_fallback_matches_union_member(ty, fallback_ty) {
             ty
         } else if self.nullish_fallback_types_are_structurally_compatible(ty, fallback_ty) {

@@ -779,7 +779,17 @@ impl<'builder> ModuleBuilder<'builder> {
                 && self.overload_constraint_contains_unresolved_type_param(return_ty)
             {
                 let mut substitutions = HashMap::new();
-                for (param, arg) in params.iter().zip(&args) {
+                let mut inference_inputs = params.iter().zip(&args).collect::<Vec<_>>();
+                // Infer naked type-parameter arguments before structural
+                // callback/container arguments. A direct value such as
+                // `initValue: T` is a stronger constraint than a callback body
+                // whose contextual `T` is still unresolved; processing the
+                // callback first can prematurely bind `T` from an incidental
+                // operation and then reject the concrete initializer.
+                inference_inputs.sort_by_key(|(param, _)| {
+                    !matches!(self.ctx.krate.types.get(**param), Some(Type::TypeParam { .. }))
+                });
+                for (param, arg) in inference_inputs {
                     let arg_ty = Self::expr_ty(body, *arg);
                     let _ = self.infer_overload_type(*param, arg_ty, &mut substitutions);
                 }
