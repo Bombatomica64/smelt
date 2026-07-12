@@ -139,10 +139,10 @@ Fork the repo and submit a pr :)
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 76.45% |
+| Functions | 76.49% |
 | Lines | 72.90% |
-| Regions | 71.47% |
-| Branches | 63.30% |
+| Regions | 71.48% |
+| Branches | 63.29% |
 
 ### Per Crate
 
@@ -160,8 +160,9 @@ Fork the repo and submit a pr :)
 | `smelt-specialize` | 44.06% | 48.52% | 36.47% |
 | `smelt-stdlib` | 84.44% | 75.43% | 100.00% |
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
-| `smelt-transpiler` | 66.92% | 65.63% | 55.56% |
+| `smelt-transpiler` | 67.89% | 65.99% | 55.28% |
 <!-- COVERAGE:END -->
+
 
 
 
