@@ -3061,7 +3061,99 @@ impl FunctionEmitter<'_> {
                 entries.join(" ")
             ));
         }
+        // A concrete callable-interface destination (a struct carrying a
+        // synthetic `__smelt_call` field plus its declared data/method fields)
+        // is built as a typed struct literal: the base callable fills
+        // `__smelt_call` and each recorded property fills its like-named field,
+        // every value coerced to the field's exact type. This is what turns the
+        // `debounce`/`throttle` pattern (a local function that receives
+        // `fn.schedule = …` writes and is then returned at a callable-interface
+        // type) into a real value instead of the previous behavior that dropped
+        // the props and returned only the bare callable.
+        if let Some(text) = self.callable_object_struct_text(callable, props, dest_ty)? {
+            return Ok(text);
+        }
         self.operand_text(callable)
+    }
+
+    /// Build a typed callable-interface struct literal for `CallableObjectAssign`.
+    ///
+    /// Reuses the same field-iteration contract as
+    /// [`Self::record_literal_text_for_dest`]: the destination's declared fields
+    /// (including the synthetic `__smelt_call` slot and any generic phantom) are
+    /// emitted in order. The base callable supplies `__smelt_call`; each other
+    /// field is filled from the recorded property of the same name (last write
+    /// wins, already deduplicated upstream), coerced to the field's exact type
+    /// through `value_at_type`. An `Optional` field with no matching property
+    /// falls back to its default. A non-`Optional` field with no covering
+    /// property is a hard [`EmitError`] rather than a silent `Default::default()`
+    /// — a build blocker is preferable to an inert struct, and this only fires
+    /// for genuinely uncovered required fields (the working `Object.assign`
+    /// construction path always covers every declared field it targets).
+    ///
+    /// Returns `Ok(None)` when the destination is not a known record shape or is
+    /// not a callable interface (no `__smelt_call` field), so the caller keeps
+    /// its bare-callable fallback for non-interface destinations.
+    fn callable_object_struct_text(
+        &self,
+        callable: &Operand,
+        props: &[(Symbol, Operand)],
+        dest_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(Type::Class { name, args }) = self.mir.types.get(dest_ty) else {
+            return Ok(None);
+        };
+        let name = *name;
+        let args = args.clone();
+        if !self.is_interface_record_type(dest_ty)
+            && self.mir.classes.iter().all(|class| class.name != name)
+        {
+            return Ok(None);
+        }
+        let Some(fields) = self.structural_record_fields(dest_ty) else {
+            return Ok(None);
+        };
+        if fields.is_empty() {
+            return Ok(None);
+        }
+        // Only a genuine callable interface (one carrying the synthetic
+        // `__smelt_call` storage slot) is constructed this way; a plain record
+        // destination is left to the ordinary record path.
+        if !fields
+            .iter()
+            .any(|field| self.symbol_name(field.name) == Ok("__smelt_call"))
+        {
+            return Ok(None);
+        }
+
+        let mut prop_values = HashMap::new();
+        for (key, value) in props {
+            prop_values.insert(sanitize_ident(self.symbol_source_name(*key)?), value);
+        }
+
+        let mut field_text = Vec::new();
+        for field in &fields {
+            let raw_name = self.symbol_name(field.name)?;
+            let field_name = sanitize_ident(raw_name);
+            let value = if raw_name == "__smelt_call" {
+                self.value_at_type(callable, field.ty)?
+            } else if let Some(entry_value) = prop_values.get(&field_name) {
+                self.value_at_type(entry_value, field.ty)?
+            } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+                self.default_value(field.ty)?
+            } else {
+                return Err(EmitError::new(format!(
+                    "callable object construction is missing a value for required field `{raw_name}`"
+                )));
+            };
+            field_text.push(format!("{field_name}: {value}"));
+        }
+        if !args.is_empty() {
+            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+        }
+
+        let type_name = sanitize_ident(self.symbol_name(name)?);
+        Ok(Some(format!("{type_name} {{ {} }}", field_text.join(", "))))
     }
 
     /// Emit an erased imported class instance as an unknown object.
