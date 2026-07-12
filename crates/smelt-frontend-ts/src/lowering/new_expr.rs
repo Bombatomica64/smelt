@@ -94,10 +94,17 @@ impl ModuleBuilder<'_> {
             // the erased ABI, a genuine dynamic boundary returning `unknown`.
             let callee_value = self.expression(&new_expr.callee, body)?;
             let callee_ty = Self::expr_ty(body, callee_value);
-            if self.erased_or_union_surface(callee_ty)
-                || self.function_member_type(callee_ty).is_some()
-            {
+            let callable_ty = self.function_member_type(callee_ty);
+            if self.erased_or_union_surface(callee_ty) || callable_ty.is_some() {
                 let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let (params, result_ty) = callable_ty
+                    .and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
+                        Some(Type::Function(function)) => {
+                            Some((function.params, function.return_ty))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| (Vec::new(), unknown_ty));
                 let span = self.span(new_expr.span.start, new_expr.span.end);
                 if new_expr.arguments.iter().any(Argument::is_spread) {
                     let args = self.packed_spread_arguments(
@@ -111,21 +118,24 @@ impl ModuleBuilder<'_> {
                             callee: callee_value,
                             args,
                         },
-                        ty: unknown_ty,
+                        ty: result_ty,
                         span,
                     }));
                 }
                 let args = new_expr
                     .arguments
                     .iter()
-                    .map(|arg| self.argument(arg, body))
+                    .enumerate()
+                    .map(|(index, arg)| {
+                        self.argument_with_hint(arg, body, params.get(index).copied())
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ClosureCall {
                         callee: callee_value,
                         args,
                     },
-                    ty: unknown_ty,
+                    ty: result_ty,
                     span,
                 }));
             }
