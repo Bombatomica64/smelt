@@ -2069,9 +2069,7 @@ impl FunctionEmitter<'_> {
         ty: TypeId,
     ) -> Result<String, EmitError> {
         Ok(match self.mir.types.get(ty) {
-            Some(Type::Function(_)) => {
-                format!("::std::rc::Rc::ptr_eq(&{left}, &{right})")
-            }
+            Some(Type::Function(_)) => self.function_ptr_eq_text(left, right, ty)?,
             Some(Type::List(item)) => {
                 let item_equal =
                     self.function_bearing_equality_text("left_item", "right_item", *item)?;
@@ -2095,6 +2093,29 @@ impl FunctionEmitter<'_> {
             }
             _ => format!("{left} == {right}"),
         })
+    }
+
+    /// Emits an identity comparison for two function values.
+    ///
+    /// Both operands share the same MIR `Type::Function`, but their emitted
+    /// Rust types can differ: a value produced by a combinator such as
+    /// `flow(...)` is already the erased `Rc<dyn Fn(...) -> _>` trait object,
+    /// while a locally bound closure keeps its concrete `Rc<{closure}>` type.
+    /// `Rc::ptr_eq` requires both references to have the identical `Rc<T>`, so
+    /// each operand is first coerced to the common `Rc<dyn Fn(...)>` type
+    /// (an unsizing coercion that preserves the shared allocation, keeping
+    /// pointer identity intact). The clone is cheap and does not affect the
+    /// `ptr_eq` result.
+    fn function_ptr_eq_text(
+        &self,
+        left: &str,
+        right: &str,
+        ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let fn_ty = self.type_text_with_impl_trait(ty, false)?;
+        Ok(format!(
+            "::std::rc::Rc::ptr_eq(&{{ let smelt_lhs_fn: {fn_ty} = {left}.clone(); smelt_lhs_fn }}, &{{ let smelt_rhs_fn: {fn_ty} = {right}.clone(); smelt_rhs_fn }})"
+        ))
     }
 
     /// Emits JavaScript SameValue checks for numeric and reference values.
@@ -2131,11 +2152,11 @@ impl FunctionEmitter<'_> {
                 )
             }
             (Some(Type::Function(_)), Some(Type::Function(_))) if lhs_ty == rhs_ty => {
-                format!(
-                    "::std::rc::Rc::ptr_eq(&{}, &{})",
-                    self.operand_text(lhs)?,
-                    self.operand_text(rhs)?
-                )
+                self.function_ptr_eq_text(
+                    &self.operand_text(lhs)?,
+                    &self.operand_text(rhs)?,
+                    lhs_ty,
+                )?
             }
             (Some(Type::List(_)), Some(Type::List(_))) => {
                 // Typed lists are identity-bearing (`SmeltList`), so reference
