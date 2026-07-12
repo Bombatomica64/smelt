@@ -21,6 +21,7 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
+mod binary_ops;
 mod call;
 mod call_runtime;
 mod capture_analysis;
