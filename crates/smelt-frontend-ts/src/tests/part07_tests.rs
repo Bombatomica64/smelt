@@ -614,6 +614,47 @@ export const throttle = () => {
 }
 
 #[test]
+fn annotated_local_callback_adapts_unknown_list_elements() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function collect(values: unknown[]): string[] {
+  const getStrings = (items: unknown[]): string[] => {
+    return items.flatMap(item => item as any);
+  };
+  return getStrings(values);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn recursive_local_callback_lowers_flat_map_symbol() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function collect(value: object): string[] {
+  const getStrings = (nested: any, paths: string[]): string[] => {
+    if (Array.isArray(nested)) {
+      return nested.flatMap((item, index) =>
+        getStrings(item, [...paths, String(index)])
+      );
+    }
+    return [paths.join(".")];
+  };
+  return getStrings(value, []);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn plain_function_local_without_property_writes_is_untouched() -> Result<(), String> {
     // A function-typed local that receives no property writes never enters the
     // callable-object collection and lowers with no CallableObjectAssign.

@@ -3110,7 +3110,7 @@ impl ModuleBuilder<'_> {
         actual: smelt_hir::TypeId,
         expected: smelt_hir::TypeId,
     ) -> bool {
-        actual == expected
+        self.type_assignable_to(actual, expected)
             || matches!(self.ctx.krate.types.get(expected), Some(Type::Class { .. }))
             || matches!(
                 self.ctx.krate.types.get(expected),

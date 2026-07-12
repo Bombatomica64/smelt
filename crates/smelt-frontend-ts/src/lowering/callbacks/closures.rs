@@ -917,7 +917,7 @@ impl ModuleBuilder<'_> {
                     span,
                 }))
             }
-            "map" | "flatMap"
+            "map" | "flatMap" | "flat_map"
                 if args.is_empty()
                     && (self.callback_method_receiver_is_list_like(receiver_ty)
                         || matches!(self.ctx.krate.types.get(ty), Some(Type::List(_)))) =>
