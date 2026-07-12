@@ -24,6 +24,7 @@ use std::{
 mod call;
 mod call_runtime;
 mod capture_analysis;
+mod cfg_queries;
 mod coercion;
 mod control_flow;
 mod control_flow_match;
