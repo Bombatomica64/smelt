@@ -23,6 +23,7 @@ use std::{
 
 mod call;
 mod call_runtime;
+mod capture_analysis;
 mod coercion;
 mod control_flow;
 mod control_flow_match;
