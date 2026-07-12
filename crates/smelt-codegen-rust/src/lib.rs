@@ -811,6 +811,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("impl<T> SmeltJsSet<T> {");
         writer.line("    fn new() -> Self { Self { entries: Vec::new() } }");
+        writer.line("    fn clear(&mut self) { self.entries.clear(); }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl<T: Clone + IntoSmeltUnknown> SmeltJsSet<T> {");
@@ -852,6 +853,12 @@ fn emit_source_with_free_function_router(
         writer.line("impl SmeltJsKeyEq for bool { fn same_js_key(&self, other: &Self) -> bool { self == other } }");
         writer.line("impl SmeltJsKeyEq for i64 { fn same_js_key(&self, other: &Self) -> bool { self == other } }");
         writer.line("impl SmeltJsKeyEq for f64 { fn same_js_key(&self, other: &Self) -> bool { (self.is_nan() && other.is_nan()) || self == other } }");
+        // A record/object used as a collection key compares by JavaScript
+        // reference identity (its stable object `id`), matching `same_js_key`'s
+        // object arm on the erased value. This lets a `Set`/`Map`/cache keyed by
+        // a concrete `SmeltRecord` resolve `SmeltJsKeyEq` without erasing to
+        // `SmeltUnknown` (was E0599: unsatisfied `SmeltJsKeyEq` bound).
+        writer.line("impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } }");
         writer.blank_line();
         // The fourth equality kind: JavaScript strict equality (`===`/`!==`).
         // Distinct from the other three — objects/arrays/functions compare by
