@@ -920,13 +920,21 @@ impl FunctionEmitter<'_> {
         callback_text: &str,
         arg_expr: &str,
     ) -> Result<String, EmitError> {
-        if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?)
-            && self.is_erased_unknown_rest_function(function)
-            && !function.may_throw
-        {
-            return Ok(format!(
-                "({callback_text}).call(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})])"
-            ));
+        if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?) {
+            if self.is_erased_unknown_rest_function(function) && !function.may_throw {
+                return Ok(format!(
+                    "({callback_text}).call(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})])"
+                ));
+            }
+            // JavaScript `.then(cb)`/`.catch(cb)` always invoke the continuation
+            // with the resolved value (or rejection reason), but a 0-arity source
+            // callback declares no parameter to receive it. Adapt to the callback's
+            // declared arity: a statically-typed closure with no parameters and no
+            // rest must be called with no arguments, dropping the value, or Rust
+            // reports E0057 (too many arguments).
+            if function.rest.is_none() && function.params.is_empty() {
+                return Ok(format!("({{ let _ = {arg_expr}; ({callback_text})() }})"));
+            }
         }
         Ok(format!("({callback_text})({arg_expr})"))
     }
