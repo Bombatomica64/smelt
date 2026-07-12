@@ -521,7 +521,7 @@ impl FunctionEmitter<'_> {
             let awaited =
                 self.value_at_type_text("smelt_future_value", *source_item, *target_item)?;
             return Ok(format!(
-                "Box::pin(async move {{ let smelt_future_value = {value_text}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }})"
+                "SmeltFuture::from_future(Box::pin(async move {{ let smelt_future_value = {value_text}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }}))"
             ));
         }
         if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
@@ -2028,10 +2028,10 @@ impl FunctionEmitter<'_> {
                 let converted_return_text = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    let item_text = self.type_text_with_impl_trait(*item, false)?;
+                    let _ = self.type_text_with_impl_trait(*item, false)?;
                     let converted_item = self.extract_value_text("smelt_result", *item)?;
                     format!(
-                        "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{item_text}, Box<dyn std::error::Error>>>>>"
+                        "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}))"
                     )
                 } else if return_ty == "SmeltUnknown" {
                     "smelt_result".to_owned()
@@ -2048,12 +2048,11 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_function = match {text}.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ let smelt_callback: {target_text} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}); smelt_callback }} }} else {{ {default_callback} }} }}"
                 ))
             }
-            // A `dyn Future` has no `Default`, so a bare `Default::default()`
-            // here fails to compile (E0277). There is also no way to recover a
-            // real future from an already-erased `SmeltUnknown`, so extract to a
-            // ready future at the declared `Output` type instead. `default_value`
-            // renders exactly `Box::pin(async { Ok(<default output>) }) as <ty>`
-            // for `Type::Future`, matching the future ABI used everywhere else.
+            // There is no way to recover a real future from an already-erased
+            // `SmeltUnknown`, so extract to a ready promise value at the declared
+            // `Output` type instead. `default_value` renders exactly
+            // `SmeltFuture::resolved(<default output>)` for `Type::Future`,
+            // matching the promise-value ABI used everywhere else.
             Some(Type::Future(_)) => self.default_value(target),
             _ => Err(EmitError::new(
                 "checked extraction from unknown to this type is not implemented yet",

@@ -1306,9 +1306,8 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) != Some(&Type::None)
                 {
                     return Ok(format!(
-                        "Box::pin(async move {{ {text}.await?; Ok::<_, Box<dyn std::error::Error>>({}) }}) as {}",
+                        "SmeltFuture::from_future(Box::pin(async move {{ {text}.await?; Ok::<_, Box<dyn std::error::Error>>({}) }}))",
                         self.default_value(*item)?,
-                        self.type_text_with_impl_trait(dest_ty, false)?
                     ));
                 }
                 Ok(text)

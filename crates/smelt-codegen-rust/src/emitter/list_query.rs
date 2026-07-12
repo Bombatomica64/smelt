@@ -1284,7 +1284,7 @@ impl FunctionEmitter<'_> {
                     format!("{} ", async_capture_lines.join(" "))
                 };
                 format!(
-                    "|{params_text}| {{ {async_capture_prelude}Box::pin(async move {{\n        let smelt_async_value = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>> }}"
+                    "|{params_text}| {{ {async_capture_prelude}SmeltFuture::from_future(Box::pin(async move {{\n        let smelt_async_value = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>>) }}"
                 )
             } else if function.can_throw {
                 // A fallible closure returns `Result<T, Box<dyn Error>>`. When its

@@ -879,11 +879,15 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                let return_ty = if function.may_throw
-                    && let Some(Type::Future(item)) = self.mir.types.get(function.return_ty)
+                let return_ty = if let Some(Type::Future(item)) =
+                    self.mir.types.get(function.return_ty)
                 {
+                    // An async function's return type is the promise value
+                    // itself (`SmeltFuture<T>`); a synchronous throw from an
+                    // async function surfaces as a rejected future, not an outer
+                    // `Result`, so `may_throw` does not add a wrapper here.
                     format!(
-                        "::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{}, Box<dyn std::error::Error>>>>>",
+                        "SmeltFuture<{}>",
                         self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
                     )
                 } else if function.may_throw {
@@ -906,8 +910,11 @@ impl FunctionEmitter<'_> {
                     Ok(format!("::std::rc::Rc<dyn Fn({params}) -> {return_ty}>"))
                 }
             }
+            // A source `Promise<T>` / `Type::Future(T)` lowers to the generic
+            // promise-value ABI `SmeltFuture<T>` in every position, so the same
+            // MIR future type renders one Rust type everywhere.
             Type::Future(item) => Ok(format!(
-                "::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{}, Box<dyn std::error::Error>>>>>",
+                "SmeltFuture<{}>",
                 self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
         }
@@ -1016,13 +1023,10 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                let return_ty = if function.may_throw
-                    && let Some(Type::Future(item)) = self.mir.types.get(function.return_ty)
+                let return_ty = if let Some(Type::Future(item)) =
+                    self.mir.types.get(function.return_ty)
                 {
-                    format!(
-                        "::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{}, Box<dyn std::error::Error>>>>>",
-                        self.type_text_with_impl_trait(*item, false)?
-                    )
+                    format!("SmeltFuture<{}>", self.type_text_with_impl_trait(*item, false)?)
                 } else if function.may_throw {
                     format!(
                         "Result<{}, Box<dyn std::error::Error>>",
@@ -1032,13 +1036,11 @@ impl FunctionEmitter<'_> {
                     self.type_text_with_impl_trait(function.return_ty, false)?
                 };
                 let return_value = self.default_value(function.return_ty)?;
-                let return_text = if function.may_throw
-                    && let Some(Type::Future(item)) = self.mir.types.get(function.return_ty)
+                let return_text = if let Some(Type::Future(item)) =
+                    self.mir.types.get(function.return_ty)
                 {
                     let item_value = self.default_value(*item)?;
-                    format!(
-                        "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({item_value}) }}) as {return_ty}"
-                    )
+                    format!("SmeltFuture::resolved({item_value})")
                 } else if function.may_throw {
                     format!("Ok::<_, Box<dyn std::error::Error>>({return_value})")
                 } else {
@@ -1050,9 +1052,8 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Type::Future(item) => Ok(format!(
-                "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({}) }}) as {}",
-                self.default_value(*item)?,
-                self.type_text_with_impl_trait(ty, false)?
+                "SmeltFuture::resolved({})",
+                self.default_value(*item)?
             )),
         }
     }

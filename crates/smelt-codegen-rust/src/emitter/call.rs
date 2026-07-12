@@ -31,11 +31,11 @@ impl FunctionEmitter<'_> {
                     };
                     if item_is_erased {
                         return Ok(format!(
-                            "Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }})"
+                            "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }}))"
                         ));
                     }
                     return Ok(format!(
-                        "Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }})"
+                        "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }}))"
                     ));
                 }
                 let rendered_args = args
@@ -82,7 +82,7 @@ impl FunctionEmitter<'_> {
                     }
                 };
                 Ok(format!(
-                    "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }})"
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }}))"
                 ))
             }
             smelt_hir::AsyncOp::Race => {
@@ -107,7 +107,7 @@ impl FunctionEmitter<'_> {
                     }
                 };
                 Ok(format!(
-                    "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }})"
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }}))"
                 ))
             }
             smelt_hir::AsyncOp::Sleep => {
@@ -115,7 +115,7 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("async sleep requires a duration operand"));
                 };
                 Ok(format!(
-                    "Box::pin(async move {{ {sleep_ms}({} as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }})",
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({} as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }}))",
                     self.operand_text(duration)?,
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
@@ -220,8 +220,7 @@ impl FunctionEmitter<'_> {
                 let resolve_value =
                     self.value_at_type_text("value", self.type_id(Type::Unknown)?, output_ty)?;
                 Ok(format!(
-                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |value: SmeltUnknown| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }}) as {} }}",
-                    self.type_text_with_impl_trait(dest_ty, false)?,
+                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |value: SmeltUnknown| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
@@ -239,7 +238,7 @@ impl FunctionEmitter<'_> {
                 let invocation =
                     self.promise_callback_invocation_with(callback, &callback_expr, "smelt_value")?;
                 Ok(format!(
-                    "{{ {prelude}Box::pin(async move {{ let smelt_value = {future_text}.await?; let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }}) }}"
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }})) }}"
                 ))
             }
             smelt_hir::AsyncOp::Catch => {
@@ -261,7 +260,7 @@ impl FunctionEmitter<'_> {
                 )?;
                 let default_value = self.default_value(*output_ty)?;
                 Ok(format!(
-                    "{{ {prelude}Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>({default_value}) }} }} }}) }}"
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>({default_value}) }} }} }})) }}"
                 ))
             }
             smelt_hir::AsyncOp::SpawnLocal => {
@@ -282,7 +281,7 @@ impl FunctionEmitter<'_> {
                 };
                 let future_text = self.await_operand_text(future)?;
                 Ok(format!(
-                    "Box::pin(async move {{ tokio::spawn(async move {{ {future_text}.await }}).await.expect(\"async task panicked\") }})"
+                    "SmeltFuture::from_future(Box::pin(async move {{ tokio::spawn(async move {{ {future_text}.await }}).await.expect(\"async task panicked\") }}))"
                 ))
             }
             smelt_hir::AsyncOp::WaitFor => {
@@ -293,7 +292,7 @@ impl FunctionEmitter<'_> {
                 };
                 let future_text = self.await_operand_text(future)?;
                 Ok(format!(
-                    "Box::pin(async move {{ tokio::time::timeout(::std::time::Duration::from_millis({} as u64), {future_text}).await.expect(\"async timeout\")? }})",
+                    "SmeltFuture::from_future(Box::pin(async move {{ tokio::time::timeout(::std::time::Duration::from_millis({} as u64), async move {{ {future_text}.await }}).await.expect(\"async timeout\")? }}))",
                     self.operand_text(timeout)?
                 ))
             }
@@ -308,7 +307,7 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("async HTTP GET URL must be a string"));
                 }
                 Ok(format!(
-                    "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(reqwest::get({}).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")) }})",
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(reqwest::get({}).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")) }}))",
                     self.operand_text(url)?
                 ))
             }

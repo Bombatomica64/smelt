@@ -1048,6 +1048,70 @@ fn emit_source_with_free_function_router(
         writer.line("    Ok(current)");
         writer.line("}");
         writer.blank_line();
+        // Generic promise-value ABI. A source `Promise<T>` / `Type::Future(T)`
+        // lowers to `SmeltFuture<T>` in *every* position (parameter, field,
+        // return, local, async-op result), so the same MIR future type renders
+        // one Rust type everywhere instead of a bare
+        // `Pin<Box<dyn Future>>` in some positions and a value in others. The
+        // handle is a shared `Rc<RefCell<..>>` so it is cheaply `Clone`
+        // (matching JS promise-value copy semantics) and `Default` (a ready
+        // default value). `smelt_await` drives the stored future once, caches the
+        // resolved value, and serves later awaits from that cache — JS promises
+        // may be awaited multiple times, and each await after the first resolves
+        // from the cached value (single-consumer of the underlying future).
+        writer.line("#[allow(dead_code)]");
+        writer.line("enum SmeltFutureState<T> {");
+        writer.line("    Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),");
+        writer.line("    Resolved(T),");
+        writer.line("    Taken,");
+        writer.line("}");
+        writer.line("pub struct SmeltFuture<T> {");
+        writer.line("    state: ::std::rc::Rc<::std::cell::RefCell<SmeltFutureState<T>>>,");
+        writer.line("}");
+        writer.line("impl<T> Clone for SmeltFuture<T> { fn clone(&self) -> Self { Self { state: self.state.clone() } } }");
+        writer.line("impl<T: Default> Default for SmeltFuture<T> { fn default() -> Self { Self::resolved(T::default()) } }");
+        writer.line("impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(\"SmeltFuture\") } }");
+        writer.line("#[allow(dead_code)]");
+        writer.line("impl<T> SmeltFuture<T> {");
+        writer.line("    /// Wrap a live future behind a cloneable promise-value handle.");
+        writer.line("    fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Pending(future))) } }");
+        writer.line("    /// Build an already-resolved promise-value handle.");
+        writer.line("    fn resolved(value: T) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Resolved(value))) } }");
+        writer.line("    /// Drive the stored future once, cache its resolved value, and serve");
+        writer.line("    /// later awaits from that cache (single-consumer of the future).");
+        writer.line("    async fn smelt_await(&self) -> Result<T, Box<dyn std::error::Error>> where T: Clone {");
+        writer.line("        let pending = {");
+        writer.line("            let mut guard = self.state.borrow_mut();");
+        writer.line("            if matches!(&*guard, SmeltFutureState::Pending(_)) {");
+        writer.line("                match ::std::mem::replace(&mut *guard, SmeltFutureState::Taken) {");
+        writer.line("                    SmeltFutureState::Pending(future) => Some(future),");
+        writer.line("                    _ => None,");
+        writer.line("                }");
+        writer.line("            } else { None }");
+        writer.line("        };");
+        writer.line("        if let Some(future) = pending {");
+        writer.line("            let value = future.await?;");
+        writer.line("            *self.state.borrow_mut() = SmeltFutureState::Resolved(value.clone());");
+        writer.line("            return Ok(value);");
+        writer.line("        }");
+        writer.line("        let guard = self.state.borrow();");
+        writer.line("        match &*guard {");
+        writer.line("            SmeltFutureState::Resolved(value) => Ok(value.clone()),");
+        writer.line("            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, \"future already consumed\").into()),");
+        writer.line("        }");
+        writer.line("    }");
+        writer.line("}");
+        // `SmeltFuture<T>` is `IntoFuture`, so an ordinary Rust `.await` on a
+        // promise value drives it through `smelt_await` — every generated `.await`
+        // site works on the wrapper without a bespoke call form. The underlying
+        // futures are `'static` (the prior `Pin<Box<dyn Future>>` ABI was too), so
+        // `T: 'static` here matches existing constraints.
+        writer.line("impl<T: Clone + 'static> ::std::future::IntoFuture for SmeltFuture<T> {");
+        writer.line("    type Output = Result<T, Box<dyn std::error::Error>>;");
+        writer.line("    type IntoFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>;");
+        writer.line("    fn into_future(self) -> Self::IntoFuture { Box::pin(async move { self.smelt_await().await }) }");
+        writer.line("}");
+        writer.blank_line();
         writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
         writer.line("fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }");
         writer.blank_line();
