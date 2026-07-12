@@ -164,7 +164,8 @@ impl FunctionEmitter<'_> {
         // `x => x && cond`), route the single call through `value_truthy_text` so
         // the predicate observes the same truthiness the source does; a `bool`
         // return passes through unchanged.
-        let callback_call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let callback_call_text =
+            self.callback_invocation_text(function_ty, &call_args.join(", "));
         // A fallible (`may_throw`) callback is emitted as a closure returning
         // `Result<_, Box<dyn Error>>`, but list predicates consume the result in
         // boolean position (`if …`, `.any`, `.all`). Unwrap the `Result` the same
@@ -274,7 +275,8 @@ impl FunctionEmitter<'_> {
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
         let call_args = list_iteration.call_args;
-        let callback_call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let callback_call_text =
+            self.callback_invocation_text(function_ty, &call_args.join(", "));
         let call_text = if function_ty.may_throw {
             format!(
                 "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{{}}\", error))"
@@ -313,7 +315,7 @@ impl FunctionEmitter<'_> {
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
         let call_args = list_iteration.call_args;
-        let call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let call_text = self.callback_invocation_text(function_ty, &call_args.join(", "));
         Ok(format!(
             "{{ let smelt_callback = {closure_text}; {}{}.iter().enumerate().for_each(|(index, item)| {{ let _ = {call_text}; }}); () }}",
             list_iteration.prefix, list_iteration.iter_text
@@ -343,7 +345,7 @@ impl FunctionEmitter<'_> {
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
         let call_args = list_iteration.call_args;
-        let call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let call_text = self.callback_invocation_text(function_ty, &call_args.join(", "));
         let flattened_text = match self.mir.types.get(function_ty.return_ty) {
             Some(Type::List(callback_item_ty)) => {
                 let value_text =
@@ -376,6 +378,27 @@ impl FunctionEmitter<'_> {
     /// JavaScript's optional third callback argument observes the whole source
     /// array; only that ABI needs a stable cloned snapshot named
     /// `smelt_array`.
+    /// Renders an invocation of the `smelt_callback` binding used by the array
+    /// callback lowerings.
+    ///
+    /// A callback whose type is an erased JS rest callable is a
+    /// `SmeltErasedFunction` value rather than a Rust `Fn`, so it must be invoked
+    /// through the erased callable ABI (`.call(..)`). Every other callback is a
+    /// concrete closure and uses direct call syntax.
+    fn callback_invocation_text(&self, function_ty: &FunctionType, args: &str) -> String {
+        if self.is_erased_unknown_rest_function(function_ty) {
+            format!("smelt_callback.call({args})")
+        } else {
+            format!("(smelt_callback)({args})")
+        }
+    }
+
+    /// Builds the shared iteration scaffolding (receiver prefix, iterator text,
+    /// and per-element call arguments) for an array callback lowering.
+    ///
+    /// The callback's declared parameters decide how many of `(item, index,
+    /// array)` are forwarded and how each is coerced; a third parameter forces a
+    /// cloned `smelt_array` snapshot so the callback can observe the whole source.
     fn list_callback_iteration_parts(
         &self,
         list: &Operand,
@@ -473,7 +496,7 @@ impl FunctionEmitter<'_> {
         if let Some(index_param_ty) = function_ty.params.get(1).copied() {
             call_args.push(self.value_at_type_text("index as f64", float_ty, index_param_ty)?);
         }
-        let call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let call_text = self.callback_invocation_text(function_ty, &call_args.join(", "));
         Ok(format!(
             "{{ let smelt_callback = {closure_text}; let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|index| {call_text}).collect::<Vec<_>>() }}"
         ))
@@ -608,7 +631,7 @@ impl FunctionEmitter<'_> {
         };
         // Coerce the callback result to the accumulator type so a reconcilable
         // (but not identical) return type still produces the next `acc` value.
-        let call_expr = format!("(smelt_callback)({})", call_args.join(", "));
+        let call_expr = self.callback_invocation_text(function_ty, &call_args.join(", "));
         let callback_result_text =
             self.value_at_type_text(&call_expr, callback_return_ty, dest_ty)?;
         let callback_text =

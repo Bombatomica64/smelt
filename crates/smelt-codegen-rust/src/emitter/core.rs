@@ -3257,7 +3257,14 @@ impl<'mir> FunctionEmitter<'mir> {
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
-        let call = format!("(smelt_callback)({forwarded})");
+        // An erased-rest source is a `SmeltErasedFunction` value, which is not a
+        // Rust `Fn` and cannot be invoked with call syntax. Route it through the
+        // erased callable ABI (`.call(..)`) instead of `(callback)(..)`.
+        let call = if self.is_erased_unknown_rest_function(source_function) {
+            format!("smelt_callback.call({forwarded})")
+        } else {
+            format!("(smelt_callback)({forwarded})")
+        };
         let call_value = if source_function.may_throw && target_function.may_throw {
             format!("{call}?")
         } else if source_function.may_throw {
@@ -3497,6 +3504,11 @@ impl<'mir> FunctionEmitter<'mir> {
         // `smelt_callback` (E0425). A function-parameter source binds nothing
         // because the closure captures the parameter directly.
         Ok(Some(if borrowed {
+            // An owned callback closure refers to a `smelt_callback` binding; a
+            // borrowed function parameter is called by its own name and needs no
+            // binding. When the source is owned, introduce the `smelt_callback`
+            // binding inside the borrowed temporary so the closure body resolves
+            // (mirrors the owned `::std::rc::Rc::new` branch below).
             if is_borrowed_param {
                 format!("&mut {closure}")
             } else {

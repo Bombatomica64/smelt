@@ -6882,6 +6882,63 @@ export function unionBy<T>(arr1: T[], arr2: T[], mapper: (item: T) => unknown): 
 }
 
 #[test]
+fn erased_rest_callback_maps_through_erased_call_abi() {
+    // A `.map` callback whose value is an erased rest callable
+    // (`SmeltErasedFunction`, e.g. the result of a currying/arity helper) is not
+    // a Rust `Fn` and cannot be invoked with call syntax. The array-callback
+    // lowering must route it through the erased callable ABI (`.call(..)`) rather
+    // than emitting `(smelt_callback)(..)`, which fails to compile (E0618).
+    let source = source_for(
+        r#"
+function makeCapped(): (...args: unknown[]) => unknown {
+  return (...args: unknown[]) => args[0];
+}
+export function run(items: string[]): unknown[] {
+  const capped = makeCapped();
+  return items.map(capped);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_callback.call("),
+        "an erased rest callback must be invoked through the erased ABI\n{source}"
+    );
+    assert!(
+        !source.contains("(smelt_callback)(SmeltList"),
+        "an erased rest callback must not be called with call syntax\n{source}"
+    );
+}
+
+#[test]
+fn borrowed_rest_adapter_binds_owned_callback() {
+    // Forwarding an owned callback value to a helper that expects an erased rest
+    // callback builds a borrowed (`&mut`) wrapper closure whose body refers to a
+    // `smelt_callback` binding. When the source is an owned value (not a borrowed
+    // function parameter), the adapter must introduce that binding inside the
+    // borrowed temporary, otherwise `smelt_callback` is unresolved (E0425).
+    let source = source_for(
+        r#"
+function unzipWith(arrays: number[][], iteratee: (...values: unknown[]) => unknown): unknown[] {
+  const result: unknown[] = [];
+  for (const group of arrays) {
+    result.push(iteratee(group[0], group[1], group[2]));
+  }
+  return result;
+}
+export function run(zipped: number[][]): unknown[] {
+  return unzipWith(zipped, (item: number, item2: number, item3: number) => item + item2 + item3);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("&mut { let smelt_callback ="),
+        "a borrowed owned-callback adapter must bind smelt_callback\n{source}"
+    );
+}
+
+#[test]
 fn tuple_length_emits_constant_arity() {
     // A fixed-arity tuple has no Rust `.len()` method (E0599). Its JavaScript
     // `.length` is a compile-time constant, so the length rvalue must emit the
