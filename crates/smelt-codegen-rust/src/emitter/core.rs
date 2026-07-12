@@ -3403,8 +3403,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 ))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {
+                // `smelt_property_key` inspects `SmeltUnknown` discriminants, so
+                // its argument must be erased. A concrete union (`SmeltUnion…`) or
+                // class instance is not a `SmeltUnknown`; erase it first so the
+                // helper receives the runtime shape it matches over (E0308). A
+                // source already spelled as `Unknown` erases to itself.
+                let erased = self.erase_value_text(value_text, source_key)?;
                 Ok(format!(
-                    "{{ fn smelt_property_key(value: SmeltUnknown) -> String {{ match value {{ SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{{value}}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }} }} smelt_property_key({value_text}) }}"
+                    "{{ fn smelt_property_key(value: SmeltUnknown) -> String {{ match value {{ SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{{value}}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }} }} smelt_property_key({erased}) }}"
                 ))
             }
             _ => Ok("\"[object Object]\".to_owned()".to_owned()),
@@ -4158,6 +4164,20 @@ impl<'mir> FunctionEmitter<'mir> {
             Operand::Const(Constant::Float(_)) => self.type_id(Type::Float),
             Operand::Const(Constant::String(_)) => self.type_id(Type::String),
             Operand::Const(Constant::Symbol(_)) => self.type_id(Type::Unknown),
+        }
+    }
+
+    /// Returns the value type produced by awaiting `future`.
+    ///
+    /// An awaited operand's static type is a `Future<Item>`; the awaited value
+    /// is that `Item`. When the operand's type is not spelled as a future (some
+    /// promise-handle values flow through erased positions), fall back to the
+    /// operand type itself so callers can still drive a coercion against it.
+    pub(super) fn awaited_output_ty(&self, future: &Operand) -> Result<TypeId, EmitError> {
+        let ty = self.operand_ty(future)?;
+        match self.mir.types.get(ty) {
+            Some(Type::Future(item)) => Ok(*item),
+            _ => Ok(ty),
         }
     }
 

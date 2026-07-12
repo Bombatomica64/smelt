@@ -541,7 +541,9 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
-                let value = format!("{}.await?", self.await_operand_text(future)?);
+                let raw_value = format!("{}.await?", self.await_operand_text(future)?);
+                let source_ty = self.awaited_output_ty(future)?;
+                let value = self.value_at_type_text(&raw_value, source_ty, local.ty)?;
                 if matches!(
                     self.mir.types.get(local.ty),
                     Some(Type::Future(_) | Type::Function(_))
@@ -739,18 +741,32 @@ impl FunctionEmitter<'_> {
             } else {
                 ""
             };
-            if matches!(
-                self.mir.types.get(local.ty),
-                Some(Type::Future(_) | Type::Function(_))
-            ) {
+            // A fully-erased callee returns its future/handle at the erased item
+            // type (e.g. `SmeltFuture<SmeltUnknown>`) while a specialized call
+            // site declares a concrete `Future<T>`. Coerce the caught value from
+            // the call's actual emitted type to the destination so a later
+            // `await` yields `T` directly; when they already match,
+            // `value_at_type_text` returns the value unchanged. A function-typed
+            // destination is left untouched (function handles are not coerced
+            // through this path).
+            if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
                 out.push_str(&format!(
                     "            let {mutability}{name} = __smelt_value;\n"
                 ));
             } else {
-                out.push_str(&format!(
-                    "            let {mutability}{name}: {} = __smelt_value;\n",
-                    self.type_text_with_impl_trait(local.ty, false)?
-                ));
+                let source_ty = self.call_emitted_source_ty(callee, local.ty)?;
+                let value_text =
+                    self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
+                if matches!(self.mir.types.get(local.ty), Some(Type::Future(_))) {
+                    out.push_str(&format!(
+                        "            let {mutability}{name} = {value_text};\n"
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "            let {mutability}{name}: {} = {value_text};\n",
+                        self.type_text_with_impl_trait(local.ty, false)?
+                    ));
+                }
             }
             self.mark_local_declared(dest);
             self.emit_block(self.block(target)?, out)?;
@@ -853,31 +869,25 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
-        // The awaited value has the future's inner item type, which may differ
-        // from the destination local's type. A `void`/`()` await destination
-        // discards its result, but the future's actual output is often a real
-        // value (e.g. `withTimeout` yields `SmeltUnknown`) whose MIR item type
-        // has been erased to `None` on the void-context future local. Binding
-        // that value to a `()` local directly is E0308, so a `()` destination
-        // always consumes and drops the awaited value. Otherwise coerce from the
-        // future's output type to the binding type.
-        let awaited_ty = match self.mir.types.get(self.operand_ty(future)?) {
-            Some(Type::Future(item)) => *item,
-            _ => local.ty,
-        };
+        // The awaited value carries the future's real emitted output type,
+        // which may differ from the destination local's type (an erased callee
+        // yields `SmeltUnknown`). A `void`/`()` destination discards its result
+        // entirely, so no coercion is computed for it.
+        let source_ty = self.awaited_output_ty(future)?;
         if matches!(
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
         ) {
+            let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
             out.push_str(&format!(
-                "            let {mutability}{name} = __smelt_value;\n"
+                "            let {mutability}{name} = {value_text};\n"
             ));
         } else if self.mir.types.get(local.ty) == Some(&Type::None) {
             out.push_str(&format!(
                 "            let {mutability}{name}: () = {{ let _ = __smelt_value; }};\n"
             ));
         } else {
-            let value_text = self.value_at_type_text("__smelt_value", awaited_ty, local.ty)?;
+            let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
             out.push_str(&format!(
                 "            let {mutability}{name}: {} = {value_text};\n",
                 self.type_text_with_impl_trait(local.ty, false)?

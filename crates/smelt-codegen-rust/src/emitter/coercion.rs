@@ -529,6 +529,33 @@ impl FunctionEmitter<'_> {
                 "{{ let smelt_source_future = {value_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_future_value = smelt_source_future.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }})) }}"
             ));
         }
+        // Element-wise `List<A>` -> `List<B>` re-mapping. The operand-based
+        // coercion (`coerce_operand_text`) already handles this for a place
+        // operand, but this string-based entry point is reached when the source
+        // list flows through an expression (e.g. an awaited erased future whose
+        // static item is `SmeltList<SmeltUnknown>` coerced into the call site's
+        // `SmeltList<f64>`). Drive the same `.into_iter().map(..)` rebuild off the
+        // value expression, coercing each element from the source item type.
+        if let (Some(Type::List(source_item)), Some(Type::List(target_item))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+            && source_item != target_item
+        {
+            let source_item = *source_item;
+            let target_item = *target_item;
+            let element_text = if matches!(self.mir.types.get(source_item), Some(Type::List(_)))
+                && (matches!(
+                    self.mir.types.get(target_item),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(target_item))
+            {
+                "value.into_smelt_unknown()".to_owned()
+            } else {
+                self.value_at_type_text("value", source_item, target_item)?
+            };
+            return Ok(format!(
+                "{{ let smelt_l = ({value_text}).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {element_text}).collect::<Vec<_>>()) }}"
+            ));
+        }
         if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
             (self.mir.types.get(source), self.mir.types.get(target))
             && source_items.len() == target_items.len()
