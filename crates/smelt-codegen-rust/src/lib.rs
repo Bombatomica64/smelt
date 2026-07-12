@@ -1016,7 +1016,12 @@ fn emit_source_with_free_function_router(
             "    async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {",
         );
         writer.line("        if self.state.borrow().is_none() {");
-        writer.line("            if let Some(future) = self.future.borrow_mut().take() {");
+        // Bind the taken future to a local before awaiting so no `RefMut` from
+        // `borrow_mut()` stays alive across the `.await` (pre-2024-edition
+        // temporary-scope rules would otherwise keep it borrowed and panic on
+        // re-entry through the shared cell).
+        writer.line("            let taken = self.future.borrow_mut().take();");
+        writer.line("            if let Some(future) = taken {");
         writer
             .line("                let settled = future.await.map_err(|error| error.to_string());");
         writer.line("                *self.state.borrow_mut() = Some(settled);");
@@ -1026,6 +1031,20 @@ fn emit_source_with_free_function_router(
         writer.line("            if let Some(result) = self.state.borrow().clone() {");
         writer.line("                return result.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error).into());");
         writer.line("            }");
+        // The result cell is still empty: another task (or a timer callback) must
+        // settle it. When timer helpers exist, drive the cooperative scheduler and
+        // virtual clock the same way the spin-wait futures do (H1/H3) so a future
+        // handed to the detached promise-task queue, or one whose resolution
+        // depends on a pending timer, cannot spin forever with nothing advancing
+        // time. Without timer helpers there is no timer queue or detached-task
+        // queue to drive, so a bare cooperative yield is the only (and correct)
+        // driver, and the helper symbols are not emitted to reference.
+        if needs_timer_helpers {
+            writer.line(format!(
+                "            {sleep_ms}(0.0).await;",
+                sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+            ));
+        }
         writer.line("            tokio::task::yield_now().await;");
         writer.line("        }");
         writer.line("    }");
@@ -1555,10 +1574,12 @@ fn emit_source_with_free_function_router(
             writer.line(
                 "    let target_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));",
             );
+            // Fire every timer due within the requested window, advancing virtual
+            // time to each in turn and draining the microtask queue between fires.
             writer.line("    loop {");
             writer.line("        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms).map(|timer| timer.due_ms).min());");
             writer.line("        let Some(next_due) = next_due else { break; };");
-            writer.line("        SMELT_TIMER_NOW_MS.with(|now| now.set(next_due));");
+            writer.line("        SMELT_TIMER_NOW_MS.with(|now| if next_due > now.get() { now.set(next_due); });");
             writer.line(format!(
                 "        {drain_due_timers}();",
                 drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
@@ -1568,7 +1589,39 @@ fn emit_source_with_free_function_router(
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
             ));
             writer.line("    }");
-            writer.line("    SMELT_TIMER_NOW_MS.with(|now| now.set(target_ms));");
+            writer.line("    SMELT_TIMER_NOW_MS.with(|now| if target_ms > now.get() { now.set(target_ms); });");
+            // Node-style run-until-idle. A zero-delay sleep is what the generated
+            // promise-executor spin loops await while waiting for a result cell to
+            // be settled (e.g. by a `setTimeout(resolve, 100)` timer). With no
+            // window to fire into, virtual time would never reach that timer and
+            // the spin loop would starve forever. When the requested window has no
+            // due timer AND no detached promise task is still runnable (the
+            // microtask queue is drained, so nothing else can make progress), the
+            // event loop is idle: advance virtual time to the earliest pending
+            // timer and fire it, exactly as Node advances to its timer phase once
+            // microtasks settle. Repeat until either the queue has runnable work
+            // again, a timer settles the awaited state, or no timers remain.
+            //
+            // This applies only to a zero-delay sleep. A positive-delay sleep has
+            // a real deadline: it must fire exactly the timers due within its
+            // window (handled above) and must not jump the clock to a later timer,
+            // or a bounded `await delay(35)` would over-fire a `setInterval`.
+            writer.line("    'idle: {");
+            writer.line("        if delay_ms != 0 { break 'idle; }");
+            writer.line("        let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());");
+            writer.line("        if tasks_pending { break 'idle; }");
+            writer.line("        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().map(|timer| timer.due_ms).min());");
+            writer.line("        let Some(earliest) = earliest else { break 'idle; };");
+            writer.line("        SMELT_TIMER_NOW_MS.with(|now| if earliest > now.get() { now.set(earliest); });");
+            writer.line(format!(
+                "        {drain_due_timers}();",
+                drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
+            ));
+            writer.line(format!(
+                "        {drain_promise_tasks}().await;",
+                drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
+            ));
+            writer.line("    }");
             writer.line(format!(
                 "    {drain_promise_tasks}().await;",
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
