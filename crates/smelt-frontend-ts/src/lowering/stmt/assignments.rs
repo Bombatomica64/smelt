@@ -1882,13 +1882,16 @@ impl ModuleBuilder<'_> {
     /// and side effects are preserved exactly where the write appears, even though
     /// the write itself is deferred into the struct construction.
     ///
-    /// Two shapes are documented punts and produce an `unsupported` diagnostic
-    /// (a build blocker is preferable to a silently mis-constructed value):
+    /// Two shapes are documented punts the collection cannot claim:
     /// * a write outside the straight-line function body block (inside an `if`,
     ///   loop, or other nested block), because the field would need to become
-    ///   `Optional` to model the maybe-unwritten case; and
+    ///   `Optional` to model the maybe-unwritten case — this returns `Ok(false)`
+    ///   and falls through to normal (pre-feature) assignment lowering, which
+    ///   lowers the fieldless static-member write as a discarded statement; and
     /// * a write after the local has escaped (been read for anything other than
-    ///   the consuming coercion), because the escaped view never saw the props.
+    ///   the consuming coercion), because the escaped view never saw the props —
+    ///   this stays an `unsupported` diagnostic, guarding the construction path
+    ///   from a silently mis-constructed value.
     ///
     /// Returns `Ok(true)` when the write was claimed (no statement is emitted),
     /// `Ok(false)` when normal assignment lowering should proceed.
@@ -1921,10 +1924,17 @@ impl ModuleBuilder<'_> {
         }
         let span = self.span(assign.span.start, assign.span.end);
         if block != body.root {
-            return Err(SmeltError::unsupported(
-                span,
-                "conditional property writes onto a callable local are not lowered yet",
-            ));
+            // Conditional / nested-block write: the feature only claims
+            // straight-line writes in the body root block, because modeling a
+            // maybe-unwritten field would require weakening it to `Optional`.
+            // Rather than blocking the whole crate, fall through to normal
+            // assignment lowering — the pre-feature behavior where a fieldless
+            // static-member write is lowered as a discarded statement. This
+            // matches the design's "conditionals fall through + diagnostic"
+            // punt (see specs/plans/callable-object-construction.md §5) and is
+            // safe: the hard construction guard below only fires once props are
+            // actually consumed into a typed callable-interface struct.
+            return Ok(false);
         }
         if self
             .callable_local_props

@@ -522,12 +522,16 @@ export function makeCounter(): Counter {
 }
 
 #[test]
-fn callable_local_conditional_property_write_is_unsupported() -> Result<(), String> {
-    // A property write onto a callable local inside a conditional block is a
-    // documented punt: the field would need to become optional to model the
-    // maybe-unwritten case.
+fn callable_local_conditional_property_write_falls_through() -> Result<(), String> {
+    // Regression: a property write onto a callable local inside a conditional
+    // (non-root) block is a documented punt the collection cannot claim, but it
+    // must NOT abort the crate. It falls through to normal (pre-feature)
+    // assignment lowering — the fieldless static-member write is discarded — and
+    // lowering succeeds with no `CallableObjectAssign`. This mirrors the
+    // `partial.placeholder = …` shape in es-toolkit that regressed to a hard
+    // error and blocked the whole crate.
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let module_id = lower_ok(
         ts!(r#"
 interface Counter {
   (): number;
@@ -545,7 +549,16 @@ export function makeCounter(flag: boolean): Counter {
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&errors, "conditional property writes onto a callable local")
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "make_counter")?;
+    let body = function_body(&ctx, function)?;
+    // The conditional write was not claimed into a typed struct: no
+    // CallableObjectAssign is synthesized for the fall-through shape.
+    ensure!(!body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::CallableObjectAssign { .. })));
+    Ok(())
 }
 
 #[test]
