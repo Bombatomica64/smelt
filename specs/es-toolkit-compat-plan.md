@@ -232,3 +232,38 @@ unused_parens — the codegen-quality plan), (2) runtime fidelity — `smelt pro
 items: callable-object construction dataflow for debounce/throttle method
 fields, monkey-patching semantics), (3) the 9 residual probe blockers (all
 `compat/**`), then (4) add es-toolkit as a second CI regression gate.
+
+## Test-compilation campaign (2026-07-12) — merged to main
+
+After the library crate reached `cargo check` 0, the generated TEST profile
+(`cargo test --no-run`, spec tests from `*.spec.ts`) started at **222 errors
+and now compiles at 0**, over seven integration rounds on main.
+
+Architectural pieces landed:
+- **`SmeltFuture<T>` promise-value ABI**: `Type::Future(T)` lowers to a
+  clonable shared handle (`Rc<RefCell<state>>`, Default = ready, cached
+  JS-style multi-await, IntoFuture) — fixed the position-blind
+  future-in-collection Clone/Default family for good.
+- **Async-method owned-self**: async class methods emit as
+  `fn(&self) -> SmeltFuture<T>` cloning self into the task (detached-task
+  E0597s), with the await seam coercing from the future's real output type.
+- **Emission ordering/aliasing**: operand-before-&mut-borrow for
+  self-referential mutations, single materialization of non-trivial coercion
+  sources, `.then`/`.catch` callback hoisting out of async-move, callback
+  arity adaptation (0-arg `.then` continuations), no double-`Result` wrap.
+- **Dynamic callable honesty**: Promise executors, `vi.fn()` spies, and
+  `partial`/`curry`/`ary`/`flow` results route through the erased `.call`
+  ABI; explicit `any` locals pin to erased storage instead of flow-narrowing.
+- **Frontend fixes**: rest-param slots no longer leak across same-named
+  functions in different modules (delay), spread calls only match rest
+  overloads (cartesianProduct), `toEqual` expected args typed contextually,
+  variadic callback params take element types, readonly parameter
+  properties, DOMException marker fields, container `SmeltFromUnknown`,
+  class `PartialEq` (value: field-wise; reference: `Rc::ptr_eq` identity).
+
+**Next phase — runtime correctness**: the suite RUNS but a bounded run shows
+~56 passed / 89 failed with several async tests hanging (deadlocks in e.g.
+attemptAsync/combinations). Use `smelt rust-test-report --focus` per failure
+family and the smelt-debug-workflow skill; also still open: callable-object
+construction dataflow (debounce/throttle method fields return
+Default-initialized structs) and generated-warning reduction (~950).
