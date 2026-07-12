@@ -655,6 +655,26 @@ function collect(value: object): string[] {
 }
 
 #[test]
+fn callable_object_type_alias_remains_callable() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Debounced<TArgs extends any[]> = {
+  (...args: TArgs): void;
+  cancel(): void;
+};
+
+function invoke(func: Debounced<any>): void {
+  func();
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn plain_function_local_without_property_writes_is_untouched() -> Result<(), String> {
     // A function-typed local that receives no property writes never enters the
     // callable-object collection and lowers with no CallableObjectAssign.

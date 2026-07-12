@@ -540,6 +540,73 @@ return_ty: function.return_ty,
         &mut self,
         literal: &oxc::ast::ast::TSTypeLiteral<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if let Some(TSSignature::TSCallSignatureDeclaration(signature)) = literal
+            .members
+            .iter()
+            .find(|member| matches!(member, TSSignature::TSCallSignatureDeclaration(_)))
+        {
+            let _type_params =
+                self.push_type_parameter_scope(signature.type_parameters.as_deref())?;
+            let result = (|| {
+                let return_ty = signature
+                    .return_type
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                let mut params = Vec::new();
+                for param in &signature.params.items {
+                    let ty = param
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?
+                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    params.push(if param.optional {
+                        self.ctx.krate.types.intern(Type::Optional(ty))
+                    } else {
+                        ty
+                    });
+                }
+                let rest = if let Some(rest) = &signature.params.rest {
+                    let rest_ty = rest
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| {
+                            self.function_type_rest_param_to_hir(&annotation.type_annotation)
+                        })
+                        .transpose()?
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(rest.span.start, rest.span.end),
+                                "call signature rest parameters require explicit array types",
+                            )
+                        })?;
+                    let index = params.len();
+                    params.push(rest_ty);
+                    Some(index)
+                } else {
+                    None
+                };
+                Ok::<_, SmeltError>(self.ctx.krate.types.intern(Type::Function(FunctionType {
+                    mutable_params: self
+                        .mutable_params_from_returned_tuple_state(&params, return_ty),
+                    params,
+                    rest,
+                    required_params: Some(Self::formal_parameters_required_count(
+                        &signature.params,
+                    )),
+                    return_ty,
+                    is_async: matches!(
+                        self.ctx.krate.types.get(return_ty),
+                        Some(Type::Future(_))
+                    ),
+                    may_throw: false,
+                })))
+            })();
+            self.pop_type_parameter_scope();
+            return result;
+        }
         if let [TSSignature::TSConstructSignatureDeclaration(signature)] =
             literal.members.as_slice()
         {
