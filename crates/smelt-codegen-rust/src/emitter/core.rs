@@ -2262,12 +2262,23 @@ impl<'mir> FunctionEmitter<'mir> {
         }
 
         let target_name = sanitize_ident(self.symbol_name(*name)?);
+        // The target class/interface may be parameterized by type params (e.g.
+        // `CurriedFunction1<T1, _>`). Those names are only legal to spell in the
+        // adapter body when they are actually in scope for the function being
+        // emitted. Inside a generic class member or generic free function the
+        // enclosing signature declares them, so a field default may keep the
+        // generic shape. At a non-generic call site (e.g. a spec function) the
+        // same name is unresolvable and must erase to `SmeltUnknown` instead of
+        // printing a dangling `T1` (was E0425). Intersect the target's type-param
+        // args with the current function's in-scope type params so only genuinely
+        // scoped names survive.
+        let in_scope = self.current_function_type_params();
         let scoped_type_params = args
             .iter()
             .filter_map(|arg| match self.mir.types.get(*arg) {
                 Some(Type::TypeParam {
                     name: type_param_name,
-                }) => Some(*type_param_name),
+                }) if in_scope.contains(type_param_name) => Some(*type_param_name),
                 _ => None,
             })
             .collect::<HashSet<_>>();

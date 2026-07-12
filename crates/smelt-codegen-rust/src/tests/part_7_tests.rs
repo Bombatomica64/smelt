@@ -7118,6 +7118,48 @@ export function makeFormatter(): Formatter {
 }
 
 #[test]
+fn record_to_generic_struct_adapter_erases_out_of_scope_type_params() {
+    // Regression (es-toolkit flowRight_spec / curry): a record adapted into a
+    // parameterized callable interface (`CurriedFunction1<T1, R>`) at a
+    // NON-generic call site rendered its `__smelt_call` field default with the
+    // interface's own type param spelled literally (`Rc<dyn Fn() ->
+    // CurriedFunction1<T1, SmeltUnknown>>`). `T1` is not in scope in the
+    // non-generic caller, so it was an unresolvable name (was E0425). The
+    // adapter must only keep type params that are actually in scope for the
+    // emitted function and erase the rest to `SmeltUnknown`.
+    let source = source_for(
+        r"
+interface CurriedFunction1<T1, R> {
+  (): CurriedFunction1<T1, R>;
+  (t1: T1): R;
+  tag: string;
+}
+export function makeCurried(): CurriedFunction1<number, string> {
+  const built: CurriedFunction1<number, string> = { tag: 'x' } as CurriedFunction1<number, string>;
+  return built;
+}
+",
+    );
+    // Only inspect the non-generic `make_curried` body; the generic struct's own
+    // `Default`/impl blocks legitimately spell `T1`/`R` because those are in
+    // scope there.
+    let body = source
+        .split("fn make_curried")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or("");
+    assert!(
+        !body.contains("CurriedFunction1<T1"),
+        "record-to-struct adapter must not spell an out-of-scope type param `T1` \
+         in the non-generic caller: {source}"
+    );
+    assert!(
+        body.contains("CurriedFunction1<SmeltUnknown, SmeltUnknown>"),
+        "out-of-scope type params should erase to SmeltUnknown: {source}"
+    );
+}
+
+#[test]
 fn tuple_assertion_on_list_value_preserves_list_representation() {
     // Regression (es-toolkit xorBy): a TypeScript tuple assertion applied to a
     // list value (`xs.filter(...) as [T]`) is type-level only. Materializing the
