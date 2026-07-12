@@ -471,3 +471,133 @@ export function run(values: number[]): number[] {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+#[test]
+fn callable_local_property_writes_lower_to_typed_callable_object_assign() -> Result<(), String> {
+    // A function-typed local (`counter`) that receives straight-line
+    // `counter.method = …` writes and is then returned at a callable-interface
+    // type must lower to a `CallableObjectAssign` typed at the interface class,
+    // carrying the collected property writes — not leak the writes.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Counter {
+  (): number;
+  reset(): void;
+}
+export function makeCounter(): Counter {
+  let count = 0;
+  const counter = function (): number {
+    count = count + 1;
+    return count;
+  };
+  counter.reset = function (): void {
+    count = 0;
+  };
+  return counter;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "make_counter")?;
+    let body = function_body(&ctx, function)?;
+    let assign = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::CallableObjectAssign { props, .. } => Some((expr.ty, props.len())),
+            _ => None,
+        })
+        .ok_or_else(|| "expected a CallableObjectAssign expression".to_owned())?;
+    // Exactly one property (`reset`) was collected.
+    ensure_eq!(assign.1, 1usize);
+    // The synthesized value is typed at the callable interface class.
+    ensure!(matches!(
+        ctx.krate.types.get(assign.0),
+        Some(Type::Class { name, .. }) if ctx.krate.symbols.get(*name) == Some("Counter")
+    ));
+    Ok(())
+}
+
+#[test]
+fn callable_local_conditional_property_write_is_unsupported() -> Result<(), String> {
+    // A property write onto a callable local inside a conditional block is a
+    // documented punt: the field would need to become optional to model the
+    // maybe-unwritten case.
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+interface Counter {
+  (): number;
+  reset(): void;
+}
+export function makeCounter(flag: boolean): Counter {
+  const counter = function (): number {
+    return 0;
+  };
+  if (flag) {
+    counter.reset = function (): void {};
+  }
+  return counter;
+}
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "conditional property writes onto a callable local")
+}
+
+#[test]
+fn callable_local_property_write_after_escape_is_unsupported() -> Result<(), String> {
+    // Once a callable local has escaped (been read for anything other than the
+    // consuming coercion), a later property write cannot be bundled and is a
+    // documented punt.
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+interface Counter {
+  (): number;
+  reset(): void;
+}
+export function makeCounter(): Counter {
+  const counter = function (): number {
+    return 0;
+  };
+  counter.reset = function (): void {};
+  const alias = counter;
+  counter.reset = function (): void {};
+  return counter;
+}
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "after it escapes")
+}
+
+#[test]
+fn plain_function_local_without_property_writes_is_untouched() -> Result<(), String> {
+    // A function-typed local that receives no property writes never enters the
+    // callable-object collection and lowers with no CallableObjectAssign.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function run(): number {
+  const helper = function (): number {
+    return 1;
+  };
+  return helper();
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "run")?;
+    let body = function_body(&ctx, function)?;
+    ensure!(!body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::CallableObjectAssign { .. })));
+    Ok(())
+}

@@ -7648,3 +7648,52 @@ export function run(pairs: Array<[number, number]>): void {
         "a tuple flowing into a list target must be rebuilt as a SmeltList\n{source}"
     );
 }
+
+#[test]
+fn callable_object_construction_emits_typed_interface_struct_literal() {
+    // Callable-object construction: a function-typed local that collects
+    // `counter.reset = …` writes and is returned at a callable-interface type
+    // must emit a real struct literal carrying the base callable in
+    // `__smelt_call` and each collected property in its like-named field — never
+    // a `Default::default()` inert struct that drops the writes.
+    let source = source_for(
+        r"
+interface Counter {
+  (): number;
+  reset(): void;
+}
+export function makeCounter(): Counter {
+  let count = 0;
+  const counter = function (): number {
+    count = count + 1;
+    return count;
+  };
+  counter.reset = function (): void {
+    count = 0;
+  };
+  return counter;
+}
+",
+    );
+    let body = source
+        .split("fn make_counter")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or("");
+    assert!(
+        body.contains("Counter {"),
+        "callable construction must build a Counter struct literal: {source}"
+    );
+    assert!(
+        body.contains("__smelt_call:"),
+        "the base callable must fill the __smelt_call field: {source}"
+    );
+    assert!(
+        body.contains("reset:"),
+        "the collected property must fill the reset field: {source}"
+    );
+    assert!(
+        !body.contains("Default::default()"),
+        "callable construction must not fall back to an inert Default struct: {source}"
+    );
+}
