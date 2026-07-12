@@ -78,9 +78,40 @@ pub(crate) struct UnknownReportOptions<'a> {
     /// Report serialization format.
     pub(crate) format: UnknownReportFormat,
     /// Optional prior JSON report used to compute per-category deltas. Comparing
-    /// against a baseline is advisory: it surfaces regressions without failing
-    /// the command, so intentional boundary additions are never blocked.
+    /// against a baseline is advisory by default: it surfaces regressions without
+    /// failing the command, so intentional boundary additions are never blocked.
     pub(crate) baseline: Option<PathBuf>,
+    /// When `true` and a `baseline` is provided, a rise in avoidable erasure above
+    /// the baseline is reported as a [`Regression`] so the caller can exit
+    /// nonzero. Defaults to `false`, preserving the historic advisory-only
+    /// behavior.
+    pub(crate) fail_on_regression: bool,
+}
+
+/// A detected avoidable-erasure regression versus a baseline.
+///
+/// Carried back to the CLI so it can print a message naming the delta and the
+/// top offending files, then exit nonzero when `--fail-on-regression` is set.
+pub(crate) struct Regression {
+    /// Avoidable-erasure occurrences recorded in the baseline.
+    pub(crate) baseline: usize,
+    /// Avoidable-erasure occurrences in the current scan.
+    pub(crate) current: usize,
+    /// How far the current scan exceeds the baseline (`current - baseline`).
+    pub(crate) delta: usize,
+    /// The files contributing the most avoidable-erasure occurrences in the
+    /// current scan, most first, capped to a readable count.
+    pub(crate) top_files: Vec<(String, usize)>,
+}
+
+/// Outcome of a report run: the rendered text plus any regression the caller may
+/// want to act on.
+pub(crate) struct UnknownReportOutcome {
+    /// The report serialized in the requested format.
+    pub(crate) rendered: String,
+    /// Set only when `fail_on_regression` is requested, a baseline is present,
+    /// and avoidable erasure rose above it.
+    pub(crate) regression: Option<Regression>,
 }
 
 /// Classification of a single `SmeltUnknown` occurrence.
@@ -173,18 +204,69 @@ impl UnknownReport {
     }
 }
 
+/// Number of top offending files named in a regression message.
+const TOP_OFFENDER_LIMIT: usize = 10;
+
 /// Run a `SmeltUnknown` scan and render the report in the requested format.
-pub(crate) fn unknown_report(options: &UnknownReportOptions<'_>) -> CliResult<String> {
+///
+/// The returned [`UnknownReportOutcome`] carries the rendered text and, when
+/// `fail_on_regression` is set and avoidable erasure rose above the baseline, a
+/// [`Regression`] the caller can turn into a nonzero exit. The rendered report is
+/// identical regardless of `fail_on_regression`; only the caller's exit behavior
+/// changes.
+pub(crate) fn unknown_report(
+    options: &UnknownReportOptions<'_>,
+) -> CliResult<UnknownReportOutcome> {
     let files = discover_rust_files(options.roots)?;
-    let report = scan_files(&files)?;
+    let scan = scan_files(&files)?;
+    let report = &scan.report;
     let baseline = match &options.baseline {
         Some(path) => Some(load_baseline(path)?),
         None => None,
     };
-    match options.format {
-        UnknownReportFormat::Json => Ok(serde_json::to_string_pretty(&report)?),
-        UnknownReportFormat::Markdown => Ok(render_markdown(&report, baseline.as_ref())),
+    let rendered = match options.format {
+        UnknownReportFormat::Json => serde_json::to_string_pretty(report)?,
+        UnknownReportFormat::Markdown => render_markdown(report, baseline.as_ref()),
+    };
+    let regression = if options.fail_on_regression {
+        detect_regression(&scan, baseline.as_ref())
+    } else {
+        None
+    };
+    Ok(UnknownReportOutcome {
+        rendered,
+        regression,
+    })
+}
+
+/// Compute an avoidable-erasure [`Regression`] versus `baseline`, if any.
+///
+/// Returns `None` when there is no baseline, or when avoidable erasure did not
+/// rise above it — a flat or falling count is never a regression. The top
+/// offending files are ranked by their avoidable-erasure occurrence count in the
+/// current scan, so the message points reviewers at where to look first.
+fn detect_regression(scan: &ScanResult, baseline: Option<&UnknownReport>) -> Option<Regression> {
+    let baseline_report = baseline?;
+    let baseline_avoidable = baseline_report.category_total(Category::AvoidableErasure);
+    let current_avoidable = scan.report.category_total(Category::AvoidableErasure);
+    let delta = current_avoidable.checked_sub(baseline_avoidable)?;
+    if delta == 0 {
+        return None;
     }
+    let mut top_files: Vec<(String, usize)> = scan
+        .avoidable_by_file
+        .iter()
+        .map(|(file, count)| (file.clone(), *count))
+        .collect();
+    // Most avoidable occurrences first; ties broken by path for stability.
+    top_files.sort_by(|left, right| right.1.cmp(&left.1).then(left.0.cmp(&right.0)));
+    top_files.truncate(TOP_OFFENDER_LIMIT);
+    Some(Regression {
+        baseline: baseline_avoidable,
+        current: current_avoidable,
+        delta,
+        top_files,
+    })
 }
 
 /// Load a prior JSON report to diff against, mapping IO/parse errors into the
@@ -256,12 +338,26 @@ fn display_path(file: &Path, base: Option<&Path>) -> String {
 /// Identity of one shape group: its category and normalized line pattern.
 type ShapeKey = (Category, String);
 
+/// Result of scanning a corpus: the serializable report plus a per-file
+/// avoidable-erasure tally used to name top offenders in a regression message.
+///
+/// The per-file tally is deliberately kept out of [`UnknownReport`] so the
+/// checked-in baseline JSON stays small and stable across large corpora (a
+/// per-file map would add one entry per generated file).
+struct ScanResult {
+    /// The serializable, checked-in report.
+    report: UnknownReport,
+    /// Avoidable-erasure occurrences keyed by displayed file path.
+    avoidable_by_file: BTreeMap<String, usize>,
+}
+
 /// Scan every file, tallying `SmeltUnknown` occurrences per shape and category.
-fn scan_files(files: &[PathBuf]) -> CliResult<UnknownReport> {
+fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
     let mut occurrences: BTreeMap<ShapeKey, usize> = BTreeMap::new();
     let mut file_sets: BTreeMap<ShapeKey, usize> = BTreeMap::new();
     let mut examples: BTreeMap<ShapeKey, String> = BTreeMap::new();
     let mut category_totals: BTreeMap<String, usize> = BTreeMap::new();
+    let mut avoidable_by_file: BTreeMap<String, usize> = BTreeMap::new();
     let mut total = 0usize;
 
     // Resolve the current directory once so `file:line` examples are recorded
@@ -297,6 +393,9 @@ fn scan_files(files: &[PathBuf]) -> CliResult<UnknownReport> {
             let key = (category, shape.clone());
             bump(&mut occurrences, key.clone(), count);
             bump(&mut category_totals, category.as_str().to_owned(), count);
+            if category == Category::AvoidableErasure {
+                bump(&mut avoidable_by_file, display.clone(), count);
+            }
             total = total.saturating_add(count);
             examples
                 .entry(key.clone())
@@ -330,11 +429,14 @@ fn scan_files(files: &[PathBuf]) -> CliResult<UnknownReport> {
             .then(left.shape.cmp(&right.shape))
     });
 
-    Ok(UnknownReport {
-        files_scanned: files.len(),
-        total,
-        category_totals,
-        shapes,
+    Ok(ScanResult {
+        report: UnknownReport {
+            files_scanned: files.len(),
+            total,
+            category_totals,
+            shapes,
+        },
+        avoidable_by_file,
     })
 }
 
@@ -758,7 +860,7 @@ mod tests {
         )
         .unwrap();
 
-        let report = scan_files(&[file]).unwrap();
+        let report = scan_files(&[file]).unwrap().report;
         assert_eq!(report.files_scanned, 1);
         // enum line (1) + Function field (1) inside enum = 2 prelude;
         // signature line has 2; Function construction has 1 legitimate.
@@ -768,7 +870,7 @@ mod tests {
 
         // Re-scanning yields identical output (determinism).
         let json_a = serde_json::to_string(&report).unwrap();
-        let report_b = scan_files(&[dir.join("gen.rs")]).unwrap();
+        let report_b = scan_files(&[dir.join("gen.rs")]).unwrap().report;
         let json_b = serde_json::to_string(&report_b).unwrap();
         assert_eq!(json_a, json_b);
 
@@ -805,7 +907,7 @@ mod tests {
         )
         .unwrap();
 
-        let report = scan_files(&[file]).unwrap();
+        let report = scan_files(&[file]).unwrap().report;
         // The pre-marker signature (2 occurrences) is prelude; the post-marker
         // program signature (2 occurrences) is avoidable erasure.
         assert_eq!(report.category_total(Category::RuntimePrelude), 2);
@@ -857,5 +959,88 @@ mod tests {
         let current = baseline.clone();
         let markdown = render_markdown(&current, Some(&baseline));
         assert!(markdown.contains("did not increase"));
+    }
+
+    /// Build a [`ScanResult`] fixture with the given avoidable total and per-file
+    /// tally, for exercising [`detect_regression`] without touching disk.
+    fn fixture_scan(avoidable: usize, avoidable_by_file: &[(&str, usize)]) -> ScanResult {
+        ScanResult {
+            report: UnknownReport {
+                files_scanned: avoidable_by_file.len(),
+                total: avoidable,
+                category_totals: BTreeMap::from([(
+                    Category::AvoidableErasure.as_str().to_owned(),
+                    avoidable,
+                )]),
+                shapes: Vec::new(),
+            },
+            avoidable_by_file: avoidable_by_file
+                .iter()
+                .map(|(file, count)| ((*file).to_owned(), *count))
+                .collect(),
+        }
+    }
+
+    /// A fabricated baseline report carrying just an avoidable total.
+    fn fixture_baseline(avoidable: usize) -> UnknownReport {
+        UnknownReport {
+            files_scanned: 1,
+            total: avoidable,
+            category_totals: BTreeMap::from([(
+                Category::AvoidableErasure.as_str().to_owned(),
+                avoidable,
+            )]),
+            shapes: Vec::new(),
+        }
+    }
+
+    /// A rise above the baseline is a regression naming the delta and the top
+    /// offending files, ranked by avoidable count.
+    #[test]
+    fn detect_regression_flags_increase_with_top_files() {
+        let scan = fixture_scan(10, &[("a.rs", 2), ("b.rs", 7), ("c.rs", 1)]);
+        let baseline = fixture_baseline(4);
+        let regression = detect_regression(&scan, Some(&baseline)).expect("increase is a regression");
+        assert_eq!(regression.baseline, 4);
+        assert_eq!(regression.current, 10);
+        assert_eq!(regression.delta, 6);
+        // Ranked by count, most first.
+        assert_eq!(regression.top_files[0], ("b.rs".to_owned(), 7));
+        assert_eq!(regression.top_files[1], ("a.rs".to_owned(), 2));
+        assert_eq!(regression.top_files[2], ("c.rs".to_owned(), 1));
+    }
+
+    /// A flat or falling avoidable count is never a regression.
+    #[test]
+    fn detect_regression_ignores_flat_and_decrease() {
+        let flat = fixture_scan(4, &[("a.rs", 4)]);
+        assert!(detect_regression(&flat, Some(&fixture_baseline(4))).is_none());
+        let lower = fixture_scan(2, &[("a.rs", 2)]);
+        assert!(detect_regression(&lower, Some(&fixture_baseline(9))).is_none());
+    }
+
+    /// Without a baseline there is nothing to regress against.
+    #[test]
+    fn detect_regression_requires_baseline() {
+        let scan = fixture_scan(99, &[("a.rs", 99)]);
+        assert!(detect_regression(&scan, None).is_none());
+    }
+
+    /// The top-offenders list is capped so a huge corpus yields a readable message.
+    #[test]
+    fn detect_regression_caps_top_files() {
+        let files: Vec<(String, usize)> = (0..25)
+            .map(|index| (format!("file{index:02}.rs"), index + 1))
+            .collect();
+        let refs: Vec<(&str, usize)> = files
+            .iter()
+            .map(|(name, count)| (name.as_str(), *count))
+            .collect();
+        let scan = fixture_scan(1000, &refs);
+        let regression =
+            detect_regression(&scan, Some(&fixture_baseline(0))).expect("increase is a regression");
+        assert_eq!(regression.top_files.len(), TOP_OFFENDER_LIMIT);
+        // The single largest contributor leads.
+        assert_eq!(regression.top_files[0].1, 25);
     }
 }

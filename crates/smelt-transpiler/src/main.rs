@@ -127,6 +127,7 @@ fn main() -> CliResult<()> {
         roots,
         format,
         baseline,
+        fail_on_regression,
         output,
     } = &args.command
     {
@@ -138,16 +139,44 @@ fn main() -> CliResult<()> {
             }
         };
         let root_paths = roots.iter().map(PathBuf::from).collect::<Vec<_>>();
-        let report = unknown_report::unknown_report(&unknown_report::UnknownReportOptions {
+        let outcome = unknown_report::unknown_report(&unknown_report::UnknownReportOptions {
             roots: &root_paths,
             format: report_format,
             baseline: baseline.as_deref().map(PathBuf::from),
+            fail_on_regression: *fail_on_regression,
         })?;
         if let Some(output_path) = output {
-            std::fs::write(output_path, report)?;
+            std::fs::write(output_path, &outcome.rendered)?;
         } else {
             let mut stdout = io::stdout().lock();
-            write!(stdout, "{report}")?;
+            write!(stdout, "{}", outcome.rendered)?;
+        }
+        // With `--fail-on-regression`, a rise in avoidable erasure above the
+        // baseline exits nonzero; the message names the delta and the files that
+        // contribute the most so reviewers know where to look first.
+        if let Some(regression) = outcome.regression {
+            use std::fmt::Write as _;
+            let mut message = format!(
+                "avoidable erasure regressed: {} > {} (baseline), +{} occurrence(s)",
+                regression.current, regression.baseline, regression.delta,
+            );
+            if !regression.top_files.is_empty() {
+                message.push_str("\ntop offending files:");
+                for (file, count) in &regression.top_files {
+                    let _ = write!(message, "\n  {count:>6}  {file}");
+                }
+            }
+            message.push_str(
+                "\nReclassify a genuine boundary (with a code comment + regression test) \
+                 and re-snapshot the baseline, or reduce the erasure. See the \
+                 `SmeltUnknown enforcement` policy in AGENTS.md.",
+            );
+            // Print the message verbatim and exit nonzero. Returning `Err` would
+            // route through the default `Termination` impl, which Debug-prints
+            // the string with escaped newlines — unreadable for a CI gate.
+            let mut stderr = io::stderr().lock();
+            writeln!(stderr, "{message}")?;
+            std::process::exit(1);
         }
         return Ok(());
     }
