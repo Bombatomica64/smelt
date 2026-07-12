@@ -1868,6 +1868,166 @@ impl ModuleBuilder<'_> {
         Ok((target, value))
     }
 
+    /// Try to claim a straight-line `fn.prop = value` write onto a function-typed
+    /// local for later callable-object construction.
+    ///
+    /// A function local carries no data fields, so a static-member write onto it
+    /// only appears in the callable-object construction pattern: a local function
+    /// (`debounced`) that receives `debounced.schedule = …`, `debounced.cancel =
+    /// …` writes and is then returned at a callable-interface type. Instead of
+    /// lowering the (fieldless) write, this collects `(property, value)` pairs in
+    /// [`ModuleBuilder::callable_local_props`] so the eventual callable-interface
+    /// coercion can synthesize a typed `CallableObjectAssign` struct. The RHS is
+    /// lowered into a fresh compiler local via `Stmt::Let` so its evaluation order
+    /// and side effects are preserved exactly where the write appears, even though
+    /// the write itself is deferred into the struct construction.
+    ///
+    /// Two shapes are documented punts and produce an `unsupported` diagnostic
+    /// (a build blocker is preferable to a silently mis-constructed value):
+    /// * a write outside the straight-line function body block (inside an `if`,
+    ///   loop, or other nested block), because the field would need to become
+    ///   `Optional` to model the maybe-unwritten case; and
+    /// * a write after the local has escaped (been read for anything other than
+    ///   the consuming coercion), because the escaped view never saw the props.
+    ///
+    /// Returns `Ok(true)` when the write was claimed (no statement is emitted),
+    /// `Ok(false)` when normal assignment lowering should proceed.
+    pub(in crate::lowering) fn try_collect_callable_local_prop(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        if assign.operator != AssignmentOperator::Assign {
+            return Ok(false);
+        }
+        let AssignmentTarget::StaticMemberExpression(member) = &assign.left else {
+            return Ok(false);
+        };
+        if member.optional {
+            return Ok(false);
+        }
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(false);
+        };
+        let Some(local) = self.locals.get(object.name.as_str()).copied() else {
+            return Ok(false);
+        };
+        let Some(local_ty) = Self::local_ty_checked(body, local) else {
+            return Ok(false);
+        };
+        if !matches!(self.ctx.krate.types.get(local_ty), Some(Type::Function(_))) {
+            return Ok(false);
+        }
+        let span = self.span(assign.span.start, assign.span.end);
+        if block != body.root {
+            return Err(SmeltError::unsupported(
+                span,
+                "conditional property writes onto a callable local are not lowered yet",
+            ));
+        }
+        if self
+            .callable_local_props
+            .get(&local)
+            .is_some_and(|state| state.escaped)
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "property writes onto a callable local after it escapes are not lowered yet",
+            ));
+        }
+        let value = self.expression(&assign.right, body)?;
+        let value_ty = Self::expr_ty(body, value);
+        let value_local = body.push_local(LocalDecl {
+            name: Some(self.ctx.krate.symbols.intern("__smelt_callable_prop")),
+            ty: value_ty,
+            mutable: false,
+            span,
+        });
+        let value_pat = body.push_pattern(Pattern::Binding(value_local));
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: value_pat,
+                ty: value_ty,
+                value: Some(value),
+            },
+        );
+        let value_read = body.push_expr(Expr {
+            kind: ExprKind::Local(value_local),
+            ty: value_ty,
+            span,
+        });
+        let prop = self.intern_source_name(member.property.name.as_str());
+        let entry = self.callable_local_props.entry(local).or_default();
+        // Last write wins: a repeated write to the same property replaces the
+        // earlier value while keeping source order for the surviving props.
+        entry.props.retain(|(name, _)| *name != prop);
+        entry.props.push((prop, value_read));
+        Ok(true)
+    }
+
+    /// Synthesize a typed `CallableObjectAssign` when a callable local coerces to
+    /// a callable-interface class.
+    ///
+    /// Consumes the property writes collected by
+    /// [`Self::try_collect_callable_local_prop`] for the named function-typed
+    /// local and bundles them with the base callable into an expression typed at
+    /// the interface class `type_hint`. Returns `Ok(None)` (leaving the local's
+    /// collected props intact) when there is no hint, the hint is not a callable
+    /// interface, or the local collected no writes — so an ordinary identifier
+    /// read proceeds normally.
+    pub(in crate::lowering) fn try_consume_callable_local(
+        &mut self,
+        ident_name: &str,
+        start: u32,
+        end: u32,
+        type_hint: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(hint) = type_hint else {
+            return Ok(None);
+        };
+        if !self.type_is_callable_interface(hint) {
+            return Ok(None);
+        }
+        let Some(local) = self.locals.get(ident_name).copied() else {
+            return Ok(None);
+        };
+        let Some(state) = self.callable_local_props.remove(&local) else {
+            return Ok(None);
+        };
+        let base_ty = Self::local_ty_checked(body, local)
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+        let callable = body.push_expr(Expr {
+            kind: ExprKind::Local(local),
+            ty: base_ty,
+            span: self.span(start, end),
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::CallableObjectAssign {
+                callable,
+                props: state.props,
+            },
+            ty: hint,
+            span: self.span(start, end),
+        })))
+    }
+
+    /// Return whether a type is a callable-interface class (a class whose
+    /// interface declaration carries the synthetic `__smelt_call` field).
+    pub(in crate::lowering) fn type_is_callable_interface(&self, ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        self.find_interface(*name).is_some_and(|interface| {
+            interface
+                .fields
+                .iter()
+                .any(|field| self.ctx.krate.symbols.get(field.name) == Some("__smelt_call"))
+        })
+    }
+
     /// Try to lower a statement-level `list.length = value` assignment.
     ///
     /// Assigning to a JavaScript array's `length` resizes it: when the new length

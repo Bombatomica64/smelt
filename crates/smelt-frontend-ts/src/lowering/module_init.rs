@@ -134,6 +134,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             type_param_scopes: Vec::new(),
             type_param_constraint_scopes: Vec::new(),
             local_callbacks: HashMap::new(),
+            callable_local_props: HashMap::new(),
             function_rests,
             forward_function_types: HashMap::new(),
             local_function_items: HashMap::new(),

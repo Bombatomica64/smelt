@@ -1894,12 +1894,27 @@ impl ModuleBuilder<'_> {
                     span: self.span(lit.span.start, lit.span.end),
                 }))
             }
-            Expression::Identifier(ident) => self.identifier_expression(
-                ident.name.as_str(),
-                ident.span.start,
-                ident.span.end,
-                body,
-            ),
+            Expression::Identifier(ident) => {
+                // A function-typed local that collected `fn.prop = …` writes and
+                // now coerces to a callable-interface class is bundled into a
+                // typed `CallableObjectAssign` here, at the coercion position,
+                // instead of leaking the props (the `debounce`/`throttle` shape).
+                if let Some(expr) = self.try_consume_callable_local(
+                    ident.name.as_str(),
+                    ident.span.start,
+                    ident.span.end,
+                    type_hint,
+                    body,
+                )? {
+                    return Ok(expr);
+                }
+                self.identifier_expression(
+                    ident.name.as_str(),
+                    ident.span.start,
+                    ident.span.end,
+                    body,
+                )
+            }
             Expression::ThisExpression(this_expr) => {
                 self.identifier_expression("this", this_expr.span.start, this_expr.span.end, body)
             }

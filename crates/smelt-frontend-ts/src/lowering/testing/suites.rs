@@ -552,6 +552,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
+        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
         let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
         // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
         // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
@@ -608,6 +609,7 @@ impl ModuleBuilder<'_> {
         }
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
+        self.callable_local_props = saved_callable_local_props;
         self.explicit_any_locals = saved_explicit_any_locals;
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
@@ -672,6 +674,7 @@ return_ty: none,
 
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
+        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
         let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
         // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
         // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
@@ -741,6 +744,7 @@ return_ty: none,
         self.current_arguments_arities.pop();
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
+        self.callable_local_props = saved_callable_local_props;
         self.explicit_any_locals = saved_explicit_any_locals;
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;

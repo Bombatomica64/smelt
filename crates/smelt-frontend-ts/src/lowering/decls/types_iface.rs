@@ -719,6 +719,9 @@ impl ModuleBuilder<'_> {
                     if self.array_destructuring_assignment_statement(assign, body, block)? {
                         return Ok(());
                     }
+                    if self.try_collect_callable_local_prop(assign, body, block)? {
+                        return Ok(());
+                    }
                     let (target, value) = self.assignment_parts(assign, body)?;
                     body.push_stmt_to_block(block, Stmt::Assign { target, value });
                     return Ok(());

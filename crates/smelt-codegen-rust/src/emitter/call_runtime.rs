@@ -3103,10 +3103,10 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, args }) = self.mir.types.get(dest_ty) else {
             return Ok(None);
         };
-        let name = *name;
-        let args = args.clone();
+        let type_symbol = *name;
+        let type_args = args.clone();
         if !self.is_interface_record_type(dest_ty)
-            && self.mir.classes.iter().all(|class| class.name != name)
+            && self.mir.classes.iter().all(|class| class.name != type_symbol)
         {
             return Ok(None);
         }
@@ -3148,11 +3148,11 @@ impl FunctionEmitter<'_> {
             };
             field_text.push(format!("{field_name}: {value}"));
         }
-        if !args.is_empty() {
+        if !type_args.is_empty() {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
 
-        let type_name = sanitize_ident(self.symbol_name(name)?);
+        let type_name = sanitize_ident(self.symbol_name(type_symbol)?);
         Ok(Some(format!("{type_name} {{ {} }}", field_text.join(", "))))
     }
 

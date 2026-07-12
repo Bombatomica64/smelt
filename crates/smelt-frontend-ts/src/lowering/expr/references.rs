@@ -302,6 +302,14 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        // A read of a callable local that is still accumulating property writes
+        // escapes the partially-built bundle. Consumption at a callable-interface
+        // coercion is intercepted before this path (and removes the entry), so
+        // reaching here with a live entry means the value flowed out as a bare
+        // callable; a later property write onto it is then a documented punt.
+        if let Some(state) = self.callable_local_props.get_mut(&local) {
+            state.escaped = true;
+        }
         let base_ty = Self::local_ty(body, local);
         let ty = self.narrowed_type(name).unwrap_or(base_ty);
         let local_expr = body.push_expr(Expr {
