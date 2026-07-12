@@ -1201,6 +1201,11 @@ impl FunctionEmitter<'_> {
                 if self.block_eventually_terminates(then_target, &mut HashSet::new())? {
                     return self.emit_block(self.block(then_target)?, out);
                 }
+                // The labeled-block statement falls through (see the forward
+                // sibling below); a diverging terminator emitted inside it does
+                // not diverge the enclosing function, so clear the flag to keep
+                // `emit_body`'s trailing fallthrough return.
+                set_last_emit_diverged(false);
                 return Ok(());
             }
             out.push_str(&format!("    break {branch_label};\n"));
@@ -1209,6 +1214,17 @@ impl FunctionEmitter<'_> {
             self.emit_block(else_, out)?;
             out.push_str("    };\n");
             self.restore_declared_locals(branch_declared);
+            // Control always falls through the labeled-block *statement*: the
+            // `break {branch_label}` path exits the block and the else body
+            // rejoins after it, so the reconstruction never diverges the
+            // enclosing function even when a branch emitted inside it ended in a
+            // `return`/`throw` (which would leave `LAST_EMIT_DIVERGED` set). The
+            // shared forward continuation (`then_target`) is not re-emitted here,
+            // so the body genuinely falls off the block; clear the flag so
+            // `emit_body` still appends its trailing fallthrough return instead of
+            // leaving the labeled block's `()` value in tail position (E0308 in
+            // es-toolkit `has`/`slice`/`updateWith`).
+            set_last_emit_diverged(false);
             return Ok(());
         }
 
