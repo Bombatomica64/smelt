@@ -425,8 +425,30 @@ impl<'mir> FunctionEmitter<'mir> {
             for statement in &block.statements {
                 match statement {
                     Statement::Assign { dest, .. } if *dest == local => {
-                        if self.block_can_repeat(block.id, &mut HashSet::new())
-                            || self.block_is_reached_from_repeating_region(block.id)
+                        // The repeating-region rule only forces `mut` when the
+                        // binding's `let` lives OUTSIDE the repeating region and
+                        // is therefore reassigned across iterations. A binding
+                        // that reaches this point is assigned exactly once
+                        // (multi-assignment locals already returned `true` above
+                        // via `local_assignment_count`), so the only shape that
+                        // still needs `mut` is a *predeclared* local — one
+                        // hoisted to function scope, whose `let` sits outside the
+                        // loop. A non-predeclared local instead emits its `let`
+                        // inline at the assignment site, re-running as a fresh
+                        // binding each iteration, and needs no `mut`.
+                        //
+                        // `block_is_reached_from_repeating_region` is
+                        // deliberately kept alongside `block_can_repeat`: the
+                        // structured emitter can place a MIR-diverging assignment
+                        // textually inside `loop { .. }`, and Rust's
+                        // definite-assignment rules reject assigning an immutable
+                        // hoisted local from a loop body even when control flow
+                        // always exits. Under-approximating here would turn
+                        // warnings into E0384/E0596 errors in the generated
+                        // crate, so the rule stays conservative.
+                        if self.predeclared_locals.contains(&local)
+                            && (self.block_can_repeat(block.id, &mut HashSet::new())
+                                || self.block_is_reached_from_repeating_region(block.id))
                         {
                             return true;
                         }

@@ -7796,3 +7796,27 @@ function adapt(
         "the adapted callback must not be spuriously mut: {source}"
     );
 }
+
+/// Regression (warning-reduction R1): a predeclared (hoisted) local that is
+/// assigned inside a loop body keeps its `mut` binding. Rust's
+/// definite-assignment rules reject reassigning an immutable hoisted local from
+/// a loop body, so the repeating-region rule must still fire here even after it
+/// was scoped to predeclared bindings.
+#[test]
+fn hoisted_local_assigned_in_loop_keeps_mut() {
+    let source = source_for(
+        r"
+export function lastVal(items: number[]): number {
+  let found: number = 0;
+  for (const x of items) {
+    found = x;
+  }
+  return found;
+}
+",
+    );
+    assert!(
+        source.contains("let mut found"),
+        "a hoisted local reassigned in a loop must stay mut: {source}"
+    );
+}
