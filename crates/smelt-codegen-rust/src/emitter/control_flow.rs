@@ -8,6 +8,30 @@ thread_local! {
     static EMIT_BLOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
     /// Per-thread recursion depth for nested block-until emission.
     static EMIT_UNTIL_DEPTH: Cell<usize> = const { Cell::new(0) };
+    /// Whether the most recently emitted terminator diverges (ends in a
+    /// `return`/`throw`/`unreachable`) rather than falling through.
+    ///
+    /// Because every structured emission ends by emitting its continuation
+    /// block last (a hoisted match join, the block after an `if`, or — when
+    /// all arms diverge — the final diverging arm itself), the last
+    /// [`FunctionEmitter::emit_terminator`] call always corresponds to the
+    /// structural tail of the rendered region. Recording whether that tail
+    /// diverges lets [`FunctionEmitter::emit_body`] suppress the conservative
+    /// fallthrough `return` after a body whose tail already diverges — the MIR
+    /// CFG can retain a phantom fall-through edge that the structured emitter
+    /// never renders, so `block_eventually_terminates` alone under-reports it
+    /// and a trailing `return` becomes `unreachable_code`.
+    static LAST_EMIT_DIVERGED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Records whether the most recently emitted terminator diverges.
+pub(super) fn set_last_emit_diverged(diverged: bool) {
+    LAST_EMIT_DIVERGED.with(|cell| cell.set(diverged));
+}
+
+/// Returns whether the most recently emitted terminator diverged.
+pub(super) fn last_emit_diverged() -> bool {
+    LAST_EMIT_DIVERGED.with(Cell::get)
 }
 
 impl FunctionEmitter<'_> {
@@ -26,6 +50,7 @@ impl FunctionEmitter<'_> {
         if too_deep {
             out.push_str("    // Smelt could not structurally emit this recursive control-flow region yet.\n");
             out.push_str(&self.default_return_statement()?);
+            set_last_emit_diverged(true);
             return Ok(());
         }
         let result = self.emit_block_body(block, out);
@@ -509,6 +534,10 @@ impl FunctionEmitter<'_> {
         terminator: &Terminator,
         out: &mut String,
     ) -> Result<(), EmitError> {
+        // Default to "falls through"; the diverging arms below and any nested
+        // emission set this to reflect the structural tail (the last terminator
+        // emitted wins, which is always the region's continuation).
+        set_last_emit_diverged(false);
         match terminator {
             Terminator::Goto(target) => {
                 if target.0 <= current.0 {
@@ -640,6 +669,7 @@ impl FunctionEmitter<'_> {
                         self.value_at_type(operand, self.function.return_ty)?
                     ));
                 }
+                set_last_emit_diverged(true);
                 Ok(())
             }
             Terminator::Throw(operand) => {
@@ -654,10 +684,12 @@ impl FunctionEmitter<'_> {
                     "    return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
                     self.operand_text(operand)?
                 ));
+                set_last_emit_diverged(true);
                 Ok(())
             }
             Terminator::Unreachable => {
                 out.push_str("    unreachable!();\n");
+                set_last_emit_diverged(true);
                 Ok(())
             }
         }

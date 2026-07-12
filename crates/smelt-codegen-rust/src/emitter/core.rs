@@ -215,7 +215,14 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         self.emit_mutable_local_preludes(out)?;
         self.emit_block(self.entry_block()?, out)?;
+        // `block_eventually_terminates` walks the MIR CFG, which can keep a
+        // phantom fall-through edge that the structured emitter never renders
+        // (e.g. a `match` whose every arm returns). `last_emit_diverged`
+        // reports whether the *rendered* tail already diverges, so consulting
+        // it as well suppresses a trailing `return` that would otherwise be
+        // dead `unreachable_code`.
         if !self.block_eventually_terminates(self.function.entry, &mut HashSet::new())?
+            && !control_flow::last_emit_diverged()
             && !emitted_tail_returns(out)
         {
             self.emit_fallthrough_return(out)?;
@@ -291,6 +298,9 @@ impl<'mir> FunctionEmitter<'mir> {
     /// the type default keeps the generated crate type-correct until the CFG
     /// shape is represented more precisely.
     pub(super) fn emit_fallthrough_return(&self, out: &mut String) -> Result<(), EmitError> {
+        // A fallthrough return diverges (or, for `void`, needs no continuation),
+        // so the structural tail is terminated either way.
+        control_flow::set_last_emit_diverged(true);
         if self.function.can_throw {
             out.push_str(&format!(
                 "    return Ok({});\n",

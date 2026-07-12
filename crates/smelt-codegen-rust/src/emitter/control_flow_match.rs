@@ -34,26 +34,41 @@ impl FunctionEmitter<'_> {
         let hoisted_join = self.match_join(arms, default)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
         let match_declared = self.declared_locals_snapshot();
+        // On the no-hoisted-join path each arm renders its own tail, so the
+        // match diverges only when every arm *and* the catch-all diverge. Track
+        // it across arms rather than trusting the last arm emitted, so a
+        // fall-through arm before a diverging one is not mistaken for total
+        // divergence. On the hoisted-join path control always resumes at the
+        // join emitted below, which sets the flag on its own.
+        let mut arms_diverge = true;
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
                 self.match_label_text_for_scrutinee(&arm.label, scrutinee_ty)
             ));
             self.emit_match_arm(self.block(arm.target)?, hoisted_join, out)?;
+            arms_diverge = arms_diverge && control_flow::last_emit_diverged();
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared.clone());
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
             self.emit_match_arm(self.block(default_block)?, hoisted_join, out)?;
+            arms_diverge = arms_diverge && control_flow::last_emit_diverged();
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared);
         } else {
+            // A synthesized empty catch-all arm falls through, so the match as
+            // a whole never diverges.
             out.push_str("        _ => {}\n");
+            arms_diverge = false;
         }
         out.push_str("    }\n");
         if let Some(join) = hoisted_join {
+            // Control resumes at the shared join; its tail decides divergence.
             self.emit_block(self.block(join)?, out)?;
+        } else {
+            control_flow::set_last_emit_diverged(arms_diverge);
         }
         Ok(())
     }
