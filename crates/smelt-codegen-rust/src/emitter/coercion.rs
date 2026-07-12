@@ -1392,7 +1392,7 @@ impl FunctionEmitter<'_> {
                     let future_call = if function.may_throw {
                         format!("{call_text}?")
                     } else {
-                        call_text.clone()
+                        call_text
                     };
                     let erased_return = self.erase_value_text(&future_call, function.return_ty)?;
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
