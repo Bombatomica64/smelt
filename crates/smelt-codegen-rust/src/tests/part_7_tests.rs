@@ -7486,3 +7486,30 @@ export function run(): number {
         "an object literal must be injected into the record-shaped union arm\n{source}"
     );
 }
+
+/// Slicing a typed list into an erased (`SmeltUnknown`) destination must
+/// materialize a real `SmeltList` and erase it, rather than leaking a bare
+/// `Vec` into the `SmeltUnknown` slot (E0308). Mirrors es-toolkit's `ary`,
+/// which caps a rest-argument list and forwards it through an erased value.
+#[test]
+fn list_slice_into_unknown_destination_materializes_smelt_list() {
+    let source = source_for(
+        r#"
+export function run(args: string[]): unknown {
+  const capped: unknown = args.slice(0, 2);
+  return capped;
+}
+"#,
+    );
+
+    // The slice is materialized as an identity-bearing array value and erased,
+    // never assigned as a raw `Vec` collected straight into a `SmeltUnknown`.
+    assert!(
+        source.contains("SmeltArray::with_id") || source.contains("SmeltList::with_id"),
+        "a slice into an erased destination must build an identity-bearing list\n{source}"
+    );
+    assert!(
+        !source.contains(": SmeltUnknown = args.clone().iter().skip"),
+        "the bare-Vec slice must not be assigned directly to a SmeltUnknown\n{source}"
+    );
+}

@@ -345,9 +345,16 @@ impl FunctionEmitter<'_> {
         let start_text = self.slice_start_text(start, &len_source)?;
         let len_text = self.slice_len_text(&list_text, start, end, SliceLenKind::Len)?;
         let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
-            return Ok(format!(
-                "{list_text}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
-            ));
+            // The destination is not a concrete list (e.g. an erased
+            // `SmeltUnknown` slot, as in `ary`'s rest-argument capping).
+            // Materialize the slice as a real `SmeltList` with a fresh id (JS
+            // `slice` returns a new array) and coerce it to the destination so
+            // it is erased, rather than leaking a bare `Vec` into a
+            // `SmeltUnknown` place (E0308).
+            let sliced = format!(
+                "SmeltList::with_id(smelt_next_object_id(), {list_text}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>())"
+            );
+            return self.value_at_type_text(&sliced, list_ty, dest_ty);
         };
         if source_item_ty == dest_item_ty {
             return Ok(format!(
