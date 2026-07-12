@@ -520,8 +520,13 @@ impl FunctionEmitter<'_> {
         {
             let awaited =
                 self.value_at_type_text("smelt_future_value", *source_item, *target_item)?;
+            // Evaluate the source future expression BEFORE the `async move`
+            // block: `value_text` (e.g. `reduce_async(arr.clone(), ..)`) only
+            // borrows its outer captures, but an `async move` block would move
+            // every named binding it references into the returned task (E0382).
+            // Binding the source future outside moves just that handle in.
             return Ok(format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ let smelt_future_value = {value_text}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }}))"
+                "{{ let smelt_source_future = {value_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_future_value = smelt_source_future.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }})) }}"
             ));
         }
         if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
