@@ -627,7 +627,7 @@ impl ModuleBuilder<'_> {
     /// makes literal returns (tuples, arrays, objects) get coerced into a
     /// promise around a non-future value; unwrapping one `Future` layer keeps
     /// the returned expression at the value type it actually has.
-    fn return_statement_value_hint(&self) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn return_statement_value_hint(&self) -> Option<smelt_hir::TypeId> {
         let return_ty = self.current_return_ty?;
         if self.current_async
             && let Some(inner) = self.future_inner_type(return_ty)

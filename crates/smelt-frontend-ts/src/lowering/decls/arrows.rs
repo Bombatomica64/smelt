@@ -257,10 +257,17 @@ impl ModuleBuilder<'_> {
         if arrow.expression {
             match arrow.body.statements.as_slice() {
                 [Statement::ExpressionStatement(statement)] => {
+                    // An async expression-bodied arrow's declared return type is
+                    // `Promise<Inner>`; the body expression produces `Inner` and
+                    // the async wrapper adds the promise. Hint the body at the
+                    // awaited inner type (unwrapping one `Future` layer for async
+                    // bodies) so a literal array/tuple body keeps its own value
+                    // type rather than being coerced to the future type.
+                    let body_hint = self.return_statement_value_hint();
                     match self.expression_with_hint(
                         &statement.expression,
                         &mut body,
-                        declared_return_ty,
+                        body_hint,
                     ) {
                         Ok(value) => {
                             inferred_return_ty = Some(Self::expr_ty(&body, value));

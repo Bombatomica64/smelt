@@ -1210,7 +1210,20 @@ impl ModuleBuilder<'_> {
                 ClosureBodyKind::ArrowExpression(arrow) => {
                     match self.arrow_return_expression(arrow) {
                         Ok(return_expression) => {
-                            let hint = (!infer_expression_return).then_some(return_ty);
+                            // For an async expression-bodied arrow the closure
+                            // return type is `Promise<Inner>` (`Type::Future`),
+                            // but the body expression itself produces `Inner` —
+                            // the async wrapper adds the promise. Hint the body
+                            // at the awaited inner type (via
+                            // `return_statement_value_hint`, which unwraps one
+                            // `Future` layer for async bodies) so an array or
+                            // tuple literal body keeps its own value type instead
+                            // of being coerced to the future type.
+                            let hint = if infer_expression_return {
+                                None
+                            } else {
+                                self.return_statement_value_hint()
+                            };
                             self.expression_with_hint(return_expression, &mut closure_body, hint)
                                 .map(|value| {
                                     if infer_expression_return {
