@@ -328,3 +328,69 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
 
     Ok(())
 }
+
+#[test]
+fn build_runs_nested_compound_condition_while_loop() -> TestResult {
+    // A compound-condition inner `while` nested inside an outer loop must lower
+    // its back-edge so each iteration re-evaluates the FULL `&&` condition. If
+    // the back-edge instead `continue`s the outer loop, `combinations` never
+    // advances `indices` and the program infinite-loops. Building and RUNNING
+    // the program is the only way to prove the hang is gone; the `combinations`
+    // shape mirrors the es-toolkit case that first exposed the bug.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "nested-compound-while"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "nested_compound_while"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r#"function combinations(n: number, r: number): number[][] {
+  const result: number[][] = [];
+  const indices: number[] = [];
+  for (let k = 0; k < r; k++) indices.push(k);
+  while (true) {
+    const tuple: number[] = [];
+    for (let j = 0; j < r; j++) tuple.push(indices[j]);
+    result.push(tuple);
+    let i = r - 1;
+    while (i >= 0 && indices[i] === i + n - r) i--;
+    if (i < 0) break;
+    indices[i]++;
+    for (let j = i + 1; j < r; j++) indices[j] = indices[j - 1] + 1;
+  }
+  return result;
+}
+const c = combinations(4, 2);
+console.log(c.length);
+console.log(c[0][0]);
+console.log(c[0][1]);
+console.log(c[5][0]);
+console.log(c[5][1]);
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    // 4 choose 2 = 6 tuples; first is [0,1] and last is [2,3].
+    ensure_eq(&actual_stdout, &"6\n0\n1\n2\n3\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}

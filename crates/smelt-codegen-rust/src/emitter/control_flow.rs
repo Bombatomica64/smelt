@@ -56,6 +56,16 @@ impl FunctionEmitter<'_> {
             return self.emit_block(exit, out);
         }
 
+        // A compound short-circuit `while` header is recognized before the
+        // single-block recognizers for the same reason as in the nested path:
+        // `while_header` also matches it but would emit the wrong structure.
+        if let Some((decision, body_entry, exit_entry, body_is_then)) =
+            self.compound_while(block, &[])?
+        {
+            self.emit_compound_while(block, decision, body_entry, exit_entry, body_is_then, out)?;
+            return self.emit_block(self.block(exit_entry)?, out);
+        }
+
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
@@ -1617,6 +1627,238 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Recognizes a `while` loop whose condition is a short-circuit region.
+    ///
+    /// A compound source condition such as `while (a && b)` (or `a || b`, or a
+    /// longer chain) lowers its first operand into the header block `H`'s switch
+    /// and evaluates the remaining operands in follow-on blocks that reconverge
+    /// at a single decision block `D`. `D` switches on the fully-evaluated
+    /// condition: one branch is the loop body (it back-edges to `H`) and the
+    /// other leaves the loop. The single-block recognizers (`while_header`,
+    /// `while_header_with_latch`) do not fire because the loop decision lives in
+    /// `D`, not in `H`, so without this recognizer `H` is emitted as a plain
+    /// `if`/`else` and the body's back-edge collapses to a `continue` that
+    /// targets the enclosing Rust loop instead of re-checking the condition.
+    ///
+    /// Returns `(decision, body_entry, exit_entry, body_is_then)` when `block`
+    /// is such a header. `avoid` lists the enclosing loop's boundary blocks (its
+    /// continue/break targets); a decision branch that can only reach `H` by
+    /// crossing that boundary belongs to the enclosing loop, not to this loop's
+    /// back-edge, so it is classified as the exit.
+    fn compound_while(
+        &self,
+        block: &BasicBlock,
+        avoid: &[smelt_mir::BlockId],
+    ) -> Result<
+        Option<(
+            smelt_mir::BlockId,
+            smelt_mir::BlockId,
+            smelt_mir::BlockId,
+            bool,
+        )>,
+        EmitError,
+    > {
+        let Some(Terminator::Switch { .. }) = &block.terminator else {
+            return Ok(None);
+        };
+        // Locate the decision block `D` that every forward condition path from
+        // `H` funnels into and that actually decides the loop (one branch
+        // back-edges to `H`, the other exits). Scanning in block order and
+        // taking the first match selects the final decision switch: earlier
+        // short-circuit reconvergence joins also funnel from `H`, but neither of
+        // their branches back-edges to `H`, so they are skipped.
+        for candidate in &self.function.blocks {
+            if candidate.id == block.id {
+                continue;
+            }
+            let Some(Terminator::Switch {
+                then_block,
+                else_block,
+                ..
+            }) = &candidate.terminator
+            else {
+                continue;
+            };
+            if !self.all_paths_reach_decision(
+                block.id,
+                candidate.id,
+                block.id,
+                &mut HashSet::new(),
+            )? {
+                continue;
+            }
+            // `H` must dominate `D`: every path from the function entry to `D`
+            // passes through `H`. Without this, an ordinary inner `if` block
+            // whose body loops around to an enclosing loop header would be
+            // mistaken for the compound-condition header, with the true outer
+            // header misread as its decision block. If `D` is reachable from the
+            // entry while avoiding `H`, `H` does not dominate `D`, so reject.
+            if self.block_reaches_target_avoiding(
+                self.function.entry,
+                candidate.id,
+                &[block.id],
+                &mut HashSet::new(),
+            ) {
+                continue;
+            }
+            let mut branch_avoid = vec![candidate.id];
+            branch_avoid.extend_from_slice(avoid);
+            let then_repeats = self.block_reaches_target_avoiding(
+                *then_block,
+                block.id,
+                &branch_avoid,
+                &mut HashSet::new(),
+            );
+            let else_repeats = self.block_reaches_target_avoiding(
+                *else_block,
+                block.id,
+                &branch_avoid,
+                &mut HashSet::new(),
+            );
+            if then_repeats == else_repeats {
+                continue;
+            }
+            let (body_entry, exit_entry) = if then_repeats {
+                (*then_block, *else_block)
+            } else {
+                (*else_block, *then_block)
+            };
+            return Ok(Some((candidate.id, body_entry, exit_entry, then_repeats)));
+        }
+        Ok(None)
+    }
+
+    /// Returns whether every forward path from `block_id` reaches `decision`.
+    ///
+    /// Used to detect the reconvergence point of a short-circuit condition
+    /// region: the region is walked through `Goto`/`Switch` terminators only.
+    /// Returning to `header` (a loop back-edge) or hitting a terminator that
+    /// leaves the region (return, throw, call, match) before `decision` means
+    /// `decision` is not mandatory, so the path does not funnel.
+    fn all_paths_reach_decision(
+        &self,
+        block_id: smelt_mir::BlockId,
+        decision: smelt_mir::BlockId,
+        header: smelt_mir::BlockId,
+        visiting: &mut HashSet<smelt_mir::BlockId>,
+    ) -> Result<bool, EmitError> {
+        if block_id == decision {
+            return Ok(true);
+        }
+        if block_id == header && !visiting.is_empty() {
+            return Ok(false);
+        }
+        if !visiting.insert(block_id) {
+            return Ok(false);
+        }
+        let block = self.block(block_id)?;
+        let result = match &block.terminator {
+            Some(Terminator::Goto(target)) => {
+                self.all_paths_reach_decision(*target, decision, header, visiting)?
+            }
+            Some(Terminator::Switch {
+                then_block,
+                else_block,
+                ..
+            }) => {
+                self.all_paths_reach_decision(*then_block, decision, header, visiting)?
+                    && self.all_paths_reach_decision(*else_block, decision, header, visiting)?
+            }
+            _ => false,
+        };
+        visiting.remove(&block_id);
+        Ok(result)
+    }
+
+    /// Emits a compound `while` header's short-circuit condition region.
+    ///
+    /// Walks the acyclic region between the header `H` and its decision block
+    /// `D`, re-emitting each header/operand block's statements and rendering the
+    /// short-circuit switches as nested `if`/`else` so that the boolean the
+    /// decision switches on is computed exactly as in the source. Emission stops
+    /// at `decision`; `visited` guards against re-emitting a reconvergence join
+    /// twice.
+    fn emit_condition_region(
+        &self,
+        block: &BasicBlock,
+        decision: smelt_mir::BlockId,
+        out: &mut String,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> Result<(), EmitError> {
+        if block.id == decision {
+            return Ok(());
+        }
+        if !visited.insert(block.id) {
+            return Ok(());
+        }
+        for statement in &block.statements {
+            self.emit_statement(statement, out)?;
+        }
+        match &block.terminator {
+            Some(Terminator::Goto(target)) => {
+                if *target == decision {
+                    Ok(())
+                } else {
+                    self.emit_condition_region(self.block(*target)?, decision, out, visited)
+                }
+            }
+            Some(Terminator::Switch {
+                cond,
+                then_block,
+                else_block,
+            }) => {
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                self.emit_condition_region(self.block(*then_block)?, decision, out, visited)?;
+                out.push_str("    } else {\n");
+                self.emit_condition_region(self.block(*else_block)?, decision, out, visited)?;
+                out.push_str("    }\n");
+                Ok(())
+            }
+            _ => Err(EmitError::new(
+                "compound condition region reached a non-condition terminator",
+            )),
+        }
+    }
+
+    /// Emits a recognized compound `while` loop and returns its exit block.
+    ///
+    /// Emits `loop { <condition region>; if <decision> { <body> } else { break }
+    /// }` (with the arms swapped when the body is the decision's else branch) so
+    /// the body's back-edge to the header becomes a natural loop iteration that
+    /// re-evaluates the full compound condition. The returned block is the loop
+    /// exit continuation, which the caller emits next.
+    fn emit_compound_while(
+        &self,
+        block: &BasicBlock,
+        decision: smelt_mir::BlockId,
+        body_entry: smelt_mir::BlockId,
+        exit_entry: smelt_mir::BlockId,
+        body_is_then: bool,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let cond_text = {
+            let Some(Terminator::Switch { cond, .. }) = &self.block(decision)?.terminator else {
+                return Err(EmitError::new("compound while decision must be a switch"));
+            };
+            self.truthy_operand_text(cond)?
+        };
+        let loop_declared = self.declared_locals_snapshot();
+        out.push_str("    loop {\n");
+        self.emit_condition_region(block, decision, out, &mut HashSet::new())?;
+        out.push_str(&format!("    if {cond_text} {{\n"));
+        if body_is_then {
+            self.emit_block_until_goto(self.block(body_entry)?, block.id, Some(exit_entry), out)?;
+            out.push_str("    } else {\n    break;\n    }\n");
+        } else {
+            out.push_str("    break;\n    } else {\n");
+            self.emit_block_until_goto(self.block(body_entry)?, block.id, Some(exit_entry), out)?;
+            out.push_str("    }\n");
+        }
+        out.push_str("    }\n");
+        self.restore_declared_locals(loop_declared);
+        Ok(())
+    }
+
     /// Emits a match expression.
     /// Emits a block's statements until reaching a goto to the stop target.
     pub(super) fn emit_block_until_goto(
@@ -1838,6 +2080,31 @@ impl FunctionEmitter<'_> {
         if already_emitting_nested_region {
             return Ok(false);
         }
+        // A compound short-circuit `while` header (e.g. `while (a && b)`) is
+        // checked before the single-block recognizers: `while_header` also
+        // matches such a header (it computes its own first-operand switch local)
+        // but then bails on the escaping-body guard, which would drop the loop
+        // back to a plain `if` whose back-edge collapses to a wrong-target
+        // `continue`. `compound_while` only returns `Some` for a genuine
+        // multi-block condition region, so trying it first is safe.
+        let mut boundary = vec![stop];
+        if let Some(break_block) = break_target {
+            boundary.push(break_block);
+        }
+        if let Some((decision, body_entry, exit_entry, body_is_then)) =
+            self.compound_while(block, &boundary)?
+            && !self.block_reaches_target_avoiding(
+                body_entry,
+                stop,
+                &[block.id, exit_entry],
+                &mut HashSet::new(),
+            )
+        {
+            self.emit_compound_while(block, decision, body_entry, exit_entry, body_is_then, out)?;
+            self.emit_after_nested_loop(exit_entry, stop, break_target, out, visited)?;
+            return Ok(true);
+        }
+
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
