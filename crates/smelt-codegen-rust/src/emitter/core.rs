@@ -3967,10 +3967,15 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if self.is_function_parameter_place(place)? {
             (format!("({function_text})({forwarded})"), None)
         } else {
+            // The adapted callback is a cloned, shareable callback value
+            // (`Rc<dyn Fn(..)>`-style) that is only *called* and *cloned* here —
+            // never reassigned or mutably borrowed — exactly like the erased
+            // `.call` path above, which binds it without `mut`. The async
+            // rewrite (below) also only `.clone()`s it, so no `mut` is required.
             (
                 format!("(_smelt_adapted_callback)({forwarded})"),
                 Some(format!(
-                    "let mut _smelt_adapted_callback = {function_text}.clone();"
+                    "let _smelt_adapted_callback = {function_text}.clone();"
                 )),
             )
         };

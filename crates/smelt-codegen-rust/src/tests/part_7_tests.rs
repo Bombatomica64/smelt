@@ -7772,3 +7772,27 @@ export function g(): number[] {
         "a mutated captured list must not be emitted as a read-only clone: {source}"
     );
 }
+
+/// Regression (warning-reduction R1): an adapted callback that is only *called*
+/// and *cloned* binds without `mut`, matching the erased `.call` path. The
+/// binding used to be hardcoded `let mut _smelt_adapted_callback`.
+#[test]
+fn adapted_callback_binds_without_mut() {
+    let source = source_for(
+        r"
+function adapt(
+  callback: (value: unknown) => { next: unknown },
+): (value: unknown, index: number, data: unknown[]) => unknown {
+  return callback;
+}
+",
+    );
+    assert!(
+        source.contains("let _smelt_adapted_callback = callback.clone();"),
+        "the adapted callback must bind without mut: {source}"
+    );
+    assert!(
+        !source.contains("let mut _smelt_adapted_callback"),
+        "the adapted callback must not be spuriously mut: {source}"
+    );
+}
