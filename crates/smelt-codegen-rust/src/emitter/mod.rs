@@ -41,6 +41,7 @@ mod map;
 mod numeric;
 mod optional_access;
 mod place;
+mod rendered_text_rewrite;
 mod rendered_value;
 mod set;
 mod strings;
