@@ -3787,8 +3787,21 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             call_text
         };
-        let converted_return_text = if source_returns_future && uses_adapted_callback {
+        let converted_return_text = if source_returns_future
+            && uses_adapted_callback
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Future(_))
+            ) {
+            // Both sides are promise values (`SmeltFuture<..>`): the future was
+            // already rebuilt at the target output type when `call_value` was
+            // constructed, so no further coercion is needed.
             call_value.clone()
+        } else if source_returns_future {
+            // The source returns a promise value but the target return is erased
+            // (or otherwise not a future), so erase the `SmeltFuture<T>` to a
+            // `SmeltUnknown::Promise` boundary value via the normal coercion.
+            self.value_at_type_text(&call_value, source.return_ty, target_function.return_ty)?
         } else if source_is_erased {
             // An erased callable is invoked through `SmeltErasedFunction::call`,
             // which yields a bare `SmeltUnknown` at runtime regardless of the
@@ -3802,10 +3815,12 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             self.value_at_type_text(&call_value, source.return_ty, target_function.return_ty)?
         };
-        let field_adjusted_return_text = if matches!(
-            self.mir.types.get(target_function.return_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) && self.class_has_no_known_fields(source.return_ty)
+        let field_adjusted_return_text = if !source_returns_future
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            && self.class_has_no_known_fields(source.return_ty)
         {
             call_value.clone()
         } else {
