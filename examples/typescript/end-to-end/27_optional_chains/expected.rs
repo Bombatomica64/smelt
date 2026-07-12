@@ -749,6 +749,23 @@ fn smelt_unknown_rank(value: &SmeltUnknown) -> u8 {
     }
 }
 
+fn smelt_unknown_js_relational_ordering(left: &SmeltUnknown, right: &SmeltUnknown) -> Option<::std::cmp::Ordering> {
+    match (left, right) {
+        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => Some(left.cmp(right)),
+        _ => smelt_unknown_to_number(left).partial_cmp(&smelt_unknown_to_number(right)),
+    }
+}
+
+fn smelt_unknown_to_number(value: &SmeltUnknown) -> f64 {
+    match value {
+        SmeltUnknown::Number(value) => *value,
+        SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },
+        SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),
+        SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },
+        SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,
+    }
+}
+
 pub trait IntoSmeltUnknown {
     fn into_smelt_unknown(self) -> SmeltUnknown;
 }
