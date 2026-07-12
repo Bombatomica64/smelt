@@ -7539,3 +7539,62 @@ export function run(): unknown {
          as a promise\n{source}"
     );
 }
+
+/// A spread call (`fn(...values)`) must route to the variadic overload rather
+/// than a fixed-arity one: the spread's runtime length is unknown, so a
+/// rest-less overload cannot claim it. Mirrors es-toolkit's
+/// `cartesianProduct(...inputs)`, which must return `number[][]` and not a
+/// list of 1-tuples-of-lists.
+#[test]
+fn spread_call_selects_variadic_overload() {
+    let source = source_for(
+        r#"
+export function cartesianProduct<T>(arr1: readonly T[]): Array<[T]>;
+export function cartesianProduct<T, U>(arr1: readonly T[], arr2: readonly U[]): Array<[T, U]>;
+export function cartesianProduct<T>(...arrs: Array<readonly T[]>): T[][];
+export function cartesianProduct<T>(...arrs: Array<readonly T[]>): T[][] {
+  return arrs as any;
+}
+
+export function run(inputs: number[][]): unknown {
+  return cartesianProduct(...inputs);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltList<SmeltList<f64>>"),
+        "a spread call must select the variadic overload returning number[][]\n{source}"
+    );
+    assert!(
+        !source.contains("SmeltList<(SmeltList<f64>,)>"),
+        "the spread call must not select the fixed 1-array overload\n{source}"
+    );
+}
+
+/// `expect(actual).toEqual(literal)` contextually types the literal from the
+/// actual value's type, so a nested tuple-list actual and a nested array
+/// literal compare at the same Rust type instead of
+/// `SmeltList<SmeltList<SmeltUnknown>>` vs `SmeltList<(f64, String)>` (E0308).
+#[test]
+fn to_equal_contextually_types_expected_from_actual() {
+    let source = source_for(
+        r#"
+import { describe, it, expect } from 'vitest';
+
+describe('toEqual', () => {
+  it('compares nested tuple lists', () => {
+    const actual: Array<[number, string]> = [[1, 'a'], [2, 'b']];
+    expect(actual).toEqual([[1, 'a'], [2, 'b']]);
+  });
+});
+"#,
+    );
+
+    // The expected literal's rows lower as (f64, String) tuples, matching the
+    // actual, rather than erased inner lists.
+    assert!(
+        !source.contains("SmeltList<SmeltList<SmeltUnknown>>"),
+        "the expected literal must be typed from the actual, not erased\n{source}"
+    );
+}

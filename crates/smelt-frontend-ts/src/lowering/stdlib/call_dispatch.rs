@@ -2798,8 +2798,19 @@ impl<'builder> ModuleBuilder<'builder> {
         arg_tys: &[smelt_hir::TypeId],
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
+        // A spread argument (`fn(...values)`) has an unknown runtime length, so
+        // it can only be absorbed by a rest parameter. A fixed-arity (rest-less)
+        // overload must not claim it: e.g. `cartesianProduct(...inputs)` where
+        // `inputs: number[][]` would otherwise match the 1-array overload
+        // `(arr1: T[]): Array<[T]>` with `T = number[]`, mis-typing the result
+        // as a list of 1-tuples-of-lists instead of routing to the variadic
+        // implementation overload.
+        let has_spread_argument = arguments
+            .iter()
+            .any(|argument| matches!(argument, Argument::SpreadElement(_)));
         if Self::overload_signature_arity_matches(signature, arg_tys.len())
             && signature.rest.is_none()
+            && !has_spread_argument
             && signature
                 .params
                 .iter()

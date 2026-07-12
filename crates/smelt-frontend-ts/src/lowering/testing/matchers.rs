@@ -151,7 +151,19 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let actual = self.argument(actual_arg, body)?;
-        let expected = self.argument(expected_arg, body)?;
+        // Contextually type the expected value from the actual's type for
+        // deep-equality matchers. An expected literal such as
+        // `[[1, 'a'], [2, 'b']]` in `expect(zip(...)).toEqual([...])` would
+        // otherwise infer as `SmeltList<SmeltList<SmeltUnknown>>` and fail to
+        // compare against the actual's `SmeltList<(f64, String)>` (E0308).
+        // `array_expression`'s arity guard ignores tuple hints whose arity does
+        // not match the literal, so ragged expected values are unaffected.
+        let expected = if matches!(matcher, TestMatcher::Equal | TestMatcher::StrictEqual) {
+            let actual_ty = Self::expr_ty(body, actual);
+            self.argument_with_hint(expected_arg, body, Some(actual_ty))?
+        } else {
+            self.argument(expected_arg, body)?
+        };
         let use_strict_identity = matcher == TestMatcher::Be
             && self.test_to_be_needs_strict_identity(actual, expected, body);
         let mut failed = if use_strict_identity {

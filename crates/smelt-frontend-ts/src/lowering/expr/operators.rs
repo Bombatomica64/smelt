@@ -2241,6 +2241,15 @@ impl ModuleBuilder<'_> {
             Some(Type::Tuple(tuple_items)) => Some(tuple_items.clone()),
             _ => None,
         });
+        // A `List(item)` hint contextually types every element at `item` (e.g.
+        // `[[1, 'a'], [2, 'b']]` hinted `SmeltList<(f64, String)>` lowers each
+        // inner literal as the `(f64, String)` tuple). Only the homogeneous list
+        // element type is propagated; the per-index tuple path above still wins
+        // when the hint is itself a tuple.
+        let list_element_hint = type_hint.and_then(|hint| match self.ctx.krate.types.get(hint) {
+            Some(Type::List(item)) => Some(*item),
+            _ => None,
+        });
         for (index, element) in array.elements.iter().enumerate() {
             if matches!(element, ArrayExpressionElement::SpreadElement(_)) {
                 return Err(SmeltError::unsupported(
@@ -2250,7 +2259,14 @@ impl ModuleBuilder<'_> {
             }
             let element_hint = tuple_hints
                 .as_ref()
-                .and_then(|hints| hints.get(index).copied());
+                .and_then(|hints| hints.get(index).copied())
+                .or(list_element_hint);
+            // Arity guard: a tuple hint applied to an inner array literal whose
+            // element count differs (a ragged expected value such as
+            // `cartesianProduct`'s rows) would force a wrong tuple shape, so drop
+            // the hint and let the element infer its own type instead.
+            let element_hint =
+                self.array_element_hint_matches_arity(element, element_hint, body);
             let item = if let ArrayExpressionElement::Elision(elision) = element {
                 let ty = element_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
                 body.push_expr(Expr {
@@ -2324,6 +2340,42 @@ impl ModuleBuilder<'_> {
                 .intern(Type::Optional(first_non_nullish));
         }
         self.ctx.krate.types.intern(Type::Unknown)
+    }
+
+    /// Drop a tuple element hint whose arity does not match an inner array
+    /// literal.
+    ///
+    /// A `List(Tuple(..))` hint propagates the tuple type to every element, but
+    /// a deep-equality expected value can be ragged (e.g. `cartesianProduct`'s
+    /// rows, or `zip`'s trailing `[3, undefined]`). Forcing a fixed-arity tuple
+    /// onto a differently-sized literal would misshape it, so the hint is only
+    /// kept when the literal's element count matches the tuple arity. Non-array
+    /// elements and non-tuple hints are returned unchanged.
+    fn array_element_hint_matches_arity(
+        &self,
+        element: &ArrayExpressionElement<'_>,
+        element_hint: Option<smelt_hir::TypeId>,
+        _body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let hint = element_hint?;
+        let Some(Type::Tuple(tuple_items)) = self.ctx.krate.types.get(hint) else {
+            return element_hint;
+        };
+        let ArrayExpressionElement::ArrayExpression(inner) = element else {
+            return element_hint;
+        };
+        if inner
+            .elements
+            .iter()
+            .any(|element| matches!(element, ArrayExpressionElement::SpreadElement(_)))
+        {
+            return None;
+        }
+        if inner.elements.len() == tuple_items.len() {
+            element_hint
+        } else {
+            None
+        }
     }
 
     /// Lower an array literal element with contextual type information.
