@@ -1235,6 +1235,32 @@ impl FunctionEmitter<'_> {
                 } else {
                     format!("Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_value)")
                 };
+                // Pin the type of the `smelt_async_value` binding for the fallible,
+                // non-awaited branches. When the closure body only ever throws
+                // (every path is `return Err(..)`), the block's `Ok` type cannot be
+                // inferred from the body alone, so `smelt_async_value?` and the
+                // following `.into_smelt_unknown()` fail with E0282. This mirrors the
+                // explicit return-type annotation the synchronous fallible-closure
+                // path already emits: those branches apply `?` directly to
+                // `smelt_async_value`, so the block is a `Result<Ok, Box<dyn Error>>`
+                // whose `Ok` type equals the erased `SmeltUnknown` or the concrete
+                // `output_text` the `Ok::<..>` returns already use.
+                let async_value_annotation: Option<String> =
+                    if closure.can_throw && !async_value_needs_await {
+                        let ok_ty_text = if matches!(
+                            emitter.mir.types.get(output_ty),
+                            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                        ) || emitter.is_erased_class_type(output_ty)
+                        {
+                            "SmeltUnknown"
+                        } else {
+                            output_text.as_str()
+                        };
+                        Some(format!(": Result<{ok_ty_text}, Box<dyn std::error::Error>>"))
+                    } else {
+                        None
+                    };
+                let async_value_annotation = async_value_annotation.unwrap_or_default();
                 let mut cloned_async_captures = HashSet::new();
                 let async_capture_lines = closure
                     .captures
@@ -1284,7 +1310,7 @@ impl FunctionEmitter<'_> {
                     format!("{} ", async_capture_lines.join(" "))
                 };
                 format!(
-                    "|{params_text}| {{ {async_capture_prelude}SmeltFuture::from_future(Box::pin(async move {{\n        let smelt_async_value = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>>) }}"
+                    "|{params_text}| {{ {async_capture_prelude}SmeltFuture::from_future(Box::pin(async move {{\n        let smelt_async_value{async_value_annotation} = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>>) }}"
                 )
             } else if function.can_throw {
                 // A fallible closure returns `Result<T, Box<dyn Error>>`. When its
