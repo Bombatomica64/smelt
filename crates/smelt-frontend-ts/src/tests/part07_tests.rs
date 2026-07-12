@@ -589,6 +589,31 @@ export function makeCounter(): Counter {
 }
 
 #[test]
+fn callable_property_collection_does_not_leak_across_arrow_item_lowering() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Throttled = {
+  (): void;
+  isThrottled(): boolean;
+};
+
+export const throttle = () => {
+  let timer: number | undefined = undefined;
+  const throttled: Throttled = () => {
+    timer = 1;
+  };
+  throttled.isThrottled = () => timer !== undefined;
+  return throttled;
+};
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn plain_function_local_without_property_writes_is_untouched() -> Result<(), String> {
     // A function-typed local that receives no property writes never enters the
     // callable-object collection and lowers with no CallableObjectAssign.
