@@ -69,7 +69,17 @@ impl<'mir> FunctionEmitter<'mir> {
                     if matches!(function.origin, HirOrigin::ClassMethod { .. })
                         && function.params.first() == Some(&local_id)
                     {
-                        "self".to_owned()
+                        // An async method is emitted as a synchronous
+                        // `fn(&self) -> SmeltFuture<T>` whose body runs inside a
+                        // moved `async` block (see `emit_method`). The moved block
+                        // cannot borrow `&self`, so the receiver is cloned once
+                        // into an owned `self_owned` handle and every body
+                        // reference renders through that name instead of `self`.
+                        if function.is_async {
+                            "self_owned".to_owned()
+                        } else {
+                            "self".to_owned()
+                        }
                     } else if let Some(name) = symbol
                         .and_then(|param_symbol| mir.symbols.get(param_symbol))
                         .map(sanitize_ident)
@@ -2567,9 +2577,12 @@ impl<'mir> FunctionEmitter<'mir> {
                     .join(", ");
                 // Reference classes carry interior mutability, so every method
                 // takes `&self` uniformly; the `&mut self` decision only applies
-                // to by-value value classes.
+                // to by-value value classes. An async method never takes
+                // `&mut self`: its body is cloned into an owned handle and runs
+                // inside a moved `async` block, so it uniformly borrows `&self`.
                 let receiver_text = if method_mutates_this(self.function)
                     && !self.method_owner_is_reference_class()
+                    && !self.function.is_async
                 {
                     "&mut self"
                 } else {
@@ -2580,9 +2593,24 @@ impl<'mir> FunctionEmitter<'mir> {
                 } else {
                     format!("{receiver_text}, {method_params}")
                 };
+                if self.function.is_async {
+                    // Async-method owned-self transform: emit an ordinary
+                    // `fn(&self, ..) -> SmeltFuture<T>` that clones `self` into an
+                    // owned handle and runs the awaited body inside a moved
+                    // `async` block. The returned future therefore owns its state
+                    // and is `'static`, so specs can spawn `receiver.method()` as
+                    // a detached task without the future borrowing the local
+                    // receiver (which previously produced E0597). Reference-class
+                    // receivers clone as a cheap `Rc` handle preserving identity;
+                    // value classes derive `Clone`.
+                    let inner_ret = self.type_text_with_impl_trait(self.function.return_ty, false)?;
+                    out.push_str(&format!(
+                        "    fn {name}({rendered_params}) -> SmeltFuture<{inner_ret}> {{\n"
+                    ));
+                    return self.emit_async_method_owned_self_body(&inner_ret, out);
+                }
                 out.push_str(&format!(
-                    "    {}fn {name}({rendered_params}) -> {} {{\n",
-                    if self.function.is_async { "async " } else { "" },
+                    "    fn {name}({rendered_params}) -> {} {{\n",
                     self.return_type_text(self.function.return_ty)?
                 ));
             }
@@ -2625,6 +2653,38 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         self.emit_block(self.entry_block()?, out)?;
         out.push_str("    }\n");
+        Ok(())
+    }
+
+    /// Emits the body of an async method under the owned-self transform.
+    ///
+    /// The signature (`fn m(&self, ..) -> SmeltFuture<T>`) has already been
+    /// written. The awaited body is rendered into a moved `async` block so the
+    /// returned future owns its captures and is `'static`. Because the block is
+    /// `async move`, it cannot borrow the `&self` receiver, so `self` is cloned
+    /// once into an owned `self_owned` handle before the block; the receiver
+    /// local renders as `self_owned` throughout the body (see `local_names`),
+    /// and reference-class shared-capture preludes clone from that handle. The
+    /// clone is only emitted when the body actually references the receiver, so
+    /// receiver-free async methods do not trip an unused-variable warning.
+    fn emit_async_method_owned_self_body(
+        &self,
+        inner_ret: &str,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let mut body = String::new();
+        if self.method_owner_is_reference_class() {
+            self.emit_shared_parameter_preludes(&mut body)?;
+        }
+        self.emit_block(self.entry_block()?, &mut body)?;
+        if body.contains("self_owned") {
+            out.push_str("    let self_owned = self.clone();\n");
+        }
+        out.push_str(&format!(
+            "    SmeltFuture::<{inner_ret}>::from_future(Box::pin(async move {{\n"
+        ));
+        out.push_str(&body);
+        out.push_str("    }))\n    }\n");
         Ok(())
     }
 
