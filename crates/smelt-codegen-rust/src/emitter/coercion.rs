@@ -1384,7 +1384,17 @@ impl FunctionEmitter<'_> {
                         )
                     }
                 } else if matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_))) {
-                    let erased_return = self.erase_value_text(&call_text, function.return_ty)?;
+                    // A throwing async callback's call yields `Result<Future, _>`,
+                    // so the fallible call must be unwrapped with `?` to recover the
+                    // bare future before it is erased into a promise. Erasing the
+                    // `Result` directly would double-wrap the future (the promise
+                    // task then awaits a `Result<Future, _>` instead of a future).
+                    let future_call = if function.may_throw {
+                        format!("{call_text}?")
+                    } else {
+                        call_text.clone()
+                    };
+                    let erased_return = self.erase_value_text(&future_call, function.return_ty)?;
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
                 } else if self.class_has_no_known_fields(function.return_ty) {
                     if function.may_throw {

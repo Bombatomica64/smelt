@@ -3568,6 +3568,24 @@ impl<'mir> FunctionEmitter<'mir> {
             format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
             )
+        } else if target_function.may_throw
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Future(_))
+            )
+            && source.may_throw
+            && source_returns_future
+        {
+            // A callback that returns a future renders its Rust type as
+            // `-> SmeltFuture<..>` with NO outer `Result` — the possible throw is
+            // carried inside the future's `Result` output (see the `Type::Function`
+            // arm in the default-value emitter). So when both the source and the
+            // fallible target return a future, forward the future value directly
+            // rather than re-wrapping it in `Ok(..)`. Wrapping here would make the
+            // adapter closure return `Result<Future, _>`, and a chain of such
+            // adapters (or a later erasure into a promise) would then observe a
+            // nested `Result<Result<Future, _>, _>` at its await seam (was E0277).
+            default_adjusted_return_text
         } else if target_function.may_throw {
             format!("Ok::<_, Box<dyn std::error::Error>>({default_adjusted_return_text})")
         } else {
