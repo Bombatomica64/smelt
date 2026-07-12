@@ -309,6 +309,29 @@ jobs:
             --baseline blocker-logs/es-toolkit-ci-baseline.json \
             --log runtime-tests.log
 
+      # SmeltUnknown ratchet: classify generated erasure and BLOCK on any rise in
+      # avoidable erasure against the es-toolkit corpus baseline. Unlike the
+      # advisory remeda report, this gates via `--fail-on-regression` (see
+      # `## SmeltUnknown enforcement` in AGENTS.md): es-toolkit is the ratchet
+      # corpus, so avoidable erasure may only stay equal or fall. Skips cleanly
+      # when the generated crate is absent (build aborted mid-campaign) so it
+      # never masks an earlier gate failure. Runs even after a prior failure so
+      # the delta is visible in the log.
+      - name: SmeltUnknown ratchet (blocking)
+        if: ${{ always() }}
+        run: |
+          crate_src="target/compat-repos/es-toolkit/dist-smelt/src"
+          baseline="blocker-logs/smelt-unknown-baseline-es-toolkit.json"
+          if [ ! -d "$crate_src" ]; then
+            echo "No generated es-toolkit crate to scan; skipping SmeltUnknown ratchet."
+          elif [ ! -f "$baseline" ]; then
+            echo "No es-toolkit SmeltUnknown baseline at $baseline; skipping ratchet."
+          else
+            target/debug/smelt smelt-unknown-report "$crate_src" \
+              --baseline "$baseline" \
+              --fail-on-regression
+          fi
+
       - name: Upload es-toolkit probe + gate artifacts
         if: ${{ always() }}
         uses: actions/upload-artifact@v7

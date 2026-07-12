@@ -1,0 +1,11 @@
+{
+  "_comment": "es-toolkit SmeltUnknown corpus baseline (ratchet, per specs/plans/smelt-unknown-erasure-audit.md section 1). avoidable-erasure is the gated number; the CI es-toolkit-regression job scans the generated dist-smelt/src with `--fail-on-regression` against it, so avoidable may only stay equal or fall. Category totals are transcribed from the plan's authoritative read-only report run over third_party/es-toolkit/dist-smelt/src (files 745, runtime-prelude 1968, legitimate-boundary 36525, avoidable-erasure 39224); the classifier is conservative (ambiguous lines count as avoidable) so this is a ceiling. Re-snapshot with `smelt smelt-unknown-report <es-toolkit>/dist-smelt/src --format json --output blocker-logs/smelt-unknown-baseline-es-toolkit.json` once the crate transpiles end to end (currently mid-campaign: the whole-crate build aborts at src/function/partial.ts). shapes is intentionally empty here because only category_totals gates the ratchet; a full re-snapshot repopulates it.",
+  "files_scanned": 745,
+  "total": 77717,
+  "category_totals": {
+    "avoidable-erasure": 39224,
+    "legitimate-boundary": 36525,
+    "runtime-prelude": 1968
+  },
+  "shapes": []
+}
