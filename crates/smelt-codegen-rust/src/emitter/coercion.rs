@@ -745,6 +745,37 @@ impl FunctionEmitter<'_> {
                 "{value_text}.clone().into_iter().map(|value| {item_text}).collect::<SmeltList<_>>()"
             ));
         }
+        // A fixed-arity tuple flowing into a list target (`[T, U] -> V[]`, as
+        // when a `zip` result of tuples is passed to `unzipWith`'s
+        // `readonly T[][]` parameter with `T` erased). Each tuple field is
+        // coerced to the list element type and collected into a `SmeltList`
+        // with a fresh id.
+        if let (Some(Type::Tuple(source_items)), Some(Type::List(target_item))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let source_items = source_items.clone();
+            let target_item = *target_item;
+            let (prefix, base) = if Self::expression_text_is_trivial_place(value_text) {
+                (String::new(), value_text.to_owned())
+            } else {
+                ("let smelt_tuple_src = ".to_owned(), "smelt_tuple_src".to_owned())
+            };
+            let items_text = source_items
+                .iter()
+                .enumerate()
+                .map(|(index, source_item)| {
+                    self.value_at_type_text(&format!("{base}.{index}"), *source_item, target_item)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            let list_text =
+                format!("SmeltList::with_id(smelt_next_object_id(), vec![{items_text}])");
+            return if prefix.is_empty() {
+                Ok(list_text)
+            } else {
+                Ok(format!("{{ {prefix}{value_text}; {list_text} }}"))
+            };
+        }
         if let Some(Type::List(target_item)) = self.mir.types.get(target)
             && matches!(
                 self.mir.types.get(*target_item),

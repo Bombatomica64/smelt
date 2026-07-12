@@ -7598,3 +7598,53 @@ describe('toEqual', () => {
         "the expected literal must be typed from the actual, not erased\n{source}"
     );
 }
+
+/// A fixed-arity user callback (`(item, item2, item3) => ...`) supplied where
+/// a variadic `(...args: T[]) => R` is expected must type each fixed parameter
+/// as the rest *element* `T`, not the rest list `T[]`. Otherwise `item` is a
+/// `SmeltList` and arithmetic on it fails (E0369). Mirrors es-toolkit's
+/// `unzipWith`.
+#[test]
+fn fixed_params_against_variadic_hint_take_element_type() {
+    let source = source_for(
+        r#"
+function unzipWith<T, R>(target: readonly T[][], iteratee: (...args: T[]) => R): R[] {
+  return target.map(group => iteratee(...group));
+}
+
+export function run(zipped: Array<[number, number, number]>): number[] {
+  return unzipWith(zipped, (item, item2, item3) => item + item2 + item3);
+}
+"#,
+    );
+
+    // The three-parameter user iteratee must not receive a list as its first
+    // fixed parameter; each fixed param takes the rest element type.
+    assert!(
+        !source.contains(
+            "|closure_arg_0: SmeltList<SmeltUnknown>, closure_arg_1: SmeltUnknown, closure_arg_2: SmeltUnknown|"
+        ),
+        "a fixed callback param against a variadic hint must not be a list\n{source}"
+    );
+}
+
+/// A list of tuples flowing into a list-of-lists target (e.g. a `zip` result
+/// passed to `unzipWith`'s `readonly T[][]` with `T` erased) must coerce each
+/// tuple into a `SmeltList`, not pass it through unchanged (E0308).
+#[test]
+fn tuple_coerces_into_list_target() {
+    let source = source_for(
+        r#"
+function sink(rows: unknown[][]): void {}
+
+export function run(pairs: Array<[number, number]>): void {
+  sink(pairs);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltList::with_id(smelt_next_object_id(), vec!["),
+        "a tuple flowing into a list target must be rebuilt as a SmeltList\n{source}"
+    );
+}
