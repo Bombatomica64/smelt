@@ -1,0 +1,11 @@
+{
+  "_comment": "Checked-in high-water marks for the es-toolkit CI regression gate (see .github/workflows/ci.yml `es-toolkit-regression` and scripts/check_estoolkit_gate.py). `probe_blockers` is the number of source files with at least one blocker (probe.json `files_with_blockers`); the gate fails if it rises. `check_errors`/`test_build_errors` are gated at a hard zero by cargo exit code in the workflow. `runtime_passed`/`runtime_failed` back the advisory runtime ratchet (`runtime_gate` = advisory until the async hangs are fixed). `warning_count` is advisory only. Improvements pass without a bump (<=/>=); loosening any number is manual-only with PR justification, mirroring the SmeltUnknown-enforcement rule.",
+  "ref": "e008a2818cd8d07469a5cc12ee0c02405d523e07",
+  "probe_blockers": 9,
+  "check_errors": 0,
+  "test_build_errors": 0,
+  "runtime_passed": 56,
+  "runtime_failed": 89,
+  "runtime_gate": "advisory",
+  "warning_count": 950
+}
