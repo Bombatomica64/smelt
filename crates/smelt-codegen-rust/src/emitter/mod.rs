@@ -38,6 +38,7 @@ pub(crate) mod literals;
 mod local_analysis;
 mod map;
 mod numeric;
+mod optional_access;
 mod place;
 mod rendered_value;
 mod set;
