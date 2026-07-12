@@ -13,6 +13,11 @@ impl Clone for Counter {
         Counter(::std::rc::Rc::clone(&self.0))
     }
 }
+impl PartialEq for Counter {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
 impl Default for Counter {
     fn default() -> Self {
         Counter(::std::rc::Rc::new(::std::cell::RefCell::new(CounterInner::default())))

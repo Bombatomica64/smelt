@@ -1094,7 +1094,7 @@ impl IntoSmeltUnknown for SmeltMatch {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct User {
     name: String,
     scores: SmeltList<f64>,

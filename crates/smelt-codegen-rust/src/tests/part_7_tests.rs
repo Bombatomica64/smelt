@@ -147,9 +147,10 @@ export function getVal(h: Holder): string | number {
 ",
     );
 
-    // The class struct keeps deriving the standard traits.
+    // The class struct keeps deriving the standard traits (plus `PartialEq`,
+    // which the union field's hand-written `PartialEq` satisfies).
     assert!(
-        source.contains("#[derive(Clone, Debug, Default)]"),
+        source.contains("#[derive(Clone, Debug, Default, PartialEq)]"),
         "{source}"
     );
     // The union enum carries hand-written Debug and Default impls.

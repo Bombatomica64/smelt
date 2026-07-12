@@ -221,8 +221,12 @@ class Point {
 function run(): number { const p = new Point(1, 2); return p.sum(); }
 ",
     );
-    // A value class keeps the derived by-value struct: no handle, no cell.
-    assert!(source.contains("#[derive(Clone, Debug, Default)]"), "{source}");
+    // A value class keeps the derived by-value struct: no handle, no cell. Its
+    // comparable fields also earn a `PartialEq` derive for structural equality.
+    assert!(
+        source.contains("#[derive(Clone, Debug, Default, PartialEq)]"),
+        "{source}"
+    );
     assert!(source.contains("struct Point {"), "{source}");
     assert!(!source.contains("struct Point("), "{source}");
     assert!(!source.contains("PointInner"), "{source}");
@@ -314,4 +318,72 @@ function run(): void { const b = new Builder(); b.build(); }
 ",
     );
     assert!(names.is_empty(), "unexpected reference classes: {names:?}");
+}
+
+// ---- Equality emission ----------------------------------------------------
+
+#[test]
+fn reference_class_emits_identity_partial_eq() {
+    // A reference class has JavaScript object identity, so `==`/`toBe` must
+    // compare shared cells via `Rc::ptr_eq` rather than the inner record.
+    let source = source_for(
+        r"
+class Box {
+  value: number;
+  constructor() { this.value = 0; }
+}
+function mutate(b: Box): void { b.value = 5; }
+function run(): boolean { const a = new Box(); const b = new Box(); return a === b; }
+",
+    );
+    assert!(
+        source.contains("impl PartialEq for Box"),
+        "reference class should implement PartialEq: {source}"
+    );
+    assert!(
+        source.contains("::std::rc::Rc::ptr_eq(&self.0, &other.0)"),
+        "reference-class PartialEq should compare identity: {source}"
+    );
+}
+
+#[test]
+fn value_class_derives_partial_eq() {
+    // A value class with only comparable fields derives structural `PartialEq`
+    // so generated comparisons (`!=`, `assert_eq!`) type-check.
+    let source = source_for(
+        r"
+class Point {
+  x: number;
+  constructor(x: number) { this.x = x; }
+}
+function run(): boolean { const p = new Point(1); const q = new Point(2); return p !== q; }
+",
+    );
+    assert!(
+        source.contains("#[derive(Clone, Debug, Default, PartialEq)]"),
+        "value class should derive PartialEq: {source}"
+    );
+}
+
+#[test]
+fn value_class_with_callback_field_skips_partial_eq() {
+    // A `dyn Fn` field has no `PartialEq`, so the derive must be withheld to
+    // keep the generated struct valid.
+    let source = source_for(
+        r"
+class Handler {
+  cb: () => void;
+  constructor(cb: () => void) { this.cb = cb; }
+}
+function run(): void { const h = new Handler(() => {}); }
+",
+    );
+    let struct_index = source
+        .find("struct Handler")
+        .expect("Handler struct should be emitted");
+    let derive_window = &source[struct_index.saturating_sub(120)..struct_index];
+    assert!(
+        !derive_window.contains("PartialEq"),
+        "callback-field class must not derive PartialEq: {derive_window}"
+    );
 }

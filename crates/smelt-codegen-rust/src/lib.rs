@@ -2192,13 +2192,25 @@ fn emit_source_with_free_function_router(
         let has_function_field = fields
             .iter()
             .any(|field| type_contains_function(mir, field.ty));
+        // A value class supports structural equality (JS `==`/`===`/`toBe` on the
+        // by-value representation, and derived comparisons in generated specs)
+        // only when every stored field is itself `PartialEq`. Function fields
+        // (`dyn Fn`) and promise fields (`SmeltPromise`, a `Clone`-only shared
+        // future handle) are the two prelude shapes without `PartialEq`, so the
+        // derive is gated on their absence.
+        let supports_partial_eq = fields.iter().all(|field| {
+            type_supports_partial_eq(mir, &context, field.ty, &mut Vec::new())
+        });
+        let partial_eq_derive = if supports_partial_eq { ", PartialEq" } else { "" };
         if has_function_field {
             writer.line("#[derive(Clone)]");
             writer.line("#[allow(dead_code)]");
         } else if needs_serde_json && class_is_json_serializable(mir, class) {
-            writer.line("#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]");
+            writer.line(format!(
+                "#[derive(Clone, Debug, Default{partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
+            ));
         } else {
-            writer.line("#[derive(Clone, Debug, Default)]");
+            writer.line(format!("#[derive(Clone, Debug, Default{partial_eq_derive})]"));
         }
         for field in &fields {
             field_lines.push(format!(
@@ -2913,6 +2925,19 @@ fn emit_reference_class_storage(
         },
     );
 
+    // Hand-written identity `PartialEq`: a reference class has JavaScript object
+    // identity, so `==`/`===`/`toBe` compare whether two handles share the same
+    // cell (`Rc::ptr_eq`), never the cell contents. This also avoids requiring
+    // `Inner: PartialEq`, which a callback-storing inner record could not satisfy.
+    writer.block(
+        format!("impl{impl_generics} PartialEq for {name}{type_args}"),
+        |impl_writer| {
+            impl_writer.block("fn eq(&self, other: &Self) -> bool", |fn_writer| {
+                fn_writer.line("::std::rc::Rc::ptr_eq(&self.0, &other.0)");
+            });
+        },
+    );
+
     // `Default` wraps a defaulted inner record in a fresh cell.
     writer.block(
         format!("impl{impl_generics} Default for {name}{type_args}"),
@@ -3159,6 +3184,77 @@ fn type_contains_function(mir: &Mir, ty: TypeId) -> bool {
             | Type::Class { .. },
         )
         | None => false,
+    }
+}
+
+/// Return whether a type supports Rust `PartialEq` in generated code.
+///
+/// A value class derives `PartialEq` for JavaScript structural comparison
+/// (`==`/`===`/`toBe` on the by-value representation and derived comparisons in
+/// generated specs) only when every stored field is itself comparable. The two
+/// prelude shapes without `PartialEq` are `dyn Fn` callbacks and the
+/// `Clone`-only `SmeltPromise` shared-future handle, so any type transitively
+/// reaching one is rejected. Class fields are followed through their effective
+/// field layout — a reference class always compares by identity (`Rc::ptr_eq`)
+/// and is therefore always comparable, while a value class is comparable only
+/// when its own fields are. `seen` breaks recursive class cycles by treating an
+/// in-progress class as comparable (its fields are validated by the outer call).
+fn type_supports_partial_eq(
+    mir: &Mir,
+    context: &EmitContext,
+    ty: TypeId,
+    seen: &mut Vec<smelt_hir::Symbol>,
+) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::Function(_) | Type::Future(_)) => false,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+            type_supports_partial_eq(mir, context, *item, seen)
+        }
+        Some(Type::Dict(key, value)) => {
+            type_supports_partial_eq(mir, context, *key, seen)
+                && type_supports_partial_eq(mir, context, *value, seen)
+        }
+        // A concrete union lowers to a generated enum with a hand-written
+        // `PartialEq` (and an erased union falls back to `SmeltUnknown`, which is
+        // also `PartialEq`), so a union field is always comparable regardless of
+        // its members.
+        Some(Type::Union(_)) => true,
+        Some(Type::Tuple(items)) => items
+            .iter()
+            .all(|item| type_supports_partial_eq(mir, context, *item, seen)),
+        Some(Type::Class { name, .. }) => {
+            let name = *name;
+            // A reference class compares by identity (`Rc::ptr_eq`) with no
+            // constraint on its inner fields, so it is always comparable.
+            if context.is_reference_class(name) {
+                return true;
+            }
+            let Some(class) = mir.classes.iter().find(|candidate| candidate.name == name) else {
+                // An external/builtin class surface (e.g. a runtime prelude type)
+                // is assumed comparable; only user classes gate the derive.
+                return true;
+            };
+            if seen.contains(&name) {
+                return true;
+            }
+            seen.push(name);
+            let comparable = effective_class_fields(mir, class)
+                .iter()
+                .all(|field| type_supports_partial_eq(mir, context, field.ty, seen));
+            seen.pop();
+            comparable
+        }
+        Some(
+            Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::None
+            | Type::Unknown
+            | Type::Never
+            | Type::TypeParam { .. },
+        )
+        | None => true,
     }
 }
 
