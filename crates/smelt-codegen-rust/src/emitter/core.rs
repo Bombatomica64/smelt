@@ -1229,6 +1229,17 @@ impl<'mir> FunctionEmitter<'mir> {
         origin: LocalId,
         seen: &mut Vec<LocalId>,
     ) -> bool {
+        Self::operand_originates_from_local_in_blocks(&function.blocks, operand, origin, seen)
+    }
+
+    /// Like `operand_originates_from_local` but works on a raw block slice so it
+    /// can also analyze closure bodies (which are not `MirFunction`s).
+    fn operand_originates_from_local_in_blocks(
+        blocks: &[BasicBlock],
+        operand: &Operand,
+        origin: LocalId,
+        seen: &mut Vec<LocalId>,
+    ) -> bool {
         let Some(local) = operand_local(operand) else {
             return false;
         };
@@ -1239,7 +1250,7 @@ impl<'mir> FunctionEmitter<'mir> {
             return false;
         }
         seen.push(local);
-        let result = function.blocks.iter().any(|block| {
+        let result = blocks.iter().any(|block| {
             block.statements.iter().any(|statement| {
                 matches!(
                     statement,
@@ -1247,7 +1258,9 @@ impl<'mir> FunctionEmitter<'mir> {
                         dest,
                         value: Rvalue::Use(source),
                     } if *dest == local
-                        && Self::operand_originates_from_local(function, source, origin, seen)
+                        && Self::operand_originates_from_local_in_blocks(
+                            blocks, source, origin, seen,
+                        )
                 )
             })
         });
@@ -1462,6 +1475,23 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Returns whether a closure body assigns to or mutates a captured local.
+    ///
+    /// This is the sole gate for making a cloned collection capture `mut` now
+    /// that the capture prelude no longer forces `mut` on every list/set/dict.
+    /// It therefore has to recognize *every* way a closure body can write to the
+    /// capture, and it stays deliberately conservative: any path it cannot prove
+    /// to be read-only counts as a write. Covered write shapes:
+    ///
+    /// * direct rebinds (`Statement::Assign { dest == target }`) and in-place
+    ///   place assignments (`x.field = …`, `x[i] = …`, `x = …`),
+    /// * mutating collection rvalues (`push`, `set`, `sort`, …) via
+    ///   `rvalue_mutates_local`,
+    /// * callback rvalues that borrow the capture mutably
+    ///   (`rvalue_borrows_local_mutably`),
+    /// * forwarding the capture into a callee parameter or callback slot that
+    ///   takes a mutable reference, both through `Rvalue::ClosureCall`
+    ///   statements and through `Terminator::Call` (static and indirect callees),
+    /// * `Terminator::Call` whose result destination is the capture itself.
     pub(super) fn closure_capture_body_writes(
         &self,
         closure: &MirClosure,
@@ -1471,7 +1501,7 @@ impl<'mir> FunctionEmitter<'mir> {
             return false;
         };
         closure.blocks.iter().any(|block| {
-            block.statements.iter().any(|statement| match statement {
+            let statement_writes = block.statements.iter().any(|statement| match statement {
                 Statement::Assign { dest, .. } if *dest == target => true,
                 Statement::AssignPlace {
                     place:
@@ -1484,10 +1514,142 @@ impl<'mir> FunctionEmitter<'mir> {
                         },
                     ..
                 } if *candidate == target => true,
-                Statement::Assign { value, .. } => self.rvalue_mutates_local(value, target),
+                Statement::Assign { value, .. } => {
+                    self.rvalue_mutates_local(value, target)
+                        || self.rvalue_borrows_local_mutably(value, target)
+                        || self.closure_rvalue_forwards_local_to_mutable_callback(
+                            closure, value, target,
+                        )
+                }
                 _ => false,
-            })
+            });
+            statement_writes
+                || self.closure_terminator_writes_local(closure, block.terminator.as_ref(), target)
         })
+    }
+
+    /// Returns whether a closure block terminator writes to `target`.
+    ///
+    /// Mirrors the mutable-reference analysis used for function parameters but
+    /// operates on a closure's own blocks and local table. A terminator writes
+    /// the capture when it stores its call result into it, forwards it into a
+    /// static callee parameter that needs a mutable reference, or forwards it
+    /// into an indirect callback slot declared mutable.
+    fn closure_terminator_writes_local(
+        &self,
+        closure: &MirClosure,
+        terminator: Option<&Terminator>,
+        target: LocalId,
+    ) -> bool {
+        let Some(Terminator::Call {
+            callee, args, dest, ..
+        }) = terminator
+        else {
+            return false;
+        };
+        if *dest == target {
+            return true;
+        }
+        match callee {
+            Callee::Static(function_id) => args.iter().enumerate().any(|(index, arg)| {
+                Self::operand_originates_from_local_in_blocks(
+                    &closure.blocks,
+                    arg,
+                    target,
+                    &mut Vec::new(),
+                ) && self
+                    .mir
+                    .functions
+                    .get(usize::try_from(function_id.0).unwrap_or(usize::MAX))
+                    .and_then(|called_function| {
+                        called_function.params.get(index).map(|param| {
+                            self.parameter_needs_mutable_reference_in(called_function, *param)
+                        })
+                    })
+                    .unwrap_or(false)
+            }),
+            Callee::Indirect(operand) => {
+                let Some(function_ty) = self
+                    .closure_operand_function_type(closure, operand)
+                    .filter(|ty| !ty.mutable_params.is_empty())
+                else {
+                    return false;
+                };
+                args.iter().enumerate().any(|(index, arg)| {
+                    function_ty.mutable_params.contains(&index)
+                        && Self::operand_originates_from_local_in_blocks(
+                            &closure.blocks,
+                            arg,
+                            target,
+                            &mut Vec::new(),
+                        )
+                })
+            }
+            Callee::Builtin(_) => false,
+        }
+    }
+
+    /// Returns whether a closure-body `ClosureCall` forwards `target` into a
+    /// mutable callback parameter slot.
+    fn closure_rvalue_forwards_local_to_mutable_callback(
+        &self,
+        closure: &MirClosure,
+        value: &Rvalue,
+        target: LocalId,
+    ) -> bool {
+        let Rvalue::ClosureCall { callee, args } = value else {
+            return false;
+        };
+        let Some(function_ty) = self
+            .closure_operand_function_type(closure, callee)
+            .filter(|ty| !ty.mutable_params.is_empty())
+        else {
+            return false;
+        };
+        args.iter().enumerate().any(|(index, arg)| {
+            function_ty.mutable_params.contains(&index)
+                && Self::operand_originates_from_local_in_blocks(
+                    &closure.blocks,
+                    arg,
+                    target,
+                    &mut Vec::new(),
+                )
+        })
+    }
+
+    /// Resolves the `FunctionType` of a callee operand within a closure body.
+    ///
+    /// Looks the operand up in the closure's own local table (closure locals are
+    /// scoped to the closure, not to `self.function`), following either a plain
+    /// local or a structural record field.
+    fn closure_operand_function_type(
+        &self,
+        closure: &MirClosure,
+        operand: &Operand,
+    ) -> Option<&FunctionType> {
+        let callee_ty = match operand {
+            Operand::Copy(Place::Local(callee_local))
+            | Operand::Move(Place::Local(callee_local)) => closure
+                .locals
+                .get(id_index(callee_local.0, "closure local index does not fit usize").ok()?)
+                .map(|decl| decl.ty),
+            Operand::Copy(Place::Field { base, field })
+            | Operand::Move(Place::Field { base, field }) => closure
+                .locals
+                .get(id_index(base.0, "closure local index does not fit usize").ok()?)
+                .and_then(|decl| self.structural_record_fields(decl.ty))
+                .and_then(|fields| {
+                    fields
+                        .into_iter()
+                        .find(|candidate| candidate.name == *field)
+                        .map(|candidate| candidate.ty)
+                }),
+            _ => None,
+        }?;
+        match self.mir.types.get(callee_ty) {
+            Some(Type::Function(function_ty)) => Some(function_ty),
+            _ => None,
+        }
     }
 
     /// Returns whether `local` may be read before a real MIR assignment.

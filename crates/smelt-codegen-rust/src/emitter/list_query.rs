@@ -832,6 +832,13 @@ impl FunctionEmitter<'_> {
                                     "let smelt_capture_{name} = smelt_capture_{name}.clone();"
                                 );
                             }
+                            // Mutability is driven purely by whether the closure
+                            // body actually writes through the capture. A blanket
+                            // `mut` for every list/set/dict capture made almost
+                            // every collection binding `mut` regardless of use;
+                            // `closure_capture_body_writes` now recognizes every
+                            // write shape (including callback/mut-ref forwarding),
+                            // so read-only captures stay non-`mut`.
                             let mutability = if self.mutable_locals.contains(&capture.source_local)
                                 || source_closure
                                     .captures
@@ -841,11 +848,7 @@ impl FunctionEmitter<'_> {
                                     })
                                     .is_some_and(|candidate| {
                                         self.closure_capture_body_writes(source_closure, candidate)
-                                    })
-                                || matches!(
-                                    self.mir.types.get(local.ty),
-                                    Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _))
-                                ) {
+                                    }) {
                                 "mut "
                             } else {
                                 ""
@@ -1393,12 +1396,11 @@ impl FunctionEmitter<'_> {
                         ));
                         return format!("let smelt_capture_{name} = smelt_capture_{name}.clone();");
                     }
+                    // See the sibling capture-prelude above: mutability follows
+                    // real writes only, no blanket `mut` for collection types.
                     let mutability = if self.mutable_locals.contains(&capture.source_local)
                         || self.closure_capture_body_writes(closure, capture)
-                        || matches!(
-                            self.mir.types.get(local.ty),
-                            Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _))
-                        ) {
+                    {
                         "mut "
                     } else {
                         ""

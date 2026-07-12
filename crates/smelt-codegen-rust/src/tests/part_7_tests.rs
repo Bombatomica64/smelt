@@ -7697,3 +7697,78 @@ export function makeCounter(): Counter {
         "callable construction must not fall back to an inert Default struct: {source}"
     );
 }
+
+
+
+
+
+/// Regression (warning-reduction R1): a read-only collection capture in a
+/// callback prelude is cloned into a plain, non-`mut` binding. The capture
+/// prelude used to force `mut` on every list/set/dict capture regardless of
+/// use; mutability now follows `closure_capture_body_writes` only.
+#[test]
+fn read_only_list_capture_emits_non_mut_clone() {
+    let source = source_for(
+        r"
+export function useCapture(values: number[], extra: number[]): number[] {
+  return values.map((n: number): number => n + extra.length);
+}
+",
+    );
+    assert!(
+        source.contains("let extra = extra.clone();"),
+        "read-only list capture must clone into a non-mut binding: {source}"
+    );
+    assert!(
+        !source.contains("let mut extra = extra.clone();"),
+        "read-only list capture must not be spuriously mut: {source}"
+    );
+}
+
+/// Regression (warning-reduction R1): a captured collection that the enclosing
+/// function still reassigns (so its source local is mutable) keeps a `mut`
+/// clone binding. Guards against under-approximating mutability after the
+/// blanket collection rule was dropped.
+#[test]
+fn mutable_source_list_capture_keeps_mut_clone() {
+    let source = source_for(
+        r"
+export function f(items: number[]): number {
+  let acc = items;
+  acc = items;
+  return [1].map((x: number): number => acc.length + x).length;
+}
+",
+    );
+    assert!(
+        source.contains("let mut acc = acc.clone();"),
+        "a capture whose source local is reassigned must stay a mut clone: {source}"
+    );
+}
+
+/// Regression (warning-reduction R1): a captured collection that the closure
+/// body mutates in place is threaded through shared `RefCell` storage (so the
+/// mutation is caller-visible) rather than being silently emitted as a
+/// read-only clone. Guards the write-detection path.
+#[test]
+fn written_list_capture_uses_shared_storage_not_plain_clone() {
+    let source = source_for(
+        r"
+export function g(): number[] {
+  const store: number[] = [];
+  const add = (x: number): void => { store.push(x); };
+  [1, 2, 3].forEach(add);
+  return store;
+}
+",
+    );
+    assert!(
+        source.contains("smelt_capture_store")
+            && source.contains("(*smelt_capture_store.borrow_mut()).push("),
+        "a mutated captured list must route writes through shared storage: {source}"
+    );
+    assert!(
+        !source.contains("let store = store.clone();"),
+        "a mutated captured list must not be emitted as a read-only clone: {source}"
+    );
+}
