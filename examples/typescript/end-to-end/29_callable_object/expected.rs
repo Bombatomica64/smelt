@@ -392,7 +392,8 @@ impl SmeltPromise {
     /// Await the stored future once and share its settled result with clones.
     async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
         if self.state.borrow().is_none() {
-            if let Some(future) = self.future.borrow_mut().take() {
+            let taken = self.future.borrow_mut().take();
+            if let Some(future) = taken {
                 let settled = future.await.map_err(|error| error.to_string());
                 *self.state.borrow_mut() = Some(settled);
             }
