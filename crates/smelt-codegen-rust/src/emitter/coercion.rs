@@ -212,13 +212,24 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Int)
         {
-            return Ok(format!("({} as f64)", self.operand_text(operand)?));
+            // `operand_text` is always a primary/postfix expression (an
+            // identifier, literal, `.clone()`, field, or index), so the cast
+            // never reassociates against a surrounding operator and needs no
+            // defensive wrapping. Emitting it bare avoids the `unused_parens`
+            // warning it drew in every argument/return/let position. The only
+            // context that would need parentheses is a following method call,
+            // which no consumer of this seam appends to a coercion result.
+            return Ok(format!("{} as f64", self.operand_text(operand)?));
         }
         if self.mir.types.get(target) == Some(&Type::Int)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Float)
         {
+            // Keep the inner parentheses around the `as f64` cast — `.trunc()`
+            // is a method call whose receiver must be grouped — but drop the
+            // redundant outer pair the whole `... as i64` expression carried,
+            // which produced `unused_parens` wherever the value stood alone.
             return Ok(format!(
-                "(({} as f64).trunc() as i64)",
+                "({} as f64).trunc() as i64",
                 self.operand_text(operand)?
             ));
         }

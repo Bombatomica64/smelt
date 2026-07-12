@@ -2703,8 +2703,35 @@ function truncateDifference(left: bigint, right: number): bigint {
     );
 
     assert!(
-        source.contains("((right.clone() as f64).trunc() as i64)"),
+        source.contains("(right.clone() as f64).trunc() as i64"),
         "{source}"
+    );
+    // The int-from-float coercion keeps only the parentheses `.trunc()` needs
+    // as a method receiver; the whole cast is not wrapped again, which drew a
+    // spurious `unused_parens` in every value position it landed in.
+    assert!(
+        !source.contains("((right.clone() as f64).trunc() as i64)"),
+        "int-from-float coercion should not re-wrap the whole cast: {source}"
+    );
+}
+
+#[test]
+fn emits_int_to_float_coercion_without_defensive_parentheses() {
+    let source = source_for(
+        r"
+function widen(values: unknown[]): number {
+  return values.length;
+}
+",
+    );
+
+    // `values.length` lowers to `values.len() as f64`; the coercion seam must
+    // not wrap the cast in defensive parentheses, which the compiler flags as
+    // `unused_parens` wherever the value stands alone.
+    assert!(source.contains("as f64"), "{source}");
+    assert!(
+        !source.contains("(values.len() as f64)"),
+        "int-to-float coercion should not wrap the cast in parentheses: {source}"
     );
 }
 
