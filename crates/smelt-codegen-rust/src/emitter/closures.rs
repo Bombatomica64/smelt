@@ -1033,7 +1033,12 @@ impl FunctionEmitter<'_> {
             } => {
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
-                let value = format!("{}.await", self.await_operand_text(future)?);
+                // `SmeltFuture<T>` and generated async function calls both
+                // resolve to `Result<T, Box<dyn Error>>`. Closure CFGs already
+                // return `Result`, so propagate the await error exactly as the
+                // ordinary control-flow emitter does instead of assigning the
+                // whole `Result` into the destination's `T` local.
+                let value = format!("{}.await?", self.await_operand_text(future)?);
                 out.push_str(&format!(
                     "    let {name}: {} = {value};\n",
                     self.type_text_with_impl_trait(local.ty, false)?

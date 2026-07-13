@@ -7894,3 +7894,32 @@ export function pickByIndex(values: number[]): number[] {
         "a coerced set needle must be referenced as `&(x as f64)`: {source}"
     );
 }
+#[test]
+fn async_closure_await_propagates_future_errors() {
+    let source = source_for(
+        r#"
+async function load(): Promise<number> {
+  return 1;
+}
+
+function retain(callback: () => Promise<number>): () => Promise<number> {
+  return callback;
+}
+
+export function callback(): () => Promise<number> {
+  return retain(async () => {
+    const value = await load();
+    return value;
+  });
+}
+"#,
+    );
+
+    assert!(
+        source.contains(": f64 = _smelt_tmp_0.await?;")
+            || source.contains(": f64 = _smelt_tmp_1.await?;")
+            || source.contains(": f64 = _smelt_tmp_2.await?;")
+            || source.contains("_smelt_tmp_2 = _smelt_tmp_1.await?;"),
+        "{source}"
+    );
+}
