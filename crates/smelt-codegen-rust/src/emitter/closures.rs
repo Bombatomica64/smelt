@@ -628,6 +628,9 @@ impl FunctionEmitter<'_> {
                             && !self
                                 .function_parameter_requires_owned(capture.source_local)
                                 .ok()?
+                            // A shadowed source name is rewritten to an alias in
+                            // the nested body, so that alias must still be bound.
+                            && !capture_aliases.contains_key(&capture.source_local)
                         {
                             return None;
                         }
@@ -657,7 +660,16 @@ impl FunctionEmitter<'_> {
                         }
                         cloned_async_captures
                             .insert(name.clone())
-                            .then(|| format!("let {name} = {source_name}.clone();"))
+                            .then(|| {
+                                let clone_source = if capture_aliases
+                                    .contains_key(&capture.source_local)
+                                {
+                                    name.as_str()
+                                } else {
+                                    source_name.as_str()
+                                };
+                                format!("let {name} = {clone_source}.clone();")
+                            })
                     })
                     .collect::<Vec<_>>();
                 let async_capture_prelude = if async_capture_lines.is_empty() {
@@ -719,6 +731,9 @@ impl FunctionEmitter<'_> {
                     && !self
                         .function_parameter_requires_owned(capture.source_local)
                         .ok()?
+                    // A shadowed source name is rewritten to an alias in the
+                    // nested body, so that alias must still be bound.
+                    && !capture_aliases.contains_key(&capture.source_local)
                 {
                     return None;
                 }
@@ -747,6 +762,11 @@ impl FunctionEmitter<'_> {
                             name.clone(),
                             format!("(*smelt_capture_{name}.borrow_mut())"),
                         ));
+                        if capture_aliases.contains_key(&capture.source_local) {
+                            return format!(
+                                "let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({source_name}.clone()));"
+                            );
+                        }
                         return format!("let smelt_capture_{name} = smelt_capture_{name}.clone();");
                     }
                     // See the sibling capture-prelude above: mutability follows
