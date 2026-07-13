@@ -322,7 +322,7 @@ impl FunctionEmitter<'_> {
                 && self.list_local_all_undefined_constants(operand)?
             {
                 return Ok(format!(
-                    "{{ let smelt_l = ({op}).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
+                    "{{ let smelt_l: SmeltList<_> = ({op}).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
                     op = self.operand_text(operand)?
                 ));
             }
@@ -337,7 +337,7 @@ impl FunctionEmitter<'_> {
                 self.value_at_type_text("value", *source_item, *target_item)?
             };
             return Ok(format!(
-                "{{ let smelt_l = ({op}).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
+                "{{ let smelt_l: SmeltList<_> = ({op}).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
                 op = self.operand_text(operand)?
             ));
         }
@@ -563,8 +563,12 @@ impl FunctionEmitter<'_> {
             } else {
                 self.value_at_type_text("value", source_item, target_item)?
             };
+            // `value_text` may be a bare `Vec` (e.g. an inlined spread/concat
+            // `[...list, ...args]`) rather than a `SmeltList`. Normalize through
+            // `.into()` (reflexive for `SmeltList`, `From<Vec>` otherwise) so the
+            // `.id()` identity read is always available.
             return Ok(format!(
-                "{{ let smelt_l = ({value_text}).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {element_text}).collect::<Vec<_>>()) }}"
+                "{{ let smelt_l: SmeltList<_> = ({value_text}).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {element_text}).collect::<Vec<_>>()) }}"
             ));
         }
         if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =

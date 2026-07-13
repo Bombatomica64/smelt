@@ -7847,3 +7847,50 @@ export function lastVal(items: number[]): number {
         "a hoisted local reassigned in a loop must stay mut: {source}"
     );
 }
+
+/// A `splice` whose start index is an `i64` (e.g. a callback index parameter)
+/// is coerced to `f64`. The coerced cast must be parenthesized so
+/// `index as f64 < 0.0` does not parse as `index as (f64 < 0.0)` — rustc reads
+/// the `<` as the start of generic arguments after a type. Regression for the
+/// remeda `range`/`splice` E0742-style `<`-parse failure.
+#[test]
+fn splice_index_cast_is_parenthesized_before_comparison() {
+    let source = source_for(
+        r"
+export function trimLast(items: number[]): number[] {
+  [0].forEach((_, i) => {
+    items.splice(i, 1);
+  });
+  return items;
+}
+",
+    );
+    assert!(
+        source.contains("splice_start = if ("),
+        "the coerced splice index must be parenthesized before `< 0.0`: {source}"
+    );
+    assert!(
+        !source.contains("as f64 < 0.0"),
+        "a bare `x as f64 < 0.0` mis-parses as generic arguments: {source}"
+    );
+}
+
+/// A `Set.has(needle)` whose needle is an `i64` (a callback index) coerces the
+/// needle to the set's `f64` element type. The reference taken for `contains`
+/// must wrap the whole coercion (`&(x as f64)`); the buggy `&x as f64` casts a
+/// reference (`&i64 as f64`), which is invalid. Regression for remeda `sample`.
+#[test]
+fn set_has_coerced_needle_reference_is_parenthesized() {
+    let source = source_for(
+        r"
+export function pickByIndex(values: number[]): number[] {
+  const seen = new Set<number>([1, 2, 3]);
+  return values.filter((_, i) => seen.has(i));
+}
+",
+    );
+    assert!(
+        source.contains(".contains(&("),
+        "a coerced set needle must be referenced as `&(x as f64)`: {source}"
+    );
+}

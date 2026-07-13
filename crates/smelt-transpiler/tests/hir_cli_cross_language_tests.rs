@@ -395,3 +395,77 @@ console.log(c[5][1]);
 
     Ok(())
 }
+
+#[test]
+fn build_runs_loop_body_switch_with_nested_loop() -> TestResult {
+    // A `for` loop whose body is a `switch` (with an inner `for` inside one arm)
+    // must lower as a real loop whose arms route their back-edge to `continue`
+    // and whose inner loop is preserved. This mirrors the es-toolkit `omit`
+    // shape (outer `for` over keys, `switch` on the key kind, inner `for`
+    // deleting each nested key). Before the fix the outer loop was either
+    // mis-recognized as a compound `while` header — dropping the inner loop body
+    // and switching on an uninitialized temp (E0381) — or emitted as a run-once
+    // straight-line block that never iterated. Building and RUNNING is the only
+    // way to prove both the loop iterates and the inner body executes.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "loop-body-switch"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "loop_body_switch"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r#"interface Item { tag: string; vals: number[]; }
+function f(items: Item[]): number {
+  let total = 0;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    switch (it.tag) {
+      case 'sum': {
+        for (let j = 0; j < it.vals.length; j++) {
+          total = total + it.vals[j];
+        }
+        break;
+      }
+      case 'one': {
+        total = total + 1;
+        break;
+      }
+    }
+  }
+  return total;
+}
+const items: Item[] = [
+  { tag: 'sum', vals: [1, 2, 3] },
+  { tag: 'one', vals: [] },
+  { tag: 'sum', vals: [10, 20] },
+];
+console.log(f(items));
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    // (1+2+3) + 1 + (10+20) = 37; a dropped inner loop or non-iterating outer
+    // loop would produce a smaller number.
+    ensure_eq(&actual_stdout, &"37\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}

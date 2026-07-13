@@ -602,6 +602,62 @@ console.log(result);
 }
 
 #[test]
+fn labeled_branch_reconstruction_before_loop_keeps_trailing_return() {
+    // Mirrors es-toolkit `has`/`slice`/`updateWith`: a leading if/else-if chain
+    // that assigns a variable lowers to a labeled-block reconstruction
+    // (`'smelt_branch: { if ... break; ... }`), and the shared forward
+    // continuation (the `for` loop plus the trailing `return`) is not re-emitted
+    // after that block. A `return` emitted inside the labeled block (its own
+    // fall-through default) set the divergence flag, which previously suppressed
+    // `emit_body`'s trailing fallthrough return and left the labeled-block
+    // statement's `()` value in tail position — the function then "implicitly
+    // returns ()" and failed to type-check (E0308). The reconstruction must fall
+    // through, so a terminating `return` still closes the body.
+    let source = source_for(
+        "export function pathExists(object: any, path: PropertyKey | PropertyKey[]): boolean {
+  let resolvedPath;
+  if (Array.isArray(path)) {
+    resolvedPath = path;
+  } else if (typeof path === 'string') {
+    resolvedPath = [path];
+  } else {
+    resolvedPath = [path];
+  }
+  let current = object;
+  for (let i = 0; i < resolvedPath.length; i++) {
+    const key = resolvedPath[i];
+    if (current == null) {
+      return false;
+    }
+    current = current[key];
+  }
+  return true;
+}
+const ok = pathExists({ a: 1 }, ['a']);
+console.log(ok);
+",
+    );
+
+    // The reconstructed function body must end in a terminating `return`, not a
+    // labeled-block statement whose value is `()`.
+    let body_start = source
+        .find("fn path_exists(object")
+        .expect("path_exists function present");
+    let after = &source[body_start..];
+    let body_end = after.find("\n}\n").expect("function closing brace");
+    let body = &after[..body_end];
+    let last_line = body
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .expect("non-empty body");
+    assert!(
+        last_line.trim_start().starts_with("return "),
+        "pathExists body must end in a return, got last line: {last_line:?}\n{source}"
+    );
+}
+
+#[test]
 fn emits_uncaught_throw_as_result() {
     let source = source_for(
         "function fail(): void {

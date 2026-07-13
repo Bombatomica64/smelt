@@ -431,7 +431,12 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("array splice destination must be a list"));
         }
         let list_text = self.operand_text(list)?;
-        let start_text = self.value_at_type(start, self.type_id(Type::Float)?)?;
+        // Parenthesize the coerced index so a bare `x as f64` does not parse as
+        // `x as f64 < 0.0` (rustc reads `<` as generic args after a type).
+        let start_text = format!(
+            "({})",
+            self.value_at_type(start, self.type_id(Type::Float)?)?
+        );
         let delete_count_text = delete_count
             .map(|count| self.value_at_type(count, self.type_id(Type::Float)?))
             .transpose()?
@@ -516,11 +521,11 @@ impl FunctionEmitter<'_> {
         let list_text = self.local_mut_value_text(*local)?;
         let value_text = self.operand_text(value)?;
         let start_text = start
-            .map(|operand| self.operand_text(operand))
+            .map(|operand| self.operand_text(operand).map(|text| format!("({text})")))
             .transpose()?
             .unwrap_or_else(|| "0.0".to_owned());
         let end_text = end
-            .map(|operand| self.operand_text(operand))
+            .map(|operand| self.operand_text(operand).map(|text| format!("({text})")))
             .transpose()?
             .unwrap_or_else(|| "(fill_len as f64)".to_owned());
         Ok(format!(
@@ -549,10 +554,10 @@ impl FunctionEmitter<'_> {
             ));
         };
         let list_text = self.local_mut_value_text(*local)?;
-        let target_text = self.operand_text(target)?;
-        let start_text = self.operand_text(start)?;
+        let target_text = format!("({})", self.operand_text(target)?);
+        let start_text = format!("({})", self.operand_text(start)?);
         let end_text = end
-            .map(|operand| self.operand_text(operand))
+            .map(|operand| self.operand_text(operand).map(|text| format!("({text})")))
             .transpose()?
             .unwrap_or_else(|| "(copy_len as f64)".to_owned());
         Ok(format!(
@@ -601,7 +606,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         let list_text = self.operand_text(list)?;
-        let index_text = self.operand_text(index)?;
+        let index_text = format!("({})", self.operand_text(index)?);
         let value_text = self.operand_text(value)?;
         Ok(format!(
             "{{ let mut with_items = {list_text}.clone(); let with_len = with_items.len(); let with_index = if {index_text} < 0.0 {{ with_len.saturating_sub((-{index_text}) as usize) }} else {{ {index_text} as usize }}; if with_index >= with_len {{ panic!(\"array with index out of bounds\"); }} with_items[with_index] = {value_text}; with_items }}"
