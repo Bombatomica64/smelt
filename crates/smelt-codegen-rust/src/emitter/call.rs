@@ -1502,8 +1502,37 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
+        call_text = self.wrap_native_async_call_text(callee, call_text)?;
         let source_ty = self.call_emitted_source_ty(callee, dest_ty)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty)
+    }
+
+    /// Wrap a generated native `async fn` call in Smelt's stable future ABI.
+    ///
+    /// Rust evaluates an `async fn` call as an anonymous `impl Future`, while
+    /// MIR `Type::Future(T)` is emitted as `SmeltFuture<T>`. Materializing the
+    /// wrapper at call destinations keeps free async functions compatible with
+    /// closure temporaries, adapters, and values that escape before an await.
+    fn wrap_native_async_call_text(
+        &self,
+        callee: &Callee,
+        call_text: String,
+    ) -> Result<String, EmitError> {
+        let Callee::Static(func) = callee else {
+            return Ok(call_text);
+        };
+        let function = self
+            .mir
+            .functions
+            .get(id_index(func.0, "function index does not fit usize")?)
+            .ok_or_else(|| EmitError::new("call references an unknown function"))?;
+        if function.is_async {
+            Ok(format!(
+                "SmeltFuture::from_future(Box::pin({call_text}))"
+            ))
+        } else {
+            Ok(call_text)
+        }
     }
 
     /// Returns the Rust type a call *actually* evaluates to in the emitted code.
@@ -1586,6 +1615,7 @@ impl FunctionEmitter<'_> {
         if let Some(stripped) = call_text.strip_suffix('?') {
             call_text = format!("{stripped}.unwrap_or_else(|error| panic!(\"{{}}\", error))");
         }
+        call_text = self.wrap_native_async_call_text(callee, call_text)?;
         let source_ty = self.call_source_ty(callee)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty)
     }

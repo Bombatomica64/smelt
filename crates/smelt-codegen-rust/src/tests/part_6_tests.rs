@@ -242,6 +242,28 @@ async function makeValue(): Promise<number> {
     );
 }
 
+/// Calls to emitted native `async fn`s inside generated closures are wrapped
+/// in Smelt's stable future representation before assignment or adaptation.
+#[test]
+fn static_async_call_in_closure_is_wrapped_as_smelt_future() {
+    let source = source_for(
+        r"
+async function load(): Promise<number> {
+  return 1;
+}
+
+export function make(): () => Promise<number> {
+  return async () => await load();
+}
+",
+    );
+
+    assert!(
+        source.contains("SmeltFuture::from_future(Box::pin(load()))"),
+        "{source}"
+    );
+}
+
 #[test]
 fn emits_promise_constructor_executor_ignoring_callbacks() {
     // `new Promise(() => {})` declares a zero-parameter executor. The executor is
@@ -453,7 +475,9 @@ async function run(): Promise<number> {
         source.contains("async fn lift(value: f64) -> Result<f64, Box<dyn std::error::Error>> {")
     );
     assert!(source.contains("async fn run() -> Result<f64, Box<dyn std::error::Error>> {"));
-    assert!(source.contains("let _smelt_tmp_0 = lift(5.0);"));
+    assert!(source.contains(
+        "let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(lift(5.0)));"
+    ));
     assert!(source.contains("_smelt_tmp_1"));
     assert!(source.contains("_smelt_tmp_0.await?"));
 }
