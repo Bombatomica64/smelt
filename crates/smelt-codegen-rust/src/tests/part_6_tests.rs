@@ -218,6 +218,30 @@ function makeValue(): Promise<number> {
     assert!(source.contains("break result;"), "{source}");
 }
 
+/// An async return supplies the resolved `T` as the contextual hint for an
+/// unparameterized `new Promise`; generated settlement storage must retain it.
+#[test]
+fn untyped_promise_in_async_return_keeps_concrete_output() {
+    let source = source_for(
+        r"
+async function makeValue(): Promise<number> {
+  return new Promise((resolve) => {
+    resolve(1);
+  });
+}
+",
+    );
+
+    assert!(
+        source.contains("Option<Result<f64, Box<dyn std::error::Error>>>"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("Option<Result<(), Box<dyn std::error::Error>>>"),
+        "{source}"
+    );
+}
+
 #[test]
 fn emits_promise_constructor_executor_ignoring_callbacks() {
     // `new Promise(() => {})` declares a zero-parameter executor. The executor is

@@ -3429,6 +3429,46 @@ function makeValue(): Promise<number> {
     Ok(())
 }
 
+/// An unparameterized Promise constructed as an async return expression uses
+/// the async function's resolved return type as its concrete future output.
+#[test]
+fn contextualizes_untyped_promise_constructor_from_async_return() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+async function makeValue(): Promise<number> {
+  return new Promise((resolve) => {
+    resolve(1);
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    let promise = body
+        .exprs
+        .iter()
+        .find(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::AsyncOp {
+                    op: smelt_hir::AsyncOp::Promise,
+                    ..
+                }
+            )
+        })
+        .ok_or_else(|| "missing Promise constructor expression".to_owned())?;
+    ensure!(matches!(
+        ctx.krate.types.get(promise.ty),
+        Some(Type::Future(inner))
+            if matches!(ctx.krate.types.get(*inner), Some(Type::Float))
+    ));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 #[test]
 fn lowers_named_promise_constructor_executor_as_future() -> Result<(), String> {
     let mut ctx = HirCtx::new();

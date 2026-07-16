@@ -1516,7 +1516,13 @@ impl ModuleBuilder<'_> {
             ));
         };
         let output_ty = type_hint
-            .and_then(|hint| self.future_inner_type(hint))
+            .map(|hint| {
+                // A Promise constructor can be contextualized either by a
+                // `Promise<T>` value slot or by the resolved `T` hint supplied
+                // for a return expression inside an async function. Both
+                // contexts describe the constructor's concrete output `T`.
+                self.future_inner_type(hint).unwrap_or(hint)
+            })
             .or_else(|| {
                 self.promise_constructor_output_type(new_expr)
                     .ok()
