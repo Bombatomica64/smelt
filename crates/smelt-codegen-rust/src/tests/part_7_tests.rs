@@ -7824,6 +7824,28 @@ function adapt(
     );
 }
 
+/// Erasing a function returned by an adapted callback must evaluate that
+/// callback once; evaluating it again moves non-Copy arguments twice.
+#[test]
+fn adapted_function_return_is_materialized_before_identity_registration() {
+    let source = source_for(
+        r"
+function adapt(
+  callback: (key: string) => (record: Record<string, number>) => number,
+): (key: string) => unknown {
+  return callback;
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "let smelt_function_value = (_smelt_adapted_callback)(arg0); let smelt_function_origin = smelt_function_value.clone();"
+        ),
+        "{source}"
+    );
+}
+
 /// Regression (warning-reduction R1): a predeclared (hoisted) local that is
 /// assigned inside a loop body keeps its `mut` binding. Rust's
 /// definite-assignment rules reject reassigning an immutable hoisted local from

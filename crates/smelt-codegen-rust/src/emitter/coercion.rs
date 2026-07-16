@@ -1426,8 +1426,7 @@ impl FunctionEmitter<'_> {
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
                 };
                 Ok(format!(
-                    "{{ let smelt_function_origin = {clone_receiver}.clone(); let smelt_function_value = {value_text}; let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}",
-                    clone_receiver = value.parenthesized_if_needed()
+                    "{{ let smelt_function_value = {value_text}; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}"
                 ))
             }
             Some(Type::Union(_)) if self.concrete_union_members(ty).is_some() => {
