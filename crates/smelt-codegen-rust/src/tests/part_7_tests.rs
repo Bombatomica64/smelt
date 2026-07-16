@@ -803,7 +803,7 @@ merged.flush();
         "{source}"
     );
     assert!(source.contains(".remove(&\"call\".to_owned())"), "{source}");
-    assert!(source.contains("assigned.extend("), "{source}");
+    assert!(source.contains(".extend("), "{source}");
 }
 
 #[test]

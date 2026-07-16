@@ -630,6 +630,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .object_value_collections
                     .insert(binding.name.as_str().to_owned(), collection);
             }
+            if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+                && !self.const_objects.contains_key(binding.name.as_str())
+                && let Some(init) = &declarator.init
+                && let Some(map_const) = self.map_const_from_initializer(init)
+            {
+                self.const_objects
+                    .insert(binding.name.as_str().to_owned(), map_const);
+            }
             if matches!(
                 decl.kind,
                 oxc::ast::ast::VariableDeclarationKind::Const
@@ -2693,6 +2701,59 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Return an object initializer after removing TypeScript-only wrappers.
+    /// Capture a module-level `const NAME = new Map([[key, value], ...])`
+    /// initializer whose keys are static string literals into reusable
+    /// object-constant metadata.
+    ///
+    /// A literal `Map` const is semantically a string-keyed dictionary, the same
+    /// shape the object-literal const path already re-materializes at every
+    /// reference site. Without this, a function that reads a module-level Map
+    /// const (e.g. es-toolkit's `deburr` reading `deburrMap`) inlines an empty
+    /// default dictionary because the real construction only lives in the
+    /// never-called module body. Only entries with static string keys and
+    /// capturable values are accepted; any other shape returns `None` and falls
+    /// back to the existing runtime lowering, so this stays a general rule rather
+    /// than a per-const special case.
+    pub(super) fn map_const_from_initializer(
+        &mut self,
+        expression: &Expression<'_>,
+    ) -> Option<ObjectConst> {
+        let Expression::NewExpression(new_expr) = Self::peel_transparent_expression(expression)
+        else {
+            return None;
+        };
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            return None;
+        };
+        if !Self::is_ts_stdlib_class_name(callee.name.as_str(), smelt_stdlib::StdlibClass::Map) {
+            return None;
+        }
+        let [Argument::ArrayExpression(array)] = new_expr.arguments.as_slice() else {
+            return None;
+        };
+        let mut entries = Vec::new();
+        for element in &array.elements {
+            let ArrayExpressionElement::ArrayExpression(pair) = element else {
+                return None;
+            };
+            let [key_element, value_element] = pair.elements.as_slice() else {
+                return None;
+            };
+            let ArrayExpressionElement::StringLiteral(key_lit) = key_element else {
+                return None;
+            };
+            let value_expr = value_element.as_expression()?;
+            let (value, value_ty) = self.object_const_entry_value(value_expr).ok()?;
+            entries.push(ObjectConstEntry {
+                key: key_lit.value.to_string(),
+                value,
+                value_ty,
+            });
+        }
+        let ty = self.object_const_type(&entries, None);
+        Some(ObjectConst { entries, ty })
+    }
+
     pub(super) fn object_const_initializer<'a>(
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::ObjectExpression<'a>> {
