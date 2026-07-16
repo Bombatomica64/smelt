@@ -2,9 +2,18 @@ if i need to tell you something multiple time put it here
 
 
 ## always run
-cargo test (only run full tests before a commit)
-cargo check
-cargo clippy
+Tight loop (fast — `--lib` skips compiling the ~40k lines of inline tests in
+smelt-frontend-ts/smelt-codegen-rust, so it doesn't rebuild them every edit):
+cargo check --lib
+cargo clippy --lib
+When working ONLY on the TypeScript path (not Python), add `--no-default-features`
+to drop the whole `ty` Python stack (ty_python_semantic/core/module_resolver +
+ruff + smelt-frontend-py, ~86s of the cold build):
+cargo check --lib --no-default-features
+cargo clippy --lib --no-default-features
+Full check before a commit only (compiles + type-checks all tests):
+cargo clippy --all-targets
+cargo test
 
 ## Generated Rust diagnostics
 when working on generated Rust warnings or blockers, use:

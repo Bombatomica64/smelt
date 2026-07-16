@@ -1,12 +1,21 @@
+# smelt-gui is its own workspace, deliberately split out of the main Smelt
+# workspace: it depends on gpui (a very slow cold build) and is not part of the
+# transpiler pipeline. It consumes the published smelt-* crates from crates.io
+# rather than path deps, so building the main workspace never touches gpui.
+#
+# Build it explicitly from this directory:
+#   cargo run --manifest-path crates/smelt-gui/Cargo.toml
+[workspace]
+
 [package]
 name = "smelt-gui"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
-authors.workspace = true
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.85"
+license = "GPL-3.0-only"
+repository = "https://github.com/Bombatomica64/smelt"
+homepage = "https://github.com/Bombatomica64/smelt"
+authors = ["Lorenzo Micheli"]
 description = "GPUI desktop playground for the Smelt transpiler: edit TypeScript/Python and watch it lower to Rust."
 keywords = ["smelt", "gui", "gpui", "transpiler", "playground"]
 categories = ["development-tools", "gui"]
@@ -22,12 +31,11 @@ python = ["dep:smelt-frontend-py"]
 
 [dependencies]
 gpui = "0.2.2"
-smelt-frontend-ts = { path = "../smelt-frontend-ts", version = "0.1.1" }
-smelt-frontend-py = { path = "../smelt-frontend-py", version = "0.1.1", optional = true }
-smelt-hir = { path = "../smelt-hir", version = "0.1.1" }
-smelt-mir = { path = "../smelt-mir", version = "0.1.1" }
-smelt-codegen-rust = { path = "../smelt-codegen-rust", version = "0.1.1" }
 gpui-component = "0.5.1"
-
-[lints]
-workspace = true
+# Published Smelt crates from crates.io (not path deps) — this is what keeps gui
+# out of the main workspace's build graph.
+smelt-frontend-ts = "0.1.1"
+smelt-frontend-py = { version = "0.1.1", optional = true }
+smelt-hir = "0.1.1"
+smelt-mir = "0.1.1"
+smelt-codegen-rust = "0.1.1"
