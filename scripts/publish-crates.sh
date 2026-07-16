@@ -22,7 +22,13 @@ if [[ "${1:-}" == "--execute" ]]; then
   EXECUTE=1
 fi
 
-VERSION="0.1.0"
+# Keep release selection tied to the version committed in the workspace. This
+# avoids publishing a CI-only version that is not represented in source control.
+VERSION="$(sed -n '/^\[workspace\.package\]$/,/^\[/ s/^version = "\([^"]*\)"$/\1/p' Cargo.toml)"
+if [[ -z "$VERSION" ]]; then
+  echo "Could not read workspace.package.version from Cargo.toml" >&2
+  exit 1
+fi
 
 # Publish order: every crate appears after all of its path dependencies.
 # `smelt-py-types` precedes `smelt-frontend-py`, which precedes its consumers.

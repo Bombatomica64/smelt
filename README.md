@@ -47,6 +47,10 @@ type resolution by default. Install it with `cargo install smelt-transpiler`.
 Publishing to crates.io is handled by [`scripts/publish-crates.sh`](scripts/publish-crates.sh)
 (`--execute` to publish for real; a bare run does a dry run). It publishes the
 crates leaf-first, including `smelt-py-types` before the Python frontend.
+Maintainers can also run the manual **Publish crates.io release** workflow after
+committing the new workspace version. The `crates-io` GitHub environment must
+provide a `CRATES_IO_TOKEN` secret; the dispatch requires the matching version
+and the confirmation text `publish`.
 
 ## v1.0 Goals
 
@@ -145,7 +149,6 @@ Fork the repo and submit a pr :)
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
 | `smelt-transpiler` | 66.92% | 65.63% | 55.56% |
 <!-- COVERAGE:END -->
-
 
 
 
