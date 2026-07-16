@@ -35,9 +35,11 @@ class Book(models.Model):
         app_label = "smelt_probe"
 "#;
 
+/// Boxed dynamic error type shared by the probe helpers.
+type DynError = Box<dyn Error>;
+
 #[test]
-fn real_django_model_exposes_fields_descriptors_managers_and_metadata() -> Result<(), Box<dyn Error>>
-{
+fn real_django_model_exposes_fields_descriptors_managers_and_metadata() -> Result<(), DynError> {
     let Some(python) = discovered_python() else {
         return Ok(());
     };
@@ -62,6 +64,13 @@ fn real_django_model_exposes_fields_descriptors_managers_and_metadata() -> Resul
         hashes: fixture_hashes(),
         sandbox_policy: fixture_policy(project.path(), &environment),
     })?;
+    assert_book_model(&manifest)
+}
+
+/// Verifies the materialized Book model's fields, descriptors, managers, and metadata.
+fn assert_book_model(
+    manifest: &smelt_specialize::SpecializationManifest,
+) -> Result<(), DynError> {
     let module = manifest
         .modules
         .first()
@@ -119,7 +128,7 @@ struct DjangoEnvironment {
     extensions: Vec<String>,
 }
 
-/// Finds a CPython executable suitable for the Django probe.
+/// Finds a `CPython` executable suitable for the Django probe.
 fn discovered_python() -> Option<&'static Path> {
     ["/usr/bin/python3", "/usr/local/bin/python3"]
         .iter()
@@ -128,7 +137,7 @@ fn discovered_python() -> Option<&'static Path> {
 }
 
 /// Discovers an installed Django distribution and its imported extensions.
-fn django_environment(python: &Path) -> Result<Option<DjangoEnvironment>, Box<dyn Error>> {
+fn django_environment(python: &Path) -> Result<Option<DjangoEnvironment>, DynError> {
     let script = r#"
 import pathlib, sys
 try:
@@ -142,7 +151,7 @@ for module in sorted(sys.modules.values(), key=lambda item: getattr(item, "__nam
         print(pathlib.Path(filename).name)
 "#;
     let output = Command::new(python).args(["-c", script]).output()?;
-    if output.status.code() == Some(3) {
+    if output.status.code() == Some(3_i32) {
         return Ok(None);
     }
     if !output.status.success() {
