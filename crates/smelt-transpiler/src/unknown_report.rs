@@ -377,7 +377,7 @@ fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
             .position(|line| line.trim() == smelt_codegen_rust::PRELUDE_END_MARKER);
         for (index, line) in text.lines().enumerate() {
             update_prelude_helper_state(line, &mut in_prelude_helper);
-            let count = count_occurrences(line, "SmeltUnknown");
+            let count = count_value_erasures(line);
             if count == 0 {
                 continue;
             }
@@ -462,6 +462,53 @@ fn count_occurrences(haystack: &str, needle: &str) -> usize {
         rest = &rest[index.saturating_add(needle.len())..];
     }
     count
+}
+
+/// Count the `SmeltUnknown` occurrences on a line that represent *erased values*,
+/// excluding pure type-annotation spellings that carry no additional erasure
+/// signal.
+///
+/// # Why annotation tokens are excluded
+///
+/// The metric measures how many *values* fall back to the erased tagged union,
+/// not how many times the `SmeltUnknown` identifier is typed. When PR #156 made
+/// generated functions fallible, two purely syntactic changes inflated the raw
+/// token count without erasing a single additional value:
+///
+/// - Return sites gained a `Ok::<SmeltUnknown, Box<dyn std::error::Error>>(expr)`
+///   turbofish where a bare `expr` stood before — one extra `SmeltUnknown` token
+///   per fallible return that annotates the `Result` `Ok` arm, not a new value.
+/// - Some erased closures gained an explicit typed signature
+///   (`... -> Result<SmeltUnknown, Box<dyn std::error::Error>>`) where an already
+///   erased `SmeltErasedFunction` literal stood before; the `SmeltUnknown` inside
+///   that return annotation is type spelling, not a distinct erased value.
+///
+/// Wrapping a function in `Result` for fallibility must be **count-neutral**: the
+/// erased value it returns is already counted at its construction site, so these
+/// annotation spellings are stripped before counting. The strip is deterministic
+/// (exact spellings only) so the tally stays stable and diffable across runs.
+fn count_value_erasures(line: &str) -> usize {
+    let normalized = strip_annotation_spellings(line);
+    count_occurrences(&normalized, "SmeltUnknown")
+}
+
+/// Strip fallibility-wrapping type-annotation spellings from a line so their
+/// `SmeltUnknown` tokens are not counted as erased values. See
+/// [`count_value_erasures`] for the rationale.
+///
+/// Only exact, unambiguous spellings are rewritten so the transform is
+/// deterministic and never accidentally hides a genuine erased value:
+/// - the `Ok::<SmeltUnknown, Box<dyn std::error::Error>>` return turbofish loses
+///   its annotation entirely (`Ok`);
+/// - the `-> Result<SmeltUnknown, Box<dyn std::error::Error>>` return annotation
+///   has its `SmeltUnknown` replaced with `()` so the surrounding shape is
+///   preserved while the token no longer counts.
+fn strip_annotation_spellings(line: &str) -> String {
+    line.replace("Ok::<SmeltUnknown, Box<dyn std::error::Error>>", "Ok")
+        .replace(
+            "-> Result<SmeltUnknown, Box<dyn std::error::Error>>",
+            "-> Result<(), Box<dyn std::error::Error>>",
+        )
 }
 
 /// Update whether we are inside a `smelt_*` runtime prelude helper definition.
@@ -757,6 +804,38 @@ mod tests {
         assert_eq!(count_occurrences("SmeltUnknown SmeltUnknown", "SmeltUnknown"), 2);
         assert_eq!(count_occurrences("nothing here", "SmeltUnknown"), 0);
         assert_eq!(count_occurrences("aaa", "aa"), 1);
+    }
+
+    /// Fallibility-wrapping annotation tokens are excluded from the value count.
+    #[test]
+    fn count_value_erasures_excludes_annotation_spellings() {
+        // The `Ok::<...>` turbofish annotates the Result Ok arm; wrapping a bare
+        // return value in it must not raise the erased-value count.
+        assert_eq!(
+            count_value_erasures("        Ok::<SmeltUnknown, Box<dyn std::error::Error>>(value)"),
+            count_value_erasures("        value"),
+            "the Ok turbofish adds no erased value versus the unwrapped return"
+        );
+        // A genuine erased value inside the Ok turbofish is still counted once.
+        assert_eq!(
+            count_value_erasures(
+                "        Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined)"
+            ),
+            1
+        );
+
+        // A closure signature made fallible must not inflate versus the erased
+        // literal it replaced (which carried no `SmeltUnknown` spelling).
+        assert_eq!(
+            count_value_erasures(
+                "    let cb: Rc<dyn Fn(SmeltList<i64>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = f;"
+            ),
+            count_value_erasures("    let cb: SmeltErasedFunction = f;"),
+            "a fallible closure return annotation must be count-neutral"
+        );
+
+        // A bare `-> SmeltUnknown` return still counts its value.
+        assert_eq!(count_value_erasures("fn f() -> SmeltUnknown {"), 1);
     }
 
     /// Prelude definition starts and single-line helpers toggle state correctly.

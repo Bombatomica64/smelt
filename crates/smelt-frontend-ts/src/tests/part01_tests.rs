@@ -1811,6 +1811,64 @@ test("common matchers", () => {
     Ok(())
 }
 
+/// Regression: a deep-equality matcher hints the expected literal with the
+/// actual's type. When the actual resolves to a non-array type (here a data-last
+/// overload returning a `Fn(...) -> ...` function value), the array literal must
+/// keep its own inferred `List` type instead of adopting the function hint, which
+/// would emit `let tmp: Rc<dyn Fn(...)> = vec![...]` and fail to compile (E0308).
+#[test]
+fn to_strict_equal_expected_literal_ignores_non_array_actual_hint() -> Result<(), String> {
+    let source = ts!(r#"
+import { test, expect } from "vitest";
+
+function f(start: number, end: number): number[];
+function f(count: number): (x: number) => number[];
+function f(a: number, b?: number): unknown {
+  return [] as unknown;
+}
+
+test("data-last overload", () => {
+  expect(f(4)).toStrictEqual([0, 1, 2, 3]);
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/example.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let test_fn = module
+        .items
+        .iter()
+        .filter_map(|item_id| {
+            let item = ctx.krate.items.get(usize::try_from(item_id.0).ok()?)?;
+            match item {
+                Item::Function(function) if function.is_test => Some(function),
+                _ => None,
+            }
+        })
+        .next()
+        .ok_or_else(|| "missing test function".to_string())?;
+    let body = function_body(&ctx, test_fn)?;
+
+    let list_lit = body
+        .exprs
+        .iter()
+        .find(|expr| matches!(expr.kind, ExprKind::ListLit(_)))
+        .ok_or_else(|| "expected a list literal for the expected value".to_string())?;
+    ensure!(
+        matches!(ctx.krate.types.get(list_lit.ty), Some(Type::List(_))),
+        "expected list literal to keep its List type, got {:?}",
+        ctx.krate.types.get(list_lit.ty),
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListLit(_))
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Function(_)))),
+        "no list literal may be typed as a function value",
+    );
+    Ok(())
+}
+
 #[test]
 fn vitest_lifecycle_hooks_are_inlined_into_tests() -> Result<(), String> {
     let source = ts!(r#"
