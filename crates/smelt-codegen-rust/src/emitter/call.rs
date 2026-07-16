@@ -980,7 +980,7 @@ impl FunctionEmitter<'_> {
 
     /// Renders arguments for a first-class function call using the callee's
     /// parameter types, including mutable callback arguments.
-    fn indirect_call_args_text(
+    pub(super) fn indirect_call_args_text(
         &self,
         function: &FunctionType,
         args: &[Operand],
