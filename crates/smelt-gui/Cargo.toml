@@ -39,3 +39,9 @@ smelt-frontend-py = { version = "0.1.1", optional = true }
 smelt-hir = "0.1.1"
 smelt-mir = "0.1.1"
 smelt-codegen-rust = "0.1.1"
+
+# Transitive pin (not used directly): the ty Python stack pulls get-size2, and
+# 0.10.2 bumped its compact_str dep to 0.10, producing two compact_str versions
+# and breaking ruff_python_ast's `GetSize` derive. The main workspace resolves
+# get-size2 at 0.10.1 (compact_str 0.9.1, unified); match it here.
+get-size2 = "=0.10.1"
