@@ -126,9 +126,9 @@ Fork the repo and submit a pr :)
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 76.58% |
-| Lines | 73.03% |
-| Regions | 71.59% |
+| Functions | 76.60% |
+| Lines | 73.04% |
+| Regions | 71.60% |
 | Branches | 63.46% |
 
 ### Per Crate
@@ -143,12 +143,13 @@ Fork the repo and submit a pr :)
 | `smelt-hir` | 57.02% | 30.62% | 56.90% |
 | `smelt-mir` | 78.33% | 76.18% | 68.65% |
 | `smelt-py-ty-spike` | 0.00% | 0.00% | 0.00% |
-| `smelt-py-types` | 84.00% | 86.83% | 68.52% |
+| `smelt-py-types` | 84.21% | 87.25% | 68.52% |
 | `smelt-specialize` | 44.06% | 48.52% | 36.47% |
 | `smelt-stdlib` | 84.44% | 75.43% | 100.00% |
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
 | `smelt-transpiler` | 67.89% | 65.99% | 55.28% |
 <!-- COVERAGE:END -->
+
 
 
 
