@@ -140,6 +140,9 @@ impl LoweringCtx<'_> {
                 update_target,
                 update_value,
             } => self.lower_while_update(*cond, *body, *update_target, *update_value),
+            HirStmt::WhileUpdateBlock { cond, body, update } => {
+                self.lower_while_update_block(*cond, *body, *update)
+            }
             HirStmt::For { pat, iter, body } => self.lower_for(*pat, *iter, *body),
             HirStmt::Throw(expr) => {
                 let lowered_operand = self.lower_expr(*expr)?;
@@ -372,6 +375,55 @@ impl LoweringCtx<'_> {
             place,
             value: Rvalue::Use(value),
         });
+        if self.block()?.terminator.is_none() {
+            self.set_terminator(Terminator::Goto(header))?;
+        }
+        self.current_block = after;
+        Ok(())
+    }
+
+    /// Lowers a C-style `for` desugaring (while loop with an update *block*).
+    ///
+    /// The update block is lowered into a dedicated latch block that is the
+    /// `continue` target, so a `continue` inside the body runs the update before
+    /// re-testing the condition. This is the general fix for C-style `for`
+    /// loops: appending the update to the body would let `continue` skip it and
+    /// spin forever. Mirrors [`Self::lower_for`]'s `update_block` wiring, but the
+    /// latch runs an arbitrary HIR block instead of a fixed index increment.
+    pub(super) fn lower_while_update_block(
+        &mut self,
+        cond: ExprId,
+        body_hir: smelt_hir::BlockId,
+        update_hir: smelt_hir::BlockId,
+    ) -> Result<(), LowerError> {
+        let preheader_span = self.block()?.span;
+        let header = self.function.push_block(preheader_span);
+        self.set_terminator(Terminator::Goto(header))?;
+        self.current_block = header;
+        let body_span = self.hir_block(body_hir)?.span;
+        let body_mir = self.function.push_block(body_span);
+        let latch = self.function.push_block(body_span);
+        let after = self.function.push_block(preheader_span);
+        let lowered_cond = self.lower_expr(cond)?;
+        self.set_terminator(Terminator::Switch {
+            cond: lowered_cond,
+            then_block: body_mir,
+            else_block: after,
+        })?;
+
+        self.loops.push(LoopTargets {
+            break_target: after,
+            continue_target: latch,
+        });
+        self.current_block = body_mir;
+        self.lower_block_stmts(body_hir)?;
+        if self.block()?.terminator.is_none() {
+            self.set_terminator(Terminator::Goto(latch))?;
+        }
+        self.loops.pop();
+
+        self.current_block = latch;
+        self.lower_block_stmts(update_hir)?;
         if self.block()?.terminator.is_none() {
             self.set_terminator(Terminator::Goto(header))?;
         }

@@ -478,6 +478,9 @@ return_ty,
             | Stmt::WhileUpdate {
                 body: loop_body, ..
             }
+            | Stmt::WhileUpdateBlock {
+                body: loop_body, ..
+            }
             | Stmt::For { body: loop_body, .. } => {
                 Self::collect_return_types_from_block(body, *loop_body, out);
             }

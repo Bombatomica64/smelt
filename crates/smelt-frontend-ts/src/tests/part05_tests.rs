@@ -428,6 +428,65 @@ for (let item: number of count) {
 }
 
 #[test]
+fn c_style_for_lowers_update_into_separate_block_not_body() -> Result<(), String> {
+    // Regression: a C-style `for (init; test; update)` with a `continue` in the
+    // body must NOT append the update to the loop body — otherwise `continue`
+    // (which jumps to the loop header) skips the update and spins forever. The
+    // update must live in its own block (`WhileUpdateBlock.update`) so MIR can
+    // make it the `continue` target.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+for (let i = 0; i < 10; i++) {
+  if (i === 3) {
+    continue;
+  }
+  console.log(i);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let Some(Stmt::WhileUpdateBlock {
+        body: loop_body,
+        update,
+        ..
+    }) = body
+        .stmts
+        .iter()
+        .find(|stmt| matches!(stmt, Stmt::WhileUpdateBlock { .. }))
+    else {
+        return Err("expected C-style for to lower to WhileUpdateBlock".to_owned());
+    };
+
+    let is_assign = |block_id: &smelt_hir::BlockId| -> Result<bool, String> {
+        let block = body
+            .blocks
+            .get(usize::try_from(block_id.0).map_err(|err| err.to_string())?)
+            .ok_or_else(|| "expected block".to_owned())?;
+        Ok(block.stmts.iter().any(|stmt| {
+            usize::try_from(stmt.0)
+                .is_ok_and(|index| matches!(body.stmts.get(index), Some(Stmt::Assign { .. })))
+        }))
+    };
+
+    // The update assignment (`i++` -> `i = i + 1`) must be in the update block,
+    // and NOT duplicated into the loop body.
+    ensure!(
+        is_assign(update)?,
+        "update block should contain the loop-update assignment",
+    );
+    ensure!(
+        !is_assign(loop_body)?,
+        "loop body must not contain the update assignment (would be skipped by continue)",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_set_for_of_to_projection() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

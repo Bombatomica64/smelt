@@ -168,6 +168,51 @@ for (let item: number of values) {
     }
 
     #[test]
+    fn c_style_for_continue_reruns_update_before_header() {
+        // Regression: a `continue` inside a C-style `for` must re-run the update
+        // clause before re-testing the condition. The desugaring lowers the
+        // update into a dedicated latch block that is the `continue` target, so
+        // `continue` cannot skip the update and spin forever.
+        let mut ctx = HirCtx::new();
+        ok_or_panic(
+            to_hir(
+                "let total = 0;
+for (let i = 0; i < 10; i++) {
+  if (i === 3) {
+    continue;
+  }
+  total = total + i;
+}
+",
+                FileId(0),
+                &mut ctx,
+            ),
+            "HIR",
+        );
+
+        let mir = ok_or_panic(lower_hir(&ctx.krate), "c-for lowers");
+        assert!(validate(&mir).is_empty());
+        let output = format_compact(&mir);
+
+        // Header (bb1) tests the condition; the latch (bb3) increments `i` and
+        // jumps back to the header. Crucially, the `continue` arm (bb5) routes
+        // through the latch (`goto bb3`), NOT straight to the header (bb1), so
+        // the increment always runs.
+        assert!(
+            output.contains("bb3:"),
+            "expected a distinct latch block:\n{output}"
+        );
+        assert!(
+            output.contains("%1 = copy %5"),
+            "latch should apply the `i++` update:\n{output}"
+        );
+        assert!(
+            output.contains("bb5:\n    goto bb3"),
+            "continue must jump to the update latch (bb3), not the header:\n{output}"
+        );
+    }
+
+    #[test]
     fn throw_lowers_to_terminating_mir() {
         let mut ctx = HirCtx::new();
         ok_or_panic(

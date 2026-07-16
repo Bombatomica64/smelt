@@ -50,20 +50,36 @@ impl ModuleBuilder<'_> {
         };
         let loop_body = self.block_from_statement(&for_stmt.body, body)?;
         if let Some(update) = &for_stmt.update {
-            self.push_for_update(update, body, loop_body)?;
+            // Lower the update into its OWN block rather than appending it to the
+            // loop body. MIR turns that update block into a latch that becomes
+            // the `continue` target, so a `continue` inside the body re-runs the
+            // update before re-testing the condition. Appending to the body would
+            // make `continue` skip the update and spin forever.
+            let update_block = body.push_block(self.expression_span(update));
+            self.push_for_update(update, body, update_block)?;
+            body.push_stmt_to_block(
+                block,
+                Stmt::WhileUpdateBlock {
+                    cond,
+                    body: loop_body,
+                    update: update_block,
+                },
+            );
+        } else {
+            body.push_stmt_to_block(
+                block,
+                Stmt::While {
+                    cond,
+                    body: loop_body,
+                },
+            );
         }
-        body.push_stmt_to_block(
-            block,
-            Stmt::While {
-                cond,
-                body: loop_body,
-            },
-        );
         Ok(())
     }
 
     /// Lower a C-style `for` loop update clause into assignment statements
-    /// appended to the loop body block.
+    /// appended to the given `loop_body` block (in practice the dedicated update
+    /// block created by [`Self::c_for_statement`]).
     ///
     /// The update is either a single assignment (`i += 2`), an increment or
     /// decrement (`i++`, `--j`), or a comma sequence of those forms
