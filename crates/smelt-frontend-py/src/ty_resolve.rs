@@ -72,10 +72,9 @@ impl ResolvedTypes {
     /// Return the `ty`-resolved return-type spelling for the function whose
     /// definition starts at `offset`, if any.
     ///
-    /// `offset` is this crate's own `ruff_text_size::TextSize` (from the
-    /// crates.io Ruff parser). It is converted to a plain `u32` before crossing
-    /// into `smelt_py_types`, whose git-pinned Ruff `TextSize` is a *different*
-    /// crate and would not type-check here. See [`ResolvedTypes`] docs.
+    /// `offset` is converted to a plain `u32` before crossing into
+    /// `smelt_py_types`, keeping Ruff implementation types out of the boundary.
+    /// See [`ResolvedTypes`] docs.
     #[must_use]
     pub(crate) fn return_type_at(&self, offset: TextSize) -> Option<&str> {
         #[cfg(feature = "ty")]

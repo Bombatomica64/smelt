@@ -2,7 +2,15 @@
 name = "smelt-py-types"
 version.workspace = true
 edition.workspace = true
-publish = false
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Astral ty-backed Python type resolution for the Smelt compiler."
+keywords = ["smelt", "python", "types", "compiler"]
+categories = ["compilers", "development-tools"]
+publish = true
 autoexamples = false
 
 # Astral `ty`-backed Python type resolution for the Python frontend.
@@ -23,17 +31,19 @@ workspace = true
 [dependencies]
 anyhow = "1.0.103"
 
-# `ty` and the ruff parser crates are not published to crates.io, so they are
-# pulled from the upstream git repo pinned to the SAME revision already used by
-# `smelt-frontend-py` (`ruff_python_parser`/`ruff_python_ast`/`ruff_text_size`)
-# and the `smelt-py-ty-spike` crate, keeping the workspace on one ruff checkout.
-ruff_db = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938", features = ["os"] }
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938" }
-ty_project = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938" }
-ty_python_semantic = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938" }
+# Ruff's library-layer crates are published independently of the `ty` CLI.
+# Keep this set on one version because their public database traits share types.
+ruff_db = { version = "0.0.4", features = ["os"] }
+ruff_python_ast = "0.0.4"
+ruff_text_size = "0.0.4"
+salsa = "0.27.2"
+ty_module_resolver = "0.0.4"
+ty_python_core = "0.0.4"
+ty_python_semantic = "0.0.4"
+ty_site_packages = "0.0.4"
+ty_vendored = "0.0.4"
 
 [dev-dependencies]
 # Only the tests parse source directly to look up node offsets; the library
 # receives its AST from `ty`'s db-tracked parse.
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938" }
+ruff_python_parser = "0.0.4"

@@ -54,11 +54,11 @@
 //! # Batch model
 //!
 //! Smelt is a batch compiler; `ty` is incremental. The simplest correct
-//! integration — and the one used here — is a fresh `ProjectDatabase` per
-//! resolved module, mirroring the spike. The source is materialized into a
-//! temporary directory and checked through an `OsSystem`, the exact path the
-//! spike proved works in this environment. Reuse/caching is a later
-//! optimization, not a correctness concern.
+//! integration is a fresh [`db::SmeltTyDb`] per resolved module. The source is
+//! materialized into a temporary directory and checked through an `OsSystem`;
+//! default analysis settings and ty's vendored typeshed provide the remainder
+//! of the environment. Reuse/caching is a later optimization, not a correctness
+//! concern.
 
 #![expect(
     clippy::wildcard_enum_match_arm,
@@ -67,15 +67,18 @@
 
 use std::collections::HashMap;
 
+pub(crate) mod db;
+
 use anyhow::{Context, Result, anyhow};
 use ruff_db::files::system_path_to_file;
 use ruff_db::parsed::parsed_module;
 use ruff_db::system::{OsSystem, SystemPathBuf};
 use ruff_python_ast::{Stmt, StmtFunctionDef};
 use ruff_text_size::Ranged;
-use ty_project::{ProjectDatabase, ProjectMetadata};
 use ty_python_semantic::types::Type;
 use ty_python_semantic::{HasType, SemanticModel};
+
+use crate::db::SmeltTyDb;
 
 /// Types resolved by `ty` for one Python module, keyed by AST byte offset.
 ///
@@ -103,10 +106,8 @@ impl ResolvedModuleTypes {
     ///
     /// `offset` is a plain `u32` byte offset (the value of a Ruff `TextSize`,
     /// via `TextSize::to_u32`) rather than a `ruff_text_size::TextSize`. Keeping
-    /// no Ruff type in this crate's public API lets the Python frontend use the
-    /// published crates.io Ruff while this crate keeps the git-pinned `ty` Ruff:
-    /// the two Ruff checkouts are distinct crates whose `TextSize` types would
-    /// not unify, so only the raw offset crosses the boundary.
+    /// no Ruff type in this crate's public API keeps the frontend/type-resolver
+    /// boundary independent of Ruff's implementation types and versions.
     #[must_use]
     pub fn return_type_at(&self, offset: u32) -> Option<&str> {
         self.return_types.get(&offset).map(String::as_str)
@@ -142,7 +143,7 @@ impl ResolvedModuleTypes {
 /// `"main"`); it only affects `ty`'s module naming, not the result keys.
 ///
 /// The source is written into a fresh temporary directory and checked with a
-/// `ty` `ProjectDatabase` over an `OsSystem`. A resolved type is recorded only
+/// local ty database over an `OsSystem`. A resolved type is recorded only
 /// when `ty` produces a *representable, concrete* spelling — dynamic/unknown
 /// results (`Unknown`, `Any`, `Never`, unresolved imports) are intentionally
 /// dropped so the frontend keeps them as an explicit boundary rather than
@@ -170,9 +171,7 @@ pub fn resolve_module_types(source: &str, module_stem: &str) -> Result<ResolvedM
     let root = SystemPathBuf::from_path_buf(dir)
         .map_err(|original| anyhow!("non-UTF-8 temp dir path: {}", original.display()))?;
     let system = OsSystem::new(&root);
-    let metadata =
-        ProjectMetadata::discover(&root, &system).context("discover ty project metadata")?;
-    let db = ProjectDatabase::use_defaults(metadata, system);
+    let db = SmeltTyDb::new(system, root)?;
 
     let file_system_path = SystemPathBuf::from_path_buf(file_path)
         .map_err(|original| anyhow!("non-UTF-8 source path: {}", original.display()))?;
@@ -223,7 +222,7 @@ fn unique_temp_dir() -> std::path::PathBuf {
 /// those of nested functions (see [`FunctionReturnVisitor`]).
 struct TypeCollector<'a, 'db> {
     /// `ty` project database used to display resolved types.
-    db: &'db ProjectDatabase,
+    db: &'db SmeltTyDb,
     /// `ty` semantic model used to query inferred node types.
     model: &'a SemanticModel<'db>,
     /// Accumulated resolved return/parameter type spellings.
@@ -304,7 +303,7 @@ impl TypeCollector<'_, '_> {
 /// the enclosing [`TypeCollector`].
 struct FunctionReturnVisitor<'a, 'db> {
     /// `ty` project database used to display resolved types.
-    db: &'db ProjectDatabase,
+    db: &'db SmeltTyDb,
     /// `ty` semantic model used to query inferred expression types.
     model: &'a SemanticModel<'db>,
     /// Canonical spellings gathered from each `return <expr>` site, in order.
@@ -428,7 +427,7 @@ fn child_stmts(stmt: &Stmt) -> Vec<&Stmt> {
 /// an explicit boundary rather than be routed through a catch-all. Everything
 /// else is displayed and lightly normalized into the annotation subset the
 /// frontend understands.
-fn displayable_type(db: &ProjectDatabase, ty: Type<'_>) -> Option<String> {
+fn displayable_type(db: &SmeltTyDb, ty: Type<'_>) -> Option<String> {
     // Drop dynamic / bottom types outright: these are genuine boundaries.
     if matches!(ty, Type::Dynamic(_) | Type::Never | Type::Divergent(_)) {
         return None;

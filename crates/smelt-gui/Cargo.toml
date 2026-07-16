@@ -16,19 +16,14 @@ name = "smelt-gui"
 path = "src/main.rs"
 
 [features]
-# Python frontend support. ON by default. `smelt-frontend-py`'s Ruff parser now
-# comes from crates.io, so this parser-based Python path is publishable and the
-# crates.io release KEEPS `python` (see `scripts/publish-crates.sh`). Only the
-# `ty` type-resolution path (git-only `ty_project` tree) is excluded from the
-# release; the GUI does not expose a `ty` feature, so nothing to strip here
-# beyond giving the `smelt-frontend-py` dep a crates.io version at publish time.
+# Python frontend support. ON by default; the complete frontend is publishable.
 default = ["python"]
 python = ["dep:smelt-frontend-py"]
 
 [dependencies]
 gpui = "0.2.2"
 smelt-frontend-ts = { path = "../smelt-frontend-ts", version = "0.1.0" }
-smelt-frontend-py = { path = "../smelt-frontend-py", optional = true }
+smelt-frontend-py = { path = "../smelt-frontend-py", version = "0.1.0", optional = true }
 smelt-hir = { path = "../smelt-hir", version = "0.1.0" }
 smelt-mir = { path = "../smelt-mir", version = "0.1.0" }
 smelt-codegen-rust = { path = "../smelt-codegen-rust", version = "0.1.0" }

@@ -137,9 +137,8 @@ pub(super) fn compile_report(ts_source: &str, py_source: &str) -> CompileReport 
 
     // ── Stage 2: Python lowering ────────────────────────────────────
     // The Python frontend lives behind the `python` feature (see Cargo.toml):
-    // it pulls the Ruff parser from a git dependency crates.io forbids, so the
-    // published build is TypeScript-only. A TS-only build reports Python input
-    // as a stage failure rather than lowering it.
+    // a TS-only build reports Python input as a stage failure rather than
+    // lowering it.
     let krate = if py_has {
         #[cfg(feature = "python")]
         {

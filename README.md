@@ -5,8 +5,7 @@
 [![crates.io](https://img.shields.io/crates/v/smelt-transpiler.svg)](https://crates.io/crates/smelt-transpiler)
 [![license](https://img.shields.io/crates/l/smelt-transpiler.svg)](LICENSE)
 
-Install the CLI with `cargo install smelt-transpiler` (TypeScript-only; see
-[Installation](#installation) for Python).
+Install the CLI with `cargo install smelt-transpiler`.
 
 **smelt** is a transpiler that takes strictly-typed TypeScript and Python source code and compiles it down to idiomatic Rust. The goal is not to transpile *all* TS/Python — it is to transpile the statically-typed subset where types actually mean something.
 
@@ -40,30 +39,18 @@ cargo install smelt-transpiler
 smelt --help
 ```
 
-### TypeScript vs. Python
+### TypeScript and Python
 
-The published crates are **TypeScript-only**. The Python frontend
-(`smelt-frontend-py`) parses with Astral's Ruff, which is currently only
-available as a git dependency — crates.io only hosts empty `0.0.3` placeholders
-of the Ruff component crates (tracked upstream by
-[astral-sh/ruff#43](https://github.com/astral-sh/ruff/issues/43)), and
-crates.io forbids git dependencies. So the Python frontend cannot ship in a
-published crate yet.
-
-To use Python, build from a source checkout with the `python` feature (enabled
-by default in this repository):
-
-```sh
-git clone https://github.com/Bombatomica64/smelt
-cd smelt
-cargo install --path crates/smelt-transpiler --features python
-```
+The published transpiler includes both frontends and enables ty-backed Python
+type resolution by default. Install it with `cargo install smelt-transpiler`.
 
 Publishing to crates.io is handled by [`scripts/publish-crates.sh`](scripts/publish-crates.sh)
 (`--execute` to publish for real; a bare run does a dry run). It publishes the
-crates leaf-first and strips the unpublishable Python references from the
-`smelt-transpiler`, `smelt-gui`, and `smelt-codegen-rust` manifests that are
-uploaded, leaving the working tree untouched.
+crates leaf-first, including `smelt-py-types` before the Python frontend.
+Maintainers can also run the manual **Publish crates.io release** workflow after
+committing the new workspace version. The `crates-io` GitHub environment must
+provide a `CRATES_IO_TOKEN` secret; the dispatch requires the matching version
+and the confirmation text `publish`.
 
 ## v1.0 Goals
 
@@ -162,39 +149,6 @@ Fork the repo and submit a pr :)
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
 | `smelt-transpiler` | 67.89% | 65.99% | 55.28% |
 <!-- COVERAGE:END -->
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
