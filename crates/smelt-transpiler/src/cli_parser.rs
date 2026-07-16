@@ -168,9 +168,10 @@ pub enum Command {
         storage/signatures a concrete type, union, or generic could carry). The \
         scan is textual and deterministic — grouped by occurrence shape, sorted \
         by count — so numbers diff cleanly and can be stored as a checked-in \
-        baseline. Pass `--baseline` to surface avoidable-erasure regressions \
-        without failing the command, so intentional boundary additions never \
-        block CI."
+        baseline. Pass `--baseline` to surface avoidable-erasure regressions; by \
+        default the command stays advisory (exit 0) so intentional boundary \
+        additions never block CI. Add `--fail-on-regression` to make a rise above \
+        the baseline exit nonzero for a CI gate."
     )]
     SmeltUnknownReport {
         /// Roots to scan; each is a `.rs` file or a directory walked for `.rs`
@@ -185,6 +186,11 @@ pub enum Command {
         /// Prior JSON report to diff against for an advisory regression note.
         #[arg(long, value_name = "PATH")]
         baseline: Option<String>,
+
+        /// Exit nonzero when avoidable erasure rises above `--baseline`. Off by
+        /// default: the report stays advisory unless a gate opts in.
+        #[arg(long)]
+        fail_on_regression: bool,
 
         /// Write the report to this file instead of stdout.
         #[arg(long, value_name = "PATH")]

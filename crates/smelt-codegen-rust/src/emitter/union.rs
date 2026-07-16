@@ -133,6 +133,19 @@ impl FunctionEmitter<'_> {
             (Some(Type::List(_)), Some(Type::List(_)))
                 | (Some(Type::Set(_)), Some(Type::Set(_)))
                 | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))
+                // An object literal (a string-keyed `Dict`/`SmeltRecord`, or a
+                // structural record) injected into a union arm that is itself an
+                // object-shaped type (a declared `Class`/interface such as
+                // `RetryOptions`, or another record). The field-wise coercion is
+                // emitted by `value_at_type_text`'s record adapters. Requiring a
+                // single shape-compatible member keeps the arm choice
+                // unambiguous, so a `number | RetryOptions` union routes the
+                // options object to `RetryOptions` rather than the scalar arm.
+                | (
+                    Some(Type::Dict(_, _) | Type::Class { .. }),
+                    Some(Type::Class { .. }),
+                )
+                | (Some(Type::Class { .. }), Some(Type::Dict(_, _)))
         )
     }
 

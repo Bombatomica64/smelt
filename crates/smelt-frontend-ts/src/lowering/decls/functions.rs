@@ -111,6 +111,8 @@ impl ModuleBuilder<'_> {
 
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
+        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
+        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
@@ -131,6 +133,8 @@ impl ModuleBuilder<'_> {
                 Err(error) => {
                     self.locals = saved_locals;
                     self.date_value_locals = saved_date_value_locals;
+                    self.callable_local_props = saved_callable_local_props;
+                    self.explicit_any_locals = saved_explicit_any_locals;
                     self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
@@ -208,6 +212,8 @@ impl ModuleBuilder<'_> {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 self.locals = saved_locals;
                 self.date_value_locals = saved_date_value_locals;
+                self.callable_local_props = saved_callable_local_props;
+                self.explicit_any_locals = saved_explicit_any_locals;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
@@ -235,6 +241,8 @@ impl ModuleBuilder<'_> {
                 Err(error) => {
                     self.locals = saved_locals;
                     self.date_value_locals = saved_date_value_locals;
+                    self.callable_local_props = saved_callable_local_props;
+                    self.explicit_any_locals = saved_explicit_any_locals;
                     self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
@@ -246,6 +254,8 @@ impl ModuleBuilder<'_> {
             let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
                 self.locals = saved_locals;
                 self.date_value_locals = saved_date_value_locals;
+                self.callable_local_props = saved_callable_local_props;
+                self.explicit_any_locals = saved_explicit_any_locals;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
@@ -376,6 +386,8 @@ impl ModuleBuilder<'_> {
         }
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
+        self.callable_local_props = saved_callable_local_props;
+        self.explicit_any_locals = saved_explicit_any_locals;
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
@@ -1042,7 +1054,11 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             for param in &method.value.params.items {
-                if param.accessibility.is_none() {
+                // `readonly x` (with no explicit accessibility) is still a
+                // parameter property and declares a public instance field, so a
+                // constructor arg such as `constructor(readonly innerError: Error)`
+                // must produce a field (was E0609 on `.innerError`).
+                if param.accessibility.is_none() && !param.readonly {
                     continue;
                 }
                 let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
@@ -1964,6 +1980,12 @@ impl ModuleBuilder<'_> {
         let Some(base_name) = self.ctx.krate.symbols.get(base) else {
             return;
         };
+        // Error-like host bases carry the same `name`/`message`/`stack`/`cause`
+        // slots as `Error`. `DOMException` (and its runtime fallback to `Error`)
+        // is not a source-declared class nor a `mir.classes` entry — it is a
+        // const alias to a host constructor — so a subclass such as
+        // `AbortError extends DOMException` inherits no fields unless we inject the
+        // Error marker slots here too (was E0609 on `.message`).
         let extends_error = matches!(
             base_name,
             "Error"
@@ -1974,6 +1996,7 @@ impl ModuleBuilder<'_> {
                 | "TypeError"
                 | "URIError"
                 | "AggregateError"
+                | "DOMException"
         );
         if !extends_error {
             return;
@@ -2426,7 +2449,7 @@ impl ModuleBuilder<'_> {
                 ty,
                 span,
             });
-            if is_constructor && param.accessibility.is_some() {
+            if is_constructor && (param.accessibility.is_some() || param.readonly) {
                 let field = Field {
                     name: param_name,
                     ty,

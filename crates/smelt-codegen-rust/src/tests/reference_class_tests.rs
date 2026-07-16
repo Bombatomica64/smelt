@@ -221,8 +221,12 @@ class Point {
 function run(): number { const p = new Point(1, 2); return p.sum(); }
 ",
     );
-    // A value class keeps the derived by-value struct: no handle, no cell.
-    assert!(source.contains("#[derive(Clone, Debug, Default)]"), "{source}");
+    // A value class keeps the derived by-value struct: no handle, no cell. Its
+    // comparable fields also earn a `PartialEq` derive for structural equality.
+    assert!(
+        source.contains("#[derive(Clone, Debug, Default, PartialEq)]"),
+        "{source}"
+    );
     assert!(source.contains("struct Point {"), "{source}");
     assert!(!source.contains("struct Point("), "{source}");
     assert!(!source.contains("PointInner"), "{source}");
@@ -314,4 +318,124 @@ function run(): void { const b = new Builder(); b.build(); }
 ",
     );
     assert!(names.is_empty(), "unexpected reference classes: {names:?}");
+}
+
+// ---- Equality emission ----------------------------------------------------
+
+#[test]
+fn reference_class_emits_identity_partial_eq() {
+    // A reference class has JavaScript object identity, so `==`/`toBe` must
+    // compare shared cells via `Rc::ptr_eq` rather than the inner record.
+    let source = source_for(
+        r"
+class Box {
+  value: number;
+  constructor() { this.value = 0; }
+}
+function mutate(b: Box): void { b.value = 5; }
+function run(): boolean { const a = new Box(); const b = new Box(); return a === b; }
+",
+    );
+    assert!(
+        source.contains("impl PartialEq for Box"),
+        "reference class should implement PartialEq: {source}"
+    );
+    assert!(
+        source.contains("::std::rc::Rc::ptr_eq(&self.0, &other.0)"),
+        "reference-class PartialEq should compare identity: {source}"
+    );
+}
+
+#[test]
+fn value_class_derives_partial_eq() {
+    // A value class with only comparable fields derives structural `PartialEq`
+    // so generated comparisons (`!=`, `assert_eq!`) type-check.
+    let source = source_for(
+        r"
+class Point {
+  x: number;
+  constructor(x: number) { this.x = x; }
+}
+function run(): boolean { const p = new Point(1); const q = new Point(2); return p !== q; }
+",
+    );
+    assert!(
+        source.contains("#[derive(Clone, Debug, Default, PartialEq)]"),
+        "value class should derive PartialEq: {source}"
+    );
+}
+
+#[test]
+fn value_class_with_callback_field_skips_partial_eq() {
+    // A `dyn Fn` field has no `PartialEq`, so the derive must be withheld to
+    // keep the generated struct valid.
+    let source = source_for(
+        r"
+class Handler {
+  cb: () => void;
+  constructor(cb: () => void) { this.cb = cb; }
+}
+function run(): void { const h = new Handler(() => {}); }
+",
+    );
+    let struct_index = source
+        .find("struct Handler")
+        .expect("Handler struct should be emitted");
+    let derive_window = &source[struct_index.saturating_sub(120)..struct_index];
+    assert!(
+        !derive_window.contains("PartialEq"),
+        "callback-field class must not derive PartialEq: {derive_window}"
+    );
+}
+
+#[test]
+fn reference_class_erased_to_object_reads_through_borrow() {
+    // A reference class stores its fields inside the shared `Rc<RefCell<Inner>>`
+    // cell. Erasing an instance to a plain object (here via `JSON.stringify`)
+    // must read each field through `.0.borrow()` and clone it out, never a
+    // direct named-field access against the tuple-struct handle (was E0609 /
+    // E0507 in the record round-trip and object-spread paths).
+    let source = source_for(
+        r#"
+class Counter {
+  value: number;
+  label: string;
+  constructor() { this.value = 0; this.label = "x"; }
+  bump(): void { this.value = this.value + 1; }
+}
+function dump(c: Counter): unknown { return c; }
+"#,
+    );
+    assert!(
+        source.contains("struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>)"),
+        "Counter should be a reference-class handle newtype: {source}"
+    );
+    assert!(
+        source.contains(".0.borrow().value") && source.contains(".0.borrow().label"),
+        "erased reference-class fields must be read through .0.borrow(): {source}"
+    );
+    assert!(
+        !source.contains("smelt_object_value.value"),
+        "erasure must not access newtype fields directly: {source}"
+    );
+}
+
+#[test]
+fn readonly_constructor_parameter_property_declares_field() {
+    // `constructor(readonly innerError: ...)` is a parameter property even with
+    // no explicit accessibility modifier: it must declare a public instance
+    // field and assign the argument into it, so later `.innerError` reads have a
+    // concrete field (was E0609 on the erased/accessed field).
+    let source = source_for(
+        r"
+class FetcherError {
+  constructor(readonly innerError: number) {}
+}
+function read(e: FetcherError): number { return e.innerError; }
+",
+    );
+    assert!(
+        source.contains("inner_error"),
+        "readonly parameter property should declare an inner_error field: {source}"
+    );
 }

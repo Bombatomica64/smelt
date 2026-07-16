@@ -1470,3 +1470,102 @@ function f(): number[] {
         "expected parenthesized length cast in comparison: {out}"
     );
 }
+
+/// Regression (async-method owned-self transform): an async method must be
+/// emitted as an ordinary `fn(&self, ..) -> SmeltFuture<T>` that clones `self`
+/// into an owned handle and runs the awaited body inside a moved `async` block.
+/// This keeps the returned future `'static` so a spawned/detached
+/// `receiver.method()` task does not borrow the local receiver (previously
+/// E0597). The method must NOT be emitted as `async fn`.
+#[test]
+fn async_method_emits_owned_self_smelt_future() {
+    let out = source_for(
+        r#"
+class Semaphore {
+  private available: number = 1;
+  async acquire(): Promise<void> {
+    if (this.available > 0) {
+      this.available = this.available - 1;
+    }
+  }
+}
+async function run(): Promise<void> {
+  const sema = new Semaphore();
+  sema.acquire();
+}
+"#,
+    );
+    assert!(
+        out.contains("fn acquire(&self) -> SmeltFuture<()> {"),
+        "async method not emitted as owned-self SmeltFuture fn: {out}"
+    );
+    assert!(
+        !out.contains("async fn acquire"),
+        "async method still emitted as `async fn`: {out}"
+    );
+    assert!(
+        out.contains("let self_owned = self.clone();"),
+        "async method body did not clone self into an owned handle: {out}"
+    );
+    assert!(
+        out.contains("SmeltFuture::<()>::from_future(Box::pin(async move {"),
+        "async method body not wrapped in a moved async block: {out}"
+    );
+    assert!(
+        !out.contains("self.available") && out.contains("self_owned"),
+        "async method body still references borrowed `self`: {out}"
+    );
+}
+
+/// Regression (async-method owned-self transform): a value-class async method
+/// whose state is a shared reference-class field keeps identity through the
+/// owned clone (the clone shares the inner `Rc` handle). The transform applies
+/// uniformly regardless of value/reference classification of the outer class.
+#[test]
+fn async_method_owned_self_applies_to_value_class() {
+    let out = source_for(
+        r#"
+class Latch {
+  done: boolean = false;
+  async wait(): Promise<boolean> {
+    return this.done;
+  }
+}
+"#,
+    );
+    assert!(
+        out.contains("fn wait(&self) -> SmeltFuture<bool> {"),
+        "value-class async method not emitted as owned-self SmeltFuture fn: {out}"
+    );
+    assert!(
+        !out.contains("async fn wait"),
+        "value-class async method still emitted as `async fn`: {out}"
+    );
+}
+
+/// Regression (throwing-await output ABI): awaiting a future whose output type
+/// differs from the destination binding must coerce from the future's inner
+/// item type, not bind the raw awaited value. A value awaited in `void`/`()`
+/// context inside a `try` (the throwing-await path) is discarded rather than
+/// bound to a `()`-typed local as a `SmeltUnknown` (previously E0308, seen in
+/// es-toolkit `withTimeout` specs).
+#[test]
+fn throwing_await_discards_value_in_void_context() {
+    let out = source_for(
+        r#"
+async function makeValue(): Promise<number> {
+  return 1;
+}
+async function run(): Promise<void> {
+  try {
+    await makeValue();
+  } catch (e) {}
+}
+"#,
+    );
+    assert!(
+        !out.contains(": () = __smelt_value;"),
+        "throwing await bound a non-() awaited value to a () local: {out}"
+    );
+}
+

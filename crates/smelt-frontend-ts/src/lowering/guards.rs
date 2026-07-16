@@ -2065,7 +2065,7 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if !Self::is_constructor_member_reference(&new_expr.callee) {
+        if !self.is_date_constructor_member_reference(&new_expr.callee, body) {
             return Ok(None);
         }
         let [value] = new_expr.arguments.as_slice() else {
@@ -2087,6 +2087,50 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Return whether a `.constructor` callee is read from a statically typed Date local.
+    fn is_date_constructor_member_reference(
+        &self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> bool {
+        let member = match expression {
+            Expression::StaticMemberExpression(member) => member,
+            Expression::ParenthesizedExpression(parenthesized) => {
+                return self.is_date_constructor_member_reference(&parenthesized.expression, body);
+            }
+            Expression::TSAsExpression(assertion) => {
+                return self.is_date_constructor_member_reference(&assertion.expression, body);
+            }
+            Expression::TSSatisfiesExpression(assertion) => {
+                return self.is_date_constructor_member_reference(&assertion.expression, body);
+            }
+            Expression::TSNonNullExpression(assertion) => {
+                return self.is_date_constructor_member_reference(&assertion.expression, body);
+            }
+            _ => return false,
+        };
+        if member.property.name != "constructor" {
+            return false;
+        }
+        let Expression::Identifier(receiver) = &member.object else {
+            return false;
+        };
+        let Some(local) = self.locals.get(receiver.name.as_str()) else {
+            return false;
+        };
+        let Some(decl) = usize::try_from(local.0)
+            .ok()
+            .and_then(|index| body.locals.get(index))
+        else {
+            return false;
+        };
+        matches!(
+            self.ctx.krate.types.get(decl.ty),
+            Some(Type::Class { name, .. })
+                if self.ctx.krate.symbols.get(*name) == Some("Date")
+        )
+    }
+
     /// Lower guarded dynamic Date constructor identifiers such as `new constructor(0)`.
     pub(super) fn dynamic_identifier_constructor_expression(
         &mut self,
@@ -2106,26 +2150,6 @@ impl ModuleBuilder<'_> {
             ));
         };
         Ok(Some(self.argument(value, body)?))
-    }
-
-    /// Return true for expressions that reference a `.constructor` member.
-    pub(super) fn is_constructor_member_reference(expression: &Expression<'_>) -> bool {
-        match expression {
-            Expression::StaticMemberExpression(member) => member.property.name == "constructor",
-            Expression::ParenthesizedExpression(parenthesized) => {
-                Self::is_constructor_member_reference(&parenthesized.expression)
-            }
-            Expression::TSAsExpression(as_expr) => {
-                Self::is_constructor_member_reference(&as_expr.expression)
-            }
-            Expression::TSSatisfiesExpression(satisfies) => {
-                Self::is_constructor_member_reference(&satisfies.expression)
-            }
-            Expression::TSNonNullExpression(non_null) => {
-                Self::is_constructor_member_reference(&non_null.expression)
-            }
-            _ => false,
-        }
     }
 
     /// Return the timestamp expression represented by a supported `new Date(...)`.

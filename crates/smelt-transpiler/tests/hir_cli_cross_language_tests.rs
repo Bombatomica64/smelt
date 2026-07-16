@@ -322,9 +322,150 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "26_interface_inheritance_optional_computed",
         "27_optional_chains",
         "28_regex_match_result",
+        "29_callable_object",
     ] {
         verify_end_to_end_example(name)?;
     }
+
+    Ok(())
+}
+
+#[test]
+fn build_runs_nested_compound_condition_while_loop() -> TestResult {
+    // A compound-condition inner `while` nested inside an outer loop must lower
+    // its back-edge so each iteration re-evaluates the FULL `&&` condition. If
+    // the back-edge instead `continue`s the outer loop, `combinations` never
+    // advances `indices` and the program infinite-loops. Building and RUNNING
+    // the program is the only way to prove the hang is gone; the `combinations`
+    // shape mirrors the es-toolkit case that first exposed the bug.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "nested-compound-while"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "nested_compound_while"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r#"function combinations(n: number, r: number): number[][] {
+  const result: number[][] = [];
+  const indices: number[] = [];
+  for (let k = 0; k < r; k++) indices.push(k);
+  while (true) {
+    const tuple: number[] = [];
+    for (let j = 0; j < r; j++) tuple.push(indices[j]);
+    result.push(tuple);
+    let i = r - 1;
+    while (i >= 0 && indices[i] === i + n - r) i--;
+    if (i < 0) break;
+    indices[i]++;
+    for (let j = i + 1; j < r; j++) indices[j] = indices[j - 1] + 1;
+  }
+  return result;
+}
+const c = combinations(4, 2);
+console.log(c.length);
+console.log(c[0][0]);
+console.log(c[0][1]);
+console.log(c[5][0]);
+console.log(c[5][1]);
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    // 4 choose 2 = 6 tuples; first is [0,1] and last is [2,3].
+    ensure_eq(&actual_stdout, &"6\n0\n1\n2\n3\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_runs_loop_body_switch_with_nested_loop() -> TestResult {
+    // A `for` loop whose body is a `switch` (with an inner `for` inside one arm)
+    // must lower as a real loop whose arms route their back-edge to `continue`
+    // and whose inner loop is preserved. This mirrors the es-toolkit `omit`
+    // shape (outer `for` over keys, `switch` on the key kind, inner `for`
+    // deleting each nested key). Before the fix the outer loop was either
+    // mis-recognized as a compound `while` header — dropping the inner loop body
+    // and switching on an uninitialized temp (E0381) — or emitted as a run-once
+    // straight-line block that never iterated. Building and RUNNING is the only
+    // way to prove both the loop iterates and the inner body executes.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "loop-body-switch"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "loop_body_switch"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r#"interface Item { tag: string; vals: number[]; }
+function f(items: Item[]): number {
+  let total = 0;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    switch (it.tag) {
+      case 'sum': {
+        for (let j = 0; j < it.vals.length; j++) {
+          total = total + it.vals[j];
+        }
+        break;
+      }
+      case 'one': {
+        total = total + 1;
+        break;
+      }
+    }
+  }
+  return total;
+}
+const items: Item[] = [
+  { tag: 'sum', vals: [1, 2, 3] },
+  { tag: 'one', vals: [] },
+  { tag: 'sum', vals: [10, 20] },
+];
+console.log(f(items));
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    // (1+2+3) + 1 + (10+20) = 37; a dropped inner loop or non-iterating outer
+    // loop would produce a smaller number.
+    ensure_eq(&actual_stdout, &"37\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }

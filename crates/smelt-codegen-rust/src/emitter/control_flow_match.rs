@@ -34,27 +34,101 @@ impl FunctionEmitter<'_> {
         let hoisted_join = self.match_join(arms, default)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
         let match_declared = self.declared_locals_snapshot();
+        // On the no-hoisted-join path each arm renders its own tail, so the
+        // match diverges only when every arm *and* the catch-all diverge. Track
+        // it across arms rather than trusting the last arm emitted, so a
+        // fall-through arm before a diverging one is not mistaken for total
+        // divergence. On the hoisted-join path control always resumes at the
+        // join emitted below, which sets the flag on its own.
+        let mut arms_diverge = true;
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
                 self.match_label_text_for_scrutinee(&arm.label, scrutinee_ty)
             ));
             self.emit_match_arm(self.block(arm.target)?, hoisted_join, out)?;
+            arms_diverge = arms_diverge && control_flow::last_emit_diverged();
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared.clone());
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
             self.emit_match_arm(self.block(default_block)?, hoisted_join, out)?;
+            arms_diverge = arms_diverge && control_flow::last_emit_diverged();
+            out.push_str("        }\n");
+            self.restore_declared_locals(match_declared);
+        } else {
+            // A synthesized empty catch-all arm falls through, so the match as
+            // a whole never diverges.
+            out.push_str("        _ => {}\n");
+            arms_diverge = false;
+        }
+        out.push_str("    }\n");
+        if let Some(join) = hoisted_join {
+            // Control resumes at the shared join; its tail decides divergence.
+            self.emit_block(self.block(join)?, out)?;
+        } else {
+            control_flow::set_last_emit_diverged(arms_diverge);
+        }
+        Ok(())
+    }
+
+    /// Emits a `match` that appears inside a loop body, routing each arm's tail
+    /// through the loop's back-edge/exit machinery.
+    ///
+    /// Unlike [`Self::emit_match`], no shared join is hoisted: a loop-body
+    /// `switch` arm reaches the loop's latch/exit only transitively (through the
+    /// increment block, a `break`, or a nested loop), so each arm renders its own
+    /// tail via [`Self::emit_loop_branch_inner`], where a `Goto` to
+    /// `continue_target` becomes `continue` and a `Goto` to `break_target`
+    /// becomes `break`. This lets a loop whose body is a `switch`
+    /// (`for (...) { switch (...) { ... } }`) emit as a real loop instead of a
+    /// run-once straight-line block. Each arm gets its own clone of `visited`
+    /// because sibling arms legitimately converge on the same latch block.
+    pub(super) fn emit_loop_match(
+        &self,
+        scrutinee: &Operand,
+        arms: &[smelt_mir::MatchArm],
+        default: Option<smelt_mir::BlockId>,
+        continue_target: smelt_mir::BlockId,
+        break_target: Option<smelt_mir::BlockId>,
+        out: &mut String,
+        visited: &HashSet<smelt_mir::BlockId>,
+    ) -> Result<(), EmitError> {
+        let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
+        let scrutinee_ty = self.operand_ty(scrutinee)?;
+        out.push_str(&format!("    match {scrutinee_text} {{\n"));
+        let match_declared = self.declared_locals_snapshot();
+        for arm in arms {
+            out.push_str(&format!(
+                "        {} => {{\n",
+                self.match_label_text_for_scrutinee(&arm.label, scrutinee_ty)
+            ));
+            self.emit_loop_branch_inner(
+                self.block(arm.target)?,
+                continue_target,
+                break_target,
+                out,
+                &mut visited.clone(),
+            )?;
+            out.push_str("        }\n");
+            self.restore_declared_locals(match_declared.clone());
+        }
+        if let Some(default_block) = default {
+            out.push_str("        _ => {\n");
+            self.emit_loop_branch_inner(
+                self.block(default_block)?,
+                continue_target,
+                break_target,
+                out,
+                &mut visited.clone(),
+            )?;
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared);
         } else {
             out.push_str("        _ => {}\n");
         }
         out.push_str("    }\n");
-        if let Some(join) = hoisted_join {
-            self.emit_block(self.block(join)?, out)?;
-        }
         Ok(())
     }
 

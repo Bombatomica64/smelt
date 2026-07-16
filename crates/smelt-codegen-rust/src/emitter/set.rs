@@ -46,7 +46,20 @@ impl FunctionEmitter<'_> {
                 self.operand_text(item)?
             ));
         }
-        let item_text = self.value_at_type(item, item_ty)?;
+        // When the needle's static type differs from the element type, the
+        // coercion inserts an `as` cast (e.g. an `i64` callback index against a
+        // `Set<number>`). Parenthesize so the reference wraps the whole cast
+        // (`&(x as f64)`) rather than casting a reference (`&x as f64`, an
+        // invalid `&i64 as f64`). A same-typed needle keeps the terse `&needle`.
+        let needle_needs_coercion = self.operand_ty(item)? != item_ty;
+        let item_text = {
+            let coerced = self.value_at_type(item, item_ty)?;
+            if needle_needs_coercion {
+                format!("({coerced})")
+            } else {
+                coerced
+            }
+        };
         // Membership goes through the container's own `contains`. For the
         // `HashSet` backing (`bool`/`i64`/`String`) that is value equality, which
         // matches JS SameValueZero for those primitives. For every other element

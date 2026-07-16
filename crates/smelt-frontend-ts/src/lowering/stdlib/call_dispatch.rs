@@ -632,17 +632,41 @@ impl<'builder> ModuleBuilder<'builder> {
                         span: self.span(call.span.start, call.span.end),
                     }));
                 };
-            let mut rest = self.function_rests.get(callee_ident.name.as_str()).copied();
-            if rest.is_none()
-                && let Some(index) = item_rest
+            // The concretely resolved `item` is the source of truth for a rest
+            // parameter. The name-keyed `function_rests` map is a fallback for
+            // callees whose resolved item does not itself carry a rest index
+            // (re-exported stubs, arrow bindings), but keying it on the bare
+            // function name lets a rest slot from a *different* same-named
+            // function in another module leak in — e.g. compat's
+            // `delay(fn, wait, ...args)` contaminating promise `delay(ms,
+            // options)`, synthesizing a spurious empty rest list for the
+            // omitted `options`. So derive the rest from this item first, and
+            // consult `function_rests` only when it names a valid rest
+            // position within *this* item's own parameters.
+            let mut rest = if let Some(index) = item_rest
                 && let Some(Type::List(item_ty)) = params
                     .get(index)
                     .and_then(|param| self.ctx.krate.types.get(*param))
             {
-                rest = Some(RestParam {
+                Some(RestParam {
                     index,
                     item_ty: *item_ty,
-                });
+                })
+            } else {
+                None
+            };
+            if rest.is_none()
+                && let Some(candidate) =
+                    self.function_rests.get(callee_ident.name.as_str()).copied()
+                && candidate.index < params.len()
+                && matches!(
+                    params
+                        .get(candidate.index)
+                        .and_then(|param| self.ctx.krate.types.get(*param)),
+                    Some(Type::List(_))
+                )
+            {
+                rest = Some(candidate);
             }
             let selected_overload = match self.selected_overload_signature(
                 callee_ident.name.as_str(),
@@ -755,7 +779,17 @@ impl<'builder> ModuleBuilder<'builder> {
                 && self.overload_constraint_contains_unresolved_type_param(return_ty)
             {
                 let mut substitutions = HashMap::new();
-                for (param, arg) in params.iter().zip(&args) {
+                let mut inference_inputs = params.iter().zip(&args).collect::<Vec<_>>();
+                // Infer naked type-parameter arguments before structural
+                // callback/container arguments. A direct value such as
+                // `initValue: T` is a stronger constraint than a callback body
+                // whose contextual `T` is still unresolved; processing the
+                // callback first can prematurely bind `T` from an incidental
+                // operation and then reject the concrete initializer.
+                inference_inputs.sort_by_key(|(param, _)| {
+                    !matches!(self.ctx.krate.types.get(**param), Some(Type::TypeParam { .. }))
+                });
+                for (param, arg) in inference_inputs {
                     let arg_ty = Self::expr_ty(body, *arg);
                     let _ = self.infer_overload_type(*param, arg_ty, &mut substitutions);
                 }
@@ -2774,8 +2808,19 @@ impl<'builder> ModuleBuilder<'builder> {
         arg_tys: &[smelt_hir::TypeId],
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
+        // A spread argument (`fn(...values)`) has an unknown runtime length, so
+        // it can only be absorbed by a rest parameter. A fixed-arity (rest-less)
+        // overload must not claim it: e.g. `cartesianProduct(...inputs)` where
+        // `inputs: number[][]` would otherwise match the 1-array overload
+        // `(arr1: T[]): Array<[T]>` with `T = number[]`, mis-typing the result
+        // as a list of 1-tuples-of-lists instead of routing to the variadic
+        // implementation overload.
+        let has_spread_argument = arguments
+            .iter()
+            .any(|argument| matches!(argument, Argument::SpreadElement(_)));
         if Self::overload_signature_arity_matches(signature, arg_tys.len())
             && signature.rest.is_none()
+            && !has_spread_argument
             && signature
                 .params
                 .iter()

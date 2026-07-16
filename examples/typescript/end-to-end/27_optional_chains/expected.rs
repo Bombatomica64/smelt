@@ -217,6 +217,7 @@ pub struct SmeltJsSet<T> {
 
 impl<T> SmeltJsSet<T> {
     fn new() -> Self { Self { entries: Vec::new() } }
+    fn clear(&mut self) { self.entries.clear(); }
 }
 
 impl<T: Clone + IntoSmeltUnknown> SmeltJsSet<T> {
@@ -258,6 +259,7 @@ impl SmeltJsKeyEq for String { fn same_js_key(&self, other: &Self) -> bool { sel
 impl SmeltJsKeyEq for bool { fn same_js_key(&self, other: &Self) -> bool { self == other } }
 impl SmeltJsKeyEq for i64 { fn same_js_key(&self, other: &Self) -> bool { self == other } }
 impl SmeltJsKeyEq for f64 { fn same_js_key(&self, other: &Self) -> bool { (self.is_nan() && other.is_nan()) || self == other } }
+impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } }
 
 pub trait SmeltJsStrictEq {
     fn js_strict_eq(&self, other: &Self) -> bool;
@@ -362,7 +364,8 @@ impl SmeltPromise {
     /// Await the stored future once and share its settled result with clones.
     async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
         if self.state.borrow().is_none() {
-            if let Some(future) = self.future.borrow_mut().take() {
+            let taken = self.future.borrow_mut().take();
+            if let Some(future) = taken {
                 let settled = future.await.map_err(|error| error.to_string());
                 *self.state.borrow_mut() = Some(settled);
             }
@@ -384,6 +387,54 @@ async fn smelt_await_flatten(value: SmeltUnknown) -> Result<SmeltUnknown, Box<dy
         current = promise.smelt_await().await?;
     }
     Ok(current)
+}
+
+#[allow(dead_code)]
+enum SmeltFutureState<T> {
+    Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),
+    Resolved(T),
+    Taken,
+}
+pub struct SmeltFuture<T> {
+    state: ::std::rc::Rc<::std::cell::RefCell<SmeltFutureState<T>>>,
+}
+impl<T> Clone for SmeltFuture<T> { fn clone(&self) -> Self { Self { state: self.state.clone() } } }
+impl<T: Default> Default for SmeltFuture<T> { fn default() -> Self { Self::resolved(T::default()) } }
+impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltFuture") } }
+#[allow(dead_code)]
+impl<T> SmeltFuture<T> {
+    /// Wrap a live future behind a cloneable promise-value handle.
+    fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Pending(future))) } }
+    /// Build an already-resolved promise-value handle.
+    fn resolved(value: T) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Resolved(value))) } }
+    /// Drive the stored future once, cache its resolved value, and serve
+    /// later awaits from that cache (single-consumer of the future).
+    async fn smelt_await(&self) -> Result<T, Box<dyn std::error::Error>> where T: Clone {
+        let pending = {
+            let mut guard = self.state.borrow_mut();
+            if matches!(&*guard, SmeltFutureState::Pending(_)) {
+                match ::std::mem::replace(&mut *guard, SmeltFutureState::Taken) {
+                    SmeltFutureState::Pending(future) => Some(future),
+                    _ => None,
+                }
+            } else { None }
+        };
+        if let Some(future) = pending {
+            let value = future.await?;
+            *self.state.borrow_mut() = SmeltFutureState::Resolved(value.clone());
+            return Ok(value);
+        }
+        let guard = self.state.borrow();
+        match &*guard {
+            SmeltFutureState::Resolved(value) => Ok(value.clone()),
+            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "future already consumed").into()),
+        }
+    }
+}
+impl<T: Clone + 'static> ::std::future::IntoFuture for SmeltFuture<T> {
+    type Output = Result<T, Box<dyn std::error::Error>>;
+    type IntoFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>;
+    fn into_future(self) -> Self::IntoFuture { Box::pin(async move { self.smelt_await().await }) }
 }
 
 /// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.
@@ -695,6 +746,23 @@ fn smelt_unknown_rank(value: &SmeltUnknown) -> u8 {
         SmeltUnknown::Object(_) => 6,
         SmeltUnknown::Function(_) => 7,
         SmeltUnknown::Promise(_) => 9,
+    }
+}
+
+fn smelt_unknown_js_relational_ordering(left: &SmeltUnknown, right: &SmeltUnknown) -> Option<::std::cmp::Ordering> {
+    match (left, right) {
+        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => Some(left.cmp(right)),
+        _ => smelt_unknown_to_number(left).partial_cmp(&smelt_unknown_to_number(right)),
+    }
+}
+
+fn smelt_unknown_to_number(value: &SmeltUnknown) -> f64 {
+    match value {
+        SmeltUnknown::Number(value) => *value,
+        SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },
+        SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),
+        SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },
+        SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,
     }
 }
 
@@ -1094,7 +1162,7 @@ impl IntoSmeltUnknown for SmeltMatch {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct User {
     name: String,
     scores: SmeltList<f64>,

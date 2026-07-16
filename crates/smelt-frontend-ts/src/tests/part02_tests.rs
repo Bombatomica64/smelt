@@ -1777,6 +1777,32 @@ const result = new (date.constructor as unknown)(value);
 }
 
 #[test]
+fn lowers_asserted_generic_constructor_member_without_date_interception() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function clone<T extends object>(value: T): T {
+  return new ((value as object).constructor as { new (): T })();
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })));
+    ensure!(!body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::DateFromValue { .. })));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_new_date_from_datearg_union_to_timestamp() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

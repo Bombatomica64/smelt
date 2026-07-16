@@ -1,0 +1,93 @@
+interface Counter
+
+fn make_counter (FuncId(0)) -> Counter
+  locals
+    %0 user count: Float
+    %1 user counter: Unknown
+    %2 user counter: fn() -> Float
+    %3 user __smelt_callable_prop: fn() -> Float
+    %4 user __smelt_callable_prop: fn() -> Float
+    %5 user __smelt_callable_prop: fn() -> None
+    %6 temp: fn() -> Float
+    %7 temp: fn() -> Float
+    %8 temp: fn() -> Float
+    %9 temp: fn() -> None
+    %10 temp: Counter
+  bb0:
+    %0 = 0.0
+    %6 = closure ClosureId(0) [copy %0]
+    %2 = move %6
+    %7 = closure ClosureId(1) [copy %0]
+    %3 = move %7
+    %8 = closure ClosureId(2) [copy %0]
+    %4 = move %8
+    %9 = closure ClosureId(3) [copy %0]
+    %5 = move %9
+    %10 = callable_object_assign move %2, {Symbol(2): move %3, Symbol(3): move %4, Symbol(4): move %5}
+    return move %10
+
+fn main (FuncId(1)) -> None throws
+  locals
+    %0 user c: Counter
+    %1 temp: Counter
+    %2 temp: Float
+    %3 temp: None
+    %4 temp: Float
+    %5 temp: None
+    %6 temp: Float
+    %7 temp: None
+    %8 temp: None
+    %9 temp: Float
+    %10 temp: None
+    %11 temp: Float
+    %12 temp: None
+  bb0:
+    %1 = call fn0() -> bb1
+  bb1:
+    %0 = move %1
+    %2 = closure_call copy %0.field2()
+    %3 = call @console_log(move %2) -> bb2
+  bb2:
+    %4 = closure_call copy %0.field2()
+    %5 = call @console_log(move %4) -> bb3
+  bb3:
+    %6 = closure_call copy %0.field3()
+    %7 = call @console_log(move %6) -> bb4
+  bb4:
+    %8 = closure_call copy %0.field4()
+    %9 = closure_call copy %0.field3()
+    %10 = call @console_log(move %9) -> bb5
+  bb5:
+    %11 = closure_call copy %0.field2()
+    %12 = call @console_log(move %11) -> bb6
+  bb6:
+    return none
+
+closure ClosureId(0) -> Float
+  locals
+    %0 user count: Float
+  bb0:
+    return copy %0
+
+closure ClosureId(1) -> Float
+  locals
+    %0 user count: Float
+    %1 temp: Float
+  bb0:
+    %1 = copy %0 + 1.0
+    %0 = copy %1
+    return copy %0
+
+closure ClosureId(2) -> Float
+  locals
+    %0 user count: Float
+  bb0:
+    return copy %0
+
+closure ClosureId(3) -> None
+  locals
+    %0 user count: Float
+  bb0:
+    %0 = 0.0
+    return none
+

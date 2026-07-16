@@ -106,6 +106,7 @@ impl ModuleBuilder<'_> {
         }
 
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
@@ -123,6 +124,7 @@ impl ModuleBuilder<'_> {
                 Ok(value) => value,
                 Err(error) => {
                     self.locals = saved_locals;
+                    self.callable_local_props = saved_callable_local_props;
                     self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
@@ -188,6 +190,7 @@ impl ModuleBuilder<'_> {
         let rest = if let Some(rest) = &arrow.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 self.locals = saved_locals;
+                self.callable_local_props = saved_callable_local_props;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
@@ -199,6 +202,7 @@ impl ModuleBuilder<'_> {
             };
             let Some(annotation) = &rest.type_annotation else {
                 self.locals = saved_locals;
+                self.callable_local_props = saved_callable_local_props;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
@@ -212,6 +216,7 @@ impl ModuleBuilder<'_> {
                 Ok(ty) => ty,
                 Err(error) => {
                 self.locals = saved_locals;
+                self.callable_local_props = saved_callable_local_props;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
@@ -221,6 +226,7 @@ impl ModuleBuilder<'_> {
             };
             let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
                 self.locals = saved_locals;
+                self.callable_local_props = saved_callable_local_props;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
@@ -257,10 +263,17 @@ impl ModuleBuilder<'_> {
         if arrow.expression {
             match arrow.body.statements.as_slice() {
                 [Statement::ExpressionStatement(statement)] => {
+                    // An async expression-bodied arrow's declared return type is
+                    // `Promise<Inner>`; the body expression produces `Inner` and
+                    // the async wrapper adds the promise. Hint the body at the
+                    // awaited inner type (unwrapping one `Future` layer for async
+                    // bodies) so a literal array/tuple body keeps its own value
+                    // type rather than being coerced to the future type.
+                    let body_hint = self.return_statement_value_hint();
                     match self.expression_with_hint(
                         &statement.expression,
                         &mut body,
-                        declared_return_ty,
+                        body_hint,
                     ) {
                         Ok(value) => {
                             inferred_return_ty = Some(Self::expr_ty(&body, value));
@@ -296,6 +309,7 @@ impl ModuleBuilder<'_> {
             body.build_async_state_machine();
         }
         self.locals = saved_locals;
+        self.callable_local_props = saved_callable_local_props;
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;

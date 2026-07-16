@@ -743,7 +743,8 @@ impl ModuleBuilder<'_> {
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
                 .or_else(|| {
-                    contextual_function.and_then(|function| function.params.get(index).copied())
+                    contextual_function
+                        .and_then(|function| self.contextual_param_type_at(function, index))
                 });
             let ty = match (&param.pattern, ty) {
                 (_, Some(ty)) => ty,
@@ -812,6 +813,37 @@ impl ModuleBuilder<'_> {
             params.push(ty);
         }
         Ok(params)
+    }
+
+    /// Resolve the contextual type for a *fixed* arrow parameter at `index`
+    /// against a callback signature that may end in a rest parameter.
+    ///
+    /// A user callback can spell fewer, fixed parameters than a variadic
+    /// contextual signature (e.g. `(item, item2, item3)` against
+    /// `(...args: T[]) => R`, as in `unzipWith`). A fixed parameter that lands
+    /// at or past the signature's rest position takes the rest's *element*
+    /// type, not the rest list/tuple type itself — otherwise `item` would be
+    /// typed `T[]` and arithmetic on it fails (E0369/E0308). Parameters before
+    /// the rest position resolve positionally as before.
+    fn contextual_param_type_at(
+        &self,
+        function: &FunctionType,
+        index: usize,
+    ) -> Option<smelt_hir::TypeId> {
+        if let Some(rest_index) = function.rest
+            && index >= rest_index
+            && let Some(rest_ty) = function.params.get(rest_index).copied()
+        {
+            return match self.ctx.krate.types.get(rest_ty) {
+                Some(Type::List(item)) => Some(*item),
+                Some(Type::Tuple(items)) => items
+                    .get(index - rest_index)
+                    .copied()
+                    .or_else(|| items.last().copied()),
+                _ => Some(rest_ty),
+            };
+        }
+        function.params.get(index).copied()
     }
 
     /// Infer a conservative type for an unannotated arrow parameter.
@@ -1210,7 +1242,20 @@ impl ModuleBuilder<'_> {
                 ClosureBodyKind::ArrowExpression(arrow) => {
                     match self.arrow_return_expression(arrow) {
                         Ok(return_expression) => {
-                            let hint = (!infer_expression_return).then_some(return_ty);
+                            // For an async expression-bodied arrow the closure
+                            // return type is `Promise<Inner>` (`Type::Future`),
+                            // but the body expression itself produces `Inner` —
+                            // the async wrapper adds the promise. Hint the body
+                            // at the awaited inner type (via
+                            // `return_statement_value_hint`, which unwraps one
+                            // `Future` layer for async bodies) so an array or
+                            // tuple literal body keeps its own value type instead
+                            // of being coerced to the future type.
+                            let hint = if infer_expression_return {
+                                None
+                            } else {
+                                self.return_statement_value_hint()
+                            };
                             self.expression_with_hint(return_expression, &mut closure_body, hint)
                                 .map(|value| {
                                     if infer_expression_return {

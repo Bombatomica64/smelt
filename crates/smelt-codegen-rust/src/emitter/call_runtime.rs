@@ -1,7 +1,7 @@
 //! Call Runtime emission helpers.
 
 use super::*;
-use smelt_hir::{CLASS_INDEX_STORE_FIELD, FunctionType};
+use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
     /// Render array-literal elements by value without consuming local operands.
@@ -964,7 +964,20 @@ impl FunctionEmitter<'_> {
                         } else {
                             call_text
                         };
-                        (function.return_ty, throwing_call_text)
+                        // The fully-erased `SmeltErasedFunction::call` ABI always
+                        // yields a bare `SmeltUnknown`, regardless of the callee's
+                        // declared return type. Coercing the call result from the
+                        // declared `return_ty` (e.g. `T | undefined`, which lowers
+                        // to `Option<SmeltUnknown>`) would suppress the wrap the
+                        // destination needs, so treat the erased-rest call's source
+                        // type as `Unknown` and let `value_at_type_text` inject the
+                        // correct `Some(..)`/extraction at the assignment seam.
+                        let source_ty = if callee_is_erased_rest {
+                            self.type_id(Type::Unknown)?
+                        } else {
+                            function.return_ty
+                        };
+                        (source_ty, throwing_call_text)
                     }
                     _ => (dest_ty, call_text),
                 };
@@ -1293,9 +1306,8 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) != Some(&Type::None)
                 {
                     return Ok(format!(
-                        "Box::pin(async move {{ {text}.await?; Ok::<_, Box<dyn std::error::Error>>({}) }}) as {}",
+                        "SmeltFuture::from_future(Box::pin(async move {{ {text}.await?; Ok::<_, Box<dyn std::error::Error>>({}) }}))",
                         self.default_value(*item)?,
-                        self.type_text_with_impl_trait(dest_ty, false)?
                     ));
                 }
                 Ok(text)
@@ -1303,62 +1315,9 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// The `thread_local!` slot identifier for a host constructor's override
-    /// state (`SMELT_HOST_OVERRIDE_<NAME>`).
-    fn host_override_slot_ident(&self, class: Symbol) -> Result<String, EmitError> {
-        let name = self.symbol_name(class)?;
-        Ok(format!(
-            "{prefix}{suffix}",
-            prefix = smelt_stdlib::runtime_symbols::host_override::SLOT_PREFIX,
-            suffix = crate::stdlib::host_override_slot_suffix(name),
-        ))
-    }
 
-    /// Emit a read of a host constructor's override slot (`globalThis.<class>`).
-    ///
-    /// The read helper yields a `SmeltUnknown` (native-handle marker for
-    /// `Native`, the stored ctor for `Ctor`, `undefined` for `Absent`); the
-    /// result is coerced to the destination type.
-    fn host_global_read_text(&self, class: Symbol, dest_ty: TypeId) -> Result<String, EmitError> {
-        let slot = self.host_override_slot_ident(class)?;
-        let name = self.symbol_name(class)?.to_owned();
-        let unknown_ty = self.type_id(Type::Unknown)?;
-        let call = format!(
-            "{slot}.with(|slot| {read}(slot, {name:?}))",
-            read = smelt_stdlib::runtime_symbols::host_override::READ,
-        );
-        self.value_at_type_text(&call, unknown_ty, dest_ty)
-    }
 
-    /// Emit a write to a host constructor's override slot
-    /// (`globalThis.<class> = value`). The stored value is erased to
-    /// `SmeltUnknown` for classification; the helper returns it so the write
-    /// composes as an expression.
-    fn host_global_write_text(
-        &self,
-        class: Symbol,
-        value: &Operand,
-        dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let slot = self.host_override_slot_ident(class)?;
-        let erased = self.erase(value)?;
-        let unknown_ty = self.type_id(Type::Unknown)?;
-        let call = format!(
-            "{slot}.with(|slot| {write}(slot, {erased}))",
-            write = smelt_stdlib::runtime_symbols::host_override::WRITE,
-        );
-        self.value_at_type_text(&call, unknown_ty, dest_ty)
-    }
 
-    /// Emit a presence probe of a host constructor's override slot
-    /// (`typeof <class> !== 'undefined'` for a reassigned host name).
-    fn host_global_present_text(&self, class: Symbol) -> Result<String, EmitError> {
-        let slot = self.host_override_slot_ident(class)?;
-        Ok(format!(
-            "{slot}.with({present})",
-            present = smelt_stdlib::runtime_symbols::host_override::PRESENT,
-        ))
-    }
 
     /// Converts a runtime-backed async operation to Rust.
     /// Validates two same-typed set operands.
@@ -1380,63 +1339,9 @@ impl FunctionEmitter<'_> {
         Ok(left_ty)
     }
 
-    /// Converts a set insertion operation to Rust text.
-    /// Converts a blocking HTTP GET operation to Rust text.
-    pub(super) fn http_get_text(&self, url: &Operand) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(url)?),
-            Some(Type::String)
-        ) {
-            return Err(EmitError::new("HTTP GET URL must be a string"));
-        }
-        Ok(format!(
-            "reqwest::blocking::get({}).expect(\"HTTP GET failed\").text().expect(\"HTTP response body read failed\")",
-            self.operand_text(url)?
-        ))
-    }
 
-    /// Emit a read of a mutable global's thread-local cell.
-    ///
-    /// Copy primitives read through `Cell::get`; strings clone the borrowed
-    /// `RefCell<String>` contents.
-    fn global_get_text(&self, global: u32) -> Result<String, EmitError> {
-        let name = crate::global_static_name(self.mir, global);
-        let ty = self.global_ty(global)?;
-        if matches!(self.mir.types.get(ty), Some(Type::String)) {
-            Ok(format!("{name}.with(|value| value.borrow().clone())"))
-        } else {
-            Ok(format!("{name}.with(::std::cell::Cell::get)"))
-        }
-    }
 
-    /// Emit a store into a mutable global's thread-local cell.
-    ///
-    /// The stored value is hoisted to a temporary so the block evaluates to the
-    /// stored value, letting `++`/`+=` compose as expressions. Copy primitives
-    /// use `Cell::set`; strings replace the `RefCell<String>` contents.
-    fn global_set_text(&self, global: u32, value: &Operand) -> Result<String, EmitError> {
-        let name = crate::global_static_name(self.mir, global);
-        let ty = self.global_ty(global)?;
-        let value_text = self.value_at_type(value, ty)?;
-        if matches!(self.mir.types.get(ty), Some(Type::String)) {
-            Ok(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|value| *value.borrow_mut() = smelt_global_value.clone()); smelt_global_value }}"
-            ))
-        } else {
-            Ok(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|value| value.set(smelt_global_value)); smelt_global_value }}"
-            ))
-        }
-    }
 
-    /// Look up the primitive type of a mutable global by index.
-    fn global_ty(&self, global: u32) -> Result<TypeId, EmitError> {
-        self.mir
-            .globals
-            .get(id_index(global, "mutable global index does not fit usize")?)
-            .map(|entry| entry.ty)
-            .ok_or_else(|| EmitError::new("mutable global index is out of range"))
-    }
 
     /// Converts a function call to its Rust text representation.
     /// Converts an awaited future operand without cloning it.
@@ -1447,1016 +1352,25 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits binary operations involving `Option<T>` by coercing through the
-    /// optional's inner type instead of letting Rust compare unrelated shapes.
-    fn optional_binary_text(
-        &self,
-        op: smelt_hir::BinOp,
-        lhs: &Operand,
-        rhs: &Operand,
-        dest_ty: TypeId,
-    ) -> Result<Option<String>, EmitError> {
-        let lhs_ty = self.operand_ty(lhs)?;
-        let rhs_ty = self.operand_ty(rhs)?;
-        let lhs_inner = self.optional_inner_ty(lhs_ty);
-        let rhs_inner = self.optional_inner_ty(rhs_ty);
-        if lhs_inner.is_none() && rhs_inner.is_none() {
-            return Ok(None);
-        }
 
-        if matches!(
-            op,
-            smelt_hir::BinOp::Eq
-                | smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        ) {
-            return self.optional_equality_text(op, lhs, rhs, lhs_inner, rhs_inner);
-        }
 
-        // JS relational operators (`<`, `>`, `<=`, `>=`) with an optional operand
-        // whose held value is erased (`unknown`, a concrete/erased union, a type
-        // param) coerce BOTH sides with `ToNumber` and compare as `f64` — an
-        // absent/`undefined`/non-numeric value becomes `NaN`, so every comparison
-        // against it is `false`, which `f64`'s own `NaN` ordering already yields.
-        // Without this arm the comparison falls through to a raw `Option<…> < f64`
-        // (E0277). Skip when a side is statically a `String` (JS does lexical
-        // string comparison there) so this stays a numeric-coercion path only.
-        if matches!(
-            op,
-            smelt_hir::BinOp::Lt
-                | smelt_hir::BinOp::Lte
-                | smelt_hir::BinOp::Gt
-                | smelt_hir::BinOp::Gte
-        ) {
-            let side_is_string = |emitter: &Self, ty: TypeId, inner: Option<TypeId>| {
-                matches!(emitter.mir.types.get(ty), Some(Type::String))
-                    || inner.is_some_and(|inner_ty| {
-                        matches!(emitter.mir.types.get(inner_ty), Some(Type::String))
-                    })
-            };
-            // A side counts as erased when its held value is erased: the inner
-            // type for an optional operand, or the operand's own type when it is
-            // a bare (non-optional) erased value. The latter covers comparing an
-            // optional number against an erased `SmeltUnknown` such as a
-            // `.length` read (es-toolkit `includes`).
-            let side_erased = |emitter: &Self, ty: TypeId, inner: Option<TypeId>| match inner {
-                Some(inner_ty) => emitter.is_erased_relational(inner_ty),
-                None => emitter.is_erased_relational(ty),
-            };
-            let lhs_erased_inner = side_erased(self, lhs_ty, lhs_inner);
-            let rhs_erased_inner = side_erased(self, rhs_ty, rhs_inner);
-            if (lhs_erased_inner || rhs_erased_inner)
-                && !side_is_string(self, lhs_ty, lhs_inner)
-                && !side_is_string(self, rhs_ty, rhs_inner)
-            {
-                let float_ty = self.type_id(Type::Float)?;
-                let unknown_ty = self.type_id(Type::Unknown)?;
-                // Coerce one operand to an `f64`. An optional side is first
-                // projected to a bare `SmeltUnknown` (`erase()` maps absence to
-                // `SmeltUnknown::Undefined`), then `ToNumber`-extracted; a numeric
-                // optional keeps the existing unwrap-with-default extraction; a
-                // non-optional side extracts directly at its own type.
-                let side_text = |emitter: &Self, operand: &Operand, inner: Option<TypeId>| {
-                    match inner {
-                        Some(inner_ty) if emitter.is_erased_relational(inner_ty) => {
-                            let erased = emitter.erase(operand)?;
-                            emitter.value_at_type_text(&erased, unknown_ty, float_ty)
-                        }
-                        Some(inner_ty) => {
-                            emitter.option_value_as_type_text(operand, inner_ty, float_ty)
-                        }
-                        None => emitter.value_at_type(operand, float_ty),
-                    }
-                };
-                let lhs_text = side_text(self, lhs, lhs_inner)?;
-                let rhs_text = side_text(self, rhs, rhs_inner)?;
-                return Ok(Some(format!(
-                    "({lhs_text}) {} ({rhs_text})",
-                    smelt_hir::bin_op_text(op)
-                )));
-            }
-        }
 
-        if let Some(inner) = lhs_inner
-            && rhs_inner.is_none()
-            && self.is_numeric_type(inner)
-            && self.is_numeric_type(rhs_ty)
-        {
-            let common_ty = self.common_numeric_type(inner, rhs_ty, dest_ty)?;
-            return Ok(Some(format!(
-                "{} {} {}",
-                self.option_value_as_type_text(lhs, inner, common_ty)?,
-                smelt_hir::bin_op_text(op),
-                self.value_at_type(rhs, common_ty)?
-            )));
-        }
 
-        if let Some(inner) = rhs_inner
-            && lhs_inner.is_none()
-            && self.is_numeric_type(lhs_ty)
-            && self.is_numeric_type(inner)
-        {
-            let common_ty = self.common_numeric_type(lhs_ty, inner, dest_ty)?;
-            return Ok(Some(format!(
-                "{} {} {}",
-                self.value_at_type(lhs, common_ty)?,
-                smelt_hir::bin_op_text(op),
-                self.option_value_as_type_text(rhs, inner, common_ty)?
-            )));
-        }
 
-        Ok(None)
-    }
 
-    /// Emits equality checks for erased `SmeltUnknown` operands.
-    fn unknown_binary_text(
-        &self,
-        op: smelt_hir::BinOp,
-        lhs: &Operand,
-        rhs: &Operand,
-    ) -> Result<Option<String>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Eq
-                | smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        ) {
-            return Ok(None);
-        }
-        let lhs_ty = self.operand_ty(lhs)?;
-        let rhs_ty = self.operand_ty(rhs)?;
-        let lhs_is_erased = matches!(
-            self.mir.types.get(lhs_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(lhs_ty);
-        let rhs_is_erased = matches!(
-            self.mir.types.get(rhs_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(rhs_ty);
-        let lhs_is_none = self.mir.types.get(lhs_ty) == Some(&Type::None);
-        let rhs_is_none = self.mir.types.get(rhs_ty) == Some(&Type::None);
-        let strict = matches!(
-            op,
-            smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
-        );
-        let js_strict = matches!(
-            op,
-            smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq
-        );
-        let strict_nullish = strict || js_strict;
-        // Pick the erased nullish tag for a `None`-typed literal: the `undefined`
-        // literal matches `Undefined`, every other `None`-typed operand (the
-        // `null` literal or a unit value) matches `Null`. Used by the
-        // erased-vs-none arms where the none side is essentially always a literal.
-        let nullish_pattern = |operand: &Operand| {
-            if strict_nullish {
-                if matches!(operand, Operand::Const(Constant::Undefined)) {
-                    "SmeltUnknown::Undefined"
-                } else {
-                    "SmeltUnknown::Null"
-                }
-            } else {
-                "SmeltUnknown::Null | SmeltUnknown::Undefined"
-            }
-        };
-        // `null` and `undefined` are byte-identical in MIR (both `Type::None`), so
-        // the JS nullish kind can only be proven from an explicit literal:
-        // `Constant::None` is `null`, `Constant::Undefined` is `undefined`. Two
-        // `None`-typed operands therefore strict-differ ONLY when one is provably
-        // the `null` literal and the other provably the `undefined` literal. In
-        // every other case — including a unit temporary produced by an
-        // `undefined`-valued expression such as `clone(undefined)` compared
-        // against the `undefined` literal — they share the same nullish value and
-        // strict-equal. (The old code keyed on "is undefined?", so a non-literal
-        // unit actual wrongly differed from the `undefined` literal.)
-        let provably_null =
-            |operand: &Operand| matches!(operand, Operand::Const(Constant::None));
-        let provably_undefined =
-            |operand: &Operand| matches!(operand, Operand::Const(Constant::Undefined));
-        let text = if lhs_is_none && rhs_is_none {
-            if strict_nullish {
-                let distinct = (provably_null(lhs) && provably_undefined(rhs))
-                    || (provably_undefined(lhs) && provably_null(rhs));
-                (!distinct).to_string()
-            } else {
-                "true".to_owned()
-            }
-        } else if lhs_is_erased && rhs_is_none {
-            format!(
-                "matches!({}, {})",
-                self.operand_text(lhs)?,
-                nullish_pattern(rhs)
-            )
-        } else if rhs_is_erased && lhs_is_none {
-            format!(
-                "matches!({}, {})",
-                self.operand_text(rhs)?,
-                nullish_pattern(lhs)
-            )
-        } else if lhs_is_none || rhs_is_none {
-            "false".to_owned()
-        } else if lhs_is_erased || rhs_is_erased {
-            // Both sides are compared through `SmeltUnknown`'s JS-equality impls,
-            // so both operands must be genuine `SmeltUnknown` values. `erase()` is
-            // idempotent for operands whose Rust representation is already
-            // `SmeltUnknown` (`Type::Unknown`, generic type params, erased class
-            // types, non-concrete unions), but a CONCRETE union renders as a
-            // tagged enum (`SmeltUnionN`) and must be projected via
-            // `into_smelt_unknown()` before `same_js_key`/`js_strict_eq`/`==`
-            // resolve. Routing both sides through `erase()` handles that case
-            // without special-casing the union arm.
-            let lhs_text = self.erase(lhs)?;
-            let rhs_text = self.erase(rhs)?;
-            if js_strict {
-                // JavaScript `===`/`!==` on erased values: reference identity for
-                // objects/arrays/functions, value for primitives, NaN-unequal.
-                format!("{lhs_text}.js_strict_eq(&{rhs_text})")
-            } else if strict {
-                // `Object.is` / `a === b || Object.is(a,b)` SameValueZero idiom:
-                // NaN-equal, reference objects.
-                format!("{lhs_text}.same_js_key(&{rhs_text})")
-            } else {
-                // Loose/structural `==`/`!=` on erased values: SmeltUnknown's
-                // structural `Eq` (deep), which the `toEqual`/`toStrictEqual`
-                // matchers and `isDeepEqual` depend on.
-                format!("{lhs_text} == {rhs_text}")
-            }
-        } else {
-            return Ok(None);
-        };
-        Ok(Some(
-            if matches!(
-                op,
-                smelt_hir::BinOp::NotEq
-                    | smelt_hir::BinOp::StrictNotEq
-                    | smelt_hir::BinOp::JsStrictNotEq
-            ) {
-                format!("!({text})")
-            } else {
-                text
-            },
-        ))
-    }
 
-    /// Emits equality and inequality for optional operands.
-    fn optional_equality_text(
-        &self,
-        op: smelt_hir::BinOp,
-        lhs: &Operand,
-        rhs: &Operand,
-        lhs_inner: Option<TypeId>,
-        rhs_inner: Option<TypeId>,
-    ) -> Result<Option<String>, EmitError> {
-        let negate = matches!(
-            op,
-            smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        );
-        let strict = matches!(
-            op,
-            smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
-        );
-        let js_strict = matches!(
-            op,
-            smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq
-        );
-        let strict_nullish = strict || js_strict;
-        if strict
-            && let (Some(left_inner), Some(right_inner)) = (lhs_inner, rhs_inner)
-            && let (Some(Type::Dict(left_key, _)), Some(Type::Dict(right_key, _))) = (
-                self.mir.types.get(left_inner),
-                self.mir.types.get(right_inner),
-            )
-            && self.mir.types.get(*left_key) == Some(&Type::String)
-            && self.mir.types.get(*right_key) == Some(&Type::String)
-        {
-            let text = format!(
-                "match ({}.as_ref(), {}.as_ref()) {{ (Some(left), Some(right)) => left.id == right.id, (None, None) => true, _ => false }}",
-                self.operand_text(lhs)?,
-                self.operand_text(rhs)?
-            );
-            return Ok(Some(if negate { format!("!({text})") } else { text }));
-        }
-        let text = if let Some(inner) = lhs_inner
-            && self.operand_ty(rhs)? == self.none_ty
-        {
-            let lhs_text = self.operand_text(lhs)?;
-            if self.optional_inner_preserves_erased_singletons(inner) {
-                self.optional_erased_singleton_equality_text(&lhs_text, rhs, strict_nullish, inner)?
-            } else {
-                format!("{lhs_text}.is_none()")
-            }
-        } else if let Some(inner) = rhs_inner
-            && self.operand_ty(lhs)? == self.none_ty
-        {
-            let rhs_text = self.operand_text(rhs)?;
-            if self.optional_inner_preserves_erased_singletons(inner) {
-                self.optional_erased_singleton_equality_text(&rhs_text, lhs, strict_nullish, inner)?
-            } else {
-                format!("{rhs_text}.is_none()")
-            }
-        } else if let Some(inner) = lhs_inner
-            && rhs_inner.is_none()
-        {
-            format!(
-                "{} == Some({})",
-                self.operand_text(lhs)?,
-                self.value_at_type(rhs, inner)?
-            )
-        } else if let Some(inner) = rhs_inner
-            && lhs_inner.is_none()
-        {
-            format!(
-                "Some({}) == {}",
-                self.value_at_type(lhs, inner)?,
-                self.operand_text(rhs)?
-            )
-        } else {
-            return Ok(None);
-        };
-        Ok(Some(if negate { format!("!({text})") } else { text }))
-    }
 
-    /// Emits equality between `Option<SmeltUnknown>`-like storage and a JS
-    /// nullish singleton.
-    fn optional_erased_singleton_equality_text(
-        &self,
-        option_text: &str,
-        singleton: &Operand,
-        strict_nullish: bool,
-        inner: TypeId,
-    ) -> Result<String, EmitError> {
-        let pattern = if strict_nullish {
-            if matches!(singleton, Operand::Const(Constant::Undefined)) {
-                "SmeltUnknown::Undefined"
-            } else {
-                "SmeltUnknown::Null"
-            }
-        } else {
-            "SmeltUnknown::Null | SmeltUnknown::Undefined"
-        };
-        // A concrete-union `Option` payload stores a tagged enum; project each
-        // present value to `SmeltUnknown` before the nullish tag match. A present
-        // union value never holds `null`/`undefined` (those are the `None`), so
-        // this preserves the exact loose/strict comparison semantics.
-        let scrutinee = if self.concrete_union_members(inner).is_some() {
-            "value.clone().into_smelt_unknown()"
-        } else {
-            "value"
-        };
-        let missing_matches =
-            !strict_nullish || matches!(singleton, Operand::Const(Constant::Undefined));
-        if missing_matches {
-            Ok(format!(
-                "{option_text}.as_ref().map_or(true, |value| matches!({scrutinee}, {pattern}))"
-            ))
-        } else {
-            Ok(format!(
-                "{option_text}.as_ref().is_some_and(|value| matches!({scrutinee}, {pattern}))"
-            ))
-        }
-    }
 
-    /// Emits numeric comparisons after coercing both operands to a shared scalar.
-    ///
-    /// HIR preserves TypeScript numeric intent even when one side has been
-    /// inferred as `number` and the other as an integer-like literal. Rust does
-    /// not compare `i64` and `f64` directly, so this keeps generated assertions
-    /// and branch predicates type-directed instead of relying on literal shape.
-    /// Emits a JS relational comparison (`<`, `<=`, `>`, `>=`) where at least one
-    /// bare (non-optional) operand is erased for relational purposes — an
-    /// `unknown`, a concrete/erased union (e.g. `string | number`), a type param,
-    /// or an erased class — and neither operand is statically a `String`.
-    ///
-    /// JavaScript's relational algorithm runs `ToNumber` on both operands unless
-    /// *both* are strings (the lexical case, left to other arms). A comparison of
-    /// a number against a `string | number` union therefore coerces the union side
-    /// with `ToNumber` and compares as `f64`; a non-numeric value becomes `NaN`, so
-    /// every comparison against it is `false`, which `f64`'s own `NaN` ordering
-    /// already yields. Without this arm such a comparison reaches a raw
-    /// `f64 {op} SmeltUnion…` which does not type-check (E0277).
-    ///
-    /// This mirrors the erased-relational coercion in `optional_binary_text`, but
-    /// for operands whose erased value is held directly rather than behind an
-    /// `Option`. It only fires when every side is either numeric or erased, so the
-    /// coercion to `f64` is always well-defined.
-    fn bare_erased_relational_text(
-        &self,
-        op: smelt_hir::BinOp,
-        lhs: &Operand,
-        rhs: &Operand,
-    ) -> Result<Option<String>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Lt
-                | smelt_hir::BinOp::Lte
-                | smelt_hir::BinOp::Gt
-                | smelt_hir::BinOp::Gte
-        ) {
-            return Ok(None);
-        }
-        let lhs_ty = self.operand_ty(lhs)?;
-        let rhs_ty = self.operand_ty(rhs)?;
-        // Optional operands are handled earlier by `optional_binary_text`; a
-        // statically `String` side is handled by the lexical / mixed arms.
-        if self.optional_inner_ty(lhs_ty).is_some() || self.optional_inner_ty(rhs_ty).is_some() {
-            return Ok(None);
-        }
-        if matches!(self.mir.types.get(lhs_ty), Some(Type::String))
-            || matches!(self.mir.types.get(rhs_ty), Some(Type::String))
-        {
-            return Ok(None);
-        }
-        let lhs_erased = self.is_erased_relational(lhs_ty);
-        let rhs_erased = self.is_erased_relational(rhs_ty);
-        if !lhs_erased && !rhs_erased {
-            return Ok(None);
-        }
-        // Every side must be either numeric or erased so `ToNumber` coercion is
-        // well-defined; anything else falls through to the remaining arms.
-        if !(lhs_erased || self.is_numeric_type(lhs_ty))
-            || !(rhs_erased || self.is_numeric_type(rhs_ty))
-        {
-            return Ok(None);
-        }
-        let float_ty = self.type_id(Type::Float)?;
-        let lhs_text = self.value_at_type(lhs, float_ty)?;
-        let rhs_text = self.value_at_type(rhs, float_ty)?;
-        Ok(Some(format!(
-            "({lhs_text}) {} ({rhs_text})",
-            smelt_hir::bin_op_text(op)
-        )))
-    }
 
-    fn numeric_comparison_text(
-        &self,
-        op: smelt_hir::BinOp,
-        lhs: &Operand,
-        rhs: &Operand,
-        dest_ty: TypeId,
-    ) -> Result<Option<String>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Eq
-                | smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::JsStrictEq
-                | smelt_hir::BinOp::JsStrictNotEq
-                | smelt_hir::BinOp::Lt
-                | smelt_hir::BinOp::Lte
-                | smelt_hir::BinOp::Gt
-                | smelt_hir::BinOp::Gte
-        ) {
-            return Ok(None);
-        }
-        let lhs_ty = self.operand_ty(lhs)?;
-        let rhs_ty = self.operand_ty(rhs)?;
-        if !self.is_numeric_type(lhs_ty) || !self.is_numeric_type(rhs_ty) {
-            return Ok(None);
-        }
-        let lhs_text = self.operand_text(lhs)?;
-        let rhs_text = self.operand_text(rhs)?;
-        let mut common_ty = self.common_numeric_type(lhs_ty, rhs_ty, dest_ty)?;
-        if matches!(self.mir.types.get(common_ty), Some(Type::Int))
-            && (lhs_text.contains(" as f64") || rhs_text.contains(" as f64"))
-        {
-            common_ty = self.type_id(Type::Float)?;
-        }
-        Ok(Some(format!(
-            "{} {} {}",
-            self.value_at_type_text(&lhs_text, lhs_ty, common_ty)?,
-            smelt_hir::bin_op_text(op),
-            self.value_at_type_text(&rhs_text, rhs_ty, common_ty)?
-        )))
-    }
 
-    /// Emits a JS relational comparison (`<`, `<=`, `>`, `>=`) where exactly one
-    /// operand is statically a `String` and the other is numeric.
-    ///
-    /// JavaScript's relational algorithm runs `ToNumber` on both operands unless
-    /// *both* are strings (then it compares lexically). A `String`-vs-number
-    /// comparison therefore coerces the string side with `ToNumber`: numeric
-    /// strings parse to their value and non-numeric strings become `NaN`, so
-    /// every comparison against them is `false` — matching JS. Without this arm
-    /// the operands reach a raw `String {op} f64` which does not type-check
-    /// (E0308). String-vs-string lexical comparison is left untouched (handled by
-    /// the default path), and cases where a side is optional are handled earlier
-    /// by `optional_binary_text`.
-    fn mixed_string_number_relational_text(
-        &self,
-        op: smelt_hir::BinOp,
-        lhs: &Operand,
-        rhs: &Operand,
-    ) -> Result<Option<String>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Lt
-                | smelt_hir::BinOp::Lte
-                | smelt_hir::BinOp::Gt
-                | smelt_hir::BinOp::Gte
-        ) {
-            return Ok(None);
-        }
-        let lhs_ty = self.operand_ty(lhs)?;
-        let rhs_ty = self.operand_ty(rhs)?;
-        let lhs_is_string = matches!(self.mir.types.get(lhs_ty), Some(Type::String));
-        let rhs_is_string = matches!(self.mir.types.get(rhs_ty), Some(Type::String));
-        // Only a genuine string-vs-number mix; string-vs-string stays lexical and
-        // number-vs-number is handled by `numeric_comparison_text`.
-        if lhs_is_string == rhs_is_string {
-            return Ok(None);
-        }
-        let numeric_side_ty = if lhs_is_string { rhs_ty } else { lhs_ty };
-        if !self.is_numeric_type(numeric_side_ty) {
-            return Ok(None);
-        }
-        // `ToNumber` a string operand: parse to `f64`, non-numeric text -> `NaN`,
-        // mirroring the `SmeltUnknown` ToNumber path used elsewhere in codegen.
-        let string_to_number = |text: String| format!("({text}).parse::<f64>().unwrap_or(f64::NAN)");
-        let float_ty = self.type_id(Type::Float)?;
-        let lhs_text = if lhs_is_string {
-            string_to_number(self.operand_text(lhs)?)
-        } else {
-            self.value_at_type(lhs, float_ty)?
-        };
-        let rhs_text = if rhs_is_string {
-            string_to_number(self.operand_text(rhs)?)
-        } else {
-            self.value_at_type(rhs, float_ty)?
-        };
-        Ok(Some(format!(
-            "({lhs_text}) {} ({rhs_text})",
-            smelt_hir::bin_op_text(op)
-        )))
-    }
 
-    /// Emits equality for first-class callback values.
-    ///
-    /// Stored callbacks lower to `Rc<dyn Fn...>`, which has no
-    /// structural equality. JavaScript compares function values by identity, so
-    /// matching callback shapes can use `Rc::ptr_eq`; mismatched shapes are
-    /// unequal and compile to a constant.
-    fn function_equality_text(
-        &self,
-        op: smelt_hir::BinOp,
-        lhs: &Operand,
-        rhs: &Operand,
-    ) -> Result<Option<String>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Eq
-                | smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        ) {
-            return Ok(None);
-        }
-        let lhs_ty = self.operand_ty(lhs)?;
-        let rhs_ty = self.operand_ty(rhs)?;
-        let lhs_contains_function = self.type_contains_function(lhs_ty);
-        let rhs_contains_function = self.type_contains_function(rhs_ty);
-        if !lhs_contains_function && !rhs_contains_function {
-            return Ok(None);
-        }
-        let equal_text = if lhs_ty == rhs_ty && lhs_contains_function && rhs_contains_function {
-            self.function_bearing_equality_text(
-                &self.operand_text(lhs)?,
-                &self.operand_text(rhs)?,
-                lhs_ty,
-            )?
-        } else {
-            "false".to_owned()
-        };
-        Ok(Some(
-            if matches!(
-                op,
-                smelt_hir::BinOp::NotEq
-                    | smelt_hir::BinOp::StrictNotEq
-                    | smelt_hir::BinOp::JsStrictNotEq
-            ) {
-                format!("!({equal_text})")
-            } else {
-                equal_text
-            },
-        ))
-    }
 
-    /// Emits structural equality recursively while comparing function leaves by identity.
-    fn function_bearing_equality_text(
-        &self,
-        left: &str,
-        right: &str,
-        ty: TypeId,
-    ) -> Result<String, EmitError> {
-        Ok(match self.mir.types.get(ty) {
-            Some(Type::Function(_)) => {
-                format!("::std::rc::Rc::ptr_eq(&{left}, &{right})")
-            }
-            Some(Type::List(item)) => {
-                let item_equal =
-                    self.function_bearing_equality_text("left_item", "right_item", *item)?;
-                format!(
-                    "{left}.len() == {right}.len() && {left}.iter().zip({right}.iter()).all(|(left_item, right_item)| {item_equal})"
-                )
-            }
-            Some(Type::Dict(key, value)) if self.mir.types.get(*key) == Some(&Type::String) => {
-                let value_equal =
-                    self.function_bearing_equality_text("left_value", "right_value", *value)?;
-                format!(
-                    "{left}.len() == {right}.len() && {left}.iter().all(|(key, left_value)| {right}.get(&key).is_some_and(|right_value| {value_equal}))"
-                )
-            }
-            Some(Type::Optional(inner)) => {
-                let item_equal =
-                    self.function_bearing_equality_text("left_value", "right_value", *inner)?;
-                format!(
-                    "match ({left}.as_ref(), {right}.as_ref()) {{ (Some(left_value), Some(right_value)) => {item_equal}, (None, None) => true, _ => false }}"
-                )
-            }
-            _ => format!("{left} == {right}"),
-        })
-    }
 
-    /// Emits JavaScript SameValue checks for numeric and reference values.
-    fn strict_identity_text(
-        &self,
-        op: smelt_hir::BinOp,
-        lhs: &Operand,
-        rhs: &Operand,
-    ) -> Result<Option<String>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
-        ) {
-            return Ok(None);
-        }
-        let lhs_ty = self.operand_ty(lhs)?;
-        let rhs_ty = self.operand_ty(rhs)?;
-        let equal_text = match (self.mir.types.get(lhs_ty), self.mir.types.get(rhs_ty)) {
-            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) => {
-                let lhs_text = self.float_operand_text(lhs)?;
-                let rhs_text = self.float_operand_text(rhs)?;
-                format!(
-                    "{{ let lhs: f64 = {lhs_text}; let rhs: f64 = {rhs_text}; (lhs.is_nan() && rhs.is_nan()) || (lhs == rhs && (lhs != 0.0 || lhs.is_sign_negative() == rhs.is_sign_negative())) }}"
-                )
-            }
-            (Some(Type::Dict(lhs_key, _)), Some(Type::Dict(rhs_key, _)))
-                if self.mir.types.get(*lhs_key) == Some(&Type::String)
-                    && self.mir.types.get(*rhs_key) == Some(&Type::String) =>
-            {
-                format!(
-                    "{}.id == {}.id",
-                    self.operand_text(lhs)?,
-                    self.operand_text(rhs)?
-                )
-            }
-            (Some(Type::Function(_)), Some(Type::Function(_))) if lhs_ty == rhs_ty => {
-                format!(
-                    "::std::rc::Rc::ptr_eq(&{}, &{})",
-                    self.operand_text(lhs)?,
-                    self.operand_text(rhs)?
-                )
-            }
-            (Some(Type::List(_)), Some(Type::List(_))) => {
-                // Typed lists are identity-bearing (`SmeltList`), so reference
-                // equality compares the JS reference id rather than giving up.
-                format!(
-                    "{}.id() == {}.id()",
-                    self.operand_text(lhs)?,
-                    self.operand_text(rhs)?
-                )
-            }
-            (
-                Some(Type::List(_) | Type::Set(_) | Type::Tuple(_) | Type::Class { .. }),
-                Some(Type::List(_) | Type::Set(_) | Type::Tuple(_) | Type::Class { .. }),
-            ) => "false".to_owned(),
-            (left, right)
-                if matches!(
-                    left,
-                    Some(
-                        Type::List(_)
-                            | Type::Dict(_, _)
-                            | Type::Set(_)
-                            | Type::Tuple(_)
-                            | Type::Class { .. }
-                            | Type::Function(_)
-                    )
-                ) || matches!(
-                    right,
-                    Some(
-                        Type::List(_)
-                            | Type::Dict(_, _)
-                            | Type::Set(_)
-                            | Type::Tuple(_)
-                            | Type::Class { .. }
-                            | Type::Function(_)
-                    )
-                ) =>
-            {
-                "false".to_owned()
-            }
-            _ => return Ok(None),
-        };
-        Ok(Some(if op == smelt_hir::BinOp::StrictNotEq {
-            format!("!({equal_text})")
-        } else {
-            equal_text
-        }))
-    }
 
-    /// Emits equality for structurally compatible values with erased members.
-    ///
-    /// Test assertions often compare a concrete expected value with a result
-    /// whose item type was erased by a generic Remeda entrypoint, for example
-    /// `Vec<SmeltUnknown>` against `Vec<f64>`. Rust needs both sides to have the
-    /// same `PartialEq` shape, so this coerces the concrete side into the erased
-    /// container before comparing.
-    fn heterogeneous_equality_text(
-        &self,
-        op: smelt_hir::BinOp,
-        lhs: &Operand,
-        rhs: &Operand,
-    ) -> Result<Option<String>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Eq
-                | smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        ) {
-            return Ok(None);
-        }
-        let lhs_ty = self.operand_ty(lhs)?;
-        let rhs_ty = self.operand_ty(rhs)?;
-        if lhs_ty == rhs_ty {
-            return Ok(None);
-        }
-        if self.equality_shapes_are_definitely_incompatible(lhs_ty, rhs_ty) {
-            let text = "false".to_owned();
-            return Ok(Some(
-                if matches!(
-                    op,
-                    smelt_hir::BinOp::NotEq
-                        | smelt_hir::BinOp::StrictNotEq
-                        | smelt_hir::BinOp::JsStrictNotEq
-                ) {
-                    format!("!({text})")
-                } else {
-                    text
-                },
-            ));
-        }
-        let lhs_needs_erased = self.type_contains_unknown(lhs_ty)
-            || matches!(
-                self.mir.types.get(lhs_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            )
-            || self.is_erased_class_type(lhs_ty);
-        let rhs_needs_erased = self.type_contains_unknown(rhs_ty)
-            || matches!(
-                self.mir.types.get(rhs_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            )
-            || self.is_erased_class_type(rhs_ty);
-        let text = if lhs_needs_erased && !rhs_needs_erased {
-            format!(
-                "{} == {}",
-                self.operand_text(lhs)?,
-                self.value_at_type(rhs, lhs_ty)?
-            )
-        } else if rhs_needs_erased && !lhs_needs_erased {
-            if matches!(self.mir.types.get(lhs_ty), Some(Type::Tuple(_)))
-                && matches!(self.mir.types.get(rhs_ty), Some(Type::List(_)))
-            {
-                format!("{} == {}", self.erase(lhs)?, self.erase(rhs)?)
-            } else {
-                format!(
-                    "{} == {}",
-                    self.value_at_type(lhs, rhs_ty)?,
-                    self.operand_text(rhs)?
-                )
-            }
-        } else {
-            return Ok(None);
-        };
-        Ok(Some(if op == smelt_hir::BinOp::NotEq {
-            format!("!({text})")
-        } else {
-            text
-        }))
-    }
 
-    /// Returns whether two static types cannot be equal under JavaScript-style deep equality.
-    fn equality_shapes_are_definitely_incompatible(&self, left: TypeId, right: TypeId) -> bool {
-        match (self.mir.types.get(left), self.mir.types.get(right)) {
-            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) => false,
-            (Some(Type::Optional(left_inner)), Some(Type::Optional(right_inner))) => {
-                self.equality_shapes_are_definitely_incompatible(*left_inner, *right_inner)
-            }
-            (Some(Type::Optional(inner)), _) => {
-                self.equality_shapes_are_definitely_incompatible(*inner, right)
-            }
-            (_, Some(Type::Optional(inner))) => {
-                self.equality_shapes_are_definitely_incompatible(left, *inner)
-            }
-            (Some(Type::List(_)), Some(Type::List(_)))
-            | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))
-            | (Some(Type::Set(_)), Some(Type::Set(_))) => false,
-            (Some(Type::Tuple(left_items)), Some(Type::Tuple(right_items))) => {
-                left_items.len() != right_items.len()
-                    || left_items
-                        .iter()
-                        .zip(right_items.iter())
-                        .any(|(left_item, right_item)| {
-                            self.equality_shapes_are_definitely_incompatible(
-                                *left_item,
-                                *right_item,
-                            )
-                        })
-            }
-            // A tuple (e.g. `splitAt`'s `[T[], T[]]`) and a list literal of the
-            // same shape are structurally comparable once both are erased to
-            // `SmeltUnknown::Array`; they are NOT definitely incompatible. Let the
-            // erase-both equality path handle them instead of folding to `false`.
-            (Some(Type::Tuple(_)), Some(Type::List(_)))
-            | (Some(Type::List(_)), Some(Type::Tuple(_))) => false,
-            (
-                Some(
-                    Type::List(_)
-                    | Type::Dict(_, _)
-                    | Type::Set(_)
-                    | Type::Tuple(_)
-                    | Type::Function(_),
-                ),
-                Some(
-                    Type::List(_)
-                    | Type::Dict(_, _)
-                    | Type::Set(_)
-                    | Type::Tuple(_)
-                    | Type::Function(_),
-                ),
-            ) => true,
-            (
-                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
-                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
-            ) => {
-                !matches!(
-                    (self.mir.types.get(left), self.mir.types.get(right)),
-                    (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float))
-                        | (Some(Type::None), Some(Type::None))
-                ) && self.mir.types.get(left) != self.mir.types.get(right)
-            }
-            (
-                Some(Type::Class { .. }),
-                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
-            )
-            | (
-                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
-                Some(Type::Class { .. }),
-            ) => true,
-            _ => false,
-        }
-    }
 
-    /// Returns the inner type for `Option<T>`.
-    fn optional_inner_ty(&self, ty: TypeId) -> Option<TypeId> {
-        match self.mir.types.get(ty) {
-            Some(Type::Optional(inner)) => Some(*inner),
-            _ => None,
-        }
-    }
 
-    /// Emits arithmetic involving erased operands through JavaScript-like numbers.
-    fn erased_arithmetic_text(
-        &self,
-        op: smelt_hir::BinOp,
-        lhs: &Operand,
-        rhs: &Operand,
-        dest_ty: TypeId,
-    ) -> Result<Option<String>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Add
-                | smelt_hir::BinOp::Sub
-                | smelt_hir::BinOp::Mul
-                | smelt_hir::BinOp::Div
-                | smelt_hir::BinOp::Rem
-        ) {
-            return Ok(None);
-        }
-        let lhs_ty = self.operand_ty(lhs)?;
-        let rhs_ty = self.operand_ty(rhs)?;
-        let lhs_erased = matches!(
-            self.mir.types.get(lhs_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(lhs_ty);
-        let rhs_erased = matches!(
-            self.mir.types.get(rhs_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(rhs_ty);
-        let has_non_add_string = op != smelt_hir::BinOp::Add
-            && matches!(
-                (self.mir.types.get(lhs_ty), self.mir.types.get(rhs_ty)),
-                (Some(Type::String), _) | (_, Some(Type::String))
-            );
-        if !lhs_erased && !rhs_erased && !has_non_add_string {
-            return Ok(None);
-        }
-        let float_ty = self.type_id(Type::Float)?;
-        let lhs_text = self.value_at_type(lhs, float_ty)?;
-        let rhs_text = self.value_at_type(rhs, float_ty)?;
-        // The combined `lhs <op> rhs` is a binary expression: a loose operand
-        // that must be parenthesized before it becomes a cast operand
-        // (`(...) as f64`) or a method receiver (`(...).to_string()`). Carrying
-        // its precedence in a `RenderedValue` lets the value wrap itself instead
-        // of relying on each arm below to remember the parentheses by hand.
-        let numeric = RenderedValue::with_precedence(
-            format!("{lhs_text} {} {rhs_text}", smelt_hir::bin_op_text(op)),
-            float_ty,
-            Precedence::NeedsParens,
-        );
-        Ok(Some(match self.mir.types.get(dest_ty) {
-            Some(Type::Int) => format!(
-                "({} as f64).trunc() as i64",
-                numeric.parenthesized_if_needed()
-            ),
-            Some(Type::Float) => numeric.into_text(),
-            Some(Type::String) => {
-                format!("{}.to_string()", numeric.parenthesized_if_needed())
-            }
-            // The erased target is already an `f64` value in argument position
-            // (no reassociation); the coercion seam owns the `Number` tag text.
-            _ => self.erase_f64_text(&numeric.into_text()),
-        }))
-    }
 
-    /// Returns whether a type is a Rust numeric scalar.
-    fn is_numeric_type(&self, ty: TypeId) -> bool {
-        matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float))
-    }
-
-    /// Returns whether a type is erased for the purpose of a JS relational
-    /// comparison — an `unknown`, a union (concrete or erased), a generic type
-    /// param, or an erased class type. Such values must be coerced with
-    /// `ToNumber` before an `f64` `<`/`>`/`<=`/`>=` comparison resolves.
-    fn is_erased_relational(&self, ty: TypeId) -> bool {
-        matches!(
-            self.mir.types.get(ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(ty)
-    }
-
-    /// Chooses the Rust scalar type for mixed numeric arithmetic.
-    fn common_numeric_type(
-        &self,
-        lhs: TypeId,
-        rhs: TypeId,
-        dest_ty: TypeId,
-    ) -> Result<TypeId, EmitError> {
-        if self.is_numeric_type(dest_ty) {
-            return Ok(dest_ty);
-        }
-        if matches!(self.mir.types.get(lhs), Some(Type::Float))
-            || matches!(self.mir.types.get(rhs), Some(Type::Float))
-        {
-            return self.type_id(Type::Float);
-        }
-        self.type_id(Type::Int)
-    }
-
-    /// Emits an `Option<T>` value expression with a default for arithmetic.
-    fn option_value_text(&self, operand: &Operand, inner: TypeId) -> Result<String, EmitError> {
-        let fallback = match self.mir.types.get(inner) {
-            Some(Type::Int) => "0_i64",
-            Some(Type::Float) => "0.0",
-            _ => return Ok(self.operand_text(operand)?),
-        };
-        Ok(format!(
-            "{}.unwrap_or({fallback})",
-            self.operand_text(operand)?
-        ))
-    }
-
-    /// Emits an unwrapped optional arithmetic operand coerced to `target`.
-    fn option_value_as_type_text(
-        &self,
-        operand: &Operand,
-        inner: TypeId,
-        target: TypeId,
-    ) -> Result<String, EmitError> {
-        let value = self.option_value_text(operand, inner)?;
-        self.value_at_type_text(&value, inner, target)
-    }
 
     /// Emits Rust for selecting a function value from a static string-keyed table.
     fn function_table_lookup_text(
@@ -2479,64 +1393,9 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Emits Rust for an optional-chain field read coerced to a destination type.
-    pub(super) fn optional_field_text_for_dest(
-        &self,
-        receiver: &Operand,
-        field: Symbol,
-        dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
-        // An optional field read on a statically-absent receiver (`None`/unit, as
-        // for a host global the non-DOM profile does not model, e.g.
-        // `window?.document`) always short-circuits to `undefined`. The receiver
-        // carries no value to read, so fold to the destination's absent default
-        // instead of attempting a field access on a unit type.
-        if matches!(self.mir.types.get(inner_ty), Some(Type::None)) {
-            return self.default_value(dest_ty);
-        }
-        let field_ty = self.field_access_type(inner_ty, field)?;
-        if is_optional {
-            let value = self.field_access_text("_smelt_value", inner_ty, field)?;
-            if matches!(self.mir.types.get(inner_ty), Some(Type::Unknown))
-                && self.symbol_name(field)? == "groups"
-            {
-                return Ok(format!(
-                    "{receiver_text}.as_ref().map(|_smelt_value| {value})"
-                ));
-            }
-            if let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) {
-                if let Some(Type::Optional(field_inner)) = self.mir.types.get(field_ty) {
-                    let mapped = self.optional_inner_map_text(&value, *field_inner, *dest_inner)?;
-                    return Ok(format!(
-                        "{receiver_text}.as_ref().and_then(|_smelt_value| {mapped})"
-                    ));
-                }
-                let mapped = self.value_at_type_text(&value, field_ty, *dest_inner)?;
-                return Ok(format!(
-                    "{receiver_text}.as_ref().map(|_smelt_value| {mapped})"
-                ));
-            }
-            let mapped = self.value_at_type_text(&value, field_ty, dest_ty)?;
-            Ok(format!(
-                "{receiver_text}.as_ref().map_or({}, |_smelt_value| {mapped})",
-                self.default_value(dest_ty)?
-            ))
-        } else {
-            let value = self.field_access_text(&receiver_text, inner_ty, field)?;
-            if let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) {
-                if let Some(Type::Optional(field_inner)) = self.mir.types.get(field_ty) {
-                    return self.optional_inner_map_text(&value, *field_inner, *dest_inner);
-                }
-                let mapped = self.value_at_type_text(&value, field_ty, *dest_inner)?;
-                return Ok(format!("Some({mapped})"));
-            }
-            self.value_at_type_text(&value, field_ty, dest_ty)
-        }
-    }
 
     /// Returns the static type produced by a field read helper.
-    fn field_access_type(&self, receiver_ty: TypeId, field: Symbol) -> Result<TypeId, EmitError> {
+    pub(super) fn field_access_type(&self, receiver_ty: TypeId, field: Symbol) -> Result<TypeId, EmitError> {
         if let Some(Type::Dict(_, value)) = self.mir.types.get(receiver_ty) {
             return Ok(*value);
         }
@@ -2608,282 +1467,12 @@ impl FunctionEmitter<'_> {
         self.type_id(Type::Unknown)
     }
 
-    /// Emits Rust for a TypeScript optional-chain index read.
-    pub(super) fn optional_index_text(
-        &self,
-        receiver: &Operand,
-        index: &Operand,
-        dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
-        let result_ty = if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty) {
-            *inner
-        } else {
-            self.type_id(Type::Unknown)?
-        };
-        if is_optional {
-            let value =
-                self.optional_index_access_text("_smelt_value", inner_ty, index, result_ty)?;
-            Ok(format!(
-                "{receiver_text}.as_ref().and_then(|_smelt_value| {value})"
-            ))
-        } else {
-            self.optional_index_access_text(&receiver_text, inner_ty, index, result_ty)
-        }
-    }
 
-    /// Emits Rust for a TypeScript optional-chain method call.
-    pub(super) fn optional_method_text(
-        &self,
-        receiver: &Operand,
-        method: Symbol,
-        args: &[Operand],
-        dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
-        let method_name = sanitize_ident(self.symbol_name(method)?);
-        let args_text = args
-            .iter()
-            .map(|arg| self.operand_text(arg))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", ");
-        if args.is_empty()
-            && self.mir.types.get(inner_ty) == Some(&Type::String)
-            && matches!(
-                self.symbol_name(method)?,
-                "toUpperCase" | "to_upper_case" | "toLowerCase" | "to_lower_case"
-            )
-        {
-            let rust_method_name = match self.symbol_name(method)? {
-                "toUpperCase" | "to_upper_case" => "to_uppercase",
-                "toLowerCase" | "to_lower_case" => "to_lowercase",
-                _ => {
-                    return Err(EmitError::new(
-                        "unsupported optional string case-conversion method",
-                    ));
-                }
-            };
-            if is_optional {
-                return Ok(format!(
-                    "{receiver_text}.as_ref().map(|_smelt_value| _smelt_value.{rust_method_name}())"
-                ));
-            }
-            return Ok(format!("Some({receiver_text}.{rust_method_name}())"));
-        }
-        if is_optional {
-            if self.optional_method_returns_optional(inner_ty, method, dest_ty)? {
-                return Ok(format!(
-                    "{receiver_text}.as_ref().and_then(|_smelt_value| _smelt_value.{method_name}({args_text}))"
-                ));
-            }
-            Ok(format!(
-                "{receiver_text}.as_ref().map(|_smelt_value| _smelt_value.{method_name}({args_text}))"
-            ))
-        } else {
-            Ok(format!("Some({receiver_text}.{method_name}({args_text}))"))
-        }
-    }
 
-    /// Return whether optional method chaining should flatten the method result.
-    fn optional_method_returns_optional(
-        &self,
-        receiver_ty: TypeId,
-        method: Symbol,
-        dest_ty: TypeId,
-    ) -> Result<bool, EmitError> {
-        let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) else {
-            return Ok(false);
-        };
-        let Some(return_ty) = self.method_return_type(receiver_ty, method)? else {
-            return Ok(false);
-        };
-        Ok(matches!(
-            self.mir.types.get(return_ty),
-            Some(Type::Optional(return_inner)) if return_inner == dest_inner
-        ))
-    }
 
-    /// Resolve the static return type for a known class or interface method.
-    fn method_return_type(
-        &self,
-        receiver_ty: TypeId,
-        method: Symbol,
-    ) -> Result<Option<TypeId>, EmitError> {
-        let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
-            return Ok(None);
-        };
-        if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
-            for method_id in &class.methods {
-                let function = self
-                    .mir
-                    .functions
-                    .get(id_index(method_id.0, "method index does not fit usize")?)
-                    .ok_or_else(|| EmitError::new("class method references an unknown function"))?;
-                if function.name == method {
-                    return Ok(Some(function.return_ty));
-                }
-            }
-            return Ok(None);
-        }
-        if let Some(interface) = self
-            .mir
-            .interfaces
-            .iter()
-            .find(|interface| interface.name == *name)
-        {
-            return Ok(interface
-                .methods
-                .iter()
-                .find(|signature| signature.name == method)
-                .map(|signature| signature.return_ty));
-        }
-        Ok(None)
-    }
 
-    /// Returns receiver source, the non-optional receiver type, and whether it was optional.
-    fn optional_receiver_parts(
-        &self,
-        receiver: &Operand,
-    ) -> Result<(String, TypeId, bool), EmitError> {
-        let receiver_ty = self.operand_ty(receiver)?;
-        let receiver_text = self.operand_text(receiver)?;
-        if let Some(Type::Optional(inner)) = self.mir.types.get(receiver_ty) {
-            Ok((receiver_text, *inner, true))
-        } else {
-            Ok((receiver_text, receiver_ty, false))
-        }
-    }
 
-    /// Emits TypeScript nullish coalescing for optional operands.
-    fn optional_coalesce_text(
-        &self,
-        optional: &Operand,
-        fallback: &Operand,
-        dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let optional_ty = self.operand_ty(optional)?;
-        if matches!(
-            self.mir.types.get(optional_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(optional_ty)
-        {
-            // The nullish `match` operates on the erased `SmeltUnknown` form. A
-            // concrete-union operand stores a tagged enum, so both the scrutinee
-            // and the fallback are rendered erased here and the tagged union is
-            // reconstructed by the destination coercion below.
-            let scrutinee_ty = if self.concrete_union_members(optional_ty).is_some() {
-                self.type_id(Type::Unknown)?
-            } else {
-                optional_ty
-            };
-            let optional_text = self.value_at_type(optional, scrutinee_ty)?;
-            let fallback_text = self.value_at_type(fallback, scrutinee_ty)?;
-            let coalesced = format!(
-                "match {optional_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => {fallback_text}, value => value }}"
-            );
-            if matches!(
-                self.mir.types.get(dest_ty),
-                Some(Type::Optional(inner)) if matches!(
-                    self.mir.types.get(*inner),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(*inner)
-            ) {
-                return Ok(format!("Some({coalesced})"));
-            }
-            // A concrete-union destination is not an erased boundary: coerce the
-            // erased coalesced value into the tagged union (`from_smelt_unknown`)
-            // rather than leaving it as `SmeltUnknown`.
-            let dest_is_erased = (matches!(
-                self.mir.types.get(dest_ty),
-                Some(Type::Unknown | Type::TypeParam { .. })
-            ) || matches!(
-                self.mir.types.get(dest_ty),
-                Some(Type::Union(_))
-            ) && self.concrete_union_members(dest_ty).is_none())
-                || self.is_erased_class_type(dest_ty);
-            if !dest_is_erased {
-                return self.value_at_type_text(&coalesced, scrutinee_ty, dest_ty);
-            }
-            return Ok(coalesced);
-        }
-        match self.mir.types.get(optional_ty) {
-            Some(Type::Optional(inner)) => {
-                if matches!(
-                    self.mir.types.get(dest_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(dest_ty)
-                {
-                    let optional_text = self.operand_text(optional)?;
-                    let present_text = self.value_at_type_text("value", *inner, dest_ty)?;
-                    let fallback_text = self.value_at_type(fallback, dest_ty)?;
-                    return Ok(format!(
-                        "{optional_text}.map_or_else(|| {fallback_text}, |value| {present_text})"
-                    ));
-                }
-                let fallback_ty = self.operand_ty(fallback)?;
-                if matches!(
-                    self.mir.types.get(fallback_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(fallback_ty)
-                {
-                    let optional_text = self.operand_text(optional)?;
-                    let fallback_text = self.value_at_type(fallback, fallback_ty)?;
-                    let mapped_value = self.value_at_type_text("value", fallback_ty, *inner)?;
-                    let fallback_option = format!(
-                        "match {fallback_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }}"
-                    );
-                    if matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
-                    {
-                        return Ok(format!("{optional_text}.or({fallback_option})"));
-                    }
-                    let coalesced = format!(
-                        "{optional_text}.unwrap_or_else(|| {fallback_option}.unwrap_or({}))",
-                        self.default_value(*inner)?
-                    );
-                    if dest_ty == *inner {
-                        return Ok(coalesced);
-                    }
-                    return self.value_at_type_text(&coalesced, *inner, dest_ty);
-                }
-                if let Some(Type::Optional(fallback_inner)) = self.mir.types.get(fallback_ty)
-                    && fallback_inner == inner
-                    && matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
-                {
-                    return Ok(format!(
-                        "{}.clone().or({})",
-                        self.operand_text(optional)?,
-                        self.operand_text(fallback)?
-                    ));
-                }
-                let coalesced = format!(
-                    "{}.clone().unwrap_or({})",
-                    self.operand_text(optional)?,
-                    self.value_at_type(fallback, *inner)?
-                );
-                if dest_ty == *inner {
-                    Ok(coalesced)
-                } else {
-                    self.value_at_type_text(&coalesced, *inner, dest_ty)
-                }
-            }
-            Some(Type::None) => self.operand_text(fallback),
-            _ => self.operand_text(optional),
-        }
-    }
 
-    /// Emit a source `Option<S>` as a destination `Option<T>`.
-    fn optional_inner_map_text(
-        &self,
-        value_text: &str,
-        source_inner: TypeId,
-        dest_inner: TypeId,
-    ) -> Result<String, EmitError> {
-        if source_inner == dest_inner {
-            return Ok(value_text.to_owned());
-        }
-        let mapped = self.value_at_type_text("_smelt_inner", source_inner, dest_inner)?;
-        Ok(format!("{value_text}.map(|_smelt_inner| {mapped})"))
-    }
 
     /// Packs scalar callback call arguments for an erased rest-vector callback ABI.
     fn rest_vector_call_args_text(
@@ -3028,52 +1617,104 @@ impl FunctionEmitter<'_> {
                 entries.join(" ")
             ));
         }
+        // A concrete callable-interface destination (a struct carrying a
+        // synthetic `__smelt_call` field plus its declared data/method fields)
+        // is built as a typed struct literal: the base callable fills
+        // `__smelt_call` and each recorded property fills its like-named field,
+        // every value coerced to the field's exact type. This is what turns the
+        // `debounce`/`throttle` pattern (a local function that receives
+        // `fn.schedule = …` writes and is then returned at a callable-interface
+        // type) into a real value instead of the previous behavior that dropped
+        // the props and returned only the bare callable.
+        if let Some(text) = self.callable_object_struct_text(callable, props, dest_ty)? {
+            return Ok(text);
+        }
         self.operand_text(callable)
     }
 
-    /// Emit an erased imported class instance as an unknown object.
+    /// Build a typed callable-interface struct literal for `CallableObjectAssign`.
     ///
-    /// External constructors from packages that are not part of the current
-    /// manifest cannot be called directly from generated Rust. The arguments
-    /// are still rendered into a discarded tuple so their lowered code remains
-    /// type-checked and any future side-effect modeling has a concrete place to
-    /// attach before the value is represented as `SmeltUnknown`.
-    fn external_class_instance_text(
+    /// Reuses the same field-iteration contract as
+    /// [`Self::record_literal_text_for_dest`]: the destination's declared fields
+    /// (including the synthetic `__smelt_call` slot and any generic phantom) are
+    /// emitted in order. The base callable supplies `__smelt_call`; each other
+    /// field is filled from the recorded property of the same name (last write
+    /// wins, already deduplicated upstream), coerced to the field's exact type
+    /// through `value_at_type`. An `Optional` field with no matching property
+    /// falls back to its default. A non-`Optional` field with no covering
+    /// property is a hard [`EmitError`] rather than a silent `Default::default()`
+    /// — a build blocker is preferable to an inert struct, and this only fires
+    /// for genuinely uncovered required fields (the working `Object.assign`
+    /// construction path always covers every declared field it targets).
+    ///
+    /// Returns `Ok(None)` when the destination is not a known record shape or is
+    /// not a callable interface (no `__smelt_call` field), so the caller keeps
+    /// its bare-callable fallback for non-interface destinations.
+    fn callable_object_struct_text(
         &self,
-        class: Symbol,
-        args: &[Operand],
-    ) -> Result<String, EmitError> {
-        let class_name = self.symbol_name(class)?;
-        if smelt_stdlib::typescript_stdlib_class(class_name)
-            == Some(smelt_stdlib::StdlibClass::RegExp)
-        {
-            let pattern = args.first().map_or_else(
-                || Ok("\"\".to_owned()".to_owned()),
-                |arg| self.string_like_operand_text(arg, "RegExp pattern"),
-            )?;
-            let flags = args.get(1).map_or_else(
-                || Ok("\"\".to_owned()".to_owned()),
-                |arg| self.string_like_operand_text(arg, "RegExp flags"),
-            )?;
-            return Ok(format!("SmeltRegExp::new({pattern}, {flags})"));
-        }
-        let args_text = args
-            .iter()
-            .map(|arg| self.operand_text(arg))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", ");
-        let args_tuple_text = if args_text.is_empty() {
-            "()".to_owned()
-        } else {
-            format!("({args_text},)")
+        callable: &Operand,
+        props: &[(Symbol, Operand)],
+        dest_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(Type::Class { name, args }) = self.mir.types.get(dest_ty) else {
+            return Ok(None);
         };
-        Ok(format!(
-            "{{ let _smelt_external_args = {args_tuple_text}; let mut _smelt_external = ::std::collections::HashMap::new(); _smelt_external.insert(\"__class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned())); SmeltUnknown::Object(SmeltObject::new(_smelt_external)) }}"
-        ))
+        let type_symbol = *name;
+        let type_args = args.clone();
+        if !self.is_interface_record_type(dest_ty)
+            && self.mir.classes.iter().all(|class| class.name != type_symbol)
+        {
+            return Ok(None);
+        }
+        let Some(fields) = self.structural_record_fields(dest_ty) else {
+            return Ok(None);
+        };
+        if fields.is_empty() {
+            return Ok(None);
+        }
+        // Only a genuine callable interface (one carrying the synthetic
+        // `__smelt_call` storage slot) is constructed this way; a plain record
+        // destination is left to the ordinary record path.
+        if !fields
+            .iter()
+            .any(|field| self.symbol_name(field.name) == Ok("__smelt_call"))
+        {
+            return Ok(None);
+        }
+
+        let mut prop_values = HashMap::new();
+        for (key, value) in props {
+            prop_values.insert(sanitize_ident(self.symbol_source_name(*key)?), value);
+        }
+
+        let mut field_text = Vec::new();
+        for field in &fields {
+            let raw_name = self.symbol_name(field.name)?;
+            let field_name = sanitize_ident(raw_name);
+            let value = if raw_name == "__smelt_call" {
+                self.value_at_type(callable, field.ty)?
+            } else if let Some(entry_value) = prop_values.get(&field_name) {
+                self.value_at_type(entry_value, field.ty)?
+            } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+                self.default_value(field.ty)?
+            } else {
+                return Err(EmitError::new(format!(
+                    "callable object construction is missing a value for required field `{raw_name}`"
+                )));
+            };
+            field_text.push(format!("{field_name}: {value}"));
+        }
+        if !type_args.is_empty() {
+            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+        }
+
+        let type_name = sanitize_ident(self.symbol_name(type_symbol)?);
+        Ok(Some(format!("{type_name} {{ {} }}", field_text.join(", "))))
     }
 
+
     /// Emits a field read against a named in-scope receiver value.
-    fn field_access_text(
+    pub(super) fn field_access_text(
         &self,
         receiver_text: &str,
         receiver_ty: TypeId,
@@ -3405,152 +2046,7 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits a JavaScript optional-chain index read against an in-scope receiver value.
-    ///
-    /// `value?.[index]` short-circuits only when the receiver is nullish, but a
-    /// missing array/string element still produces `undefined`. Smelt models
-    /// that as `None`, so this helper deliberately avoids the strict
-    /// `expect("index out of bounds")` used by normal element access.
-    fn optional_index_access_text(
-        &self,
-        receiver_text: &str,
-        receiver_ty: TypeId,
-        index: &Operand,
-        result_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        // A numbered group read (`match[n]`) has an `Optional(String)` result, so
-        // MIR routes it through `OptionalIndex`; `group_owned` already yields the
-        // `Option<String>` this path expects.
-        if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
-            && self.is_match_class_symbol(*name)?
-        {
-            return self.match_index_text(receiver_text, index);
-        }
-        // A class with an index signature backs keyed reads with a real store
-        // field (issue #84). A dynamic `bag[key]` read returns the store value
-        // for the key or `None` (missing key -> `undefined`), giving the honest
-        // `Option<T>` round-trip result rather than a stub.
-        if let Some((key_ty, _value_ty)) = self.class_index_store_types(receiver_ty) {
-            let store_text = format!("{receiver_text}.{CLASS_INDEX_STORE_FIELD}");
-            return self.dict_index_optional_read_text(&store_text, key_ty, index);
-        }
-        match self.mir.types.get(receiver_ty) {
-            Some(Type::List(item_ty)) => {
-                let index_text =
-                    self.optional_normalized_index_text(&format!("{receiver_text}.len()"), index)?;
-                if let Some(Type::Optional(inner)) = self.mir.types.get(*item_ty)
-                    && *inner == result_ty
-                {
-                    Ok(format!(
-                        "({index_text}).and_then(|index| {receiver_text}.get(index).cloned().flatten())"
-                    ))
-                } else {
-                    Ok(format!(
-                        "({index_text}).and_then(|index| {receiver_text}.get(index).cloned())"
-                    ))
-                }
-            }
-            Some(Type::Dict(key_ty, _)) => {
-                self.dict_index_optional_read_text(receiver_text, *key_ty, index)
-            }
-            Some(Type::String) => {
-                let index_text = self.optional_normalized_index_text(
-                    &format!("{receiver_text}.chars().count()"),
-                    index,
-                )?;
-                Ok(format!(
-                    "({index_text}).and_then(|index| {receiver_text}.chars().nth(index).map(|ch| ch.to_string()))"
-                ))
-            }
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            | Some(Type::Class { .. })
-                if matches!(
-                    self.mir.types.get(receiver_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || self.is_erased_class_type(receiver_ty) =>
-            {
-                let index_ty = self.operand_ty(index)?;
-                let index_text = self.operand_text(index)?;
-                let key_text = self.property_key_to_string_text(&index_text, index_ty)?;
-                let numeric_index_text = match self.mir.types.get(index_ty) {
-                    Some(Type::Int | Type::Float) => index_text,
-                    Some(Type::Bool) => format!("if {index_text} {{ 1.0 }} else {{ 0.0 }}"),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                    | Some(Type::Class { .. })
-                        if self.is_erased_class_type(index_ty)
-                            || matches!(
-                                self.mir.types.get(index_ty),
-                                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                            ) =>
-                    {
-                        format!(
-                            "match {index_text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
-                        )
-                    }
-                    _ => "f64::NAN".to_owned(),
-                };
-                let string_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
-                    "value.chars().nth(index).map(|ch| ch.to_string())".to_owned()
-                } else {
-                    "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))"
-                        .to_owned()
-                };
-                let array_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
-                    "values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value, other => other.to_string() })".to_owned()
-                } else {
-                    "values.get(index).cloned()".to_owned()
-                };
-                let object_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
-                    format!(
-                        "values.get(&{key_text}).map(|value| match value {{ SmeltUnknown::String(value) => value, other => other.to_string() }})"
-                    )
-                } else {
-                    format!("values.get(&{key_text})")
-                };
-                let primitive_none = "SmeltUnknown::Bool(_) | SmeltUnknown::Number(_) | SmeltUnknown::Symbol(_) | SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => None";
-                Ok(format!(
-                    r"match {receiver_text}.clone() {{
-                        SmeltUnknown::String(value) => {{
-                            let len = value.chars().count() as i64;
-                            let index = {numeric_index_text} as i64;
-                            let normalized = if index < 0 {{ len + index }} else {{ index }};
-                            usize::try_from(normalized).ok().and_then(|index| {string_some})
-                        }}
-                        SmeltUnknown::Array(values) => {{
-                            let len = values.len() as i64;
-                            let index = {numeric_index_text} as i64;
-                            let normalized = if index < 0 {{ len + index }} else {{ index }};
-                            usize::try_from(normalized).ok().and_then(|index| {array_some})
-                        }}
-                        SmeltUnknown::Object(values) => {object_some},
-                        {primitive_none},
-                    }}"
-                ))
-            }
-            _ => Ok("None".to_owned()),
-        }
-    }
 
-    /// Normalize an optional JavaScript array/string read without panicking on misses.
-    ///
-    /// Indexed source reads whose value is already optional model JavaScript
-    /// `undefined`; a negative or out-of-range normalized position therefore
-    /// remains `None` instead of entering strict Python-style index behavior.
-    fn optional_normalized_index_text(
-        &self,
-        len_expr: &str,
-        index: &Operand,
-    ) -> Result<String, EmitError> {
-        let index_ty = self.operand_ty(index)?;
-        let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
-            self.operand_text(index)?
-        } else {
-            self.value_at_type(index, self.type_id(Type::Float)?)?
-        };
-        Ok(format!(
-            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).ok() }}"
-        ))
-    }
 
     // Converts an operand to console.log argument format and returns format string and value.
 }

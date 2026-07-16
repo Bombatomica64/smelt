@@ -28,6 +28,11 @@ jobs:
             ref: 3c80f28bb394edbf89f1fc9978571dec8ed20edc
             manifest: Smelt.toml
             generated_manifest: dist-smelt/Cargo.toml
+          - name: es-toolkit
+            url: https://github.com/toss/es-toolkit.git
+            ref: e008a2818cd8d07469a5cc12ee0c02405d523e07
+            manifest: Smelt.toml
+            generated_manifest: dist-smelt/Cargo.toml
     steps:
       - name: Checkout Smelt
         uses: actions/checkout@v6

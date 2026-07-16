@@ -21,20 +21,28 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
+mod binary_ops;
 mod call;
 mod call_runtime;
+mod capture_analysis;
+mod cfg_queries;
+mod closures;
 mod coercion;
 mod control_flow;
 mod control_flow_match;
 mod core;
+mod host_interop;
 mod list;
 mod list_mutation;
 mod list_ordering;
 mod list_query;
 pub(crate) mod literals;
+mod local_analysis;
 mod map;
 mod numeric;
+mod optional_access;
 mod place;
+mod rendered_text_rewrite;
 mod rendered_value;
 mod set;
 mod strings;
@@ -509,7 +517,15 @@ fn callback_param_escapes_locally(
             )
         })
     });
+    // An async function runs its entire body inside the returned future, so any
+    // callback parameter it references is retained past the caller's statement
+    // (the future outlives the call expression). A borrowed `&dyn Fn` parameter
+    // cannot survive that, and callers passing `&*(temporary)` would drop the
+    // temporary at the end of the call statement (E0716/E0515). Async
+    // function-typed params must therefore enter as owned `Rc<dyn Fn…>` handles.
+    let retained_by_async_body = function.is_async;
     Ok(directly_returned
+        || retained_by_async_body
         || rebound_locally
         || escapes_into_timer
         || erased_or_dynamic_escape

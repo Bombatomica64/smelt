@@ -811,6 +811,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("impl<T> SmeltJsSet<T> {");
         writer.line("    fn new() -> Self { Self { entries: Vec::new() } }");
+        writer.line("    fn clear(&mut self) { self.entries.clear(); }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl<T: Clone + IntoSmeltUnknown> SmeltJsSet<T> {");
@@ -852,6 +853,12 @@ fn emit_source_with_free_function_router(
         writer.line("impl SmeltJsKeyEq for bool { fn same_js_key(&self, other: &Self) -> bool { self == other } }");
         writer.line("impl SmeltJsKeyEq for i64 { fn same_js_key(&self, other: &Self) -> bool { self == other } }");
         writer.line("impl SmeltJsKeyEq for f64 { fn same_js_key(&self, other: &Self) -> bool { (self.is_nan() && other.is_nan()) || self == other } }");
+        // A record/object used as a collection key compares by JavaScript
+        // reference identity (its stable object `id`), matching `same_js_key`'s
+        // object arm on the erased value. This lets a `Set`/`Map`/cache keyed by
+        // a concrete `SmeltRecord` resolve `SmeltJsKeyEq` without erasing to
+        // `SmeltUnknown` (was E0599: unsatisfied `SmeltJsKeyEq` bound).
+        writer.line("impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } }");
         writer.blank_line();
         // The fourth equality kind: JavaScript strict equality (`===`/`!==`).
         // Distinct from the other three — objects/arrays/functions compare by
@@ -1009,7 +1016,12 @@ fn emit_source_with_free_function_router(
             "    async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {",
         );
         writer.line("        if self.state.borrow().is_none() {");
-        writer.line("            if let Some(future) = self.future.borrow_mut().take() {");
+        // Bind the taken future to a local before awaiting so no `RefMut` from
+        // `borrow_mut()` stays alive across the `.await` (pre-2024-edition
+        // temporary-scope rules would otherwise keep it borrowed and panic on
+        // re-entry through the shared cell).
+        writer.line("            let taken = self.future.borrow_mut().take();");
+        writer.line("            if let Some(future) = taken {");
         writer
             .line("                let settled = future.await.map_err(|error| error.to_string());");
         writer.line("                *self.state.borrow_mut() = Some(settled);");
@@ -1019,6 +1031,20 @@ fn emit_source_with_free_function_router(
         writer.line("            if let Some(result) = self.state.borrow().clone() {");
         writer.line("                return result.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error).into());");
         writer.line("            }");
+        // The result cell is still empty: another task (or a timer callback) must
+        // settle it. When timer helpers exist, drive the cooperative scheduler and
+        // virtual clock the same way the spin-wait futures do (H1/H3) so a future
+        // handed to the detached promise-task queue, or one whose resolution
+        // depends on a pending timer, cannot spin forever with nothing advancing
+        // time. Without timer helpers there is no timer queue or detached-task
+        // queue to drive, so a bare cooperative yield is the only (and correct)
+        // driver, and the helper symbols are not emitted to reference.
+        if needs_timer_helpers {
+            writer.line(format!(
+                "            {sleep_ms}(0.0).await;",
+                sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+            ));
+        }
         writer.line("            tokio::task::yield_now().await;");
         writer.line("        }");
         writer.line("    }");
@@ -1039,6 +1065,70 @@ fn emit_source_with_free_function_router(
         writer.line("        current = promise.smelt_await().await?;");
         writer.line("    }");
         writer.line("    Ok(current)");
+        writer.line("}");
+        writer.blank_line();
+        // Generic promise-value ABI. A source `Promise<T>` / `Type::Future(T)`
+        // lowers to `SmeltFuture<T>` in *every* position (parameter, field,
+        // return, local, async-op result), so the same MIR future type renders
+        // one Rust type everywhere instead of a bare
+        // `Pin<Box<dyn Future>>` in some positions and a value in others. The
+        // handle is a shared `Rc<RefCell<..>>` so it is cheaply `Clone`
+        // (matching JS promise-value copy semantics) and `Default` (a ready
+        // default value). `smelt_await` drives the stored future once, caches the
+        // resolved value, and serves later awaits from that cache — JS promises
+        // may be awaited multiple times, and each await after the first resolves
+        // from the cached value (single-consumer of the underlying future).
+        writer.line("#[allow(dead_code)]");
+        writer.line("enum SmeltFutureState<T> {");
+        writer.line("    Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),");
+        writer.line("    Resolved(T),");
+        writer.line("    Taken,");
+        writer.line("}");
+        writer.line("pub struct SmeltFuture<T> {");
+        writer.line("    state: ::std::rc::Rc<::std::cell::RefCell<SmeltFutureState<T>>>,");
+        writer.line("}");
+        writer.line("impl<T> Clone for SmeltFuture<T> { fn clone(&self) -> Self { Self { state: self.state.clone() } } }");
+        writer.line("impl<T: Default> Default for SmeltFuture<T> { fn default() -> Self { Self::resolved(T::default()) } }");
+        writer.line("impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(\"SmeltFuture\") } }");
+        writer.line("#[allow(dead_code)]");
+        writer.line("impl<T> SmeltFuture<T> {");
+        writer.line("    /// Wrap a live future behind a cloneable promise-value handle.");
+        writer.line("    fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Pending(future))) } }");
+        writer.line("    /// Build an already-resolved promise-value handle.");
+        writer.line("    fn resolved(value: T) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Resolved(value))) } }");
+        writer.line("    /// Drive the stored future once, cache its resolved value, and serve");
+        writer.line("    /// later awaits from that cache (single-consumer of the future).");
+        writer.line("    async fn smelt_await(&self) -> Result<T, Box<dyn std::error::Error>> where T: Clone {");
+        writer.line("        let pending = {");
+        writer.line("            let mut guard = self.state.borrow_mut();");
+        writer.line("            if matches!(&*guard, SmeltFutureState::Pending(_)) {");
+        writer.line("                match ::std::mem::replace(&mut *guard, SmeltFutureState::Taken) {");
+        writer.line("                    SmeltFutureState::Pending(future) => Some(future),");
+        writer.line("                    _ => None,");
+        writer.line("                }");
+        writer.line("            } else { None }");
+        writer.line("        };");
+        writer.line("        if let Some(future) = pending {");
+        writer.line("            let value = future.await?;");
+        writer.line("            *self.state.borrow_mut() = SmeltFutureState::Resolved(value.clone());");
+        writer.line("            return Ok(value);");
+        writer.line("        }");
+        writer.line("        let guard = self.state.borrow();");
+        writer.line("        match &*guard {");
+        writer.line("            SmeltFutureState::Resolved(value) => Ok(value.clone()),");
+        writer.line("            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, \"future already consumed\").into()),");
+        writer.line("        }");
+        writer.line("    }");
+        writer.line("}");
+        // `SmeltFuture<T>` is `IntoFuture`, so an ordinary Rust `.await` on a
+        // promise value drives it through `smelt_await` — every generated `.await`
+        // site works on the wrapper without a bespoke call form. The underlying
+        // futures are `'static` (the prior `Pin<Box<dyn Future>>` ABI was too), so
+        // `T: 'static` here matches existing constraints.
+        writer.line("impl<T: Clone + 'static> ::std::future::IntoFuture for SmeltFuture<T> {");
+        writer.line("    type Output = Result<T, Box<dyn std::error::Error>>;");
+        writer.line("    type IntoFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>;");
+        writer.line("    fn into_future(self) -> Self::IntoFuture { Box::pin(async move { self.smelt_await().await }) }");
         writer.line("}");
         writer.blank_line();
         writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
@@ -1484,10 +1574,12 @@ fn emit_source_with_free_function_router(
             writer.line(
                 "    let target_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));",
             );
+            // Fire every timer due within the requested window, advancing virtual
+            // time to each in turn and draining the microtask queue between fires.
             writer.line("    loop {");
             writer.line("        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms).map(|timer| timer.due_ms).min());");
             writer.line("        let Some(next_due) = next_due else { break; };");
-            writer.line("        SMELT_TIMER_NOW_MS.with(|now| now.set(next_due));");
+            writer.line("        SMELT_TIMER_NOW_MS.with(|now| if next_due > now.get() { now.set(next_due); });");
             writer.line(format!(
                 "        {drain_due_timers}();",
                 drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
@@ -1497,7 +1589,39 @@ fn emit_source_with_free_function_router(
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
             ));
             writer.line("    }");
-            writer.line("    SMELT_TIMER_NOW_MS.with(|now| now.set(target_ms));");
+            writer.line("    SMELT_TIMER_NOW_MS.with(|now| if target_ms > now.get() { now.set(target_ms); });");
+            // Node-style run-until-idle. A zero-delay sleep is what the generated
+            // promise-executor spin loops await while waiting for a result cell to
+            // be settled (e.g. by a `setTimeout(resolve, 100)` timer). With no
+            // window to fire into, virtual time would never reach that timer and
+            // the spin loop would starve forever. When the requested window has no
+            // due timer AND no detached promise task is still runnable (the
+            // microtask queue is drained, so nothing else can make progress), the
+            // event loop is idle: advance virtual time to the earliest pending
+            // timer and fire it, exactly as Node advances to its timer phase once
+            // microtasks settle. Repeat until either the queue has runnable work
+            // again, a timer settles the awaited state, or no timers remain.
+            //
+            // This applies only to a zero-delay sleep. A positive-delay sleep has
+            // a real deadline: it must fire exactly the timers due within its
+            // window (handled above) and must not jump the clock to a later timer,
+            // or a bounded `await delay(35)` would over-fire a `setInterval`.
+            writer.line("    'idle: {");
+            writer.line("        if delay_ms != 0 { break 'idle; }");
+            writer.line("        let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());");
+            writer.line("        if tasks_pending { break 'idle; }");
+            writer.line("        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().map(|timer| timer.due_ms).min());");
+            writer.line("        let Some(earliest) = earliest else { break 'idle; };");
+            writer.line("        SMELT_TIMER_NOW_MS.with(|now| if earliest > now.get() { now.set(earliest); });");
+            writer.line(format!(
+                "        {drain_due_timers}();",
+                drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
+            ));
+            writer.line(format!(
+                "        {drain_promise_tasks}().await;",
+                drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
+            ));
+            writer.line("    }");
             writer.line(format!(
                 "    {drain_promise_tasks}().await;",
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
@@ -1705,6 +1829,43 @@ fn emit_source_with_free_function_router(
                     match_writer.line("SmeltUnknown::Object(_) => 6,");
                     match_writer.line("SmeltUnknown::Function(_) => 7,");
                     match_writer.line("SmeltUnknown::Promise(_) => 9,");
+                });
+            },
+        );
+        writer.blank_line();
+        // JavaScript's Abstract Relational Comparison (`<`, `<=`, `>`, `>=`) for
+        // two erased values: when *both* operands are strings it compares them
+        // lexically (byte order over the UTF-8 encoding, matching JS's UTF-16
+        // code-unit order for the BMP), otherwise it runs `ToNumber` on both and
+        // compares as `f64`. A `NaN` on either side yields `None` (an unordered
+        // result), so every relational operator reports `false` — exactly the JS
+        // outcome. Codegen routes the both-erased relational arms here so a
+        // runtime string comparison stays lexical instead of collapsing to
+        // `NaN`-vs-`NaN` under blind numeric coercion.
+        writer.block(
+            "fn smelt_unknown_js_relational_ordering(left: &SmeltUnknown, right: &SmeltUnknown) -> Option<::std::cmp::Ordering>",
+            |fn_writer| {
+                fn_writer.block("match (left, right)", |match_writer| {
+                    match_writer.line("(SmeltUnknown::String(left), SmeltUnknown::String(right)) => Some(left.cmp(right)),");
+                    match_writer.line("_ => smelt_unknown_to_number(left).partial_cmp(&smelt_unknown_to_number(right)),");
+                });
+            },
+        );
+        writer.blank_line();
+        // `ToNumber` for an erased value, mirroring the inline coercion codegen
+        // emits when a `SmeltUnknown` flows into a numeric context: numeric
+        // strings parse to their value, non-numeric strings become `NaN`, booleans
+        // map to `0`/`1`, `__smelt_date` objects surface their timestamp, and
+        // every remaining shape is `NaN`.
+        writer.block(
+            "fn smelt_unknown_to_number(value: &SmeltUnknown) -> f64",
+            |fn_writer| {
+                fn_writer.block("match value", |match_writer| {
+                    match_writer.line("SmeltUnknown::Number(value) => *value,");
+                    match_writer.line("SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },");
+                    match_writer.line("SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),");
+                    match_writer.line("SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },");
+                    match_writer.line("SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,");
                 });
             },
         );
@@ -2192,13 +2353,25 @@ fn emit_source_with_free_function_router(
         let has_function_field = fields
             .iter()
             .any(|field| type_contains_function(mir, field.ty));
+        // A value class supports structural equality (JS `==`/`===`/`toBe` on the
+        // by-value representation, and derived comparisons in generated specs)
+        // only when every stored field is itself `PartialEq`. Function fields
+        // (`dyn Fn`) and promise fields (`SmeltPromise`, a `Clone`-only shared
+        // future handle) are the two prelude shapes without `PartialEq`, so the
+        // derive is gated on their absence.
+        let supports_partial_eq = fields.iter().all(|field| {
+            type_supports_partial_eq(mir, &context, field.ty, &mut Vec::new())
+        });
+        let partial_eq_derive = if supports_partial_eq { ", PartialEq" } else { "" };
         if has_function_field {
             writer.line("#[derive(Clone)]");
             writer.line("#[allow(dead_code)]");
         } else if needs_serde_json && class_is_json_serializable(mir, class) {
-            writer.line("#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]");
+            writer.line(format!(
+                "#[derive(Clone, Debug, Default{partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
+            ));
         } else {
-            writer.line("#[derive(Clone, Debug, Default)]");
+            writer.line(format!("#[derive(Clone, Debug, Default{partial_eq_derive})]"));
         }
         for field in &fields {
             field_lines.push(format!(
@@ -2913,6 +3086,19 @@ fn emit_reference_class_storage(
         },
     );
 
+    // Hand-written identity `PartialEq`: a reference class has JavaScript object
+    // identity, so `==`/`===`/`toBe` compare whether two handles share the same
+    // cell (`Rc::ptr_eq`), never the cell contents. This also avoids requiring
+    // `Inner: PartialEq`, which a callback-storing inner record could not satisfy.
+    writer.block(
+        format!("impl{impl_generics} PartialEq for {name}{type_args}"),
+        |impl_writer| {
+            impl_writer.block("fn eq(&self, other: &Self) -> bool", |fn_writer| {
+                fn_writer.line("::std::rc::Rc::ptr_eq(&self.0, &other.0)");
+            });
+        },
+    );
+
     // `Default` wraps a defaulted inner record in a fresh cell.
     writer.block(
         format!("impl{impl_generics} Default for {name}{type_args}"),
@@ -3159,6 +3345,77 @@ fn type_contains_function(mir: &Mir, ty: TypeId) -> bool {
             | Type::Class { .. },
         )
         | None => false,
+    }
+}
+
+/// Return whether a type supports Rust `PartialEq` in generated code.
+///
+/// A value class derives `PartialEq` for JavaScript structural comparison
+/// (`==`/`===`/`toBe` on the by-value representation and derived comparisons in
+/// generated specs) only when every stored field is itself comparable. The two
+/// prelude shapes without `PartialEq` are `dyn Fn` callbacks and the
+/// `Clone`-only `SmeltPromise` shared-future handle, so any type transitively
+/// reaching one is rejected. Class fields are followed through their effective
+/// field layout — a reference class always compares by identity (`Rc::ptr_eq`)
+/// and is therefore always comparable, while a value class is comparable only
+/// when its own fields are. `seen` breaks recursive class cycles by treating an
+/// in-progress class as comparable (its fields are validated by the outer call).
+fn type_supports_partial_eq(
+    mir: &Mir,
+    context: &EmitContext,
+    ty: TypeId,
+    seen: &mut Vec<smelt_hir::Symbol>,
+) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::Function(_) | Type::Future(_)) => false,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+            type_supports_partial_eq(mir, context, *item, seen)
+        }
+        Some(Type::Dict(key, value)) => {
+            type_supports_partial_eq(mir, context, *key, seen)
+                && type_supports_partial_eq(mir, context, *value, seen)
+        }
+        // A concrete union lowers to a generated enum with a hand-written
+        // `PartialEq` (and an erased union falls back to `SmeltUnknown`, which is
+        // also `PartialEq`), so a union field is always comparable regardless of
+        // its members.
+        Some(Type::Union(_)) => true,
+        Some(Type::Tuple(items)) => items
+            .iter()
+            .all(|item| type_supports_partial_eq(mir, context, *item, seen)),
+        Some(Type::Class { name, .. }) => {
+            let name = *name;
+            // A reference class compares by identity (`Rc::ptr_eq`) with no
+            // constraint on its inner fields, so it is always comparable.
+            if context.is_reference_class(name) {
+                return true;
+            }
+            let Some(class) = mir.classes.iter().find(|candidate| candidate.name == name) else {
+                // An external/builtin class surface (e.g. a runtime prelude type)
+                // is assumed comparable; only user classes gate the derive.
+                return true;
+            };
+            if seen.contains(&name) {
+                return true;
+            }
+            seen.push(name);
+            let comparable = effective_class_fields(mir, class)
+                .iter()
+                .all(|field| type_supports_partial_eq(mir, context, field.ty, seen));
+            seen.pop();
+            comparable
+        }
+        Some(
+            Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::None
+            | Type::Unknown
+            | Type::Never
+            | Type::TypeParam { .. },
+        )
+        | None => true,
     }
 }
 

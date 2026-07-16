@@ -147,9 +147,10 @@ export function getVal(h: Holder): string | number {
 ",
     );
 
-    // The class struct keeps deriving the standard traits.
+    // The class struct keeps deriving the standard traits (plus `PartialEq`,
+    // which the union field's hand-written `PartialEq` satisfies).
     assert!(
-        source.contains("#[derive(Clone, Debug, Default)]"),
+        source.contains("#[derive(Clone, Debug, Default, PartialEq)]"),
         "{source}"
     );
     // The union enum carries hand-written Debug and Default impls.
@@ -2702,8 +2703,35 @@ function truncateDifference(left: bigint, right: number): bigint {
     );
 
     assert!(
-        source.contains("((right.clone() as f64).trunc() as i64)"),
+        source.contains("(right.clone() as f64).trunc() as i64"),
         "{source}"
+    );
+    // The int-from-float coercion keeps only the parentheses `.trunc()` needs
+    // as a method receiver; the whole cast is not wrapped again, which drew a
+    // spurious `unused_parens` in every value position it landed in.
+    assert!(
+        !source.contains("((right.clone() as f64).trunc() as i64)"),
+        "int-from-float coercion should not re-wrap the whole cast: {source}"
+    );
+}
+
+#[test]
+fn emits_int_to_float_coercion_without_defensive_parentheses() {
+    let source = source_for(
+        r"
+function widen(values: unknown[]): number {
+  return values.length;
+}
+",
+    );
+
+    // `values.length` lowers to `values.len() as f64`; the coercion seam must
+    // not wrap the cast in defensive parentheses, which the compiler flags as
+    // `unused_parens` wherever the value stands alone.
+    assert!(source.contains("as f64"), "{source}");
+    assert!(
+        !source.contains("(values.len() as f64)"),
+        "int-to-float coercion should not wrap the cast in parentheses: {source}"
     );
 }
 
@@ -6882,6 +6910,63 @@ export function unionBy<T>(arr1: T[], arr2: T[], mapper: (item: T) => unknown): 
 }
 
 #[test]
+fn erased_rest_callback_maps_through_erased_call_abi() {
+    // A `.map` callback whose value is an erased rest callable
+    // (`SmeltErasedFunction`, e.g. the result of a currying/arity helper) is not
+    // a Rust `Fn` and cannot be invoked with call syntax. The array-callback
+    // lowering must route it through the erased callable ABI (`.call(..)`) rather
+    // than emitting `(smelt_callback)(..)`, which fails to compile (E0618).
+    let source = source_for(
+        r#"
+function makeCapped(): (...args: unknown[]) => unknown {
+  return (...args: unknown[]) => args[0];
+}
+export function run(items: string[]): unknown[] {
+  const capped = makeCapped();
+  return items.map(capped);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_callback.call("),
+        "an erased rest callback must be invoked through the erased ABI\n{source}"
+    );
+    assert!(
+        !source.contains("(smelt_callback)(SmeltList"),
+        "an erased rest callback must not be called with call syntax\n{source}"
+    );
+}
+
+#[test]
+fn borrowed_rest_adapter_binds_owned_callback() {
+    // Forwarding an owned callback value to a helper that expects an erased rest
+    // callback builds a borrowed (`&mut`) wrapper closure whose body refers to a
+    // `smelt_callback` binding. When the source is an owned value (not a borrowed
+    // function parameter), the adapter must introduce that binding inside the
+    // borrowed temporary, otherwise `smelt_callback` is unresolved (E0425).
+    let source = source_for(
+        r#"
+function unzipWith(arrays: number[][], iteratee: (...values: unknown[]) => unknown): unknown[] {
+  const result: unknown[] = [];
+  for (const group of arrays) {
+    result.push(iteratee(group[0], group[1], group[2]));
+  }
+  return result;
+}
+export function run(zipped: number[][]): unknown[] {
+  return unzipWith(zipped, (item: number, item2: number, item3: number) => item + item2 + item3);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("&mut { let smelt_callback ="),
+        "a borrowed owned-callback adapter must bind smelt_callback\n{source}"
+    );
+}
+
+#[test]
 fn tuple_length_emits_constant_arity() {
     // A fixed-arity tuple has no Rust `.len()` method (E0599). Its JavaScript
     // `.length` is a compile-time constant, so the length rvalue must emit the
@@ -7061,6 +7146,48 @@ export function makeFormatter(): Formatter {
 }
 
 #[test]
+fn record_to_generic_struct_adapter_erases_out_of_scope_type_params() {
+    // Regression (es-toolkit flowRight_spec / curry): a record adapted into a
+    // parameterized callable interface (`CurriedFunction1<T1, R>`) at a
+    // NON-generic call site rendered its `__smelt_call` field default with the
+    // interface's own type param spelled literally (`Rc<dyn Fn() ->
+    // CurriedFunction1<T1, SmeltUnknown>>`). `T1` is not in scope in the
+    // non-generic caller, so it was an unresolvable name (was E0425). The
+    // adapter must only keep type params that are actually in scope for the
+    // emitted function and erase the rest to `SmeltUnknown`.
+    let source = source_for(
+        r"
+interface CurriedFunction1<T1, R> {
+  (): CurriedFunction1<T1, R>;
+  (t1: T1): R;
+  tag: string;
+}
+export function makeCurried(): CurriedFunction1<number, string> {
+  const built: CurriedFunction1<number, string> = { tag: 'x' } as CurriedFunction1<number, string>;
+  return built;
+}
+",
+    );
+    // Only inspect the non-generic `make_curried` body; the generic struct's own
+    // `Default`/impl blocks legitimately spell `T1`/`R` because those are in
+    // scope there.
+    let body = source
+        .split("fn make_curried")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or("");
+    assert!(
+        !body.contains("CurriedFunction1<T1"),
+        "record-to-struct adapter must not spell an out-of-scope type param `T1` \
+         in the non-generic caller: {source}"
+    );
+    assert!(
+        body.contains("CurriedFunction1<SmeltUnknown, SmeltUnknown>"),
+        "out-of-scope type params should erase to SmeltUnknown: {source}"
+    );
+}
+
+#[test]
 fn tuple_assertion_on_list_value_preserves_list_representation() {
     // Regression (es-toolkit xorBy): a TypeScript tuple assertion applied to a
     // list value (`xs.filter(...) as [T]`) is type-level only. Materializing the
@@ -7229,5 +7356,640 @@ export function useAttempt(): unknown {
         source.contains("&mut { let smelt_callback ="),
         "the borrowed rest-callback adapter must bind smelt_callback inside the \
          &mut block it captures: {source}"
+);
+}
+
+#[test]
+fn wraps_erased_rest_call_result_in_option_for_optional_return() {
+    // The fully-erased `SmeltErasedFunction::call` ABI always yields a bare
+    // `SmeltUnknown`, even when the callee's declared return type is
+    // `ReturnType<F> | undefined` (which lowers to `Option<SmeltUnknown>`).
+    // The call result must therefore be coerced at the assignment seam — a
+    // raw `SmeltUnknown` stored into an `Option<SmeltUnknown>` place is a
+    // type error (E0308). This mirrors es-toolkit's `after`/`before`.
+    let source = source_for(
+        r#"
+type AnyFn = (...args: unknown[]) => unknown;
+
+function after(n: number, func: AnyFn): (...args: unknown[]) => unknown | undefined {
+  let count = 0;
+  return (...args: unknown[]) => {
+    count += 1;
+    if (count >= n) {
+      return func(...args);
+    }
+    return undefined;
+  };
+}
+
+export function run(): unknown | undefined {
+  const gated = after(0, () => 1);
+  const result = gated();
+  return result;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("Option<SmeltUnknown>"),
+        "the optional erased return should lower to `Option<SmeltUnknown>`\n{source}"
+    );
+    assert!(
+        source.contains(".call(") && source.contains("Some("),
+        "an erased-rest call feeding an optional return must wrap its \
+         `SmeltUnknown` result in `Some(..)`\n{source}"
+    );
+}
+
+/// A `RegExp.lastIndex` write must target the backing `RefCell<usize>` through
+/// `borrow_mut()`, narrowing the numeric right-hand side back to `usize`. The
+/// former read-path text `(*regex.last_index.borrow() as f64)` is not a valid
+/// assignment target (E0070).
+#[test]
+fn regexp_last_index_write_targets_borrow_mut() {
+    let source = source_for(
+        r#"
+export function run(): number {
+  const regex = /a/g;
+  regex.lastIndex = 10;
+  return regex.lastIndex;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("*regex.last_index.borrow_mut() = (") && source.contains(") as usize;"),
+        "lastIndex write should go through borrow_mut with a usize cast\n{source}"
+    );
+    assert!(
+        !source.contains("borrow() as f64) = "),
+        "the invalid cast-as-lvalue read form must not be used for writes\n{source}"
+    );
+}
+
+/// Comparing a combinator result (already an erased `Rc<dyn Fn(...) -> _>`)
+/// against a locally bound concrete closure by identity must coerce both
+/// operands to the common `Rc<dyn Fn(...)>` type before `Rc::ptr_eq`, or the
+/// two distinct `Rc<T>` types fail to unify (E0308).
+#[test]
+fn function_ptr_eq_coerces_operands_to_common_dyn_type() {
+    let source = source_for(
+        r#"
+export function run(fns: Array<() => unknown>): boolean {
+  const a = fns[0];
+  const b = fns[1];
+  return a === b;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("::std::rc::Rc::ptr_eq(&{ let smelt_lhs_fn:")
+            && source.contains("let smelt_rhs_fn:"),
+        "function identity comparison must coerce both operands to a common \
+         dyn-Fn type before ptr_eq\n{source}"
+    );
+}
+
+/// A `never`-returning predicate (`(value: never) => value`) evaluates to a
+/// real erased `SmeltUnknown` at runtime. Coercing that result into a concrete
+/// `bool` parameter must route through JS-truthiness extraction rather than
+/// handing the raw `SmeltUnknown` to a `bool` slot (E0308).
+#[test]
+fn never_return_coerces_to_bool_via_truthiness() {
+    let source = source_for(
+        r#"
+function pickBy(obj: Record<string, unknown>, pred: (v: unknown) => boolean): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key in obj) {
+    if (pred(obj[key])) {
+      out[key] = obj[key];
+    }
+  }
+  return out;
+}
+
+export function run(): Record<string, unknown> {
+  const obj = {};
+  const shouldPick = (value: never) => value;
+  return pickBy(obj, shouldPick);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Bool(value) => value")
+            && source.contains("=> false"),
+        "a never-returning predicate result must be coerced to bool via \
+         truthiness\n{source}"
+    );
+}
+
+/// An object literal passed where a `number | Options` union is expected must
+/// be injected into the record-shaped union arm. Previously only collection
+/// shapes were shape-matched, so a `Dict`/record source against a class arm
+/// found no member and the raw record was passed (E0308). Mirrors es-toolkit's
+/// `retry(fn, { retries })`.
+#[test]
+fn object_literal_injects_into_record_union_arm() {
+    let source = source_for(
+        r#"
+interface Options {
+  retries?: number;
+}
+
+function retry(fn: () => number, options: number | Options): number {
+  return fn();
+}
+
+export function run(): number {
+  return retry(() => 1, { retries: 3 });
+}
+"#,
+    );
+
+    assert!(
+        source.contains("::M1("),
+        "an object literal must be injected into the record-shaped union arm\n{source}"
+    );
+}
+
+/// Slicing a typed list into an erased (`SmeltUnknown`) destination must
+/// materialize a real `SmeltList` and erase it, rather than leaking a bare
+/// `Vec` into the `SmeltUnknown` slot (E0308). Mirrors es-toolkit's `ary`,
+/// which caps a rest-argument list and forwards it through an erased value.
+#[test]
+fn list_slice_into_unknown_destination_materializes_smelt_list() {
+    let source = source_for(
+        r#"
+export function run(args: string[]): unknown {
+  const capped: unknown = args.slice(0, 2);
+  return capped;
+}
+"#,
+    );
+
+    // The slice is materialized as an identity-bearing array value and erased,
+    // never assigned as a raw `Vec` collected straight into a `SmeltUnknown`.
+    assert!(
+        source.contains("SmeltArray::with_id") || source.contains("SmeltList::with_id"),
+        "a slice into an erased destination must build an identity-bearing list\n{source}"
+    );
+    assert!(
+        !source.contains(": SmeltUnknown = args.clone().iter().skip"),
+        "the bare-Vec slice must not be assigned directly to a SmeltUnknown\n{source}"
+    );
+}
+
+/// A callback that returns a future, adapted to a target whose expected return
+/// is a plain (non-future) value, must have its future result wrapped as a
+/// `SmeltUnknown::Promise` rather than leaking a raw `Pin<Box<dyn Future>>`
+/// into the value slot (E0308). Mirrors es-toolkit's `attempt(async () => 1)`,
+/// where the synchronous `attempt` receives the returned promise as its value.
+#[test]
+fn async_callback_into_sync_slot_wraps_future_as_promise() {
+    let source = source_for(
+        r#"
+function attempt(fn: () => unknown): unknown {
+  return fn();
+}
+
+export function run(): unknown {
+  return attempt(async () => 1);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Promise(SmeltPromise::from_future"),
+        "an async callback flowing into a non-future value slot must be wrapped \
+         as a promise\n{source}"
+    );
+}
+
+/// A spread call (`fn(...values)`) must route to the variadic overload rather
+/// than a fixed-arity one: the spread's runtime length is unknown, so a
+/// rest-less overload cannot claim it. Mirrors es-toolkit's
+/// `cartesianProduct(...inputs)`, which must return `number[][]` and not a
+/// list of 1-tuples-of-lists.
+#[test]
+fn spread_call_selects_variadic_overload() {
+    let source = source_for(
+        r#"
+export function cartesianProduct<T>(arr1: readonly T[]): Array<[T]>;
+export function cartesianProduct<T, U>(arr1: readonly T[], arr2: readonly U[]): Array<[T, U]>;
+export function cartesianProduct<T>(...arrs: Array<readonly T[]>): T[][];
+export function cartesianProduct<T>(...arrs: Array<readonly T[]>): T[][] {
+  return arrs as any;
+}
+
+export function run(inputs: number[][]): unknown {
+  return cartesianProduct(...inputs);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltList<SmeltList<f64>>"),
+        "a spread call must select the variadic overload returning number[][]\n{source}"
+    );
+    assert!(
+        !source.contains("SmeltList<(SmeltList<f64>,)>"),
+        "the spread call must not select the fixed 1-array overload\n{source}"
+    );
+}
+
+/// `expect(actual).toEqual(literal)` contextually types the literal from the
+/// actual value's type, so a nested tuple-list actual and a nested array
+/// literal compare at the same Rust type instead of
+/// `SmeltList<SmeltList<SmeltUnknown>>` vs `SmeltList<(f64, String)>` (E0308).
+#[test]
+fn to_equal_contextually_types_expected_from_actual() {
+    let source = source_for(
+        r#"
+import { describe, it, expect } from 'vitest';
+
+describe('toEqual', () => {
+  it('compares nested tuple lists', () => {
+    const actual: Array<[number, string]> = [[1, 'a'], [2, 'b']];
+    expect(actual).toEqual([[1, 'a'], [2, 'b']]);
+  });
+});
+"#,
+    );
+
+    // The expected literal's rows lower as (f64, String) tuples, matching the
+    // actual, rather than erased inner lists.
+    assert!(
+        !source.contains("SmeltList<SmeltList<SmeltUnknown>>"),
+        "the expected literal must be typed from the actual, not erased\n{source}"
+    );
+}
+
+/// A fixed-arity user callback (`(item, item2, item3) => ...`) supplied where
+/// a variadic `(...args: T[]) => R` is expected must type each fixed parameter
+/// as the rest *element* `T`, not the rest list `T[]`. Otherwise `item` is a
+/// `SmeltList` and arithmetic on it fails (E0369). Mirrors es-toolkit's
+/// `unzipWith`.
+#[test]
+fn fixed_params_against_variadic_hint_take_element_type() {
+    let source = source_for(
+        r#"
+function unzipWith<T, R>(target: readonly T[][], iteratee: (...args: T[]) => R): R[] {
+  return target.map(group => iteratee(...group));
+}
+
+export function run(zipped: Array<[number, number, number]>): number[] {
+  return unzipWith(zipped, (item, item2, item3) => item + item2 + item3);
+}
+"#,
+    );
+
+    // The three-parameter user iteratee must not receive a list as its first
+    // fixed parameter; each fixed param takes the rest element type.
+    assert!(
+        !source.contains(
+            "|closure_arg_0: SmeltList<SmeltUnknown>, closure_arg_1: SmeltUnknown, closure_arg_2: SmeltUnknown|"
+        ),
+        "a fixed callback param against a variadic hint must not be a list\n{source}"
+    );
+}
+
+/// A list of tuples flowing into a list-of-lists target (e.g. a `zip` result
+/// passed to `unzipWith`'s `readonly T[][]` with `T` erased) must coerce each
+/// tuple into a `SmeltList`, not pass it through unchanged (E0308).
+#[test]
+fn tuple_coerces_into_list_target() {
+    let source = source_for(
+        r#"
+function sink(rows: unknown[][]): void {}
+
+export function run(pairs: Array<[number, number]>): void {
+  sink(pairs);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltList::with_id(smelt_next_object_id(), vec!["),
+        "a tuple flowing into a list target must be rebuilt as a SmeltList\n{source}"
+    );
+}
+
+#[test]
+fn callable_object_construction_emits_typed_interface_struct_literal() {
+    // Callable-object construction: a function-typed local that collects
+    // `counter.reset = …` writes and is returned at a callable-interface type
+    // must emit a real struct literal carrying the base callable in
+    // `__smelt_call` and each collected property in its like-named field — never
+    // a `Default::default()` inert struct that drops the writes.
+    let source = source_for(
+        r"
+interface Counter {
+  (): number;
+  reset(): void;
+}
+export function makeCounter(): Counter {
+  let count = 0;
+  const counter = function (): number {
+    count = count + 1;
+    return count;
+  };
+  counter.reset = function (): void {
+    count = 0;
+  };
+  return counter;
+}
+",
+    );
+    let body = source
+        .split("fn make_counter")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or("");
+    assert!(
+        body.contains("Counter {"),
+        "callable construction must build a Counter struct literal: {source}"
+    );
+    assert!(
+        body.contains("__smelt_call:"),
+        "the base callable must fill the __smelt_call field: {source}"
+    );
+    assert!(
+        body.contains("reset:"),
+        "the collected property must fill the reset field: {source}"
+    );
+    assert!(
+        !body.contains("Default::default()"),
+        "callable construction must not fall back to an inert Default struct: {source}"
+    );
+}
+
+
+
+
+
+/// Regression (warning-reduction R1): a read-only collection capture in a
+/// callback prelude is cloned into a plain, non-`mut` binding. The capture
+/// prelude used to force `mut` on every list/set/dict capture regardless of
+/// use; mutability now follows `closure_capture_body_writes` only.
+#[test]
+fn read_only_list_capture_emits_non_mut_clone() {
+    let source = source_for(
+        r"
+export function useCapture(values: number[], extra: number[]): number[] {
+  return values.map((n: number): number => n + extra.length);
+}
+",
+    );
+    assert!(
+        source.contains("let extra = extra.clone();"),
+        "read-only list capture must clone into a non-mut binding: {source}"
+    );
+    assert!(
+        !source.contains("let mut extra = extra.clone();"),
+        "read-only list capture must not be spuriously mut: {source}"
+    );
+}
+
+/// Regression (warning-reduction R1): a captured collection that the enclosing
+/// function still reassigns (so its source local is mutable) keeps a `mut`
+/// clone binding. Guards against under-approximating mutability after the
+/// blanket collection rule was dropped.
+#[test]
+fn mutable_source_list_capture_keeps_mut_clone() {
+    let source = source_for(
+        r"
+export function f(items: number[]): number {
+  let acc = items;
+  acc = items;
+  return [1].map((x: number): number => acc.length + x).length;
+}
+",
+    );
+    assert!(
+        source.contains("let mut acc = acc.clone();"),
+        "a capture whose source local is reassigned must stay a mut clone: {source}"
+    );
+}
+
+/// Regression (warning-reduction R1): a captured collection that the closure
+/// body mutates in place is threaded through shared `RefCell` storage (so the
+/// mutation is caller-visible) rather than being silently emitted as a
+/// read-only clone. Guards the write-detection path.
+#[test]
+fn written_list_capture_uses_shared_storage_not_plain_clone() {
+    let source = source_for(
+        r"
+export function g(): number[] {
+  const store: number[] = [];
+  const add = (x: number): void => { store.push(x); };
+  [1, 2, 3].forEach(add);
+  return store;
+}
+",
+    );
+    assert!(
+        source.contains("smelt_capture_store")
+            && source.contains("(*smelt_capture_store.borrow_mut()).push("),
+        "a mutated captured list must route writes through shared storage: {source}"
+    );
+    assert!(
+        !source.contains("let store = store.clone();"),
+        "a mutated captured list must not be emitted as a read-only clone: {source}"
+    );
+}
+
+/// Regression (warning-reduction R1): an adapted callback that is only *called*
+/// and *cloned* binds without `mut`, matching the erased `.call` path. The
+/// binding used to be hardcoded `let mut _smelt_adapted_callback`.
+#[test]
+fn adapted_callback_binds_without_mut() {
+    let source = source_for(
+        r"
+function adapt(
+  callback: (value: unknown) => { next: unknown },
+): (value: unknown, index: number, data: unknown[]) => unknown {
+  return callback;
+}
+",
+    );
+    assert!(
+        source.contains("let _smelt_adapted_callback = callback.clone();"),
+        "the adapted callback must bind without mut: {source}"
+    );
+    assert!(
+        !source.contains("let mut _smelt_adapted_callback"),
+        "the adapted callback must not be spuriously mut: {source}"
+    );
+}
+
+/// Regression (warning-reduction R1): a predeclared (hoisted) local that is
+/// assigned inside a loop body keeps its `mut` binding. Rust's
+/// definite-assignment rules reject reassigning an immutable hoisted local from
+/// a loop body, so the repeating-region rule must still fire here even after it
+/// was scoped to predeclared bindings.
+#[test]
+fn hoisted_local_assigned_in_loop_keeps_mut() {
+    let source = source_for(
+        r"
+export function lastVal(items: number[]): number {
+  let found: number = 0;
+  for (const x of items) {
+    found = x;
+  }
+  return found;
+}
+",
+    );
+    assert!(
+        source.contains("let mut found"),
+        "a hoisted local reassigned in a loop must stay mut: {source}"
+    );
+}
+
+/// A `splice` whose start index is an `i64` (e.g. a callback index parameter)
+/// is coerced to `f64`. The coerced cast must be parenthesized so
+/// `index as f64 < 0.0` does not parse as `index as (f64 < 0.0)` — rustc reads
+/// the `<` as the start of generic arguments after a type. Regression for the
+/// remeda `range`/`splice` E0742-style `<`-parse failure.
+#[test]
+fn splice_index_cast_is_parenthesized_before_comparison() {
+    let source = source_for(
+        r"
+export function trimLast(items: number[]): number[] {
+  [0].forEach((_, i) => {
+    items.splice(i, 1);
+  });
+  return items;
+}
+",
+    );
+    assert!(
+        source.contains("splice_start = if ("),
+        "the coerced splice index must be parenthesized before `< 0.0`: {source}"
+    );
+    assert!(
+        !source.contains("as f64 < 0.0"),
+        "a bare `x as f64 < 0.0` mis-parses as generic arguments: {source}"
+    );
+}
+
+/// A `Set.has(needle)` whose needle is an `i64` (a callback index) coerces the
+/// needle to the set's `f64` element type. The reference taken for `contains`
+/// must wrap the whole coercion (`&(x as f64)`); the buggy `&x as f64` casts a
+/// reference (`&i64 as f64`), which is invalid. Regression for remeda `sample`.
+#[test]
+fn set_has_coerced_needle_reference_is_parenthesized() {
+    let source = source_for(
+        r"
+export function pickByIndex(values: number[]): number[] {
+  const seen = new Set<number>([1, 2, 3]);
+  return values.filter((_, i) => seen.has(i));
+}
+",
+    );
+    assert!(
+        source.contains(".contains(&("),
+        "a coerced set needle must be referenced as `&(x as f64)`: {source}"
+    );
+}
+#[test]
+fn async_closure_await_propagates_future_errors() {
+    let source = source_for(
+        r#"
+async function load(): Promise<number> {
+  return 1;
+}
+
+function retain(callback: () => Promise<number>): () => Promise<number> {
+  return callback;
+}
+
+export function callback(): () => Promise<number> {
+  return retain(async () => {
+    const value = await load();
+    return value;
+  });
+}
+"#,
+    );
+
+    assert!(
+        source.contains(": f64 = _smelt_tmp_0.await?;")
+            || source.contains(": f64 = _smelt_tmp_1.await?;")
+            || source.contains(": f64 = _smelt_tmp_2.await?;")
+            || source.contains("_smelt_tmp_2 = _smelt_tmp_1.await?;"),
+        "{source}"
+    );
+}
+
+/// A nested closure whose parameter shadows an outer callback parameter must
+/// initialize the capture alias referenced by the generated inner body.
+#[test]
+fn nested_closure_aliases_shadowed_callback_parameters() {
+    let source = source_for(
+        r"
+export function run(): number {
+  const objectize =
+    (callback: (value: { num: number }) => number) =>
+    (num: number) => callback({ num });
+  return objectize(value => value.num)(1);
+}
+",
+    );
+
+    assert!(
+        source.contains("let smelt_captured_closure_arg_0 = closure_arg_0.clone();"),
+        "{source}"
+    );
+}
+
+/// An async nested closure must carry the outer capture alias into its future
+/// instead of reinitializing it from the shadowing inner parameter.
+#[test]
+fn async_nested_closure_preserves_shadowed_capture_alias() {
+    let source = source_for(
+        r"
+export async function run(): Promise<number> {
+  const objectize =
+    (callback: (value: { num: number }) => Promise<number>) =>
+    async (num: number) => callback({ num });
+  return await objectize(async value => value.num)(1);
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "move |closure_arg_0: f64| { let smelt_captured_closure_arg_0 = smelt_captured_closure_arg_0.clone();"
+        ),
+        "{source}"
+    );
+}
+
+/// A mutable outer parameter whose synthetic name is shadowed needs fresh
+/// shared capture storage initialized from that outer parameter.
+#[test]
+fn mutable_shadowed_parameter_initializes_aliased_capture_cell() {
+    let source = source_for(
+        r"
+export function run(): void {
+  const append =
+    (items: number[]) =>
+    (callback: (value: number[]) => void) => {
+      items.push(1);
+      callback(items);
+    };
+  append([])(_items => {});
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "let smelt_capture_smelt_captured_closure_arg_0 = ::std::rc::Rc::new(::std::cell::RefCell::new(closure_arg_0.clone()));"
+        ),
+        "{source}"
     );
 }

@@ -9,18 +9,18 @@ expression: emitted
 
 fn zip(first: SmeltList<SmeltUnknown>, second: SmeltList<SmeltUnknown>, fn_: &dyn Fn(SmeltUnknown, SmeltUnknown, f64, SmeltList<SmeltUnknown>) -> SmeltUnknown) -> SmeltList<SmeltUnknown> {
     let _smelt_tmp_3 = ::std::rc::Rc::new({
-    let mut first = first.clone();
-    let mut second = second.clone();
+    let first = first.clone();
+    let second = second.clone();
     move |closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: SmeltList<SmeltUnknown>| {
-    let _smelt_tmp_6: SmeltUnknown = fn_(closure_arg_0.clone(), second.get({ let len = second.len() as i64; let index = closure_arg_1.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone(), (closure_arg_1.clone() as f64), first.clone());
+    let _smelt_tmp_6: SmeltUnknown = fn_(closure_arg_0.clone(), second.get({ let len = second.len() as i64; let index = closure_arg_1.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone(), closure_arg_1.clone() as f64, first.clone());
     _smelt_tmp_6.clone()
     }
 });
     let _smelt_tmp_4: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
-    let mut first = first.clone();
-    let mut second = second.clone();
+    let first = first.clone();
+    let second = second.clone();
     move |closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: SmeltList<SmeltUnknown>| {
-    let _smelt_tmp_6: SmeltUnknown = fn_(closure_arg_0.clone(), second.get({ let len = second.len() as i64; let index = closure_arg_1.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone(), (closure_arg_1.clone() as f64), first.clone());
+    let _smelt_tmp_6: SmeltUnknown = fn_(closure_arg_0.clone(), second.get({ let len = second.len() as i64; let index = closure_arg_1.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone(), closure_arg_1.clone() as f64, first.clone());
     _smelt_tmp_6.clone()
     }
 }); let smelt_array = first.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });

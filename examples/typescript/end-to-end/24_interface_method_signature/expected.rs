@@ -21,7 +21,7 @@ impl ::std::fmt::Debug for Named {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct User {
     name: String,
 }

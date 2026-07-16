@@ -1,17 +1,15 @@
 //! `ModuleBuilder` lowering methods (part 05): test-suite (`describe`/hooks)
 //! lowering and related HIR construction helpers split out of `lowering.rs`.
 
+use crate::SmeltError;
 use crate::lowering::support::sanitize_test_name;
 use crate::lowering::{ModuleBuilder, TableBindingValue};
-use crate::SmeltError;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, BindingPattern, Expression, ForStatementLeft,
     ObjectPropertyKind, PropertyKey, Statement,
 };
 use oxc::span::GetSpan;
-use smelt_hir::{
-    Body, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type,
-};
+use smelt_hir::{Body, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type};
 use std::collections::HashSet;
 
 /// Class-registry names captured before a test case is lowered so that
@@ -142,6 +140,17 @@ impl ModuleBuilder<'_> {
                     "describe blocks only support direct it/test/describe calls for now",
                 ));
             };
+            if let Some(sequence_items) = self.describe_sequence_test_declarations(
+                &expr_stmt.expression,
+                group_name,
+                &setup,
+                &before_each,
+                &after_each,
+                table_bindings,
+            )? {
+                items.extend(sequence_items);
+                continue;
+            }
             if let Some(unrolled) = self.describe_foreach_declarations(
                 &expr_stmt.expression,
                 group_name,
@@ -203,6 +212,65 @@ impl ModuleBuilder<'_> {
             setup.push(statement);
         }
         Ok(items)
+    }
+
+    /// Expand a comma expression made entirely of test registrations.
+    ///
+    /// JavaScript permits `test(...), test(...)` as one expression statement.
+    /// Suite discovery runs before ordinary statement lowering, so each call must
+    /// be registered here as its own generated test. Mixed comma expressions are
+    /// rejected explicitly because treating the whole sequence as setup would
+    /// silently discard embedded test registrations.
+    pub(in crate::lowering) fn describe_sequence_test_declarations<'a>(
+        &mut self,
+        expression: &'a Expression<'a>,
+        group_name: &str,
+        setup: &[&'a Statement<'a>],
+        before_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
+        after_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
+        table_bindings: &[(&'a str, TableBindingValue<'a>)],
+    ) -> Result<Option<Vec<smelt_hir::ItemId>>, SmeltError> {
+        let Expression::SequenceExpression(sequence) = expression else {
+            return Ok(None);
+        };
+        let registration_count = sequence
+            .expressions
+            .iter()
+            .filter(|item| {
+                self.dynamic_test_alias_call(item)
+                    || self.skipped_test_case_call(item)
+                    || self.test_case_call(item).is_some()
+            })
+            .count();
+        if registration_count == 0 {
+            return Ok(None);
+        }
+        if registration_count != sequence.expressions.len() {
+            return Err(SmeltError::unsupported(
+                self.span(sequence.span.start, sequence.span.end),
+                "mixed test registration and runtime sequence expressions are not supported",
+            ));
+        }
+        let mut items = Vec::new();
+        for sequence_item in &sequence.expressions {
+            if self.dynamic_test_alias_call(sequence_item)
+                || self.skipped_test_case_call(sequence_item)
+            {
+                continue;
+            }
+            let Some(test_call) = self.test_case_call(sequence_item) else {
+                return Ok(None);
+            };
+            items.push(self.test_case_declaration(
+                test_call,
+                Some(group_name),
+                setup,
+                before_each,
+                after_each,
+                table_bindings,
+            )?);
+        }
+        Ok(Some(items))
     }
 
     /// Unroll an `[...].forEach(item => { ...it/test/describe... })` suite loop.
@@ -456,9 +524,10 @@ impl ModuleBuilder<'_> {
         if self.test_builtins.contains(callee.name.as_str()) || call.arguments.len() < 2 {
             return false;
         }
-        call.arguments
-            .get(1)
-            .is_some_and(|argument| self.test_arrow_callback(argument, "dynamic test alias").is_ok())
+        call.arguments.get(1).is_some_and(|argument| {
+            self.test_arrow_callback(argument, "dynamic test alias")
+                .is_ok()
+        })
     }
 
     /// Lower a top-level Vitest `test` / `it` call into an HIR test function.
@@ -552,6 +621,8 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
+        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
+        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
         // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
         // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
         // must not leak into a sibling test that declares its own same-named
@@ -586,11 +657,13 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
-        if let Err(error) = self.predeclare_local_function_declarations(&arrow.body.statements, &mut body)
+        if let Err(error) =
+            self.predeclare_local_function_declarations(&arrow.body.statements, &mut body)
         {
             errors.push(error);
         }
-        if let Err(error) = self.predeclare_local_arrow_callbacks(&arrow.body.statements, &mut body) {
+        if let Err(error) = self.predeclare_local_arrow_callbacks(&arrow.body.statements, &mut body)
+        {
             errors.push(error);
         }
         for statement in &arrow.body.statements {
@@ -607,6 +680,8 @@ impl ModuleBuilder<'_> {
         }
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
+        self.callable_local_props = saved_callable_local_props;
+        self.explicit_any_locals = saved_explicit_any_locals;
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.restore_test_case_class_scope(&class_scope);
@@ -634,7 +709,7 @@ impl ModuleBuilder<'_> {
             params: Vec::new(),
             rest: None,
             required_params: None,
-return_ty: none,
+            return_ty: none,
             is_async,
             is_test: true,
             body: Some(body_id),
@@ -670,6 +745,8 @@ return_ty: none,
 
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
+        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
+        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
         // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
         // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
         // must not leak into a sibling test that declares its own same-named
@@ -719,7 +796,8 @@ return_ty: none,
         {
             errors.push(error);
         }
-        if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+        if let Err(error) =
+            self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
         {
             errors.push(error);
         }
@@ -738,6 +816,8 @@ return_ty: none,
         self.current_arguments_arities.pop();
         self.locals = saved_locals;
         self.date_value_locals = saved_date_value_locals;
+        self.callable_local_props = saved_callable_local_props;
+        self.explicit_any_locals = saved_explicit_any_locals;
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.restore_test_case_class_scope(&class_scope);
@@ -762,7 +842,7 @@ return_ty: none,
             params: Vec::new(),
             rest: None,
             required_params: None,
-return_ty: none,
+            return_ty: none,
             is_async,
             is_test: true,
             body: Some(body_id),
@@ -830,7 +910,8 @@ return_ty: none,
             let case_group = group_name.map(|name| format!("{name} case {case_index}"));
             let mut bindings = inherited_bindings.to_vec();
             bindings.extend(self.table_bindings(arrow, row)?);
-            let test_name = self.test_case_name(name_arg, case_group.as_deref(), &bindings, setup)?;
+            let test_name =
+                self.test_case_name(name_arg, case_group.as_deref(), &bindings, setup)?;
             items.push(self.test_function_from_arrow(
                 &test_name,
                 self.span(call.span.start, call.span.end),
@@ -1110,7 +1191,10 @@ return_ty: none,
     }
 
     /// Extract a string title from a test-framework name argument.
-    pub(in crate::lowering) fn test_title(&self, argument: &Argument<'_>) -> Result<String, SmeltError> {
+    pub(in crate::lowering) fn test_title(
+        &self,
+        argument: &Argument<'_>,
+    ) -> Result<String, SmeltError> {
         self.test_title_with_bindings(argument, &[])
     }
 
@@ -1238,7 +1322,8 @@ return_ty: none,
             // truthiness, as in loop-unrolled suites that vary a title segment by
             // the bound index (`${index ? " and …" : ""}`).
             Expression::ConditionalExpression(conditional) => {
-                let branch = if Self::template_expression_truthy(&conditional.test, table_bindings)? {
+                let branch = if Self::template_expression_truthy(&conditional.test, table_bindings)?
+                {
                     &conditional.consequent
                 } else {
                     &conditional.alternate
@@ -1278,7 +1363,9 @@ return_ty: none,
     }
 
     /// Fold a literal array-literal element to its constant text, if possible.
-    pub(in crate::lowering) fn array_element_constant_text(element: &ArrayExpressionElement<'_>) -> Option<String> {
+    pub(in crate::lowering) fn array_element_constant_text(
+        element: &ArrayExpressionElement<'_>,
+    ) -> Option<String> {
         match element {
             ArrayExpressionElement::StringLiteral(literal) => Some(literal.value.to_string()),
             ArrayExpressionElement::NumericLiteral(literal) => Some(literal.value.to_string()),

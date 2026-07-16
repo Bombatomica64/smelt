@@ -31,11 +31,11 @@ impl FunctionEmitter<'_> {
                     };
                     if item_is_erased {
                         return Ok(format!(
-                            "Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }})"
+                            "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }}))"
                         ));
                     }
                     return Ok(format!(
-                        "Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }})"
+                        "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }}))"
                     ));
                 }
                 let rendered_args = args
@@ -82,7 +82,7 @@ impl FunctionEmitter<'_> {
                     }
                 };
                 Ok(format!(
-                    "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }})"
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }}))"
                 ))
             }
             smelt_hir::AsyncOp::Race => {
@@ -107,7 +107,7 @@ impl FunctionEmitter<'_> {
                     }
                 };
                 Ok(format!(
-                    "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }})"
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }}))"
                 ))
             }
             smelt_hir::AsyncOp::Sleep => {
@@ -115,7 +115,7 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("async sleep requires a duration operand"));
                 };
                 Ok(format!(
-                    "Box::pin(async move {{ {sleep_ms}({} as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }})",
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({} as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }}))",
                     self.operand_text(duration)?,
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
@@ -220,8 +220,7 @@ impl FunctionEmitter<'_> {
                 let resolve_value =
                     self.value_at_type_text("value", self.type_id(Type::Unknown)?, output_ty)?;
                 Ok(format!(
-                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |value: SmeltUnknown| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }}) as {} }}",
-                    self.type_text_with_impl_trait(dest_ty, false)?,
+                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |value: SmeltUnknown| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
@@ -235,9 +234,11 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("Promise.then receiver must be a future"));
                 };
                 let future_text = self.await_operand_text(future)?;
-                let invocation = self.promise_callback_invocation(callback, "smelt_value")?;
+                let (prelude, callback_expr) = self.promise_callback_hoist(callback)?;
+                let invocation =
+                    self.promise_callback_invocation_with(callback, &callback_expr, "smelt_value")?;
                 Ok(format!(
-                    "Box::pin(async move {{ let smelt_value = {future_text}.await?; let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }})"
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }})) }}"
                 ))
             }
             smelt_hir::AsyncOp::Catch => {
@@ -251,11 +252,15 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("Promise.catch receiver must be a future"));
                 };
                 let future_text = self.await_operand_text(future)?;
-                let invocation = self
-                    .promise_callback_invocation(callback, "SmeltUnknown::String(smelt_error.to_string())")?;
+                let (prelude, callback_expr) = self.promise_callback_hoist(callback)?;
+                let invocation = self.promise_callback_invocation_with(
+                    callback,
+                    &callback_expr,
+                    "SmeltUnknown::String(smelt_error.to_string())",
+                )?;
                 let default_value = self.default_value(*output_ty)?;
                 Ok(format!(
-                    "Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>({default_value}) }} }} }})"
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>({default_value}) }} }} }})) }}"
                 ))
             }
             smelt_hir::AsyncOp::SpawnLocal => {
@@ -276,7 +281,7 @@ impl FunctionEmitter<'_> {
                 };
                 let future_text = self.await_operand_text(future)?;
                 Ok(format!(
-                    "Box::pin(async move {{ tokio::spawn(async move {{ {future_text}.await }}).await.expect(\"async task panicked\") }})"
+                    "SmeltFuture::from_future(Box::pin(async move {{ tokio::spawn(async move {{ {future_text}.await }}).await.expect(\"async task panicked\") }}))"
                 ))
             }
             smelt_hir::AsyncOp::WaitFor => {
@@ -287,7 +292,7 @@ impl FunctionEmitter<'_> {
                 };
                 let future_text = self.await_operand_text(future)?;
                 Ok(format!(
-                    "Box::pin(async move {{ tokio::time::timeout(::std::time::Duration::from_millis({} as u64), {future_text}).await.expect(\"async timeout\")? }})",
+                    "SmeltFuture::from_future(Box::pin(async move {{ tokio::time::timeout(::std::time::Duration::from_millis({} as u64), async move {{ {future_text}.await }}).await.expect(\"async timeout\")? }}))",
                     self.operand_text(timeout)?
                 ))
             }
@@ -302,7 +307,7 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("async HTTP GET URL must be a string"));
                 }
                 Ok(format!(
-                    "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(reqwest::get({}).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")) }})",
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(reqwest::get({}).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")) }}))",
                     self.operand_text(url)?
                 ))
             }
@@ -789,6 +794,41 @@ impl FunctionEmitter<'_> {
                         )?);
                         continue;
                     }
+                    // A composite parameter that mentions one of the callee's own
+                    // generics (`arr: T[]` -> `SmeltList<T>`) is monomorphized at
+                    // this call site to the concrete argument shape. This is only
+                    // taken for callees that return one of their own type
+                    // parameters (e.g. `sample<T>(arr: T[]): T`): there the return
+                    // dest pins `T` to a concrete type, so the argument must be
+                    // rendered at its own concrete shape (`SmeltList<f64>`) to bind
+                    // `T = f64`; coercing to the bare `SmeltList<T>` target would
+                    // erase elements to `SmeltUnknown` and clash with the
+                    // monomorphization (E0308). Restricting to type-param-returning
+                    // callees keeps functions that merely consume a generic list
+                    // (and are emitted with erased or independently-inferred
+                    // parameters) on the ordinary coercion path.
+                    if !free_function_type_params.is_empty()
+                        && self.free_function_returns_own_type_param(function)
+                    {
+                        let source_ty = self.operand_ty(arg)?;
+                        if source_ty != target_ty
+                            && self.generic_param_instantiated_by(
+                                source_ty,
+                                target_ty,
+                                &free_function_type_params,
+                            )
+                        {
+                            rendered_args.push(self.value_at_type(arg, source_ty)?);
+                            continue;
+                        }
+                    }
+                    // A composite parameter that mentions one of the callee's own
+                    // generics (`arr: T[]` -> `SmeltList<T>`) is monomorphized at
+                    // this call site to the concrete argument shape. Render the
+                    // argument at its own type so Rust binds the type parameter
+                    // (`SmeltList<f64>` -> `T = f64`); coercing to the bare
+                    // `SmeltList<T>` target would erase elements to `SmeltUnknown`
+                    // and clash with the monomorphization (E0308).
                     if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
                         && param.is_some_and(|target_param| {
                             !self
@@ -870,21 +910,59 @@ impl FunctionEmitter<'_> {
     /// `SmeltErasedFunction`, whose call ABI is `.call(vec![..])` rather than a
     /// direct `(f)(arg)` invocation. Detect that shape and route accordingly; all
     /// other callbacks keep the direct call.
-    fn promise_callback_invocation(
+    /// Render a `.then`/`.catch` callback invocation using an explicit callback
+    /// expression `callback_text` (e.g. a hoisted clone binding) rather than the
+    /// operand's own place text. The operand is still consulted for its function
+    /// type so the erased-`SmeltErasedFunction` calling convention is preserved.
+    fn promise_callback_invocation_with(
         &self,
         callback: &Operand,
+        callback_text: &str,
         arg_expr: &str,
     ) -> Result<String, EmitError> {
-        let callback_text = self.operand_text(callback)?;
-        if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?)
-            && self.is_erased_unknown_rest_function(function)
-            && !function.may_throw
-        {
-            return Ok(format!(
-                "({callback_text}).call(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})])"
-            ));
+        if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?) {
+            if self.is_erased_unknown_rest_function(function) && !function.may_throw {
+                return Ok(format!(
+                    "({callback_text}).call(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})])"
+                ));
+            }
+            // JavaScript `.then(cb)`/`.catch(cb)` always invoke the continuation
+            // with the resolved value (or rejection reason), but a 0-arity source
+            // callback declares no parameter to receive it. Adapt to the callback's
+            // declared arity: a statically-typed closure with no parameters and no
+            // rest must be called with no arguments, dropping the value, or Rust
+            // reports E0057 (too many arguments).
+            if function.rest.is_none() && function.params.is_empty() {
+                return Ok(format!("({{ let _ = {arg_expr}; ({callback_text})() }})"));
+            }
         }
         Ok(format!("({callback_text})({arg_expr})"))
+    }
+
+    /// Hoist a `.then`/`.catch` callback out of the `Box::pin(async move { .. })`
+    /// block it is invoked in.
+    ///
+    /// An `async move` block captures every referenced outer binding by move, so
+    /// a callback that names a live outer variable would be consumed by the
+    /// future even though JavaScript's `.then(cb)`/`.catch(cb)` do not consume
+    /// `cb` (was E0382). Returns a `(prelude, callback_expr)` pair: for a
+    /// place-based callback the prelude binds a clone in an enclosing block and
+    /// the future moves that clone; an inline callback (a literal closure) is not
+    /// live afterward and is left in place with an empty prelude.
+    fn promise_callback_hoist(
+        &self,
+        callback: &Operand,
+    ) -> Result<(String, String), EmitError> {
+        let callback_text = self.operand_text(callback)?;
+        if matches!(callback, Operand::Copy(_) | Operand::Move(_)) {
+            let binding = "smelt_promise_callback";
+            Ok((
+                format!("let {binding} = ({callback_text}).clone(); "),
+                binding.to_owned(),
+            ))
+        } else {
+            Ok((String::new(), callback_text))
+        }
     }
 
     /// Render arguments for a call into an erased `SmeltErasedFunction`, erasing
@@ -975,6 +1053,57 @@ impl FunctionEmitter<'_> {
             .iter()
             .map(|param| param.name)
             .collect()
+    }
+
+    /// Returns whether a concrete `source` argument type is exactly the callee
+    /// parameter `target` with its own generic `params` instantiated.
+    ///
+    /// A bare `TypeParam` argument (`x: T`) is passed through concretely so Rust
+    /// monomorphizes the callee (see the call-site pass-through). A composite
+    /// parameter that *contains* a type parameter (`arr: T[]` lowering to
+    /// `SmeltList<T>`) is instantiated at the concrete argument shape at the same
+    /// call site, so its argument must likewise pass through at its own concrete
+    /// element type rather than be erased to `SmeltList<SmeltUnknown>` — erasing
+    /// would clash with the monomorphized `SmeltList<f64>` the callee expects.
+    ///
+    /// The match is exact so pass-through only fires when Rust can actually bind
+    /// the parameters from the argument: a `TypeParam` position accepts any
+    /// source subtree (it is the binding site), every other constructor must
+    /// agree in shape, and a concrete target must equal the source. When the
+    /// argument has a different or erased shape (`SmeltUnknown` against
+    /// `SmeltList<T>`), this returns `false` and the caller falls back to the
+    /// ordinary coercion so the value is erased as before.
+    fn generic_param_instantiated_by(
+        &self,
+        source: TypeId,
+        target: TypeId,
+        params: &HashSet<Symbol>,
+    ) -> bool {
+        match (self.mir.types.get(target), self.mir.types.get(source)) {
+            (Some(Type::TypeParam { name }), _) if params.contains(name) => true,
+            (Some(Type::List(target_item)), Some(Type::List(source_item)))
+            | (Some(Type::Set(target_item)), Some(Type::Set(source_item)))
+            | (Some(Type::Optional(target_item)), Some(Type::Optional(source_item)))
+            | (Some(Type::Future(target_item)), Some(Type::Future(source_item))) => {
+                self.generic_param_instantiated_by(*source_item, *target_item, params)
+            }
+            (Some(Type::Dict(target_key, target_value)), Some(Type::Dict(source_key, source_value))) => {
+                self.generic_param_instantiated_by(*source_key, *target_key, params)
+                    && self.generic_param_instantiated_by(*source_value, *target_value, params)
+            }
+            (Some(Type::Tuple(target_items)), Some(Type::Tuple(source_items)))
+            | (Some(Type::Union(target_items)), Some(Type::Union(source_items)))
+                if target_items.len() == source_items.len() =>
+            {
+                target_items
+                    .iter()
+                    .zip(source_items.iter())
+                    .all(|(target_item, source_item)| {
+                        self.generic_param_instantiated_by(*source_item, *target_item, params)
+                    })
+            }
+            _ => source == target,
+        }
     }
 
     /// Return whether a generic free function's declared return type is one of
@@ -1373,6 +1502,25 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
+        let source_ty = self.call_emitted_source_ty(callee, dest_ty)?;
+        self.value_at_type_text(&call_text, source_ty, dest_ty)
+    }
+
+    /// Returns the Rust type a call *actually* evaluates to in the emitted code.
+    ///
+    /// Unlike [`Self::call_source_ty`] (which returns the callee's declared MIR
+    /// return type), this resolves the type the generated call expression really
+    /// produces, accounting for erasure: async functions yield
+    /// `Future<return_ty>`, functions whose emitted signature erased a return
+    /// type parameter yield the emitted return type, and monomorphized generic
+    /// returns pass through at the concrete `dest_ty`. Callers coerce the call
+    /// value from this type to the destination, so it must match the emitted
+    /// signature, not the frontend's specialized view of the call site.
+    pub(super) fn call_emitted_source_ty(
+        &self,
+        callee: &Callee,
+        dest_ty: TypeId,
+    ) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
             Callee::Static(func) => {
                 let function = self
@@ -1413,7 +1561,7 @@ impl FunctionEmitter<'_> {
             }
             _ => self.call_source_ty(callee)?,
         };
-        self.value_at_type_text(&call_text, source_ty, dest_ty)
+        Ok(source_ty)
     }
 
     /// Converts a function call inside a Rust closure body.

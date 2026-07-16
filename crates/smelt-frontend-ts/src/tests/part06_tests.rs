@@ -644,6 +644,78 @@ async function main(): Promise<number> {
 }
 
 #[test]
+fn async_arrow_array_body_keeps_awaited_value_type() -> Result<(), String> {
+    // Regression: an async expression-bodied arrow whose body is an array
+    // literal (`async n => [n, n * 2]`) must type that body at its own
+    // `List` value type. The closure's declared return type is
+    // `Promise<number[]>` (`Type::Future`), but the async wrapper is what adds
+    // the promise, so the returned expression itself is the awaited `List`.
+    // Hinting the body at the raw future type instead used to type the array
+    // literal as `Future<List<..>>`, which then emitted a
+    // `Pin<Box<dyn Future>>`-annotated `vec![..]` local (E0308) in generated
+    // Rust.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("async function flatMapAsync<T, U>(arr: T[], fn: (item: T) => Promise<U[]>): Promise<U[]> {
+  const out: U[] = [];
+  for (const item of arr) {
+    out.push(...(await fn(item)));
+  }
+  return out;
+}
+
+async function main(): Promise<number[]> {
+  return await flatMapAsync([1, 2, 3], async (n) => [n, n * 2]);
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let main = function_item(&ctx, module, 1)?;
+    let body = function_body(&ctx, main)?;
+
+    // Locate the async callback closure and inspect its lowered body.
+    let closure = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::Closure(closure) => Some(closure),
+            _ => None,
+        })
+        .ok_or_else(|| "expected an async arrow closure in main".to_owned())?;
+    // The closure's declared return type is the promise wrapper.
+    ensure!(matches!(
+        ctx.krate.types.get(closure.return_ty),
+        Some(Type::Future(_))
+    ));
+    let closure_body = ctx
+        .krate
+        .bodies
+        .get(closure.body.0 as usize)
+        .ok_or_else(|| "closure body missing".to_owned())?;
+    let returned = closure_body
+        .stmts
+        .iter()
+        .find_map(|stmt| match stmt {
+            Stmt::Return(Some(expr)) => Some(*expr),
+            _ => None,
+        })
+        .ok_or_else(|| "closure body has no return".to_owned())?;
+    let returned_ty = closure_body
+        .exprs
+        .get(returned.0 as usize)
+        .map(|expr| expr.ty)
+        .ok_or_else(|| "return expression missing".to_owned())?;
+    // The body value keeps its awaited `List` type; it is not a future.
+    ensure!(matches!(
+        ctx.krate.types.get(returned_ty),
+        Some(Type::List(_))
+    ));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_promise_all_to_async_runtime_op() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

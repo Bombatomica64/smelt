@@ -212,13 +212,24 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Int)
         {
-            return Ok(format!("({} as f64)", self.operand_text(operand)?));
+            // `operand_text` is always a primary/postfix expression (an
+            // identifier, literal, `.clone()`, field, or index), so the cast
+            // never reassociates against a surrounding operator and needs no
+            // defensive wrapping. Emitting it bare avoids the `unused_parens`
+            // warning it drew in every argument/return/let position. The only
+            // context that would need parentheses is a following method call,
+            // which no consumer of this seam appends to a coercion result.
+            return Ok(format!("{} as f64", self.operand_text(operand)?));
         }
         if self.mir.types.get(target) == Some(&Type::Int)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Float)
         {
+            // Keep the inner parentheses around the `as f64` cast — `.trunc()`
+            // is a method call whose receiver must be grouped — but drop the
+            // redundant outer pair the whole `... as i64` expression carried,
+            // which produced `unused_parens` wherever the value stood alone.
             return Ok(format!(
-                "(({} as f64).trunc() as i64)",
+                "({} as f64).trunc() as i64",
                 self.operand_text(operand)?
             ));
         }
@@ -311,7 +322,7 @@ impl FunctionEmitter<'_> {
                 && self.list_local_all_undefined_constants(operand)?
             {
                 return Ok(format!(
-                    "{{ let smelt_l = ({op}).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
+                    "{{ let smelt_l: SmeltList<_> = ({op}).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
                     op = self.operand_text(operand)?
                 ));
             }
@@ -326,7 +337,7 @@ impl FunctionEmitter<'_> {
                 self.value_at_type_text("value", *source_item, *target_item)?
             };
             return Ok(format!(
-                "{{ let smelt_l = ({op}).clone(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
+                "{{ let smelt_l: SmeltList<_> = ({op}).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
                 op = self.operand_text(operand)?
             ));
         }
@@ -520,8 +531,44 @@ impl FunctionEmitter<'_> {
         {
             let awaited =
                 self.value_at_type_text("smelt_future_value", *source_item, *target_item)?;
+            // Evaluate the source future expression BEFORE the `async move`
+            // block: `value_text` (e.g. `reduce_async(arr.clone(), ..)`) only
+            // borrows its outer captures, but an `async move` block would move
+            // every named binding it references into the returned task (E0382).
+            // Binding the source future outside moves just that handle in.
             return Ok(format!(
-                "Box::pin(async move {{ let smelt_future_value = {value_text}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }})"
+                "{{ let smelt_source_future = {value_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_future_value = smelt_source_future.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }})) }}"
+            ));
+        }
+        // Element-wise `List<A>` -> `List<B>` re-mapping. The operand-based
+        // coercion (`coerce_operand_text`) already handles this for a place
+        // operand, but this string-based entry point is reached when the source
+        // list flows through an expression (e.g. an awaited erased future whose
+        // static item is `SmeltList<SmeltUnknown>` coerced into the call site's
+        // `SmeltList<f64>`). Drive the same `.into_iter().map(..)` rebuild off the
+        // value expression, coercing each element from the source item type.
+        if let (Some(Type::List(source_item)), Some(Type::List(target_item))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+            && source_item != target_item
+        {
+            let source_item = *source_item;
+            let target_item = *target_item;
+            let element_text = if matches!(self.mir.types.get(source_item), Some(Type::List(_)))
+                && (matches!(
+                    self.mir.types.get(target_item),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(target_item))
+            {
+                "value.into_smelt_unknown()".to_owned()
+            } else {
+                self.value_at_type_text("value", source_item, target_item)?
+            };
+            // `value_text` may be a bare `Vec` (e.g. an inlined spread/concat
+            // `[...list, ...args]`) rather than a `SmeltList`. Normalize through
+            // `.into()` (reflexive for `SmeltList`, `From<Vec>` otherwise) so the
+            // `.id()` identity read is always available.
+            return Ok(format!(
+                "{{ let smelt_l: SmeltList<_> = ({value_text}).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {element_text}).collect::<Vec<_>>()) }}"
             ));
         }
         if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
@@ -599,7 +646,13 @@ impl FunctionEmitter<'_> {
         }
         if matches!(
             self.mir.types.get(source),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            // A `never`-returning source (e.g. a `(value: never) => value`
+            // predicate) still evaluates to a real value at runtime, which the
+            // emitter renders as an erased `SmeltUnknown`. Extract it into the
+            // concrete target through the same `SmeltUnknown` discriminant path
+            // as `Unknown`, so e.g. a `bool` target gets JS-truthiness coercion
+            // rather than the raw erased value (E0308).
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Never)
         ) || self.is_erased_class_type(source)
         {
             // A concrete union stores a tagged `SmeltUnion…` enum, but the erased
@@ -733,6 +786,37 @@ impl FunctionEmitter<'_> {
             return Ok(format!(
                 "{value_text}.clone().into_iter().map(|value| {item_text}).collect::<SmeltList<_>>()"
             ));
+        }
+        // A fixed-arity tuple flowing into a list target (`[T, U] -> V[]`, as
+        // when a `zip` result of tuples is passed to `unzipWith`'s
+        // `readonly T[][]` parameter with `T` erased). Each tuple field is
+        // coerced to the list element type and collected into a `SmeltList`
+        // with a fresh id.
+        if let (Some(Type::Tuple(source_items)), Some(Type::List(target_item))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let source_items = source_items.clone();
+            let target_item = *target_item;
+            let (prefix, base) = if Self::expression_text_is_trivial_place(value_text) {
+                (String::new(), value_text.to_owned())
+            } else {
+                ("let smelt_tuple_src = ".to_owned(), "smelt_tuple_src".to_owned())
+            };
+            let items_text = source_items
+                .iter()
+                .enumerate()
+                .map(|(index, source_item)| {
+                    self.value_at_type_text(&format!("{base}.{index}"), *source_item, target_item)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            let list_text =
+                format!("SmeltList::with_id(smelt_next_object_id(), vec![{items_text}])");
+            return if prefix.is_empty() {
+                Ok(list_text)
+            } else {
+                Ok(format!("{{ {prefix}{value_text}; {list_text} }}"))
+            };
         }
         if let Some(Type::List(target_item)) = self.mir.types.get(target)
             && matches!(
@@ -1315,7 +1399,17 @@ impl FunctionEmitter<'_> {
                         )
                     }
                 } else if matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_))) {
-                    let erased_return = self.erase_value_text(&call_text, function.return_ty)?;
+                    // A throwing async callback's call yields `Result<Future, _>`,
+                    // so the fallible call must be unwrapped with `?` to recover the
+                    // bare future before it is erased into a promise. Erasing the
+                    // `Result` directly would double-wrap the future (the promise
+                    // task then awaits a `Result<Future, _>` instead of a future).
+                    let future_call = if function.may_throw {
+                        format!("{call_text}?")
+                    } else {
+                        call_text
+                    };
+                    let erased_return = self.erase_value_text(&future_call, function.return_ty)?;
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
                 } else if self.class_has_no_known_fields(function.return_ty) {
                     if function.may_throw {
@@ -1479,6 +1573,15 @@ impl FunctionEmitter<'_> {
             })
             .unwrap_or_default();
 
+        // A reference class stores its fields inside the shared `Rc<RefCell<Inner>>`
+        // cell, so erasing one to a plain object must read each field through
+        // `.0.borrow()` rather than a direct named-field access against the
+        // newtype (was E0609).
+        let field_base = if self.is_reference_class_type(target) {
+            "smelt_object_value.0.borrow()"
+        } else {
+            "smelt_object_value"
+        };
         let entries_result = fields
             .iter()
             .filter(|field| !matches!(field.visibility, smelt_hir::Visibility::Private))
@@ -1488,16 +1591,23 @@ impl FunctionEmitter<'_> {
                 if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                     let field_value = self.erase_value_text("value", *inner)?;
                     return Ok(format!(
-                        "if let Some(value) = smelt_object_value.{field_name}.clone() {{ smelt_object_entries.insert({source_name:?}.to_owned(), {field_value}); }}"
+                        "if let Some(value) = {field_base}.{field_name}.clone() {{ smelt_object_entries.insert({source_name:?}.to_owned(), {field_value}); }}"
                     ));
                 }
                 let field_value = if let Some(value) =
                     self.virtual_method_storage_field_text(target, target, field.name)?
                 {
                     self.erase_value_text(&value, field.ty)?
+                } else if self.is_reference_class_type(target) {
+                    // Reading through `.0.borrow()` yields a `Ref` guard; the value
+                    // must be cloned out rather than moved (was E0507).
+                    self.erase_value_text(
+                        &format!("{field_base}.{field_name}.clone()"),
+                        field.ty,
+                    )?
                 } else {
                     self.erase_value_text(
-                        &format!("smelt_object_value.{field_name}"),
+                        &format!("{field_base}.{field_name}"),
                         field.ty,
                     )?
                 };
@@ -2012,10 +2122,10 @@ impl FunctionEmitter<'_> {
                 let converted_return_text = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    let item_text = self.type_text_with_impl_trait(*item, false)?;
+                    let _ = self.type_text_with_impl_trait(*item, false)?;
                     let converted_item = self.extract_value_text("smelt_result", *item)?;
                     format!(
-                        "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{item_text}, Box<dyn std::error::Error>>>>>"
+                        "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}))"
                     )
                 } else if return_ty == "SmeltUnknown" {
                     "smelt_result".to_owned()
@@ -2032,12 +2142,11 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_function = match {text}.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ let smelt_callback: {target_text} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}); smelt_callback }} }} else {{ {default_callback} }} }}"
                 ))
             }
-            // A `dyn Future` has no `Default`, so a bare `Default::default()`
-            // here fails to compile (E0277). There is also no way to recover a
-            // real future from an already-erased `SmeltUnknown`, so extract to a
-            // ready future at the declared `Output` type instead. `default_value`
-            // renders exactly `Box::pin(async { Ok(<default output>) }) as <ty>`
-            // for `Type::Future`, matching the future ABI used everywhere else.
+            // There is no way to recover a real future from an already-erased
+            // `SmeltUnknown`, so extract to a ready promise value at the declared
+            // `Output` type instead. `default_value` renders exactly
+            // `SmeltFuture::resolved(<default output>)` for `Type::Future`,
+            // matching the promise-value ABI used everywhere else.
             Some(Type::Future(_)) => self.default_value(target),
             _ => Err(EmitError::new(
                 "checked extraction from unknown to this type is not implemented yet",

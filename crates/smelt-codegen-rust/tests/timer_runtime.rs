@@ -95,6 +95,32 @@ fn run_timer_fixture(source: &str, crate_name: &str) {
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn await_promise_resolved_only_by_delayed_timer() {
+    // Regression for the virtual-clock starvation hang (campaign H1). The awaited
+    // promise is settled *only* by a `setTimeout(..., 100)` timer, and nothing
+    // else drives the clock: no preceding positive-delay `await delay(...)`, so
+    // the promise-executor spin loop's sole progress mechanism is the zero-delay
+    // sleep it awaits while polling the result cell. Before the run-until-idle
+    // fix, `smelt_sleep_ms(0)` computed `target = now + 0` and never advanced to a
+    // timer due at `now + 100`, so this test spun forever. A green run proves the
+    // idle clock advances to the earliest pending timer once microtasks drain.
+    let source = format!(
+        r#"
+import {{ test, expect }} from "vitest";
+{DELAY_HELPER}
+test("await promise resolved only by delayed timer", async () => {{
+  const value = await new Promise<number>((resolve) => {{
+    setTimeout(() => resolve(42), 100);
+  }});
+  expect(value).toBe(42);
+}});
+"#
+    );
+    run_timer_fixture(&source, "smelt_timer_runtime_delayed_resolve");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn set_timeout_forwards_multiple_typed_args() {
     // Two concretely typed extras (`string`, `number`) must be captured by the
     // synthesized wrapper and forwarded to the callback when the timer fires.

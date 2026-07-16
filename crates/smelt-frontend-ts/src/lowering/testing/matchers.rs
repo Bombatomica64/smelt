@@ -151,7 +151,19 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let actual = self.argument(actual_arg, body)?;
-        let expected = self.argument(expected_arg, body)?;
+        // Contextually type the expected value from the actual's type for
+        // deep-equality matchers. An expected literal such as
+        // `[[1, 'a'], [2, 'b']]` in `expect(zip(...)).toEqual([...])` would
+        // otherwise infer as `SmeltList<SmeltList<SmeltUnknown>>` and fail to
+        // compare against the actual's `SmeltList<(f64, String)>` (E0308).
+        // `array_expression`'s arity guard ignores tuple hints whose arity does
+        // not match the literal, so ragged expected values are unaffected.
+        let expected = if matches!(matcher, TestMatcher::Equal | TestMatcher::StrictEqual) {
+            let actual_ty = Self::expr_ty(body, actual);
+            self.argument_with_hint(expected_arg, body, Some(actual_ty))?
+        } else {
+            self.argument(expected_arg, body)?
+        };
         let use_strict_identity = matcher == TestMatcher::Be
             && self.test_to_be_needs_strict_identity(actual, expected, body);
         let mut failed = if use_strict_identity {
@@ -192,7 +204,8 @@ impl ModuleBuilder<'_> {
         expected: smelt_hir::ExprId,
         body: &Body,
     ) -> bool {
-        if Self::test_to_be_nan_literal(actual, body) || Self::test_to_be_nan_literal(expected, body)
+        if Self::test_to_be_nan_literal(actual, body)
+            || Self::test_to_be_nan_literal(expected, body)
         {
             return true;
         }
@@ -216,7 +229,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an assertion operand is the JavaScript `NaN` literal.
-    pub(in crate::lowering) fn test_to_be_nan_literal(value: smelt_hir::ExprId, body: &Body) -> bool {
+    pub(in crate::lowering) fn test_to_be_nan_literal(
+        value: smelt_hir::ExprId,
+        body: &Body,
+    ) -> bool {
         matches!(
             usize::try_from(value.0)
                 .ok()
@@ -406,16 +422,12 @@ impl ModuleBuilder<'_> {
                 params: Vec::new(),
                 rest: None,
                 required_params: Some(0),
-                    mutable_params: Vec::new(),
+                mutable_params: Vec::new(),
                 return_ty: none_ty,
                 is_async: false,
                 may_throw: true,
             };
-            let throwing_function_ty = self
-                .ctx
-                .krate
-                .types
-                .intern(Type::Function(function));
+            let throwing_function_ty = self.ctx.krate.types.intern(Type::Function(function));
             callee = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: callee },
                 ty: throwing_function_ty,
@@ -434,7 +446,12 @@ impl ModuleBuilder<'_> {
             try_block
         } else {
             let mut callee = self.argument(actual_arg, body)?;
-            let callee_ty = self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned();
+            let callee_ty = self
+                .ctx
+                .krate
+                .types
+                .get(Self::expr_ty(body, callee))
+                .cloned();
             let mut function = match callee_ty {
                 Some(Type::Function(function)) => function,
                 // `expect(value).toThrow()` may name a callable whose static
@@ -678,7 +695,10 @@ impl ModuleBuilder<'_> {
     /// pipeline still uses the narrower `type_contains_unknown` helper because
     /// treating every `Array<unknown>` as unknown-like changes overload choices
     /// in normal library code.
-    pub(in crate::lowering) fn assertion_type_contains_unknown(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn assertion_type_contains_unknown(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown | Type::TypeParam { .. }) => true,
             Some(
@@ -755,7 +775,8 @@ impl ModuleBuilder<'_> {
         // A concrete collection actual still supports the runtime containment
         // check against such a value, so an erased expected matches any item
         // type rather than forcing a static element-type equality.
-        let expected_is_erased = matches!(self.ctx.krate.types.get(expected_ty), Some(Type::Unknown));
+        let expected_is_erased =
+            matches!(self.ctx.krate.types.get(expected_ty), Some(Type::Unknown));
         // A `sample(...)`-style helper returns `T | undefined`, so the expected
         // needle is commonly an `Optional(T)` while the actual collection holds
         // `T` (`expect(array).toContain(sample(array))`). JavaScript containment
@@ -798,18 +819,14 @@ impl ModuleBuilder<'_> {
                     from_index: None,
                 }
             }
-            Some(Type::List(item_ty)) if item_matches(*item_ty) => {
-                ExprKind::ListContains {
-                    list: actual,
-                    item: expected,
-                }
-            }
-            Some(Type::Set(item_ty)) if item_matches(*item_ty) => {
-                ExprKind::SetContains {
-                    set: actual,
-                    item: expected,
-                }
-            }
+            Some(Type::List(item_ty)) if item_matches(*item_ty) => ExprKind::ListContains {
+                list: actual,
+                item: expected,
+            },
+            Some(Type::Set(item_ty)) if item_matches(*item_ty) => ExprKind::SetContains {
+                set: actual,
+                item: expected,
+            },
             Some(Type::Tuple(items)) if items.iter().any(|item| item_matches(*item)) => {
                 ExprKind::TupleContains {
                     tuple: actual,
@@ -1141,7 +1158,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a HIR type corresponds to a JavaScript `typeof` result.
-    pub(in crate::lowering) fn type_matches_typeof(&self, ty: smelt_hir::TypeId, kind: &str) -> bool {
+    pub(in crate::lowering) fn type_matches_typeof(
+        &self,
+        ty: smelt_hir::TypeId,
+        kind: &str,
+    ) -> bool {
         let resolved_ty = self.type_param_constraint_or_self(ty);
         match (self.ctx.krate.types.get(resolved_ty), kind) {
             (Some(Type::Bool), "boolean")
@@ -1415,7 +1436,9 @@ impl ModuleBuilder<'_> {
     /// JavaScript code commonly writes both `typeof value === "kind"` and
     /// `"kind" !== typeof value`; the boolean indicates whether the expression
     /// proves that the local matches the `typeof` kind.
-    pub(in crate::lowering) fn typeof_comparison(expression: &Expression<'_>) -> Option<(String, String, bool)> {
+    pub(in crate::lowering) fn typeof_comparison(
+        expression: &Expression<'_>,
+    ) -> Option<(String, String, bool)> {
         let Expression::BinaryExpression(binary) = expression else {
             return None;
         };
@@ -1447,7 +1470,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the identifier operand of a `typeof name` expression.
-    pub(in crate::lowering) fn typeof_identifier_name(expression: &Expression<'_>) -> Option<String> {
+    pub(in crate::lowering) fn typeof_identifier_name(
+        expression: &Expression<'_>,
+    ) -> Option<String> {
         let Expression::UnaryExpression(unary) = expression else {
             return None;
         };
@@ -1484,7 +1509,7 @@ impl ModuleBuilder<'_> {
                             params: vec![unknown_ty],
                             rest: None,
                             required_params: None,
-                    mutable_params: Vec::new(),
+                            mutable_params: Vec::new(),
                             return_ty: unknown_ty,
                             is_async: false,
                             may_throw: false,
@@ -1514,7 +1539,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract a callable member from a union or function type.
-    pub(in crate::lowering) fn function_member_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn function_member_type(
+        &mut self,
+        ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
         self.function_member_type_for_arg_count(ty, None)
     }
 
@@ -1566,9 +1594,9 @@ impl ModuleBuilder<'_> {
                 arg_count.is_some_and(|count| Self::signature_accepts_arg_count(signature, count))
             })
             .or_else(|| {
-                signatures
-                    .iter()
-                    .find(|signature| arg_count.is_some_and(|count| signature.params.len() == count))
+                signatures.iter().find(|signature| {
+                    arg_count.is_some_and(|count| signature.params.len() == count)
+                })
             })
             .or_else(|| signatures.first())?;
         let rest = signature.rest;
@@ -1601,9 +1629,7 @@ impl ModuleBuilder<'_> {
     /// selection honours optional/rest arity instead of demanding an exact
     /// `params.len()` match.
     fn signature_accepts_arg_count(signature: &FunctionType, arg_count: usize) -> bool {
-        let required = signature
-            .required_params
-            .unwrap_or(signature.params.len());
+        let required = signature.required_params.unwrap_or(signature.params.len());
         if arg_count < required {
             return false;
         }
@@ -1679,9 +1705,8 @@ impl ModuleBuilder<'_> {
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         let field_name = field.value.as_str();
-        let retained = self.filtered_union_members(ty, |member| {
-            self.type_has_known_field(member, field_name)
-        })?;
+        let retained = self
+            .filtered_union_members(ty, |member| self.type_has_known_field(member, field_name))?;
         let narrowed = self.intern_filtered_union(retained)?;
         Some((name.to_owned(), narrowed))
     }
@@ -1736,9 +1761,8 @@ impl ModuleBuilder<'_> {
         if all_have_field {
             return None;
         }
-        let retained = self.filtered_union_members(ty, |member| {
-            self.type_has_known_field(member, &field_name)
-        })?;
+        let retained = self
+            .filtered_union_members(ty, |member| self.type_has_known_field(member, &field_name))?;
         let narrowed = self.intern_filtered_union(retained)?;
         Some((name, narrowed))
     }
@@ -1813,9 +1837,8 @@ impl ModuleBuilder<'_> {
         if all_have_field {
             return None;
         }
-        let retained = self.filtered_union_members(ty, |member| {
-            self.type_has_known_field(member, &field_name)
-        })?;
+        let retained = self
+            .filtered_union_members(ty, |member| self.type_has_known_field(member, &field_name))?;
         let narrowed = self.intern_filtered_union(retained)?;
         Some((name, narrowed))
     }
@@ -1861,7 +1884,9 @@ impl ModuleBuilder<'_> {
                     // the null guards' domain). Drop `None` so a `case 'object'`
                     // narrows to the real object-shaped arm, not `string[] | null`.
                     !matches!(self.ctx.krate.types.get(*item), Some(Type::None))
-                        && kinds.iter().any(|kind| self.type_matches_typeof(*item, kind))
+                        && kinds
+                            .iter()
+                            .any(|kind| self.type_matches_typeof(*item, kind))
                 })
                 .collect::<Vec<_>>();
             if let Some(narrowed) = self.intern_filtered_union(retained) {
@@ -1981,7 +2006,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recognize `value === null` guard expressions.
-    pub(in crate::lowering) fn null_guard(&mut self, expression: &Expression<'_>) -> Option<(String, smelt_hir::TypeId)> {
+    pub(in crate::lowering) fn null_guard(
+        &mut self,
+        expression: &Expression<'_>,
+    ) -> Option<(String, smelt_hir::TypeId)> {
         let Expression::BinaryExpression(binary) = expression else {
             return None;
         };
@@ -2127,8 +2155,7 @@ impl ModuleBuilder<'_> {
                 };
                 let is_deferred_self_binding = self
                     .initializer_needs_deferred_self_binding(initializer, binding.name.as_str());
-                let direct_arrow = if let Expression::ArrowFunctionExpression(arrow) = initializer
-                {
+                let direct_arrow = if let Expression::ArrowFunctionExpression(arrow) = initializer {
                     Some(arrow)
                 } else {
                     None
@@ -2155,7 +2182,7 @@ impl ModuleBuilder<'_> {
                                 params: vec![unknown; arrow.params.items.len()],
                                 rest: None,
                                 required_params: None,
-                    mutable_params: Vec::new(),
+                                mutable_params: Vec::new(),
                                 return_ty,
                                 is_async: arrow.r#async,
                                 may_throw: false,
@@ -2358,10 +2385,7 @@ impl ModuleBuilder<'_> {
             let deferred_self_local = if let BindingPattern::BindingIdentifier(binding) =
                 &declarator.id
                 && let Some(initializer) = &declarator.init
-                && self.initializer_needs_deferred_self_binding(
-                    initializer,
-                    binding.name.as_str(),
-                )
+                && self.initializer_needs_deferred_self_binding(initializer, binding.name.as_str())
             {
                 self.local_arrow_existing_body_local(binding.name.as_str(), body)
             } else {
@@ -2590,7 +2614,7 @@ impl ModuleBuilder<'_> {
                 params: params.clone(),
                 rest: rest.map(|rest| rest.index),
                 required_params: Some(required_params),
-                    mutable_params: Vec::new(),
+                mutable_params: Vec::new(),
                 return_ty,
                 is_async: arrow.r#async,
                 may_throw: false,
@@ -2642,6 +2666,7 @@ impl ModuleBuilder<'_> {
                 self.local_callbacks.insert(
                     name.to_owned(),
                     LocalCallback {
+                        defining_body_span: body.blocks.first().map(|root_block| root_block.span),
                         callback,
                         params,
                         defaults: closure_defaults,
@@ -2834,7 +2859,7 @@ impl ModuleBuilder<'_> {
                 params: param_tys.clone(),
                 rest: rest_index,
                 required_params: None,
-                    mutable_params: Vec::new(),
+                mutable_params: Vec::new(),
                 return_ty: provisional_return_ty,
                 is_async: function.r#async,
                 may_throw: false,
@@ -2931,7 +2956,7 @@ impl ModuleBuilder<'_> {
                 params: param_tys,
                 rest: rest_index,
                 required_params: None,
-                    mutable_params: Vec::new(),
+                mutable_params: Vec::new(),
                 return_ty,
                 is_async: function.r#async,
                 may_throw: false,
@@ -3013,9 +3038,7 @@ impl ModuleBuilder<'_> {
         let mut params =
             self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
         for (param, ty) in arrow.params.items.iter().zip(params.iter_mut()) {
-            if param.optional
-                && !matches!(self.ctx.krate.types.get(*ty), Some(Type::Optional(_)))
-            {
+            if param.optional && !matches!(self.ctx.krate.types.get(*ty), Some(Type::Optional(_))) {
                 *ty = self.ctx.krate.types.intern(Type::Optional(*ty));
             }
         }
@@ -3039,9 +3062,7 @@ impl ModuleBuilder<'_> {
                     .params
                     .items
                     .iter()
-                    .position(|param| {
-                        param.optional || Self::formal_parameter_has_default(param)
-                    })
+                    .position(|param| param.optional || Self::formal_parameter_has_default(param))
                     .unwrap_or(arrow.params.items.len()),
             ),
             mutable_params,
@@ -3098,7 +3119,7 @@ impl ModuleBuilder<'_> {
         actual: smelt_hir::TypeId,
         expected: smelt_hir::TypeId,
     ) -> bool {
-        actual == expected
+        self.type_assignable_to(actual, expected)
             || matches!(self.ctx.krate.types.get(expected), Some(Type::Class { .. }))
             || matches!(
                 self.ctx.krate.types.get(expected),
@@ -3155,6 +3176,14 @@ impl ModuleBuilder<'_> {
                     || self.type_is_known_date_value(ty)
                 {
                     self.date_value_locals.insert(local);
+                }
+                // An explicit `any` annotation pins the local to the erased
+                // `Unknown` boundary: record it so later concrete assignments do
+                // not flow-narrow its storage type away from `Unknown`.
+                if annotated_ty.is_some_and(|annotated| {
+                    matches!(self.ctx.krate.types.get(annotated), Some(Type::Unknown))
+                }) {
+                    self.explicit_any_locals.insert(local);
                 }
                 self.locals.insert(name.to_owned(), local);
                 let pat = body.push_pattern(Pattern::Binding(local));
@@ -3597,7 +3626,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect source names introduced by a binding pattern.
-    pub(in crate::lowering) fn binding_pattern_names(pattern: &BindingPattern<'_>, names: &mut Vec<String>) {
+    pub(in crate::lowering) fn binding_pattern_names(
+        pattern: &BindingPattern<'_>,
+        names: &mut Vec<String>,
+    ) {
         match pattern {
             BindingPattern::BindingIdentifier(binding) => {
                 names.push(binding.name.as_str().to_owned());

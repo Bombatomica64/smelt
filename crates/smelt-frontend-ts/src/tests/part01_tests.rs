@@ -2541,3 +2541,57 @@ fn lowers_runtime_index_access_on_unknown_metadata() -> Result<(), String> {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// A rest-bearing function must not lend its rest slot to a same-named
+/// function in another module. es-toolkit declares both `compat/function/delay`
+/// (`delay(fn, wait, ...args)`, with a rest) and `promise/delay`
+/// (`delay(ms, options = {})`, no rest). Because `function_rests` is keyed on
+/// the bare function name, the compat rest slot used to leak into promise
+/// `delay`, synthesizing a spurious empty rest-list argument for the omitted
+/// `options` and mistyping it against the declared record parameter. The
+/// resolved item is authoritative, so the promise-delay call must lower with
+/// exactly its single supplied argument.
+#[test]
+fn same_named_rest_function_does_not_leak_rest_slot_across_modules() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export function delay(
+  fn: (...args: readonly unknown[]) => unknown,
+  wait: number,
+  ...args: readonly unknown[]
+): unknown {
+  return fn(...args);
+}
+"#),
+        "src/compat.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+interface DelayOptions {
+  signal?: number;
+}
+export function delay(ms: number, { signal }: DelayOptions = {}): number {
+  return ms;
+}
+export function run(): number {
+  return delay(100);
+}
+"#),
+        "src/promise.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let run = named_function_item(&ctx, module, "run")?;
+    let body = function_body(&ctx, run)?;
+    let mut saw_call = false;
+    for expr in &body.exprs {
+        if let ExprKind::Call { args, .. } = &expr.kind {
+            saw_call = true;
+            ensure_eq!(args.len(), 1);
+        }
+    }
+    ensure!(saw_call);
+    Ok(())
+}

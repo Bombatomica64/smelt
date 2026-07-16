@@ -8,15 +8,15 @@ expression: emitted
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
 fn run() -> Result<f64, Box<dyn std::error::Error>> {
-    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: f64| { Box::pin(async move {
+    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: f64| { SmeltFuture::from_future(Box::pin(async move {
         let smelt_async_value = {
     let _smelt_tmp_1: f64 = closure_arg_0.clone() + 1.0;
     _smelt_tmp_1.clone()
         };
         Ok::<f64, Box<dyn std::error::Error>>(smelt_async_value)
-    }) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<f64, Box<dyn std::error::Error>>>>> });
+    }) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<f64, Box<dyn std::error::Error>>>>>) });
     let lift = _smelt_tmp_2.clone();
-    let _smelt_tmp_3: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<f64, Box<dyn std::error::Error>>>>> = (lift)(4.0);
+    let _smelt_tmp_3: SmeltFuture<f64> = (lift)(4.0);
     let _smelt_tmp_4: f64 = _smelt_tmp_3.await?;
     let result: f64 = _smelt_tmp_4;
     return Ok(result);

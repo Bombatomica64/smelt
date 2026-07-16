@@ -23,7 +23,10 @@ impl ModuleBuilder<'_> {
     /// Synthetic object function-table entries need exact key spelling because
     /// JavaScript object keys are case-sensitive (`M` and `m` are distinct
     /// date-fns formatters).
-    pub(in crate::lowering) fn intern_exact_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
+    pub(in crate::lowering) fn intern_exact_source_name(
+        &mut self,
+        name: &str,
+    ) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(name);
         self.ctx.krate.names.record(symbol, name);
         symbol
@@ -120,6 +123,29 @@ impl ModuleBuilder<'_> {
             let ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::DictLit(Vec::new()),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
+        // Prefer the materialized closure binding when this callback is being
+        // referenced from a nested closure body. Rebuilding the compact
+        // callback expression here would retain capture IDs from its defining
+        // body (for example `next` closing over `itemsByIndex`) instead of the
+        // nested body's remapped local for `next` itself.
+        if let (Some(local), Some(callback)) = (
+            self.locals.get(name).copied(),
+            self.local_callbacks.get(name),
+        ) && body.blocks.first().map(|block| block.span) != callback.defining_body_span
+            && usize::try_from(local.0)
+                .ok()
+                .and_then(|index| body.locals.get(index))
+                .is_some_and(|decl| {
+                    matches!(self.ctx.krate.types.get(decl.ty), Some(Type::Function(_)))
+                })
+        {
+            let ty = Self::local_ty(body, local);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Local(local),
                 ty,
                 span: self.span(start, end),
             }));
@@ -302,6 +328,14 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        // A read of a callable local that is still accumulating property writes
+        // escapes the partially-built bundle. Consumption at a callable-interface
+        // coercion is intercepted before this path (and removes the entry), so
+        // reaching here with a live entry means the value flowed out as a bare
+        // callable; a later property write onto it is then a documented punt.
+        if let Some(state) = self.callable_local_props.get_mut(&local) {
+            state.escaped = true;
+        }
         let base_ty = Self::local_ty(body, local);
         let ty = self.narrowed_type(name).unwrap_or(base_ty);
         let local_expr = body.push_expr(Expr {
@@ -400,18 +434,24 @@ impl ModuleBuilder<'_> {
         let span = self.span(start, end);
         Some(match name {
             // Primitive coercion constructors used as callbacks.
-            "String" => {
-                self.builtin_cast_closure_expression(PrimitiveCastOp::ToString, Type::String, span, outer_body)
-            }
+            "String" => self.builtin_cast_closure_expression(
+                PrimitiveCastOp::ToString,
+                Type::String,
+                span,
+                outer_body,
+            ),
             "Number" => self.builtin_cast_closure_expression(
                 PrimitiveCastOp::ToJsNumber,
                 Type::Float,
                 span,
                 outer_body,
             ),
-            "Boolean" => {
-                self.builtin_cast_closure_expression(PrimitiveCastOp::ToBool, Type::Bool, span, outer_body)
-            }
+            "Boolean" => self.builtin_cast_closure_expression(
+                PrimitiveCastOp::ToBool,
+                Type::Bool,
+                span,
+                outer_body,
+            ),
             // String-to-number parse functions used as callbacks. Both expose a
             // single string parameter here; direct `parseFloat` calls separately
             // make JavaScript's implicit `ToString` coercion explicit. Callers
@@ -470,7 +510,9 @@ impl ModuleBuilder<'_> {
                     string_ty,
                     span,
                     outer_body,
-                    |value_expr| ExprKind::UriEncode { operand: value_expr },
+                    |value_expr| ExprKind::UriEncode {
+                        operand: value_expr,
+                    },
                 )
             }
             // `setTimeout` used as a value rather than called directly (e.g.
@@ -713,7 +755,11 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
         let marker_key = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::String("__smelt_builtin_namespace".to_owned())),
             ty: string_ty,
@@ -819,11 +865,12 @@ impl ModuleBuilder<'_> {
     /// non-guard fallback (e.g. the `((function(){return this})())` or a literal)
     /// is allowed only after at least one present alias was found. Any other shape
     /// returns `false`, leaving the expression to ordinary lowering.
-    pub(in crate::lowering) fn or_chain_resolves_to_global(&self, expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn or_chain_resolves_to_global(
+        &self,
+        expression: &Expression<'_>,
+    ) -> bool {
         match Self::unparenthesized_expression(expression) {
-            Expression::LogicalExpression(logical)
-                if logical.operator == LogicalOperator::Or =>
-            {
+            Expression::LogicalExpression(logical) if logical.operator == LogicalOperator::Or => {
                 // `(left) || (right)`: a present global anywhere in the spine wins.
                 self.or_chain_resolves_to_global(&logical.left)
                     || self.clause_is_present_global_guard(&logical.right)
@@ -839,7 +886,10 @@ impl ModuleBuilder<'_> {
     /// statically falsy, so it returns `false` here — the chain walker skips it
     /// rather than treating it as the resolving clause, and crucially the dead
     /// `window` operand is never lowered.
-    pub(in crate::lowering) fn clause_is_present_global_guard(&self, expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn clause_is_present_global_guard(
+        &self,
+        expression: &Expression<'_>,
+    ) -> bool {
         let Expression::LogicalExpression(clause) = Self::unparenthesized_expression(expression)
         else {
             return false;
@@ -891,7 +941,11 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
         let marker_key = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::String("__smelt_global_object".to_owned())),
             ty: string_ty,
@@ -952,12 +1006,16 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let result_ty = self.ctx.krate.types.intern(Type::Float);
-        self.builtin_unary_closure_expression(string_ty, result_ty, span, outer_body, |value_expr| {
-            ExprKind::PrimitiveCast {
+        self.builtin_unary_closure_expression(
+            string_ty,
+            result_ty,
+            span,
+            outer_body,
+            |value_expr| ExprKind::PrimitiveCast {
                 op,
                 operand: value_expr,
-            }
-        })
+            },
+        )
     }
 
     /// Build a `(value) => <NumericPredicate op>(value)` closure value.
@@ -1067,7 +1125,13 @@ impl ModuleBuilder<'_> {
         end: u32,
         outer_body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.item_function_closure_expression_with_max_params(item, usize::MAX, start, end, outer_body)
+        self.item_function_closure_expression_with_max_params(
+            item,
+            usize::MAX,
+            start,
+            end,
+            outer_body,
+        )
     }
 
     /// Wrap a function item in a closure value capped at a caller-supplied arity.
@@ -1322,21 +1386,21 @@ impl ModuleBuilder<'_> {
                 let param_ty = self.ctx.krate.types.intern(Type::List(item.ty));
                 let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params: vec![param_ty],
-            rest: None,
+                    rest: None,
                     required_params: None,
                     mutable_params: Vec::new(),
-return_ty: item.ty,
+                    return_ty: item.ty,
                     is_async: false,
-                            may_throw: false,
+                    may_throw: false,
                 }));
                 let function = FunctionType {
                     params: vec![param_ty],
-            rest: None,
+                    rest: None,
                     required_params: None,
                     mutable_params: Vec::new(),
-return_ty: item.ty,
+                    return_ty: item.ty,
                     is_async: false,
-                            may_throw: false,
+                    may_throw: false,
                 };
                 match self.module_global_function_expression(
                     &function,
@@ -1402,9 +1466,9 @@ return_ty: item.ty,
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params,
-            rest: None,
+                rest: None,
                 required_params: None,
-return_ty: function.return_ty,
+                return_ty: function.return_ty,
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
@@ -1556,7 +1620,7 @@ return_ty: function.return_ty,
             params: Vec::new(),
             rest: None,
             required_params: None,
-return_ty: none,
+            return_ty: none,
             is_async: false,
             is_test: false,
             body: None,

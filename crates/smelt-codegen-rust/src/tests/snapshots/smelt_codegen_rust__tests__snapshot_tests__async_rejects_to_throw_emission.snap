@@ -24,7 +24,7 @@ async fn test_rejects() -> Result<(), Box<dyn std::error::Error>> {
             let _smelt_tmp_2 = __smelt_value;
     match _smelt_tmp_2.await {
         Ok(__smelt_value) => {
-            let _smelt_tmp_3: () = __smelt_value;
+            let _smelt_tmp_3: () = { let _ = __smelt_value; };
     _smelt_tmp_6 = !(did_throw);
     if _smelt_tmp_6 {
     return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "expect(...).rejects.toThrow(...) failed".to_owned())).into());

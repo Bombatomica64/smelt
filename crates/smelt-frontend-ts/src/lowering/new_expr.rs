@@ -94,10 +94,17 @@ impl ModuleBuilder<'_> {
             // the erased ABI, a genuine dynamic boundary returning `unknown`.
             let callee_value = self.expression(&new_expr.callee, body)?;
             let callee_ty = Self::expr_ty(body, callee_value);
-            if self.erased_or_union_surface(callee_ty)
-                || self.function_member_type(callee_ty).is_some()
-            {
+            let callable_ty = self.function_member_type(callee_ty);
+            if self.erased_or_union_surface(callee_ty) || callable_ty.is_some() {
                 let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let (params, result_ty) = callable_ty
+                    .and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
+                        Some(Type::Function(function)) => {
+                            Some((function.params, function.return_ty))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| (Vec::new(), unknown_ty));
                 let span = self.span(new_expr.span.start, new_expr.span.end);
                 if new_expr.arguments.iter().any(Argument::is_spread) {
                     let args = self.packed_spread_arguments(
@@ -111,21 +118,24 @@ impl ModuleBuilder<'_> {
                             callee: callee_value,
                             args,
                         },
-                        ty: unknown_ty,
+                        ty: result_ty,
                         span,
                     }));
                 }
                 let args = new_expr
                     .arguments
                     .iter()
-                    .map(|arg| self.argument(arg, body))
+                    .enumerate()
+                    .map(|(index, arg)| {
+                        self.argument_with_hint(arg, body, params.get(index).copied())
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ClosureCall {
                         callee: callee_value,
                         args,
                     },
-                    ty: unknown_ty,
+                    ty: result_ty,
                     span,
                 }));
             }
@@ -1894,12 +1904,27 @@ impl ModuleBuilder<'_> {
                     span: self.span(lit.span.start, lit.span.end),
                 }))
             }
-            Expression::Identifier(ident) => self.identifier_expression(
-                ident.name.as_str(),
-                ident.span.start,
-                ident.span.end,
-                body,
-            ),
+            Expression::Identifier(ident) => {
+                // A function-typed local that collected `fn.prop = …` writes and
+                // now coerces to a callable-interface class is bundled into a
+                // typed `CallableObjectAssign` here, at the coercion position,
+                // instead of leaking the props (the `debounce`/`throttle` shape).
+                if let Some(expr) = self.try_consume_callable_local(
+                    ident.name.as_str(),
+                    ident.span.start,
+                    ident.span.end,
+                    type_hint,
+                    body,
+                )? {
+                    return Ok(expr);
+                }
+                self.identifier_expression(
+                    ident.name.as_str(),
+                    ident.span.start,
+                    ident.span.end,
+                    body,
+                )
+            }
             Expression::ThisExpression(this_expr) => {
                 self.identifier_expression("this", this_expr.span.start, this_expr.span.end, body)
             }

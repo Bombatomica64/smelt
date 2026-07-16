@@ -8,6 +8,30 @@ thread_local! {
     static EMIT_BLOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
     /// Per-thread recursion depth for nested block-until emission.
     static EMIT_UNTIL_DEPTH: Cell<usize> = const { Cell::new(0) };
+    /// Whether the most recently emitted terminator diverges (ends in a
+    /// `return`/`throw`/`unreachable`) rather than falling through.
+    ///
+    /// Because every structured emission ends by emitting its continuation
+    /// block last (a hoisted match join, the block after an `if`, or — when
+    /// all arms diverge — the final diverging arm itself), the last
+    /// [`FunctionEmitter::emit_terminator`] call always corresponds to the
+    /// structural tail of the rendered region. Recording whether that tail
+    /// diverges lets [`FunctionEmitter::emit_body`] suppress the conservative
+    /// fallthrough `return` after a body whose tail already diverges — the MIR
+    /// CFG can retain a phantom fall-through edge that the structured emitter
+    /// never renders, so `block_eventually_terminates` alone under-reports it
+    /// and a trailing `return` becomes `unreachable_code`.
+    static LAST_EMIT_DIVERGED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Records whether the most recently emitted terminator diverges.
+pub(super) fn set_last_emit_diverged(diverged: bool) {
+    LAST_EMIT_DIVERGED.with(|cell| cell.set(diverged));
+}
+
+/// Returns whether the most recently emitted terminator diverged.
+pub(super) fn last_emit_diverged() -> bool {
+    LAST_EMIT_DIVERGED.with(Cell::get)
 }
 
 impl FunctionEmitter<'_> {
@@ -26,6 +50,7 @@ impl FunctionEmitter<'_> {
         if too_deep {
             out.push_str("    // Smelt could not structurally emit this recursive control-flow region yet.\n");
             out.push_str(&self.default_return_statement()?);
+            set_last_emit_diverged(true);
             return Ok(());
         }
         let result = self.emit_block_body(block, out);
@@ -54,6 +79,16 @@ impl FunctionEmitter<'_> {
             out.push_str("    }\n");
             self.restore_declared_locals(loop_declared);
             return self.emit_block(exit, out);
+        }
+
+        // A compound short-circuit `while` header is recognized before the
+        // single-block recognizers for the same reason as in the nested path:
+        // `while_header` also matches it but would emit the wrong structure.
+        if let Some((decision, body_entry, exit_entry, body_is_then)) =
+            self.compound_while(block, &[])?
+        {
+            self.emit_compound_while(block, decision, body_entry, exit_entry, body_is_then, out)?;
+            return self.emit_block(self.block(exit_entry)?, out);
         }
 
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
@@ -269,6 +304,22 @@ impl FunctionEmitter<'_> {
         match place {
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                // A JavaScript `RegExp.lastIndex` write stores into a
+                // `RefCell<usize>`, so the numeric right-hand side (typed
+                // `f64`) is narrowed back to `usize` at the write seam. The
+                // matching read path lives in `regexp_field_text`.
+                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+                    && self.is_regexp_class_symbol(*name)?
+                    && matches!(self.symbol_name(*field)?, "lastIndex" | "last_index")
+                {
+                    let rendered_value =
+                        self.rvalue_text_for_dest(value, self.type_id(Type::Float)?)?;
+                    out.push_str(&format!(
+                        "    *{}.last_index.borrow_mut() = ({rendered_value}) as usize;\n",
+                        self.local_value_text(*base)?
+                    ));
+                    return Ok(());
+                }
                 if let Some(statement) =
                     self.descriptor_setter_statement(*base, *field, value)?
                 {
@@ -483,6 +534,10 @@ impl FunctionEmitter<'_> {
         terminator: &Terminator,
         out: &mut String,
     ) -> Result<(), EmitError> {
+        // Default to "falls through"; the diverging arms below and any nested
+        // emission set this to reflect the structural tail (the last terminator
+        // emitted wins, which is always the region's continuation).
+        set_last_emit_diverged(false);
         match terminator {
             Terminator::Goto(target) => {
                 if target.0 <= current.0 {
@@ -525,7 +580,9 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
-                let value = format!("{}.await?", self.await_operand_text(future)?);
+                let raw_value = format!("{}.await?", self.await_operand_text(future)?);
+                let source_ty = self.awaited_output_ty(future)?;
+                let value = self.value_at_type_text(&raw_value, source_ty, local.ty)?;
                 if matches!(
                     self.mir.types.get(local.ty),
                     Some(Type::Future(_) | Type::Function(_))
@@ -612,6 +669,7 @@ impl FunctionEmitter<'_> {
                         self.value_at_type(operand, self.function.return_ty)?
                     ));
                 }
+                set_last_emit_diverged(true);
                 Ok(())
             }
             Terminator::Throw(operand) => {
@@ -626,10 +684,12 @@ impl FunctionEmitter<'_> {
                     "    return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
                     self.operand_text(operand)?
                 ));
+                set_last_emit_diverged(true);
                 Ok(())
             }
             Terminator::Unreachable => {
                 out.push_str("    unreachable!();\n");
+                set_last_emit_diverged(true);
                 Ok(())
             }
         }
@@ -723,18 +783,32 @@ impl FunctionEmitter<'_> {
             } else {
                 ""
             };
-            if matches!(
-                self.mir.types.get(local.ty),
-                Some(Type::Future(_) | Type::Function(_))
-            ) {
+            // A fully-erased callee returns its future/handle at the erased item
+            // type (e.g. `SmeltFuture<SmeltUnknown>`) while a specialized call
+            // site declares a concrete `Future<T>`. Coerce the caught value from
+            // the call's actual emitted type to the destination so a later
+            // `await` yields `T` directly; when they already match,
+            // `value_at_type_text` returns the value unchanged. A function-typed
+            // destination is left untouched (function handles are not coerced
+            // through this path).
+            if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
                 out.push_str(&format!(
                     "            let {mutability}{name} = __smelt_value;\n"
                 ));
             } else {
-                out.push_str(&format!(
-                    "            let {mutability}{name}: {} = __smelt_value;\n",
-                    self.type_text_with_impl_trait(local.ty, false)?
-                ));
+                let source_ty = self.call_emitted_source_ty(callee, local.ty)?;
+                let value_text =
+                    self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
+                if matches!(self.mir.types.get(local.ty), Some(Type::Future(_))) {
+                    out.push_str(&format!(
+                        "            let {mutability}{name} = {value_text};\n"
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "            let {mutability}{name}: {} = {value_text};\n",
+                        self.type_text_with_impl_trait(local.ty, false)?
+                    ));
+                }
             }
             self.mark_local_declared(dest);
             self.emit_block(self.block(target)?, out)?;
@@ -837,16 +911,27 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
+        // The awaited value carries the future's real emitted output type,
+        // which may differ from the destination local's type (an erased callee
+        // yields `SmeltUnknown`). A `void`/`()` destination discards its result
+        // entirely, so no coercion is computed for it.
+        let source_ty = self.awaited_output_ty(future)?;
         if matches!(
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
         ) {
+            let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
             out.push_str(&format!(
-                "            let {mutability}{name} = __smelt_value;\n"
+                "            let {mutability}{name} = {value_text};\n"
+            ));
+        } else if self.mir.types.get(local.ty) == Some(&Type::None) {
+            out.push_str(&format!(
+                "            let {mutability}{name}: () = {{ let _ = __smelt_value; }};\n"
             ));
         } else {
+            let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
             out.push_str(&format!(
-                "            let {mutability}{name}: {} = __smelt_value;\n",
+                "            let {mutability}{name}: {} = {value_text};\n",
                 self.type_text_with_impl_trait(local.ty, false)?
             ));
         }
@@ -1116,6 +1201,11 @@ impl FunctionEmitter<'_> {
                 if self.block_eventually_terminates(then_target, &mut HashSet::new())? {
                     return self.emit_block(self.block(then_target)?, out);
                 }
+                // The labeled-block statement falls through (see the forward
+                // sibling below); a diverging terminator emitted inside it does
+                // not diverge the enclosing function, so clear the flag to keep
+                // `emit_body`'s trailing fallthrough return.
+                set_last_emit_diverged(false);
                 return Ok(());
             }
             out.push_str(&format!("    break {branch_label};\n"));
@@ -1124,6 +1214,17 @@ impl FunctionEmitter<'_> {
             self.emit_block(else_, out)?;
             out.push_str("    };\n");
             self.restore_declared_locals(branch_declared);
+            // Control always falls through the labeled-block *statement*: the
+            // `break {branch_label}` path exits the block and the else body
+            // rejoins after it, so the reconstruction never diverges the
+            // enclosing function even when a branch emitted inside it ended in a
+            // `return`/`throw` (which would leave `LAST_EMIT_DIVERGED` set). The
+            // shared forward continuation (`then_target`) is not re-emitted here,
+            // so the body genuinely falls off the block; clear the flag so
+            // `emit_body` still appends its trailing fallthrough return instead of
+            // leaving the labeled block's `()` value in tail position (E0308 in
+            // es-toolkit `has`/`slice`/`updateWith`).
+            set_last_emit_diverged(false);
             return Ok(());
         }
 
@@ -1446,6 +1547,31 @@ impl FunctionEmitter<'_> {
                 break_target,
                 visited,
             )?),
+            Some(Terminator::Match { arms, default, .. }) => {
+                // A `switch` in the loop body is a control-flow fork just like a
+                // `Switch`: the block exits to the loop only when every arm (and
+                // the default) does. Without this, a loop whose body is a
+                // `switch` (e.g. `for (...) { switch (typeof x) { ... } }`)
+                // fails `while_header` recognition and is emitted as a run-once
+                // straight-line block instead of a loop.
+                let mut all_exit = true;
+                for target in arms
+                    .iter()
+                    .map(|arm| arm.target)
+                    .chain(default.iter().copied())
+                {
+                    if !self.block_exits_to_loop(
+                        self.block(target)?,
+                        continue_target,
+                        break_target,
+                        visited,
+                    )? {
+                        all_exit = false;
+                        break;
+                    }
+                }
+                Ok(all_exit)
+            }
             Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => {
                 Ok(true)
             }
@@ -1574,6 +1700,275 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Recognizes a `while` loop whose condition is a short-circuit region.
+    ///
+    /// A compound source condition such as `while (a && b)` (or `a || b`, or a
+    /// longer chain) lowers its first operand into the header block `H`'s switch
+    /// and evaluates the remaining operands in follow-on blocks that reconverge
+    /// at a single decision block `D`. `D` switches on the fully-evaluated
+    /// condition: one branch is the loop body (it back-edges to `H`) and the
+    /// other leaves the loop. The single-block recognizers (`while_header`,
+    /// `while_header_with_latch`) do not fire because the loop decision lives in
+    /// `D`, not in `H`, so without this recognizer `H` is emitted as a plain
+    /// `if`/`else` and the body's back-edge collapses to a `continue` that
+    /// targets the enclosing Rust loop instead of re-checking the condition.
+    ///
+    /// Returns `(decision, body_entry, exit_entry, body_is_then)` when `block`
+    /// is such a header. `avoid` lists the enclosing loop's boundary blocks (its
+    /// continue/break targets); a decision branch that can only reach `H` by
+    /// crossing that boundary belongs to the enclosing loop, not to this loop's
+    /// back-edge, so it is classified as the exit.
+    fn compound_while(
+        &self,
+        block: &BasicBlock,
+        avoid: &[smelt_mir::BlockId],
+    ) -> Result<
+        Option<(
+            smelt_mir::BlockId,
+            smelt_mir::BlockId,
+            smelt_mir::BlockId,
+            bool,
+        )>,
+        EmitError,
+    > {
+        let Some(Terminator::Switch { .. }) = &block.terminator else {
+            return Ok(None);
+        };
+        // Blocks that strictly dominate the header `H`. A genuine loop back-edge
+        // re-enters `H` from a block dominated by `H` (i.e. from inside the
+        // loop), so it can reach `H` without passing through any of these. When a
+        // candidate's "repeating" branch can only reach `H` by crossing a strict
+        // dominator of `H`, that path is the back-edge of an *enclosing* loop
+        // feeding forward into `H`, not `H`'s own loop, and `H` is not a loop
+        // header at all. Avoiding these dominators on the repeat test rejects
+        // that false positive (e.g. omit's inner `if` guard block, whose only
+        // path back to itself runs through the outer `for` header).
+        let header_dominators = self.strict_dominators(block.id);
+        // Locate the decision block `D` that every forward condition path from
+        // `H` funnels into and that actually decides the loop (one branch
+        // back-edges to `H`, the other exits). Scanning in block order and
+        // taking the first match selects the final decision switch: earlier
+        // short-circuit reconvergence joins also funnel from `H`, but neither of
+        // their branches back-edges to `H`, so they are skipped.
+        for candidate in &self.function.blocks {
+            if candidate.id == block.id {
+                continue;
+            }
+            let Some(Terminator::Switch {
+                then_block,
+                else_block,
+                ..
+            }) = &candidate.terminator
+            else {
+                continue;
+            };
+            if !self.all_paths_reach_decision(
+                block.id,
+                candidate.id,
+                block.id,
+                &mut HashSet::new(),
+            )? {
+                continue;
+            }
+            // `H` must dominate `D`: every path from the function entry to `D`
+            // passes through `H`. Without this, an ordinary inner `if` block
+            // whose body loops around to an enclosing loop header would be
+            // mistaken for the compound-condition header, with the true outer
+            // header misread as its decision block. If `D` is reachable from the
+            // entry while avoiding `H`, `H` does not dominate `D`, so reject.
+            if self.block_reaches_target_avoiding(
+                self.function.entry,
+                candidate.id,
+                &[block.id],
+                &mut HashSet::new(),
+            ) {
+                continue;
+            }
+            let mut branch_avoid = vec![candidate.id];
+            branch_avoid.extend_from_slice(avoid);
+            branch_avoid.extend_from_slice(&header_dominators);
+            let then_repeats = self.block_reaches_target_avoiding(
+                *then_block,
+                block.id,
+                &branch_avoid,
+                &mut HashSet::new(),
+            );
+            let else_repeats = self.block_reaches_target_avoiding(
+                *else_block,
+                block.id,
+                &branch_avoid,
+                &mut HashSet::new(),
+            );
+            if then_repeats == else_repeats {
+                continue;
+            }
+            let (body_entry, exit_entry) = if then_repeats {
+                (*then_block, *else_block)
+            } else {
+                (*else_block, *then_block)
+            };
+            return Ok(Some((candidate.id, body_entry, exit_entry, then_repeats)));
+        }
+        Ok(None)
+    }
+
+    /// Returns the blocks that strictly dominate `header`.
+    ///
+    /// A block `d` strictly dominates `header` when `d != header` and every path
+    /// from the function entry to `header` passes through `d`; equivalently, the
+    /// entry cannot reach `header` while avoiding `d`. Used by
+    /// [`Self::compound_while`] to distinguish a real loop back-edge (which
+    /// re-enters the header from inside the loop, avoiding every strict
+    /// dominator) from an enclosing loop's edge that merely flows forward into
+    /// the header through one of its dominators.
+    fn strict_dominators(&self, header: smelt_mir::BlockId) -> Vec<smelt_mir::BlockId> {
+        self.function
+            .blocks
+            .iter()
+            .map(|candidate| candidate.id)
+            .filter(|&candidate| {
+                candidate != header
+                    && !self.block_reaches_target_avoiding(
+                        self.function.entry,
+                        header,
+                        &[candidate],
+                        &mut HashSet::new(),
+                    )
+            })
+            .collect()
+    }
+
+    /// Returns whether every forward path from `block_id` reaches `decision`.
+    ///
+    /// Used to detect the reconvergence point of a short-circuit condition
+    /// region: the region is walked through `Goto`/`Switch` terminators only.
+    /// Returning to `header` (a loop back-edge) or hitting a terminator that
+    /// leaves the region (return, throw, call, match) before `decision` means
+    /// `decision` is not mandatory, so the path does not funnel.
+    fn all_paths_reach_decision(
+        &self,
+        block_id: smelt_mir::BlockId,
+        decision: smelt_mir::BlockId,
+        header: smelt_mir::BlockId,
+        visiting: &mut HashSet<smelt_mir::BlockId>,
+    ) -> Result<bool, EmitError> {
+        if block_id == decision {
+            return Ok(true);
+        }
+        if block_id == header && !visiting.is_empty() {
+            return Ok(false);
+        }
+        if !visiting.insert(block_id) {
+            return Ok(false);
+        }
+        let block = self.block(block_id)?;
+        let result = match &block.terminator {
+            Some(Terminator::Goto(target)) => {
+                self.all_paths_reach_decision(*target, decision, header, visiting)?
+            }
+            Some(Terminator::Switch {
+                then_block,
+                else_block,
+                ..
+            }) => {
+                self.all_paths_reach_decision(*then_block, decision, header, visiting)?
+                    && self.all_paths_reach_decision(*else_block, decision, header, visiting)?
+            }
+            _ => false,
+        };
+        visiting.remove(&block_id);
+        Ok(result)
+    }
+
+    /// Emits a compound `while` header's short-circuit condition region.
+    ///
+    /// Walks the acyclic region between the header `H` and its decision block
+    /// `D`, re-emitting each header/operand block's statements and rendering the
+    /// short-circuit switches as nested `if`/`else` so that the boolean the
+    /// decision switches on is computed exactly as in the source. Emission stops
+    /// at `decision`; `visited` guards against re-emitting a reconvergence join
+    /// twice.
+    fn emit_condition_region(
+        &self,
+        block: &BasicBlock,
+        decision: smelt_mir::BlockId,
+        out: &mut String,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> Result<(), EmitError> {
+        if block.id == decision {
+            return Ok(());
+        }
+        if !visited.insert(block.id) {
+            return Ok(());
+        }
+        for statement in &block.statements {
+            self.emit_statement(statement, out)?;
+        }
+        match &block.terminator {
+            Some(Terminator::Goto(target)) => {
+                if *target == decision {
+                    Ok(())
+                } else {
+                    self.emit_condition_region(self.block(*target)?, decision, out, visited)
+                }
+            }
+            Some(Terminator::Switch {
+                cond,
+                then_block,
+                else_block,
+            }) => {
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                self.emit_condition_region(self.block(*then_block)?, decision, out, visited)?;
+                out.push_str("    } else {\n");
+                self.emit_condition_region(self.block(*else_block)?, decision, out, visited)?;
+                out.push_str("    }\n");
+                Ok(())
+            }
+            _ => Err(EmitError::new(
+                "compound condition region reached a non-condition terminator",
+            )),
+        }
+    }
+
+    /// Emits a recognized compound `while` loop and returns its exit block.
+    ///
+    /// Emits `loop { <condition region>; if <decision> { <body> } else { break }
+    /// }` (with the arms swapped when the body is the decision's else branch) so
+    /// the body's back-edge to the header becomes a natural loop iteration that
+    /// re-evaluates the full compound condition. The returned block is the loop
+    /// exit continuation, which the caller emits next.
+    fn emit_compound_while(
+        &self,
+        block: &BasicBlock,
+        decision: smelt_mir::BlockId,
+        body_entry: smelt_mir::BlockId,
+        exit_entry: smelt_mir::BlockId,
+        body_is_then: bool,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let cond_text = {
+            let Some(Terminator::Switch { cond, .. }) = &self.block(decision)?.terminator else {
+                return Err(EmitError::new("compound while decision must be a switch"));
+            };
+            self.truthy_operand_text(cond)?
+        };
+        let loop_declared = self.declared_locals_snapshot();
+        out.push_str("    loop {\n");
+        self.emit_condition_region(block, decision, out, &mut HashSet::new())?;
+        out.push_str(&format!("    if {cond_text} {{\n"));
+        if body_is_then {
+            self.emit_block_until_goto(self.block(body_entry)?, block.id, Some(exit_entry), out)?;
+            out.push_str("    } else {\n    break;\n    }\n");
+        } else {
+            out.push_str("    break;\n    } else {\n");
+            self.emit_block_until_goto(self.block(body_entry)?, block.id, Some(exit_entry), out)?;
+            out.push_str("    }\n");
+        }
+        out.push_str("    }\n");
+        self.restore_declared_locals(loop_declared);
+        Ok(())
+    }
+
     /// Emits a match expression.
     /// Emits a block's statements until reaching a goto to the stop target.
     pub(super) fn emit_block_until_goto(
@@ -1664,6 +2059,19 @@ impl FunctionEmitter<'_> {
                 out.push_str("    }\n");
                 Ok(())
             }
+            Some(Terminator::Match {
+                scrutinee,
+                arms,
+                default,
+            }) if break_target.is_some() => self.emit_loop_match(
+                scrutinee,
+                arms,
+                *default,
+                stop,
+                break_target,
+                out,
+                visited,
+            ),
             Some(terminator) => self.emit_terminator(block.id, terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }
@@ -1688,7 +2096,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Emits a branch inside a loop while guarding against join-block cycles.
-    fn emit_loop_branch_inner(
+    pub(super) fn emit_loop_branch_inner(
         &self,
         block: &BasicBlock,
         continue_target: smelt_mir::BlockId,
@@ -1773,6 +2181,19 @@ impl FunctionEmitter<'_> {
                 out.push_str("    }\n");
                 Ok(())
             }
+            Some(Terminator::Match {
+                scrutinee,
+                arms,
+                default,
+            }) => self.emit_loop_match(
+                scrutinee,
+                arms,
+                *default,
+                continue_target,
+                break_target,
+                out,
+                visited,
+            ),
             Some(terminator) => self.emit_terminator(block.id, terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }
@@ -1795,6 +2216,31 @@ impl FunctionEmitter<'_> {
         if already_emitting_nested_region {
             return Ok(false);
         }
+        // A compound short-circuit `while` header (e.g. `while (a && b)`) is
+        // checked before the single-block recognizers: `while_header` also
+        // matches such a header (it computes its own first-operand switch local)
+        // but then bails on the escaping-body guard, which would drop the loop
+        // back to a plain `if` whose back-edge collapses to a wrong-target
+        // `continue`. `compound_while` only returns `Some` for a genuine
+        // multi-block condition region, so trying it first is safe.
+        let mut boundary = vec![stop];
+        if let Some(break_block) = break_target {
+            boundary.push(break_block);
+        }
+        if let Some((decision, body_entry, exit_entry, body_is_then)) =
+            self.compound_while(block, &boundary)?
+            && !self.block_reaches_target_avoiding(
+                body_entry,
+                stop,
+                &[block.id, exit_entry],
+                &mut HashSet::new(),
+            )
+        {
+            self.emit_compound_while(block, decision, body_entry, exit_entry, body_is_then, out)?;
+            self.emit_after_nested_loop(exit_entry, stop, break_target, out, visited)?;
+            return Ok(true);
+        }
+
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {

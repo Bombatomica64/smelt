@@ -12,29 +12,24 @@ use std::{
 };
 use support::unknown_kind_from_typeof;
 
-use crate::{
-    HirCtx, ObjectConst,
-    OverloadSignature, SmeltError,
-};
+use crate::{HirCtx, ObjectConst, OverloadSignature, SmeltError};
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement,
-    Declaration, Expression, ForStatementInit, ForStatementLeft, MethodDefinitionKind, ModuleExportName,
+    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, Declaration,
+    Expression, ForStatementInit, ForStatementLeft, MethodDefinitionKind, ModuleExportName,
     ObjectPropertyKind, Program, PropertyKey, PropertyKind, SimpleAssignmentTarget, Statement,
     TSAccessibility,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::SourceType;
-use oxc::syntax::operator::{
-    AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator,
-};
+use oxc::syntax::operator::{AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
     AsyncOp, BinOp, Body, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode, Class,
     ClosureCapture, ConstItem, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
-    FunctionOwner, FunctionType, Item, Language, ListCallbackOp, ListSearchOp,
-    Literal, LocalDecl, MethodSig, Module, ModuleId, Param, ParamSig, Pattern,
-    PrimitiveCastOp, SetProjectionOp, SourceFile, Span, Stmt, StringAffixOp,
-    StringCaseOp, StringPadOp, Type, UnaryOp, UnknownKind, Visibility,
+    FunctionOwner, FunctionType, Item, Language, ListCallbackOp, ListSearchOp, Literal, LocalDecl,
+    MethodSig, Module, ModuleId, Param, ParamSig, Pattern, PrimitiveCastOp, SetProjectionOp,
+    SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp, Type, UnaryOp, UnknownKind,
+    Visibility,
 };
 
 /// Vitest expectation matchers that can lower to direct HIR checks.
@@ -94,9 +89,7 @@ impl ConstLiteral {
         match &self.literal {
             Literal::String(value) => Some(value.clone()),
             Literal::Int(value) => Some(value.to_string()),
-            Literal::Float(value) => {
-                Some(ModuleBuilder::numeric_property_key_name(*value))
-            }
+            Literal::Float(value) => Some(ModuleBuilder::numeric_property_key_name(*value)),
             Literal::Symbol(value) => {
                 ty::computed_key_symbols::registry_description_of_symbol_literal(value)
                     .map(ty::computed_key_symbols::registry_symbol_key)
@@ -196,6 +189,8 @@ struct AssertionNarrowing {
 /// A local arrow/function callback value that has not escaped its defining body.
 #[derive(Debug, Clone)]
 struct LocalCallback {
+    /// Root span identifying the lexical body that owns the materialized closure.
+    defining_body_span: Option<Span>,
     /// Lowered callback expression tree.
     callback: CallbackExpr,
     /// Parameter types in source order.
@@ -450,10 +445,7 @@ struct WrittenHostGlobalCollector<'names> {
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for WrittenHostGlobalCollector<'_> {
-    fn visit_assignment_expression(
-        &mut self,
-        assign: &oxc::ast::ast::AssignmentExpression<'a>,
-    ) {
+    fn visit_assignment_expression(&mut self, assign: &oxc::ast::ast::AssignmentExpression<'a>) {
         if let Some(name) = assignment_target_host_global_name(&assign.left) {
             self.names.insert(name.to_owned());
         }
@@ -494,6 +486,11 @@ struct ModuleBuilder<'ctx> {
     locals: HashMap<String, smelt_hir::LocalId>,
     /// Local values statically known to retain JavaScript `Date` identity.
     date_value_locals: HashSet<smelt_hir::LocalId>,
+    /// Locals declared with an explicit `any` annotation. Their storage type is
+    /// the erased `Unknown` boundary by source spelling, so a later concrete
+    /// assignment must not flow-narrow them to that value's type; the source
+    /// deliberately opted out of static shape tracking.
+    explicit_any_locals: HashSet<smelt_hir::LocalId>,
     /// Typed top-level mutable bindings visible from nested function bodies.
     module_globals: HashMap<String, smelt_hir::TypeId>,
     /// Module-level `let`/`var` bindings lifted to mutable globals, mapped to
@@ -612,6 +609,18 @@ struct ModuleBuilder<'ctx> {
     type_param_constraint_scopes: Vec<HashMap<smelt_hir::Symbol, smelt_hir::TypeId>>,
     /// Local closure values available to non-escaping callback consumers.
     local_callbacks: HashMap<String, LocalCallback>,
+    /// Static-member property writes collected onto function-typed locals.
+    ///
+    /// Keyed by the function-typed local receiving `fn.prop = value` writes
+    /// (the `debounce`/`throttle` shape). Each entry accumulates the writes in
+    /// source order (last write wins) as `(property, value-read ExprId)` pairs,
+    /// plus an `escaped` flag that flips once the local is read for any purpose
+    /// other than being consumed at a callable-interface coercion. When the
+    /// local later coerces to a callable-interface class, these props are
+    /// synthesized into a typed [`smelt_hir::ExprKind::CallableObjectAssign`].
+    /// `LocalId`s are only unique within a body, so the map is scoped to the
+    /// currently lowering body by [`Self::with_callable_local_prop_scope`].
+    callable_local_props: HashMap<smelt_hir::LocalId, CallableLocalProps>,
     /// Rest-parameter metadata for top-level function declarations.
     function_rests: HashMap<String, RestParam>,
     /// Forward-visible function declaration signatures for hoisted callback calls.
@@ -622,6 +631,23 @@ struct ModuleBuilder<'ctx> {
     function_overloads: HashMap<String, Vec<OverloadSignature>>,
     /// Materialized final definitions for this source module.
     specialization: Option<SpecializationData>,
+}
+
+/// Collected static-member property writes onto a function-typed local.
+///
+/// Populated by [`ModuleBuilder::try_collect_callable_local_prop`] as it claims
+/// straight-line `fn.prop = value` writes, and consumed by the
+/// callable-interface coercion that synthesizes a
+/// [`smelt_hir::ExprKind::CallableObjectAssign`]. `props` keeps the writes in
+/// source order with last-write-wins de-duplication; `escaped` records whether
+/// the local has already been read for a purpose other than that consumption,
+/// which makes a later property write a documented (blocked) write-after-escape.
+#[derive(Debug, Clone, Default)]
+struct CallableLocalProps {
+    /// Property writes in source order (last write wins), as `(name, value)`.
+    props: Vec<(smelt_hir::Symbol, smelt_hir::ExprId)>,
+    /// Set once the local escapes via a non-consuming, non-self-call read.
+    escaped: bool,
 }
 
 /// Synthetic list used to materialize a synchronous generator body.
@@ -636,12 +662,12 @@ struct GeneratorYieldAccumulator {
 }
 
 // Lowering builder implementation split into small include files.
-mod module_init;
-mod new_expr;
-mod guards;
 mod callbacks;
 mod decls;
 mod expr;
+mod guards;
+mod host_override;
+mod module_init;
+mod new_expr;
 mod stmt;
 mod testing;
-mod host_override;

@@ -602,6 +602,62 @@ console.log(result);
 }
 
 #[test]
+fn labeled_branch_reconstruction_before_loop_keeps_trailing_return() {
+    // Mirrors es-toolkit `has`/`slice`/`updateWith`: a leading if/else-if chain
+    // that assigns a variable lowers to a labeled-block reconstruction
+    // (`'smelt_branch: { if ... break; ... }`), and the shared forward
+    // continuation (the `for` loop plus the trailing `return`) is not re-emitted
+    // after that block. A `return` emitted inside the labeled block (its own
+    // fall-through default) set the divergence flag, which previously suppressed
+    // `emit_body`'s trailing fallthrough return and left the labeled-block
+    // statement's `()` value in tail position — the function then "implicitly
+    // returns ()" and failed to type-check (E0308). The reconstruction must fall
+    // through, so a terminating `return` still closes the body.
+    let source = source_for(
+        "export function pathExists(object: any, path: PropertyKey | PropertyKey[]): boolean {
+  let resolvedPath;
+  if (Array.isArray(path)) {
+    resolvedPath = path;
+  } else if (typeof path === 'string') {
+    resolvedPath = [path];
+  } else {
+    resolvedPath = [path];
+  }
+  let current = object;
+  for (let i = 0; i < resolvedPath.length; i++) {
+    const key = resolvedPath[i];
+    if (current == null) {
+      return false;
+    }
+    current = current[key];
+  }
+  return true;
+}
+const ok = pathExists({ a: 1 }, ['a']);
+console.log(ok);
+",
+    );
+
+    // The reconstructed function body must end in a terminating `return`, not a
+    // labeled-block statement whose value is `()`.
+    let body_start = source
+        .find("fn path_exists(object")
+        .expect("path_exists function present");
+    let after = &source[body_start..];
+    let body_end = after.find("\n}\n").expect("function closing brace");
+    let body = &after[..body_end];
+    let last_line = body
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .expect("non-empty body");
+    assert!(
+        last_line.trim_start().starts_with("return "),
+        "pathExists body must end in a return, got last line: {last_line:?}\n{source}"
+    );
+}
+
+#[test]
 fn emits_uncaught_throw_as_result() {
     let source = source_for(
         "function fail(): void {
@@ -913,5 +969,114 @@ export function makeThrower(): () => number {
     assert!(
         source.contains("-> Result<") && source.contains("Box<dyn std::error::Error>"),
         "throw-only closure should annotate its Result return type: {source}"
+    );
+}
+
+#[test]
+fn promise_then_hoists_captured_callback_out_of_async_move() {
+    // `.then(cb)` runs its callback inside a `Box::pin(async move { .. })` block,
+    // which captures referenced outer bindings by move. A callback naming a live
+    // outer variable must be cloned into a binding OUTSIDE the async block (JS
+    // `.then` does not consume `cb`), so the source binding stays usable after
+    // the call (was E0382: borrow of moved value).
+    let source = source_for(
+        r"
+async function run(p: Promise<number>, cb: (v: number) => void): Promise<void> {
+  await p.then(cb);
+  cb(1);
+}
+",
+    );
+    assert!(
+        source.contains("let smelt_promise_callback = (cb).clone();"),
+        "then callback should be hoisted and cloned before the async block: {source}"
+    );
+    // The clone binding precedes the async block, never inside it.
+    let hoist = source
+        .find("let smelt_promise_callback")
+        .expect("hoist binding present");
+    let async_block = source[hoist..]
+        .find("async move")
+        .expect("async block after hoist");
+    assert!(async_block > 0, "hoist must come before async move: {source}");
+}
+
+/// A zero-arity `.then`/`.catch` continuation callback must be invoked with NO
+/// arguments even though the promise machinery always has a resolved value on
+/// hand: JavaScript passes the value, but a 0-parameter Rust closure would
+/// reject it (was E0057). The value is dropped through `let _ = ..`.
+#[test]
+fn promise_then_zero_arity_callback_dropped_value() {
+    let source = source_for(
+        r"
+async function run(p: Promise<number>): Promise<void> {
+  const cb = () => { return; };
+  await p.then(cb);
+}
+",
+    );
+    assert!(
+        source.contains("let _ = smelt_value; (smelt_promise_callback)()"),
+        "0-arity then callback must be called with no args, value dropped: {source}"
+    );
+}
+
+/// A throwing async callback returns a future whose Rust type is
+/// `-> SmeltFuture<..>` with no outer `Result` (the throw lives in the future's
+/// output). An adapter chain / promise erasure around such a callback must NOT
+/// re-wrap the forwarded future in `Ok(..)`, or the await seam observes a nested
+/// `Result<Result<Future, _>, _>` (was E0277).
+#[test]
+fn throwing_async_callback_future_not_double_wrapped() {
+    let source = source_for(
+        r"
+export function limitAsync(
+  fn: (...args: unknown[]) => Promise<unknown>,
+  concurrency: number
+): (...args: unknown[]) => Promise<unknown> {
+  return fn;
+}
+
+async function run(): Promise<void> {
+  const callback = async (item: number): Promise<number> => {
+    if (item === 2) {
+      throw new Error('fail');
+    }
+    return item;
+  };
+  const limited = limitAsync(callback, 2);
+  await limited(1);
+}
+",
+    );
+    assert!(
+        !source.contains("Ok::<_, Box<dyn std::error::Error>>((smelt_callback)(smelt_args"),
+        "future-returning adapter must forward the bare future, not re-wrap in Ok: {source}"
+    );
+}
+
+/// A local declared with an explicit `any` annotation is the erased dynamic
+/// boundary by source spelling, so a later concrete object assignment must not
+/// flow-narrow it to that value's record type. Otherwise a self-referential
+/// write (`o.b = o`) demands a concrete record value the erased shape cannot
+/// supply (was E0308: expected `f64`, found `SmeltRecord<String, f64>`).
+#[test]
+fn explicit_any_local_not_narrowed_by_assignment() {
+    let source = source_for(
+        r#"
+export function run(): void {
+  let o: any = { a: true };
+  o = { a: 1, b: 2, c: 3 };
+  o.b = o;
+}
+"#,
+    );
+    assert!(
+        source.contains("let mut o: SmeltUnknown"),
+        "explicit any local must keep its erased SmeltUnknown storage type: {source}"
+    );
+    assert!(
+        source.contains("match &mut o { SmeltUnknown::Object(map)"),
+        "write through an explicit any local must go through the erased boundary: {source}"
     );
 }

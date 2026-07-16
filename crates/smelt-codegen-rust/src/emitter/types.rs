@@ -879,11 +879,15 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                let return_ty = if function.may_throw
-                    && let Some(Type::Future(item)) = self.mir.types.get(function.return_ty)
+                let return_ty = if let Some(Type::Future(item)) =
+                    self.mir.types.get(function.return_ty)
                 {
+                    // An async function's return type is the promise value
+                    // itself (`SmeltFuture<T>`); a synchronous throw from an
+                    // async function surfaces as a rejected future, not an outer
+                    // `Result`, so `may_throw` does not add a wrapper here.
                     format!(
-                        "::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{}, Box<dyn std::error::Error>>>>>",
+                        "SmeltFuture<{}>",
                         self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
                     )
                 } else if function.may_throw {
@@ -906,8 +910,11 @@ impl FunctionEmitter<'_> {
                     Ok(format!("::std::rc::Rc<dyn Fn({params}) -> {return_ty}>"))
                 }
             }
+            // A source `Promise<T>` / `Type::Future(T)` lowers to the generic
+            // promise-value ABI `SmeltFuture<T>` in every position, so the same
+            // MIR future type renders one Rust type everywhere.
             Type::Future(item) => Ok(format!(
-                "::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{}, Box<dyn std::error::Error>>>>>",
+                "SmeltFuture<{}>",
                 self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
         }
@@ -1016,13 +1023,10 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                let return_ty = if function.may_throw
-                    && let Some(Type::Future(item)) = self.mir.types.get(function.return_ty)
+                let return_ty = if let Some(Type::Future(item)) =
+                    self.mir.types.get(function.return_ty)
                 {
-                    format!(
-                        "::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{}, Box<dyn std::error::Error>>>>>",
-                        self.type_text_with_impl_trait(*item, false)?
-                    )
+                    format!("SmeltFuture<{}>", self.type_text_with_impl_trait(*item, false)?)
                 } else if function.may_throw {
                     format!(
                         "Result<{}, Box<dyn std::error::Error>>",
@@ -1032,13 +1036,11 @@ impl FunctionEmitter<'_> {
                     self.type_text_with_impl_trait(function.return_ty, false)?
                 };
                 let return_value = self.default_value(function.return_ty)?;
-                let return_text = if function.may_throw
-                    && let Some(Type::Future(item)) = self.mir.types.get(function.return_ty)
+                let return_text = if let Some(Type::Future(item)) =
+                    self.mir.types.get(function.return_ty)
                 {
                     let item_value = self.default_value(*item)?;
-                    format!(
-                        "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({item_value}) }}) as {return_ty}"
-                    )
+                    format!("SmeltFuture::resolved({item_value})")
                 } else if function.may_throw {
                     format!("Ok::<_, Box<dyn std::error::Error>>({return_value})")
                 } else {
@@ -1050,9 +1052,8 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Type::Future(item) => Ok(format!(
-                "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({}) }}) as {}",
-                self.default_value(*item)?,
-                self.type_text_with_impl_trait(ty, false)?
+                "SmeltFuture::resolved({})",
+                self.default_value(*item)?
             )),
         }
     }
@@ -1161,4 +1162,181 @@ impl FunctionEmitter<'_> {
     }
 
     // Gets the entry block of the function.
+
+    /// Returns the generated fields for a concrete class/interface storage type.
+    pub(super) fn structural_record_fields(&self, ty: TypeId) -> Option<Vec<MirField>> {
+        let Some(Type::Class { name, args }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        if let Some(interface) = self
+            .mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == *name)
+        {
+            let fields = crate::classes::effective_interface_fields(self.mir, interface);
+            return Some(self.substitute_record_field_type_params(
+                &interface.type_params,
+                args,
+                fields,
+            ));
+        }
+        self.mir
+            .classes
+            .iter()
+            .find(|class| class.name == *name)
+            .map(|class| {
+                self.substitute_record_field_type_params(
+                    &class.type_params,
+                    args,
+                    crate::classes::effective_class_fields(self.mir, class),
+                )
+            })
+    }
+
+    /// Substitute concrete class/interface arguments into structural fields.
+    ///
+    /// Generated storage structs keep their Rust generic parameters, but
+    /// adapter emission usually works with an instantiated type such as
+    /// `MatchFnResult<f64>`. Field reads must therefore use the instantiated
+    /// payload type instead of the declaration-time type parameter.
+    fn substitute_record_field_type_params(
+        &self,
+        type_params: &[smelt_hir::TypeParamDef],
+        args: &[TypeId],
+        fields: Vec<MirField>,
+    ) -> Vec<MirField> {
+        let substitutions = type_params
+            .iter()
+            .zip(args.iter().copied())
+            .map(|(param, arg)| (param.name, arg))
+            .collect::<HashMap<_, _>>();
+        if substitutions.is_empty() {
+            return fields;
+        }
+        fields
+            .into_iter()
+            .map(|mut field| {
+                field.ty = self.substitute_type_params_in_type(field.ty, &substitutions);
+                field
+            })
+            .collect()
+    }
+
+    /// Substitute type parameters in a type, reusing already-interned MIR types.
+    fn substitute_type_params_in_type(
+        &self,
+        ty: TypeId,
+        substitutions: &HashMap<Symbol, TypeId>,
+    ) -> TypeId {
+        let Some(ty_kind) = self.mir.types.get(ty) else {
+            return ty;
+        };
+        match ty_kind {
+            Type::TypeParam { name } => substitutions.get(name).copied().unwrap_or(ty),
+            Type::Optional(inner) => self
+                .existing_type_id(Type::Optional(
+                    self.substitute_type_params_in_type(*inner, substitutions),
+                ))
+                .unwrap_or(ty),
+            Type::List(item) => self
+                .existing_type_id(Type::List(
+                    self.substitute_type_params_in_type(*item, substitutions),
+                ))
+                .unwrap_or(ty),
+            Type::Set(item) => self
+                .existing_type_id(Type::Set(
+                    self.substitute_type_params_in_type(*item, substitutions),
+                ))
+                .unwrap_or(ty),
+            Type::Future(item) => self
+                .existing_type_id(Type::Future(
+                    self.substitute_type_params_in_type(*item, substitutions),
+                ))
+                .unwrap_or(ty),
+            Type::Dict(key, value) => self
+                .existing_type_id(Type::Dict(
+                    self.substitute_type_params_in_type(*key, substitutions),
+                    self.substitute_type_params_in_type(*value, substitutions),
+                ))
+                .unwrap_or(ty),
+            Type::Tuple(items) => self
+                .existing_type_id(Type::Tuple(
+                    items
+                        .iter()
+                        .map(|item| self.substitute_type_params_in_type(*item, substitutions))
+                        .collect(),
+                ))
+                .unwrap_or(ty),
+            Type::Union(items) => self
+                .existing_type_id(Type::Union(
+                    items
+                        .iter()
+                        .map(|item| self.substitute_type_params_in_type(*item, substitutions))
+                        .collect(),
+                ))
+                .unwrap_or(ty),
+            Type::Class { name, args } => self
+                .existing_type_id(Type::Class {
+                    name: *name,
+                    args: args
+                        .iter()
+                        .map(|arg| self.substitute_type_params_in_type(*arg, substitutions))
+                        .collect(),
+                })
+                .unwrap_or(ty),
+            Type::Function(function) => self
+                .existing_type_id(Type::Function(FunctionType {
+                    params: function
+                        .params
+                        .iter()
+                        .map(|param| self.substitute_type_params_in_type(*param, substitutions))
+                        .collect(),
+                    rest: function.rest,
+                    required_params: function.required_params,
+                    mutable_params: function.mutable_params.clone(),
+                    return_ty: self
+                        .substitute_type_params_in_type(function.return_ty, substitutions),
+                    is_async: function.is_async,
+                    may_throw: function.may_throw,
+                }))
+                .unwrap_or(ty),
+            _ => ty,
+        }
+    }
+
+    /// Find the ID of an already interned type.
+    pub(super) fn existing_type_id(&self, ty: Type) -> Option<TypeId> {
+        self.mir
+            .types
+            .all()
+            .iter()
+            .position(|candidate| *candidate == ty)
+            .and_then(|index| u32::try_from(index).ok())
+            .map(TypeId)
+    }
+
+    /// Returns whether a generated storage type is an interface-shaped record.
+    pub(super) fn is_interface_record_type(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Class { name, .. })
+                if self
+                    .mir
+                    .interfaces
+                    .iter()
+                    .any(|interface| interface.name == *name)
+        )
+    }
+
+    /// Returns true when `source` can be field-wise adapted to `target`.
+    ///
+    /// TypeScript option bags are structurally compatible, but generated Rust
+    /// structs are nominal. This predicate intentionally only enables the
+    /// adapter when the destination is an emitted interface record; ordinary
+    /// class-to-class conversion still keeps Rust's nominal identity.
+    pub(super) fn structural_record_adapter_available(&self, source: TypeId, target: TypeId) -> bool {
+        self.structural_record_adapter_fields(source, target)
+            .is_some()
+    }
 }

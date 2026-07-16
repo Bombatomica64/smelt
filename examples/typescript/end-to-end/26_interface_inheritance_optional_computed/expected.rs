@@ -12,7 +12,7 @@ struct Named {
     name: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct User {
     id: String,
 }

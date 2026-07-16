@@ -837,3 +837,40 @@ export function pair(): number[] {
         "Array([...]) should build the array literal: {source}"
     );
 }
+
+#[test]
+fn smelt_js_set_supports_clear() {
+    // `Set.prototype.clear` must resolve on the `SmeltJsSet` runtime container
+    // (numeric elements route through it), mirroring `SmeltJsMap::clear`
+    // (was E0599: no method `clear` on `SmeltJsSet`).
+    let source = source_for(
+        r"
+const values: Set<number> = new Set([1, 2, 3]);
+values.clear();
+",
+    );
+    assert!(
+        source.contains("fn clear(&mut self) { self.entries.clear(); }"),
+        "SmeltJsSet prelude must define clear: {source}"
+    );
+    assert!(source.contains(".clear()"), "clear call should be emitted: {source}");
+}
+
+#[test]
+fn smelt_record_implements_js_key_eq() {
+    // A record/object used as a collection key resolves `SmeltJsKeyEq` by
+    // reference identity, so a generic container bounded by `SmeltJsKeyEq` can
+    // hold a concrete `SmeltRecord` key without erasing (was E0599: unsatisfied
+    // `SmeltJsKeyEq` bound).
+    let source = source_for(
+        r"
+const values: Set<number> = new Set([1]);
+",
+    );
+    assert!(
+        source.contains(
+            "impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } }"
+        ),
+        "prelude must implement SmeltJsKeyEq for SmeltRecord: {source}"
+    );
+}
