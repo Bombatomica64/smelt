@@ -5,7 +5,11 @@
 [![crates.io](https://img.shields.io/crates/v/smelt-transpiler.svg)](https://crates.io/crates/smelt-transpiler)
 [![license](https://img.shields.io/crates/l/smelt-transpiler.svg)](LICENSE)
 
-Install the CLI with `cargo install smelt-transpiler`.
+Install the `smelt` CLI from crates.io:
+
+```sh
+cargo install --locked smelt-transpiler
+```
 
 **smelt** is a transpiler that takes strictly-typed TypeScript and Python source code and compiles it down to idiomatic Rust. The goal is not to transpile *all* TS/Python — it is to transpile the statically-typed subset where types actually mean something.
 
@@ -32,17 +36,15 @@ tests lower into native Rust `#[test]` functions and pass under Cargo.
 
 ## Installation
 
-The `smelt` binary is published to crates.io as **`smelt-transpiler`**:
+Install the `smelt` CLI from the **`smelt-transpiler`** package on crates.io:
 
 ```sh
-cargo install smelt-transpiler
+cargo install --locked smelt-transpiler
 smelt --help
 ```
 
-### TypeScript and Python
-
-The published transpiler includes both frontends and enables ty-backed Python
-type resolution by default. Install it with `cargo install smelt-transpiler`.
+The default installation includes the TypeScript and Python frontends, with ty
+support enabled for Python.
 
 Publishing to crates.io is handled by [`scripts/publish-crates.sh`](scripts/publish-crates.sh)
 (`--execute` to publish for real; a bare run does a dry run). It publishes the
@@ -149,7 +151,6 @@ Fork the repo and submit a pr :)
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
 | `smelt-transpiler` | 67.89% | 65.99% | 55.28% |
 <!-- COVERAGE:END -->
-
 
 
 
