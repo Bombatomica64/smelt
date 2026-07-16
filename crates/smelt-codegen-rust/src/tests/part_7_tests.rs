@@ -7894,3 +7894,102 @@ export function pickByIndex(values: number[]): number[] {
         "a coerced set needle must be referenced as `&(x as f64)`: {source}"
     );
 }
+#[test]
+fn async_closure_await_propagates_future_errors() {
+    let source = source_for(
+        r#"
+async function load(): Promise<number> {
+  return 1;
+}
+
+function retain(callback: () => Promise<number>): () => Promise<number> {
+  return callback;
+}
+
+export function callback(): () => Promise<number> {
+  return retain(async () => {
+    const value = await load();
+    return value;
+  });
+}
+"#,
+    );
+
+    assert!(
+        source.contains(": f64 = _smelt_tmp_0.await?;")
+            || source.contains(": f64 = _smelt_tmp_1.await?;")
+            || source.contains(": f64 = _smelt_tmp_2.await?;")
+            || source.contains("_smelt_tmp_2 = _smelt_tmp_1.await?;"),
+        "{source}"
+    );
+}
+
+/// A nested closure whose parameter shadows an outer callback parameter must
+/// initialize the capture alias referenced by the generated inner body.
+#[test]
+fn nested_closure_aliases_shadowed_callback_parameters() {
+    let source = source_for(
+        r"
+export function run(): number {
+  const objectize =
+    (callback: (value: { num: number }) => number) =>
+    (num: number) => callback({ num });
+  return objectize(value => value.num)(1);
+}
+",
+    );
+
+    assert!(
+        source.contains("let smelt_captured_closure_arg_0 = closure_arg_0.clone();"),
+        "{source}"
+    );
+}
+
+/// An async nested closure must carry the outer capture alias into its future
+/// instead of reinitializing it from the shadowing inner parameter.
+#[test]
+fn async_nested_closure_preserves_shadowed_capture_alias() {
+    let source = source_for(
+        r"
+export async function run(): Promise<number> {
+  const objectize =
+    (callback: (value: { num: number }) => Promise<number>) =>
+    async (num: number) => callback({ num });
+  return await objectize(async value => value.num)(1);
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "move |closure_arg_0: f64| { let smelt_captured_closure_arg_0 = smelt_captured_closure_arg_0.clone();"
+        ),
+        "{source}"
+    );
+}
+
+/// A mutable outer parameter whose synthetic name is shadowed needs fresh
+/// shared capture storage initialized from that outer parameter.
+#[test]
+fn mutable_shadowed_parameter_initializes_aliased_capture_cell() {
+    let source = source_for(
+        r"
+export function run(): void {
+  const append =
+    (items: number[]) =>
+    (callback: (value: number[]) => void) => {
+      items.push(1);
+      callback(items);
+    };
+  append([])(_items => {});
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "let smelt_capture_smelt_captured_closure_arg_0 = ::std::rc::Rc::new(::std::cell::RefCell::new(closure_arg_0.clone()));"
+        ),
+        "{source}"
+    );
+}

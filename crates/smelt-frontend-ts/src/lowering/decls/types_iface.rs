@@ -1,9 +1,9 @@
 //! `ModuleBuilder` lowering methods (part 04): type-declaration name qualification
 //! and related HIR construction helpers split out of `lowering.rs`.
 
+use crate::SmeltError;
 use crate::lowering::support::statement_terminates;
 use crate::lowering::{InterfaceHeritageRef, ModuleBuilder};
-use crate::SmeltError;
 use oxc::ast::ast::{
     Argument, AssignmentTarget, BindingPattern, ChainElement, Declaration, Expression, Statement,
     TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature,
@@ -49,12 +49,15 @@ impl ModuleBuilder<'_> {
             self.type_alias_fields.insert(name, fields.clone());
             self.ctx.type_alias_fields.insert(name, fields);
         }
-        let item = self.ctx.krate.push_item(Item::TypeAlias(smelt_hir::TypeAlias {
-            name,
-            type_params,
-            ty,
-            span: self.span(alias.span.start, alias.span.end),
-        }));
+        let item = self
+            .ctx
+            .krate
+            .push_item(Item::TypeAlias(smelt_hir::TypeAlias {
+                name,
+                type_params,
+                ty,
+                span: self.span(alias.span.start, alias.span.end),
+            }));
         self.items.insert(name_text, item);
         Ok(item)
     }
@@ -189,7 +192,9 @@ impl ModuleBuilder<'_> {
                                     ty
                                 };
                                 let (param_name, param_span) =
-                                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                                    if let BindingPattern::BindingIdentifier(binding) =
+                                        &param.pattern
+                                    {
                                         (
                                             self.intern_source_name(binding.name.as_str()),
                                             self.span(binding.span.start, binding.span.end),
@@ -246,10 +251,10 @@ impl ModuleBuilder<'_> {
                         let (return_ty, params, rest_index, required_params) = result?;
                         if method.optional {
                             let param_tys = params.iter().map(|param| param.ty).collect::<Vec<_>>();
-                            let mutable_params =
-                                self.mutable_params_from_returned_tuple_state(&param_tys, return_ty);
-                            let function_ty = self.ctx.krate.types.intern(Type::Function(
-                                FunctionType {
+                            let mutable_params = self
+                                .mutable_params_from_returned_tuple_state(&param_tys, return_ty);
+                            let function_ty =
+                                self.ctx.krate.types.intern(Type::Function(FunctionType {
                                     params: param_tys,
                                     rest: rest_index,
                                     required_params: Some(required_params),
@@ -260,8 +265,7 @@ impl ModuleBuilder<'_> {
                                         Some(Type::Future(_))
                                     ),
                                     may_throw: false,
-                                },
-                            ));
+                                }));
                             fields.push(Field {
                                 name: self.property_key_symbol(&method.key)?,
                                 ty: function_ty,
@@ -363,8 +367,8 @@ impl ModuleBuilder<'_> {
                         // `Type::Function`) instead of an erased dictionary. Its
                         // own type parameters are scoped so generic construct
                         // signatures resolve their parameters.
-                        let _construct_type_params = self
-                            .push_type_parameter_scope(signature.type_parameters.as_deref())?;
+                        let _construct_type_params =
+                            self.push_type_parameter_scope(signature.type_parameters.as_deref())?;
                         let result = (|| {
                             let return_ty = signature
                                 .return_type
@@ -440,8 +444,7 @@ impl ModuleBuilder<'_> {
             fields,
             methods,
         }));
-        self.interface_extends
-            .insert(name, heritage_refs.clone());
+        self.interface_extends.insert(name, heritage_refs.clone());
         self.ctx.interface_extends.insert(name, heritage_refs);
         self.interface_call_signatures
             .insert(name, call_signatures.clone());
@@ -484,7 +487,11 @@ impl ModuleBuilder<'_> {
             if fields.iter().any(|field| field.name == method.name) {
                 continue;
             }
-            let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+            let params = method
+                .params
+                .iter()
+                .map(|param| param.ty)
+                .collect::<Vec<_>>();
             let mutable_params =
                 self.mutable_params_from_returned_tuple_state(&params, method.return_ty);
             let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -534,7 +541,11 @@ impl ModuleBuilder<'_> {
         if fields.iter().any(|field| field.name == name) {
             return;
         }
-        let function_ty = self.ctx.krate.types.intern(Type::Function(signature.clone()));
+        let function_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Function(signature.clone()));
         let span = self.span(0, 0);
         fields.push(Field {
             name,
@@ -560,7 +571,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the source namespace identifier for namespace declarations.
-    pub(in crate::lowering) fn type_namespace_name(name: &TSModuleDeclarationName<'_>) -> Option<String> {
+    pub(in crate::lowering) fn type_namespace_name(
+        name: &TSModuleDeclarationName<'_>,
+    ) -> Option<String> {
         match name {
             TSModuleDeclarationName::Identifier(ident) => Some(ident.name.to_string()),
             TSModuleDeclarationName::StringLiteral(_) => None,
@@ -665,6 +678,19 @@ impl ModuleBuilder<'_> {
             }
             Statement::TSModuleDeclaration(_) => Ok(()),
             Statement::ExpressionStatement(expr_stmt) => {
+                if let Expression::SequenceExpression(sequence) =
+                    Self::unparenthesized_expression(&expr_stmt.expression)
+                {
+                    for expression in &sequence.expressions {
+                        self.sequence_expression_statement(
+                            expression,
+                            expression.span(),
+                            body,
+                            block,
+                        )?;
+                    }
+                    return Ok(());
+                }
                 // `Foo.prototype.x = …` assignments for a constructor function
                 // were folded into the synthesized class during the block
                 // prepass, so the assignment statement itself is dropped.
@@ -744,7 +770,10 @@ impl ModuleBuilder<'_> {
                 }
                 let assertion_narrowing = self.assertion_call_narrowing(&expr_stmt.expression);
                 let expr = self.expression(&expr_stmt.expression, body)?;
-                let expr = if matches!(self.ctx.krate.types.get(Self::expr_ty(body, expr)), Some(Type::Future(_))) {
+                let expr = if matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, expr)),
+                    Some(Type::Future(_))
+                ) {
                     let none_ty = self.ctx.krate.types.intern(Type::None);
                     body.push_expr(Expr {
                         kind: ExprKind::AsyncOp {
@@ -842,8 +871,7 @@ impl ModuleBuilder<'_> {
                     for name in Self::branch_top_level_assigned_names(&if_stmt.consequent) {
                         if Self::branch_reassigns_to_nonnull(&if_stmt.consequent, &name)
                             && Self::branch_reassigns_to_nonnull(alternate, &name)
-                            && let Some(non_null_ty) =
-                                self.optional_local_nonnull_type(&name, body)
+                            && let Some(non_null_ty) = self.optional_local_nonnull_type(&name, body)
                         {
                             self.apply_narrowing(name, non_null_ty);
                         }
@@ -892,7 +920,8 @@ impl ModuleBuilder<'_> {
                     ty: self.ctx.krate.types.intern(Type::Bool),
                     span: self.span(do_while.test.span().start, do_while.test.span().end),
                 });
-                let break_block = body.push_block(self.span(do_while.span.start, do_while.span.end));
+                let break_block =
+                    body.push_block(self.span(do_while.span.start, do_while.span.end));
                 body.push_stmt_to_block(break_block, Stmt::Break);
                 body.push_stmt_to_block(
                     loop_body,
@@ -953,11 +982,7 @@ impl ModuleBuilder<'_> {
                         (pat, loop_body)
                     } else {
                         (
-                            self.for_left_pattern(
-                                &for_stmt.left,
-                                Self::expr_ty(body, iter),
-                                body,
-                            )?,
+                            self.for_left_pattern(&for_stmt.left, Self::expr_ty(body, iter), body)?,
                             self.block_from_statement(&for_stmt.body, body)?,
                         )
                     };
@@ -998,11 +1023,7 @@ impl ModuleBuilder<'_> {
                         (pat, loop_body)
                     } else {
                         (
-                            self.for_left_pattern(
-                                &for_stmt.left,
-                                Self::expr_ty(body, iter),
-                                body,
-                            )?,
+                            self.for_left_pattern(&for_stmt.left, Self::expr_ty(body, iter), body)?,
                             self.block_from_statement(&for_stmt.body, body)?,
                         )
                     };
@@ -1258,6 +1279,100 @@ impl ModuleBuilder<'_> {
         result
     }
 
+    /// Lower one element of a statement-position comma expression.
+    ///
+    /// Every element is a complete JavaScript expression statement for side-effect
+    /// purposes. Route it through the same interceptors as an ordinary expression
+    /// statement so assignments, updates, test assertions, async spawning, and
+    /// narrowing retain their normal semantics and source order.
+    fn sequence_expression_statement(
+        &mut self,
+        expression: &Expression<'_>,
+        expression_span: oxc::span::Span,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let expression = Self::unparenthesized_expression(expression);
+        if let Expression::SequenceExpression(sequence) = expression {
+            for child in &sequence.expressions {
+                self.sequence_expression_statement(child, child.span(), body, block)?;
+            }
+            return Ok(());
+        }
+        if self.is_synthesized_prototype_assignment(expression)
+            || self.inline_runtime_lifecycle_setup(expression, body, block)?
+            || self.is_test_framework_statement(expression)
+            || Self::is_vitest_mock_statement(expression)
+            || Self::is_top_level_dynamic_import_await(expression)
+        {
+            return Ok(());
+        }
+        if let Expression::CallExpression(call) = expression {
+            if self.for_each_statement(call, body, block)?
+                || self.expect_matcher_statement(call, body)?
+                || self.node_assert_statement(call, body)?
+            {
+                return Ok(());
+            }
+        }
+        if let Expression::AssignmentExpression(assign) = expression {
+            if let Some(set) = self.try_global_assignment_expression(assign, body)? {
+                body.push_stmt_to_block(block, Stmt::Expr(set));
+                return Ok(());
+            }
+            if block == body.root && self.module_global_assignment_statement(assign, body, block)? {
+                return Ok(());
+            }
+            if self.try_lower_negative_bracket_write_statement(assign, body, block)?
+                || self.try_lower_list_length_assignment_statement(assign, body, block)?
+                || self.array_destructuring_assignment_statement(assign, body, block)?
+                || self.try_collect_callable_local_prop(assign, body, block)?
+            {
+                return Ok(());
+            }
+            let (target, value) = self.assignment_parts(assign, body)?;
+            body.push_stmt_to_block(block, Stmt::Assign { target, value });
+            return Ok(());
+        }
+        if let Expression::UpdateExpression(update) = expression {
+            if let Some(set) = self.try_global_update_expression(update, body, false)? {
+                body.push_stmt_to_block(block, Stmt::Expr(set));
+                return Ok(());
+            }
+            let (target, value) = self.update_parts(update, body)?;
+            body.push_stmt_to_block(block, Stmt::Assign { target, value });
+            return Ok(());
+        }
+        if let Expression::YieldExpression(yield_expr) = expression
+            && self.generator_yield_statement(yield_expr, body, block)?
+        {
+            return Ok(());
+        }
+        let assertion_narrowing = self.assertion_call_narrowing(expression);
+        let value = self.expression(expression, body)?;
+        let value = if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::Future(_))
+        ) {
+            let none_ty = self.ctx.krate.types.intern(Type::None);
+            body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::SpawnLocal,
+                    args: vec![value],
+                },
+                ty: none_ty,
+                span: self.span(expression_span.start, expression_span.end),
+            })
+        } else {
+            value
+        };
+        body.push_stmt_to_block(block, Stmt::Expr(value));
+        if let Some((name, target)) = assertion_narrowing {
+            self.apply_narrowing(name, target);
+        }
+        Ok(())
+    }
+
     /// Lower side-effecting `array.forEach((item) => { ... })` as a normal loop.
     pub(in crate::lowering) fn for_each_statement(
         &mut self,
@@ -1313,8 +1428,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             let entry_pat = body.push_pattern(Pattern::Binding(entry_local));
-            let loop_body =
-                body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
+            let loop_body = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
             let mut param_names = Vec::new();
             for param in arrow.params.items.iter().take(2) {
                 Self::binding_pattern_names(&param.pattern, &mut param_names);
@@ -1418,7 +1532,12 @@ impl ModuleBuilder<'_> {
                 if items.iter().any(|item| {
                     matches!(
                         self.ctx.krate.types.get(*item),
-                        Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+                        Some(
+                            Type::List(_)
+                                | Type::Unknown
+                                | Type::TypeParam { .. }
+                                | Type::Class { .. }
+                        )
                     )
                 }) =>
             {
@@ -1453,8 +1572,8 @@ impl ModuleBuilder<'_> {
             mutable: false,
             span: self.span(item_param.span.start, item_param.span.end),
         });
-        let saved_item_local = item_binding
-            .map(|binding| self.locals.insert(binding.name.to_string(), item_local));
+        let saved_item_local =
+            item_binding.map(|binding| self.locals.insert(binding.name.to_string(), item_local));
         let item_pat = body.push_pattern(Pattern::Binding(item_local));
         let index_binding = arrow
             .params
@@ -1485,11 +1604,14 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             });
             let counter_pat = body.push_pattern(Pattern::Binding(counter_local));
-            body.push_stmt_to_block(block, Stmt::Let {
-                pat: counter_pat,
-                ty: index_ty,
-                value: Some(zero),
-            });
+            body.push_stmt_to_block(
+                block,
+                Stmt::Let {
+                    pat: counter_pat,
+                    ty: index_ty,
+                    value: Some(zero),
+                },
+            );
             counter_local
         });
         let loop_body = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
@@ -1523,11 +1645,14 @@ impl ModuleBuilder<'_> {
                     span: self.span(index_binding.span.start, index_binding.span.end),
                 });
                 let index_pat = body.push_pattern(Pattern::Binding(index_local));
-                body.push_stmt_to_block(loop_body, Stmt::Let {
-                    pat: index_pat,
-                    ty: index_ty,
-                    value: Some(counter_value),
-                });
+                body.push_stmt_to_block(
+                    loop_body,
+                    Stmt::Let {
+                        pat: index_pat,
+                        ty: index_ty,
+                        value: Some(counter_value),
+                    },
+                );
                 let one = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Float(1.0)),
                     ty: index_ty,
@@ -1547,10 +1672,13 @@ impl ModuleBuilder<'_> {
                     ty: index_ty,
                     span: self.span(index_binding.span.start, index_binding.span.end),
                 });
-                body.push_stmt_to_block(loop_body, Stmt::Assign {
-                    target,
-                    value: next,
-                });
+                body.push_stmt_to_block(
+                    loop_body,
+                    Stmt::Assign {
+                        target,
+                        value: next,
+                    },
+                );
                 self.locals
                     .insert(index_binding.name.to_string(), index_local)
             } else {
@@ -1799,7 +1927,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Strip transparent parentheses from a TypeScript expression.
-    pub(in crate::lowering) fn unparenthesized_expression<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
+    pub(in crate::lowering) fn unparenthesized_expression<'a>(
+        expression: &'a Expression<'a>,
+    ) -> &'a Expression<'a> {
         let mut current = expression;
         while let Expression::ParenthesizedExpression(parenthesized) = current {
             current = &parenthesized.expression;
@@ -1808,7 +1938,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an expression is a top-level Vitest organization call.
-    pub(in crate::lowering) fn is_test_framework_statement(&self, expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_test_framework_statement(
+        &self,
+        expression: &Expression<'_>,
+    ) -> bool {
         if self.table_test_call(expression).is_some() {
             return true;
         }
@@ -2045,7 +2178,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether this is a top-level `await import("...")` side-effect load.
-    pub(in crate::lowering) fn is_top_level_dynamic_import_await(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_top_level_dynamic_import_await(
+        expression: &Expression<'_>,
+    ) -> bool {
         let Expression::AwaitExpression(await_expr) = expression else {
             return false;
         };
@@ -2087,12 +2222,16 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a suite-level condition is known false for native Rust tests.
-    pub(in crate::lowering) fn describe_condition_is_native_false(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn describe_condition_is_native_false(
+        expression: &Expression<'_>,
+    ) -> bool {
         Self::typeof_window_undefined_comparison(expression, false)
     }
 
     /// Return whether a suite-level condition is known true for native Rust tests.
-    pub(in crate::lowering) fn describe_condition_is_native_true(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn describe_condition_is_native_true(
+        expression: &Expression<'_>,
+    ) -> bool {
         Self::typeof_window_undefined_comparison(expression, true)
     }
 

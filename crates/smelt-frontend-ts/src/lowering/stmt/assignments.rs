@@ -4,13 +4,11 @@
 //! well-known `Symbol`, `Math`, `Number`, and `Object` static surfaces),
 //! optional chains, and the lowering of assignment/update targets.
 
-use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
+use oxc::ast::ast::{AssignmentTarget, ChainElement, Expression, SimpleAssignmentTarget};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, UpdateOperator};
-use oxc::ast::ast::{
-    AssignmentTarget, ChainElement, Expression, SimpleAssignmentTarget,
-};
 use smelt_hir::{
     BinOp, Body, CaptureMode, ClosureCapture, DictProjectionOp, Expr, ExprKind, FunctionType, Item,
     Literal, LocalDecl, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, Pattern,
@@ -18,6 +16,24 @@ use smelt_hir::{
 };
 
 impl ModuleBuilder<'_> {
+    /// Resolve a direct-call argument hint, expanding a rest list slot to its item type.
+    fn namespace_call_argument_hint(
+        &self,
+        params: &[smelt_hir::TypeId],
+        rest: Option<usize>,
+        index: usize,
+    ) -> Option<smelt_hir::TypeId> {
+        if let Some(rest_index) = rest
+            && index >= rest_index
+        {
+            return params.get(rest_index).map(|ty| match self.ctx.krate.types.get(*ty) {
+                Some(Type::List(item_ty)) => *item_ty,
+                _ => *ty,
+            });
+        }
+        params.get(index).copied()
+    }
+
     /// Lower supported namespace member calls into the matching HIR operation.
     pub(in crate::lowering) fn namespace_member_call(
         &mut self,
@@ -57,7 +73,11 @@ impl ModuleBuilder<'_> {
         let (params, rest, return_ty, is_async) =
             if let Item::Function(function) = self.item_ref(item) {
                 (
-                    function.params.iter().map(|param| param.ty).collect(),
+                    function
+                        .params
+                        .iter()
+                        .map(|param| param.ty)
+                        .collect::<Vec<_>>(),
                     function.rest,
                     function.return_ty,
                     function.is_async,
@@ -65,15 +85,30 @@ impl ModuleBuilder<'_> {
             } else {
                 let item_ty = self.item_expr_type(item, span)?;
                 if let Some(Type::Function(function)) = self.ctx.krate.types.get(item_ty).cloned() {
-                    let callee = body.push_expr(Expr {
-                        kind: ExprKind::Item(item),
-                        ty: item_ty,
-                        span,
-                    });
+                    let Item::Const(const_item) = self.item_ref(item).clone() else {
+                        return Err(SmeltError::unsupported(
+                            span,
+                            format!("namespace member `{member_name}` is not a callable value"),
+                        ));
+                    };
+                    let callee = self.const_item_expression(
+                        &const_item,
+                        member.span.start,
+                        member.span.end,
+                        body,
+                    )?;
                     let args = call
                         .arguments
                         .iter()
-                        .map(|arg| self.argument(arg, body))
+                        .enumerate()
+                        .map(|(index, arg)| {
+                            let hint = self.namespace_call_argument_hint(
+                                &function.params,
+                                function.rest,
+                                index,
+                            );
+                            self.argument_with_hint(arg, body, hint)
+                        })
                         .collect::<Result<Vec<_>, _>>()?;
                     return Ok(Some(body.push_expr(Expr {
                         kind: ExprKind::ClosureCall { callee, args },
@@ -89,7 +124,11 @@ impl ModuleBuilder<'_> {
         let args = call
             .arguments
             .iter()
-            .map(|arg| self.argument(arg, body))
+            .enumerate()
+            .map(|(index, arg)| {
+                let hint = self.namespace_call_argument_hint(&params, rest, index);
+                self.argument_with_hint(arg, body, hint)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let callee = body.push_expr(Expr {
             kind: ExprKind::Item(item),
@@ -244,12 +283,7 @@ impl ModuleBuilder<'_> {
         if let Expression::StringLiteral(key) = &member.expression {
             let name = key.value.as_str();
             if smelt_stdlib::is_javascript_global_builtin(name) {
-                return self.identifier_expression(
-                    name,
-                    member.span.start,
-                    member.span.end,
-                    body,
-                );
+                return self.identifier_expression(name, member.span.start, member.span.end, body);
             }
         }
         Ok(self.dynamic_global_object_read(member.span.start, member.span.end, body))
@@ -574,7 +608,8 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        let value = self.enum_member_literal(object.name.as_str(), member.property.name.as_str())?;
+        let value =
+            self.enum_member_literal(object.name.as_str(), member.property.name.as_str())?;
         Some(body.push_expr(Expr {
             kind: ExprKind::Literal(value.literal),
             ty: value.ty,
@@ -1110,7 +1145,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for any static `process.env.<field>` member expression.
-    pub(in crate::lowering) fn is_process_env_member(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> bool {
+    pub(in crate::lowering) fn is_process_env_member(
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> bool {
         let Expression::StaticMemberExpression(env_member) = &member.object else {
             return false;
         };
@@ -1157,7 +1194,11 @@ impl ModuleBuilder<'_> {
         // an honest optional `None` instead of rejecting or wrapping like `.at`.
         // (Write targets are intercepted earlier as property-store no-ops.)
         if self.is_negative_sequence_bracket_index(access_receiver_ty, index, body) {
-            return self.lower_negative_sequence_bracket_read(access_receiver_ty, member.span, body);
+            return self.lower_negative_sequence_bracket_read(
+                access_receiver_ty,
+                member.span,
+                body,
+            );
         }
         if optional_access {
             let value_ty = self.index_type(access_receiver_ty)?;
@@ -1696,7 +1737,8 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         keep_old_value: bool,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &update.argument else {
+        let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &update.argument
+        else {
             return Ok(None);
         };
         // A same-named local (function body or re-lowered test setup) shadows

@@ -10,9 +10,9 @@ use super::*;
 /// Return whether any body in the crate contains a folded boolean literal.
 fn crate_has_bool_literal(ctx: &HirCtx, value: bool) -> bool {
     ctx.krate.bodies.iter().any(|body| {
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(found)) if found == value))
+        body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(found)) if found == value),
+        )
     })
 }
 
@@ -260,6 +260,92 @@ function run(size: number, length: number): number[] {
 "#),
         &mut ctx,
     )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_statement_sequence_through_assignment_dispatch() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function run(): number {
+  let left = 0;
+  let right = 0;
+  (left = 1, right = 2);
+  return left + right;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure_eq!(
+        body.stmts
+            .iter()
+            .filter(|statement| matches!(statement, Stmt::Assign { .. }))
+            .count(),
+        2
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn statement_sequence_spawns_each_future() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function run(): void {
+  (Promise.resolve(1), Promise.resolve(2));
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure_eq!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(
+                expr.kind,
+                ExprKind::AsyncOp {
+                    op: smelt_hir::AsyncOp::SpawnLocal,
+                    ..
+                }
+            ))
+            .count(),
+        2
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn comma_separated_tests_register_independently() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { describe, test } from "vitest";
+
+describe("group", () => {
+  test("first", () => {}), test("second", () => {});
+});
+"#),
+        "src/sequence.test.ts",
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure_eq!(
+        ctx.krate
+            .items
+            .iter()
+            .filter(|item| matches!(item, Item::Function(function) if function.is_test))
+            .count(),
+        2
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -554,10 +640,12 @@ export function makeCounter(flag: boolean): Counter {
     let body = function_body(&ctx, function)?;
     // The conditional write was not claimed into a typed struct: no
     // CallableObjectAssign is synthesized for the fall-through shape.
-    ensure!(!body
-        .exprs
-        .iter()
-        .any(|expr| matches!(expr.kind, ExprKind::CallableObjectAssign { .. })));
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::CallableObjectAssign { .. }))
+    );
     Ok(())
 }
 
@@ -589,6 +677,92 @@ export function makeCounter(): Counter {
 }
 
 #[test]
+fn callable_property_collection_does_not_leak_across_arrow_item_lowering() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Throttled = {
+  (): void;
+  isThrottled(): boolean;
+};
+
+export const throttle = () => {
+  let timer: number | undefined = undefined;
+  const throttled: Throttled = () => {
+    timer = 1;
+  };
+  throttled.isThrottled = () => timer !== undefined;
+  return throttled;
+};
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn annotated_local_callback_adapts_unknown_list_elements() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function collect(values: unknown[]): string[] {
+  const getStrings = (items: unknown[]): string[] => {
+    return items.flatMap(item => item as any);
+  };
+  return getStrings(values);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn recursive_local_callback_lowers_flat_map_symbol() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function collect(value: object): string[] {
+  const getStrings = (nested: any, paths: string[]): string[] => {
+    if (Array.isArray(nested)) {
+      return nested.flatMap((item, index) =>
+        getStrings(item, [...paths, String(index)])
+      );
+    }
+    return [paths.join(".")];
+  };
+  return getStrings(value, []);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn callable_object_type_alias_remains_callable() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Debounced<TArgs extends any[]> = {
+  (...args: TArgs): void;
+  cancel(): void;
+};
+
+function invoke(func: Debounced<any>): void {
+  func();
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn plain_function_local_without_property_writes_is_untouched() -> Result<(), String> {
     // A function-typed local that receives no property writes never enters the
     // callable-object collection and lowers with no CallableObjectAssign.
@@ -608,9 +782,86 @@ export function run(): number {
     let module = module(&ctx, module_id)?;
     let function = named_function_item(&ctx, module, "run")?;
     let body = function_body(&ctx, function)?;
-    ensure!(!body
-        .exprs
-        .iter()
-        .any(|expr| matches!(expr.kind, ExprKind::CallableObjectAssign { .. })));
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::CallableObjectAssign { .. }))
+    );
     Ok(())
+}
+
+#[test]
+fn nested_callback_uses_remapped_callable_closure_binding() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function list(start: number, end: number): number[] { return [start, end]; }
+export function series(items: number[]) {
+  const indexes: Record<number, number> = {};
+  const next = (current: number): number => indexes[current] + items.length;
+  const previous = (current: number): number => indexes[current] - items.length;
+  const spin = (current: number, num: number): number => {
+    return list(0, 1).reduce(
+      acc => num > 0 ? next(acc) : previous(acc),
+      current
+    );
+  };
+  return spin;
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn namespace_function_members_are_materialized_in_value_position() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function helper(value: number): number { return value; }
+const api = { helper };
+export function inspect(): unknown { return api.helper; }
+"#),
+        &mut ctx,
+    )?;
+    ensure!(ctx.krate.bodies.iter().any(|body| {
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Closure(_)))
+    }));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn namespace_rest_calls_hint_every_trailing_argument_with_item_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function total(...values: number[]): number { return values[0]; }
+const api = { total };
+export function run(): number { return api.total(1, 2, 3); }
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn mixed_runtime_and_test_sequence_is_rejected_explicitly() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+import { describe, test } from "vitest";
+function setup(): void {}
+describe("suite", () => {
+  setup(), test("case", () => {});
+});
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "mixed test registration and runtime sequence")
 }

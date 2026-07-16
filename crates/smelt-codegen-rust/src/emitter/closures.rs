@@ -628,6 +628,9 @@ impl FunctionEmitter<'_> {
                             && !self
                                 .function_parameter_requires_owned(capture.source_local)
                                 .ok()?
+                            // A shadowed source name is rewritten to an alias in
+                            // the nested body, so that alias must still be bound.
+                            && !capture_aliases.contains_key(&capture.source_local)
                         {
                             return None;
                         }
@@ -657,7 +660,16 @@ impl FunctionEmitter<'_> {
                         }
                         cloned_async_captures
                             .insert(name.clone())
-                            .then(|| format!("let {name} = {source_name}.clone();"))
+                            .then(|| {
+                                let clone_source = if capture_aliases
+                                    .contains_key(&capture.source_local)
+                                {
+                                    name.as_str()
+                                } else {
+                                    source_name.as_str()
+                                };
+                                format!("let {name} = {clone_source}.clone();")
+                            })
                     })
                     .collect::<Vec<_>>();
                 let async_capture_prelude = if async_capture_lines.is_empty() {
@@ -719,6 +731,9 @@ impl FunctionEmitter<'_> {
                     && !self
                         .function_parameter_requires_owned(capture.source_local)
                         .ok()?
+                    // A shadowed source name is rewritten to an alias in the
+                    // nested body, so that alias must still be bound.
+                    && !capture_aliases.contains_key(&capture.source_local)
                 {
                     return None;
                 }
@@ -747,6 +762,11 @@ impl FunctionEmitter<'_> {
                             name.clone(),
                             format!("(*smelt_capture_{name}.borrow_mut())"),
                         ));
+                        if capture_aliases.contains_key(&capture.source_local) {
+                            return format!(
+                                "let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({source_name}.clone()));"
+                            );
+                        }
                         return format!("let smelt_capture_{name} = smelt_capture_{name}.clone();");
                     }
                     // See the sibling capture-prelude above: mutability follows
@@ -1033,7 +1053,12 @@ impl FunctionEmitter<'_> {
             } => {
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
-                let value = format!("{}.await", self.await_operand_text(future)?);
+                // `SmeltFuture<T>` and generated async function calls both
+                // resolve to `Result<T, Box<dyn Error>>`. Closure CFGs already
+                // return `Result`, so propagate the await error exactly as the
+                // ordinary control-flow emitter does instead of assigning the
+                // whole `Result` into the destination's `T` local.
+                let value = format!("{}.await?", self.await_operand_text(future)?);
                 out.push_str(&format!(
                     "    let {name}: {} = {value};\n",
                     self.type_text_with_impl_trait(local.ty, false)?

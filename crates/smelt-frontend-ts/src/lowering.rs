@@ -12,29 +12,24 @@ use std::{
 };
 use support::unknown_kind_from_typeof;
 
-use crate::{
-    HirCtx, ObjectConst,
-    OverloadSignature, SmeltError,
-};
+use crate::{HirCtx, ObjectConst, OverloadSignature, SmeltError};
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement,
-    Declaration, Expression, ForStatementInit, ForStatementLeft, MethodDefinitionKind, ModuleExportName,
+    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, Declaration,
+    Expression, ForStatementInit, ForStatementLeft, MethodDefinitionKind, ModuleExportName,
     ObjectPropertyKind, Program, PropertyKey, PropertyKind, SimpleAssignmentTarget, Statement,
     TSAccessibility,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::SourceType;
-use oxc::syntax::operator::{
-    AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator,
-};
+use oxc::syntax::operator::{AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
     AsyncOp, BinOp, Body, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode, Class,
     ClosureCapture, ConstItem, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
-    FunctionOwner, FunctionType, Item, Language, ListCallbackOp, ListSearchOp,
-    Literal, LocalDecl, MethodSig, Module, ModuleId, Param, ParamSig, Pattern,
-    PrimitiveCastOp, SetProjectionOp, SourceFile, Span, Stmt, StringAffixOp,
-    StringCaseOp, StringPadOp, Type, UnaryOp, UnknownKind, Visibility,
+    FunctionOwner, FunctionType, Item, Language, ListCallbackOp, ListSearchOp, Literal, LocalDecl,
+    MethodSig, Module, ModuleId, Param, ParamSig, Pattern, PrimitiveCastOp, SetProjectionOp,
+    SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp, Type, UnaryOp, UnknownKind,
+    Visibility,
 };
 
 /// Vitest expectation matchers that can lower to direct HIR checks.
@@ -94,9 +89,7 @@ impl ConstLiteral {
         match &self.literal {
             Literal::String(value) => Some(value.clone()),
             Literal::Int(value) => Some(value.to_string()),
-            Literal::Float(value) => {
-                Some(ModuleBuilder::numeric_property_key_name(*value))
-            }
+            Literal::Float(value) => Some(ModuleBuilder::numeric_property_key_name(*value)),
             Literal::Symbol(value) => {
                 ty::computed_key_symbols::registry_description_of_symbol_literal(value)
                     .map(ty::computed_key_symbols::registry_symbol_key)
@@ -196,6 +189,8 @@ struct AssertionNarrowing {
 /// A local arrow/function callback value that has not escaped its defining body.
 #[derive(Debug, Clone)]
 struct LocalCallback {
+    /// Root span identifying the lexical body that owns the materialized closure.
+    defining_body_span: Option<Span>,
     /// Lowered callback expression tree.
     callback: CallbackExpr,
     /// Parameter types in source order.
@@ -450,10 +445,7 @@ struct WrittenHostGlobalCollector<'names> {
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for WrittenHostGlobalCollector<'_> {
-    fn visit_assignment_expression(
-        &mut self,
-        assign: &oxc::ast::ast::AssignmentExpression<'a>,
-    ) {
+    fn visit_assignment_expression(&mut self, assign: &oxc::ast::ast::AssignmentExpression<'a>) {
         if let Some(name) = assignment_target_host_global_name(&assign.left) {
             self.names.insert(name.to_owned());
         }
@@ -670,12 +662,12 @@ struct GeneratorYieldAccumulator {
 }
 
 // Lowering builder implementation split into small include files.
-mod module_init;
-mod new_expr;
-mod guards;
 mod callbacks;
 mod decls;
 mod expr;
+mod guards;
+mod host_override;
+mod module_init;
+mod new_expr;
 mod stmt;
 mod testing;
-mod host_override;
