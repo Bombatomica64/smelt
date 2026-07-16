@@ -2,15 +2,19 @@
 name = "smelt-frontend-py"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Python frontend for the Smelt compiler."
+keywords = ["smelt", "python", "compiler", "transpiler"]
+categories = ["compilers", "development-tools"]
 autoexamples = false
-# Publishable on the NON-ty path only. The Ruff parser crates now come from
-# crates.io (real `0.0.3` releases), so the default+`--no-default-features`
-# (ty-off) build has no git dependency and can be published. The `ty` feature
-# still pulls the git-pinned `smelt-py-types`/`ty_project` tree, which is NOT on
-# crates.io — so `scripts/publish-crates.sh` strips the `ty` feature and the
-# optional `smelt-py-types` dep before uploading (consumers publish with the
-# `python` feature but never `ty`). Revisit the `ty` split once `ty_project`
-# ships to crates.io (astral-sh/ruff#43).
+# The complete frontend, including its optional `ty` type-resolution path, is
+# publishable: both Ruff's parser crates and ty's library-layer crates come from
+# crates.io. The concrete database lives in `smelt-py-types`, avoiding the
+# unpublished top-level `ty_project` crate.
 
 [lints]
 workspace = true
@@ -32,24 +36,15 @@ smelt-specialize = { path = "../smelt-specialize", version = "0.1.0" }
 smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.0" }
 
 # Optional `ty`-backed Python type resolution, gated behind the `ty` feature.
-smelt-py-types = { path = "../smelt-py-types", optional = true }
+smelt-py-types = { path = "../smelt-py-types", version = "0.1.0", optional = true }
 
 # Python parsing via Astral's Ruff parser, pulled from crates.io. These are the
-# real published `0.0.3` parser crates (`ruff_python_ast` 141 KB /
-# `ruff_python_parser` 559 KB, published 2026-06-25), not the empty placeholders
-# earlier work assumed — so this crate is publishable on the non-ty path.
-#
-# IMPORTANT: the `ty` feature pulls in `smelt-py-types`, whose `ty_project` /
-# `ruff_db` tree is git-pinned and transitively carries its OWN copy of the Ruff
-# crates at the same `0.0.3` version but a DIFFERENT source (git rev). Cargo
-# treats those as distinct crates, so their `TextSize`/AST types are NOT
-# interchangeable with these crates.io ones. The frontend-py ↔ smelt-py-types
-# boundary therefore exchanges only plain `u32` byte offsets (never a Ruff
-# type), so the two Ruff checkouts never have to unify. Do not re-introduce a
-# `ruff_*` type into that boundary or the `ty`-on build breaks with E0308.
-ruff_python_parser = "0.0.3"
-ruff_python_ast    = "0.0.3"
-ruff_text_size     = "0.0.3"
+# published `0.0.4` parser crates. Keep these aligned with `smelt-py-types`.
+# The frontend boundary nevertheless remains plain `u32` byte offsets so its
+# public API does not expose Ruff implementation types.
+ruff_python_parser = "0.0.4"
+ruff_python_ast    = "0.0.4"
+ruff_text_size     = "0.0.4"
 
 [dev-dependencies]
 pico-args = "0.5"

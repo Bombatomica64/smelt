@@ -1,15 +1,13 @@
 //! Python frontend integration, isolated behind the `python` cargo feature.
 //!
 //! Every direct use of [`smelt_frontend_py`] lives in this module. That crate
-//! pulls the Ruff parser from a git dependency, which crates.io forbids, so the
-//! published TypeScript-only build compiles with the `python` feature disabled
-//! and this module falls back to stubs that report Python support was not
-//! compiled in. Keeping all Python glue here means the rest of the CLI never
+//! is optional so lean TypeScript-only builds can disable it; this module then
+//! falls back to stubs that report Python support was not compiled in. Keeping
+//! all Python glue here means the rest of the CLI never
 //! names a `smelt-frontend-py` type and therefore compiles in both
 //! configurations without scattered `#[cfg]` attributes.
 //!
-//! Enable the frontend from a source checkout with `cargo build --features
-//! python` (the default in this repository).
+//! Enable the frontend with `cargo build --features python` (the default).
 
 use std::collections::HashMap;
 

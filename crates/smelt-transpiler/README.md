@@ -1,32 +1,18 @@
 # smelt-transpiler
 
-The `smelt` command-line transpiler. It takes strictly-typed **TypeScript**
-(and, from a source build, **Python**) and lowers it through a shared HIR/MIR
-pipeline into idiomatic **Rust**.
+The `smelt` command-line transpiler. It takes strictly-typed **TypeScript** and
+**Python** and lowers them through a shared HIR/MIR pipeline into idiomatic
+**Rust**.
 
 ```sh
 cargo install smelt-transpiler   # installs the `smelt` binary
 smelt --help
 ```
 
-## TypeScript vs. Python
+## TypeScript and Python
 
-The crate published to crates.io is **TypeScript-only**. The Python frontend
-(`smelt-frontend-py`) parses with Astral's Ruff, which is only available as a
-git dependency — something crates.io does not allow — so it cannot ship in a
-published crate yet (tracked upstream by
-[astral-sh/ruff#43](https://github.com/astral-sh/ruff/issues/43)).
-
-To use the Python frontend, build from a source checkout with the `python`
-feature (enabled by default in the repository):
-
-```sh
-git clone https://github.com/Bombatomica64/smelt
-cd smelt
-cargo build --release --features python -p smelt-transpiler
-# or install the local checkout:
-cargo install --path crates/smelt-transpiler --features python
-```
+The crate published to crates.io includes both frontends and enables ty-backed
+Python type resolution by default.
 
 A TypeScript-only build reports a clear error if handed a `.py`/`.pyi` file.
 
