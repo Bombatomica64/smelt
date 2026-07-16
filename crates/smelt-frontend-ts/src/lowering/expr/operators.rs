@@ -1729,10 +1729,18 @@ impl ModuleBuilder<'_> {
         };
         let mut fallback = self.expression_with_hint(&logical.right, body, right_hint)?;
         let fallback_ty = Self::expr_ty(body, fallback);
-        let ty = if fallback_ty == ty
-            || self.ctx.krate.types.get(ty) == Some(&Type::Unknown)
-            || self.numeric_type_compatible(ty, fallback_ty)
+        let ty = if fallback_ty == ty || self.numeric_type_compatible(ty, fallback_ty)
         {
+            ty
+        } else if self.ctx.krate.types.get(ty) == Some(&Type::Unknown) {
+            // This is a genuine dynamic boundary: the successful left operand
+            // is source `unknown`, so a concrete fallback must enter its tagged
+            // runtime surface through an explicit boundary adapter.
+            fallback = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: fallback },
+                ty,
+                span: self.span(logical.right.span().start, logical.right.span().end),
+            });
             ty
         } else if let Some(fallback_inner) = self.non_nullish_type(fallback_ty)
             && self.numeric_type_compatible(ty, fallback_inner)

@@ -242,6 +242,85 @@ async function makeValue(): Promise<number> {
     );
 }
 
+#[test]
+fn tuple_asserted_array_literal_renders_as_heterogeneous_tuple() {
+    let source = source_for(
+        r"
+export function pair(promise: Promise<unknown>): [null, Promise<unknown>] {
+  return [null, promise] as [null, Promise<unknown>];
+}
+",
+    );
+    assert!(source.contains("((), promise)"), "{source}");
+    assert!(!source.contains("vec![(), promise]"), "{source}");
+}
+
+#[test]
+fn named_promise_executor_supplies_resolved_list_type() {
+    let source = source_for(
+        r"
+export function makeQueue(): Promise<number[]> {
+  const processor = async (resolve: (value: number[]) => void) => {
+    while (true) { return resolve([1, 2]); }
+  };
+  return new Promise(processor);
+}
+",
+    );
+    assert!(
+        source.contains("Option<Result<SmeltList<f64>, Box<dyn std::error::Error>>>")
+            && source.contains("Rc<dyn Fn(SmeltList<f64>) -> ()>"),
+        "{source}"
+    );
+}
+
+#[test]
+fn awaited_conditional_call_uses_asserted_resolved_type_hint() {
+    let source = source_for(
+        r"
+const attempt = <Return>(func: () => Return) => {
+  return (): Return extends Promise<any>
+    ? Promise<[unknown, unknown]>
+    : [unknown, unknown] => undefined as any;
+};
+export async function run(func: () => Promise<string>): Promise<[unknown, string]> {
+  return (await attempt(func)()) as [unknown, string];
+}
+",
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Array(smelt_tuple_values) = ().clone()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn nullish_unknown_fallback_uses_explicit_boundary_adapter() {
+    let source = source_for(
+        r"
+export function fallback(value: unknown): unknown {
+  return value ?? 'fallback';
+}
+",
+    );
+    assert!(
+        source.contains("SmeltUnknown::String(\"fallback\".to_owned())"),
+        "{source}"
+    );
+}
+
+#[test]
+fn computed_numeric_record_key_coerces_to_string_destination_key() {
+    let source = source_for(
+        r"
+export function add(index: number, value: unknown): Record<string, unknown> {
+  return { [index]: value };
+}
+",
+    );
+    assert!(source.contains("index.clone().to_string()"), "{source}");
+}
+
 /// Calls to emitted native `async fn`s inside generated closures are wrapped
 /// in Smelt's stable future representation before assignment or adaptation.
 #[test]
@@ -329,7 +408,10 @@ function makeValue(): Promise<number> {
     );
 
     assert!(source.contains("smelt_promise_result"), "{source}");
-    assert!(source.contains("SmeltUnknown::Number(7.0"), "{source}");
+    assert!(
+        source.contains("Rc<dyn Fn(f64) -> ()>") && source.contains("closure_arg_0(7.0)"),
+        "{source}"
+    );
 }
 
 #[test]

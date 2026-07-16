@@ -217,10 +217,20 @@ impl FunctionEmitter<'_> {
                     _ => format!("({executor_text})(smelt_resolve, smelt_reject);"),
                 };
                 let output_text = self.type_text(output_ty)?;
+                // `Promise<void>` still accepts an ignored optional value, but
+                // a concrete `Promise<T>` exposes a typed resolver. Keeping the
+                // resolver parameter at `T` lets named executors pass through
+                // without erasing and reconstructing their argument.
+                let resolve_input_ty = if self.mir.types.get(output_ty) == Some(&Type::None) {
+                    self.type_id(Type::Unknown)?
+                } else {
+                    output_ty
+                };
+                let resolve_input_text = self.type_text(resolve_input_ty)?;
                 let resolve_value =
-                    self.value_at_type_text("value", self.type_id(Type::Unknown)?, output_ty)?;
+                    self.value_at_type_text("value", resolve_input_ty, output_ty)?;
                 Ok(format!(
-                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |value: SmeltUnknown| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
+                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
