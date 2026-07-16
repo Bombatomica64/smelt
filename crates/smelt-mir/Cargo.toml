@@ -16,7 +16,7 @@ workspace = true
 
 [dependencies]
 serde = { workspace = true }
-smelt-hir = { path = "../smelt-hir", version = "0.1.0" }
+smelt-hir = { path = "../smelt-hir", version = "0.1.1" }
 
 [dev-dependencies]
 smelt-frontend-ts = { path = "../smelt-frontend-ts" }

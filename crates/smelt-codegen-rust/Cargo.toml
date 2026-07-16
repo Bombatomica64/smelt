@@ -23,9 +23,9 @@ default = ["ty"]
 ty = ["smelt-frontend-py/ty"]
 
 [dependencies]
-smelt-mir = { path = "../smelt-mir", version = "0.1.0" }
-smelt-hir = { path = "../smelt-hir", version = "0.1.0" }
-smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.0" }
+smelt-mir = { path = "../smelt-mir", version = "0.1.1" }
+smelt-hir = { path = "../smelt-hir", version = "0.1.1" }
+smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.1" }
 
 [dev-dependencies]
 insta = "1.48"

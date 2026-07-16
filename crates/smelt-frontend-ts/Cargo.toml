@@ -16,9 +16,9 @@ categories = ["compilers", "development-tools"]
 workspace = true
 
 [dependencies]
-smelt-hir = { path = "../smelt-hir", version = "0.1.0" }
-smelt-specialize = { path = "../smelt-specialize", version = "0.1.0" }
-smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.0" }
+smelt-hir = { path = "../smelt-hir", version = "0.1.1" }
+smelt-specialize = { path = "../smelt-specialize", version = "0.1.1" }
+smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.1" }
 oxc = { version = "0.138.0", features = ["semantic", "ast_visit"] }
 
 [dev-dependencies]
