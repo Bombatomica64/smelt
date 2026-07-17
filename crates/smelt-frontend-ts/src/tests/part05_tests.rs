@@ -893,6 +893,72 @@ describe("pairs", () => {
 }
 
 #[test]
+fn sibling_describe_classes_keep_distinct_lexical_identities() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+describe("outer", () => {
+  describe("empty", () => {
+    class Person { constructor() {} }
+    it("constructs", () => { expect(new Person()).toBeInstanceOf(Person); });
+  });
+  describe("connected", () => {
+    class Person {
+      name: string;
+      friends: Person[] = [];
+      self?: Person;
+      constructor(name: string) { this.name = name; }
+    }
+    it("keeps graph", () => {
+      const person = new Person("jake");
+      person.self = person;
+      person.friends = [person];
+      expect(person.name).toBe("jake");
+    });
+  });
+});
+"#),
+        &mut ctx,
+    )?;
+
+    let people = ctx
+        .krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Class(class)
+                if ctx
+                    .krate
+                    .names
+                    .get(class.name)
+                    .is_some_and(|name| name.starts_with("Person")) =>
+            {
+                Some(class)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ensure_eq!(people.len(), 2);
+    let [first, second] = people.as_slice() else {
+        return Err("expected exactly two suite-local Person classes".to_owned());
+    };
+    ensure!(
+        first.name != second.name,
+        "sibling suite-local classes need distinct HIR type symbols",
+    );
+    ensure_eq!(first.fields.len(), 0);
+    ensure!(
+        second.fields.iter().any(|field| {
+            ctx.krate.symbols.get(field.name) == Some("friends")
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::List(_)))
+        }),
+        "the recursive Person field should retain the second class shape",
+    );
+    Ok(())
+}
+
+#[test]
 fn test_title_folds_suite_const_string_interpolation() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(

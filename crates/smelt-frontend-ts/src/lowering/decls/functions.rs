@@ -828,23 +828,34 @@ impl ModuleBuilder<'_> {
         // fall back to a synthetic name so the class still registers and can be
         // referenced as a value. The name is owned here and borrowed as
         // `class_text` for the rest of lowering.
-        let class_name_owned = class.id.as_ref().map_or_else(
+        let class_source_name = class.id.as_ref().map_or_else(
             || Self::anonymous_class_name(class),
             |id| id.name.to_string(),
         );
+        let class_name = self
+            .scoped_class_type_names
+            .get(&class_source_name)
+            .copied()
+            .unwrap_or_else(|| self.intern_type_name(&class_source_name));
+        let class_name_owned = self
+            .ctx
+            .krate
+            .symbols
+            .get(class_name)
+            .unwrap_or(&class_source_name)
+            .to_owned();
         let class_text = class_name_owned.as_str();
         let class_span = self.span(class.span.start, class.span.end);
-        let materialized = self.materialized_class(class_text).cloned();
+        let materialized = self.materialized_class(&class_source_name).cloned();
         if !class.decorators.is_empty() && materialized.is_none() {
             return Err(SmeltError::specialization_required(
                 self.span(class.span.start, class.span.end),
-                class_text,
+                &class_source_name,
             ));
         }
         if materialized.is_some() {
             self.validate_specialization_adapters(self.span(class.span.start, class.span.end))?;
         }
-        let class_name = self.intern_type_name(class_text);
         let type_params = self.push_type_parameter_scope(class.type_parameters.as_deref())?;
         let class_type_args = type_params
             .iter()
@@ -1458,7 +1469,7 @@ impl ModuleBuilder<'_> {
             implements,
         }));
         self.pop_type_parameter_scope();
-        self.classes.insert(class_text.to_owned(), item);
+        self.classes.insert(class_source_name, item);
         self.validate_implements(item)?;
         Ok(item)
     }
