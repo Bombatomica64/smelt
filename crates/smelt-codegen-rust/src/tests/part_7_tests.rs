@@ -2,6 +2,34 @@
 
 use super::*;
 
+/// Erasing an async callback into an unknown-rest function must wrap its
+/// returned future directly. Throws from an async body live inside that future;
+/// the callback invocation itself does not return a `Result` to unwrap.
+#[test]
+fn erased_async_throwing_callback_does_not_unwrap_future_as_result() {
+    let input = r#"
+export const tryit = <Args extends unknown[], Return>(
+  func: (...args: Args) => Return
+) => {
+  return (...args: Args): unknown => func(...args)
+}
+
+export function run(): unknown {
+  return tryit(async () => {
+    throw new Error("failure")
+  })
+}
+"#;
+    let source = source_for(input);
+
+    assert!(source.contains("SmeltUnknown::Promise(SmeltPromise::from_future"), "{source}");
+    assert!(
+        !source.contains("(smelt_callback)(smelt_args).unwrap_or_else")
+            && !source.contains("(smelt_callback)().unwrap_or_else"),
+        "{source}"
+    );
+}
+
 /// A `return <literal>` statement inside an `async` function returns the
 /// *resolved* value, not a promise: the async lowering wraps the whole body
 /// into the future. When the declared return type is `Promise<[null, T]>` the
