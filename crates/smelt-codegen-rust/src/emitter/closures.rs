@@ -615,9 +615,12 @@ impl FunctionEmitter<'_> {
                 // whose `Ok` type equals the erased `SmeltUnknown` or the concrete
                 // `output_text` the `Ok::<..>` returns already use.
                 let async_value_annotation: Option<String> =
-                    if function.is_async && body_text.contains("return Ok(") {
+                    if body_text.contains("return Ok") {
                         // Explicit returns diverge from the inner block, so pin
                         // its otherwise-unconstrained binding for Rust inference.
+                        // Reaching this branch already proves the wrapper is
+                        // async; contextual function types can lose their
+                        // `is_async` flag while retaining a future return.
                         Some(format!(": {output_text}"))
                     } else if closure.can_throw && !async_value_needs_await {
                         let ok_ty_text = if matches!(

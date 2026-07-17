@@ -30,6 +30,32 @@ export function run(): unknown {
     );
 }
 
+/// An async closure whose loop exits only through explicit returns leaves the
+/// trailing async-value expression unreachable. Its binding still needs the
+/// resolved output type so Rust does not have to infer a value from `!`.
+#[test]
+fn async_closure_with_returning_loop_annotates_unreachable_tail() {
+    let source = source_for(
+        r#"
+export function worker(done: (values: unknown[]) => void): () => Promise<void> {
+  return async () => {
+    const values: unknown[] = []
+    while (true) {
+      if (values.length === 0) return done(values)
+    }
+  }
+}
+"#,
+    );
+
+    assert!(
+        source.contains("let smelt_async_value: () = {")
+            || source.contains("let smelt_async_value: SmeltUnknown = {"),
+        "{source}"
+    );
+    assert!(!source.contains("let smelt_async_value = {"), "{source}");
+}
+
 /// A `return <literal>` statement inside an `async` function returns the
 /// *resolved* value, not a promise: the async lowering wraps the whole body
 /// into the future. When the declared return type is `Promise<[null, T]>` the
