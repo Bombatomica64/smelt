@@ -929,26 +929,115 @@ impl ModuleBuilder<'_> {
     /// erased/generic surfaces — `unknown`/`any`, type parameters, and unions
     /// that include a function or erased branch — where the value is genuinely
     /// callable at runtime but lacks a clean static function type.
-    pub(in crate::lowering) fn callback_local_value_is_callable_surface(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn callback_local_value_is_callable_surface(&mut self, ty: smelt_hir::TypeId) -> bool {
+        self.callback_local_value_is_callable_surface_depth(ty, 0)
+    }
+
+    /// Depth-guarded worker for [`Self::callback_local_value_is_callable_surface`].
+    ///
+    /// The depth bound stops runaway recursion when a type alias resolves to a
+    /// type that references itself.
+    fn callback_local_value_is_callable_surface_depth(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        depth: u32,
+    ) -> bool {
+        if depth > 8 {
+            return false;
+        }
         match self
             .ctx
             .krate
             .types
             .get(self.type_param_constraint_or_self(ty))
+            .cloned()
         {
             Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. }) => true,
             // An optional callable (`compareKeys?: (a, b) => number` used as
             // `keys.sort(compareKeys)`) is a callable surface too; the wrapper
             // closure observes the nullish payload at runtime.
-            Some(Type::Optional(inner)) => self.callback_local_value_is_callable_surface(*inner),
+            Some(Type::Optional(inner)) => {
+                self.callback_local_value_is_callable_surface_depth(inner, depth + 1)
+            }
             Some(Type::Union(items)) => items.iter().copied().any(|item| {
                 matches!(
                     self.ctx.krate.types.get(item),
                     Some(Type::Function(_) | Type::Unknown)
                 )
             }),
+            // A named type reference (`ListIterateeCustom<T, boolean>`).
+            //
+            // When the alias definition is visible in this lowering unit, resolve
+            // it and inspect the underlying type: a union alias like
+            // `((v, i, c) => R) | PropertyKey | ...` still exposes a callable
+            // (function) arm, so a local of that type is a callable surface.
+            //
+            // When the reference is *unresolved* — the alias is imported from
+            // another module and its definition is not present in this lowering
+            // unit (single-file lowering, e.g. `smelt probe`) — it is an erased
+            // type boundary: its concrete shape is unknown here. A concrete
+            // nominal type (a real `class`/`interface` declared in scope) is not
+            // a callable surface, so keep rejecting those. But an opaque imported
+            // reference is treated like `unknown` — a callable surface whose
+            // wrapper closure observes the real value at runtime — matching how
+            // the whole-crate build (where the alias resolves to its union) lowers
+            // the same call.
+            Some(Type::Class { name, args }) => {
+                if self.callable_object_aliases.contains(&name) {
+                    return true;
+                }
+                if let Some(underlying) = self.resolve_type_alias_underlying(name, &args)
+                    && underlying != ty
+                {
+                    return self
+                        .callback_local_value_is_callable_surface_depth(underlying, depth + 1);
+                }
+                !self.symbol_names_concrete_nominal_type(name)
+            }
             _ => false,
         }
+    }
+
+    /// Resolve a `Type::Class` alias reference to its underlying definition with
+    /// the reference's type arguments substituted for the alias parameters.
+    ///
+    /// Returns `None` when the symbol does not name a type alias (e.g. a real
+    /// class or interface), so callers can fall back to their opaque handling.
+    fn resolve_type_alias_underlying(
+        &mut self,
+        name: smelt_hir::Symbol,
+        args: &[smelt_hir::TypeId],
+    ) -> Option<smelt_hir::TypeId> {
+        let alias = self.find_type_alias(name).cloned()?;
+        let mut substitutions = HashMap::new();
+        for (index, param) in alias.type_params.iter().enumerate() {
+            let actual = args
+                .get(index)
+                .copied()
+                .or(param.default)
+                .unwrap_or_else(|| {
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::TypeParam { name: param.name })
+                });
+            substitutions.insert(param.name, actual);
+        }
+        Some(self.substitute_type_params(alias.ty, &substitutions))
+    }
+
+    /// Return whether `name` refers to a concrete nominal type — a `class` or
+    /// `interface` declared in this lowering unit — as opposed to an unresolved
+    /// (imported, definition-not-present) type reference.
+    fn symbol_names_concrete_nominal_type(&self, name: smelt_hir::Symbol) -> bool {
+        if self.find_interface(name).is_some() {
+            return true;
+        }
+        self.ctx
+            .krate
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::Class(class) if class.name == name))
     }
 
     /// Build an opaque callback that calls a captured outer local value.

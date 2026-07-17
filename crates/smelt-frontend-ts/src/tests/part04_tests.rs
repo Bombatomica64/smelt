@@ -154,6 +154,35 @@ function clone(entries: unknown[]) {
 }
 
 #[test]
+fn lowers_imported_iteratee_alias_local_as_find_index_callback() -> Result<(), String> {
+    // A parameter typed with an *imported* union alias (`ListIterateeCustom`,
+    // whose definition is not present in this lowering unit) surfaces as an
+    // opaque `Type::Class` reference. Passing that named local straight to an
+    // array method — `arr.findIndex(doesMatch)` — must still lower: the value is
+    // callable at runtime (the union's function arm), so it is treated as an
+    // erased callable surface, matching how the whole-crate build lowers the
+    // resolved union. Before this fix the callback dispatch rejected the local
+    // with "array callback local callback `doesMatch` is not defined".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import type { ListIterateeCustom } from "./iteratee";
+
+export function findIndex<T>(
+  arr: T[],
+  doesMatch: ListIterateeCustom<T, boolean>
+): number {
+  return arr.findIndex(doesMatch);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_forward_reference_to_nested_function_declaration() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -6672,6 +6701,36 @@ function lazy(value: unknown, depth: number) {
             .flat_map(|body| body.exprs.iter())
             .any(|expr| matches!(expr.kind, ExprKind::ListFlat { .. })),
         "expected callback Array.flat calls to lower into normal closure-body HIR"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_apply_method_into_closure_body() -> Result<(), String> {
+    // `fn.apply(thisArg, argsArray)` inside a closure body: the erased `this`
+    // operand is dropped and the trailing array spreads through the
+    // packed-argument closure-call ABI, mirroring the `.call(...args)` form
+    // (es-toolkit debounce forwards `_debounced.apply(this, args)`).
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function run(callback: (...args: number[]) => void, args: number[]) {
+  return [1, 2].map((value) => {
+    callback.apply(undefined, args);
+    return value;
+  });
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCallSpread { .. })),
+        "expected callback .apply(thisArg, args) to lower as a spread closure call"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

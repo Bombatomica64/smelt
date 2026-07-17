@@ -633,6 +633,14 @@ impl ModuleBuilder<'_> {
                 body,
                 span,
             ),
+            "apply" => self.callback_apply_method_to_body_expr(
+                receiver,
+                receiver_ty,
+                args,
+                ty,
+                body,
+                span,
+            ),
             "toString" | "to_string" if args.is_empty() => Ok(body.push_expr(Expr {
                 kind: ExprKind::PrimitiveCast {
                     op: PrimitiveCastOp::ToString,
@@ -1219,6 +1227,53 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::ClosureCall {
                 callee,
                 args,
+            },
+            ty,
+            span,
+        }))
+    }
+
+    /// Lower a `Function.prototype.apply` call inside a closure body.
+    ///
+    /// `fn.apply(thisArg, argsArray)` invokes `fn` with the elements of
+    /// `argsArray` as positional arguments. Smelt erases the JavaScript `this`
+    /// binding for these callables (the source callbacks are written with
+    /// `function (this: any, ...)`), so the leading `thisArg` operand is dropped
+    /// and the trailing array is spread through `ClosureCallSpread`, mirroring the
+    /// spread branch of [`Self::callback_call_method_to_body_expr`]. This
+    /// generalizes the closure-body method table to the `apply` form the same way
+    /// `call` is already supported, without special-casing any particular library
+    /// function.
+    pub(in crate::lowering) fn callback_apply_method_to_body_expr(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        _receiver_ty: smelt_hir::TypeId,
+        args: &[smelt_hir::ExprId],
+        ty: smelt_hir::TypeId,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // `fn.apply(thisArg)` (or `fn.apply()`) forwards no positional
+        // arguments, so it is an ordinary zero-argument closure call.
+        if args.len() <= 1 {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall {
+                    callee: receiver,
+                    args: Vec::new(),
+                },
+                ty,
+                span,
+            }));
+        }
+        // The trailing operand is the array whose elements become the call
+        // arguments; spread it through the packed-argument closure-call ABI.
+        let arguments = *args.last().ok_or_else(|| {
+            SmeltError::unsupported(span, "callback apply call requires an arguments array")
+        })?;
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::ClosureCallSpread {
+                callee: receiver,
+                args: arguments,
             },
             ty,
             span,

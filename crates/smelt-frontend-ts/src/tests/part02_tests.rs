@@ -368,6 +368,52 @@ function pickAt<T extends number>(values: string[], index: T): string | undefine
 }
 
 #[test]
+fn coerces_erased_at_index() -> Result<(), String> {
+    // An erased index — e.g. a value flowing through an `unknown`/opaque surface,
+    // mirroring the cross-module `toInteger(n)` return in es-toolkit `nthArg` —
+    // is coerced with a `Number(...)` cast rather than rejected, since `.at` runs
+    // `ToInteger` on any argument at runtime.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function pick(values: string[], index: unknown): string | undefined {
+  return values.at(index as any);
+}
+"),
+        &mut ctx,
+    )?;
+    let _ = module_id;
+    let has_optional_index = ctx
+        .krate
+        .bodies
+        .iter()
+        .any(|body| body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::OptionalIndex { .. })
+        }));
+    ensure!(
+        has_optional_index,
+        "array .at with an erased index should lower to optional indexing"
+    );
+    let has_number_cast = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToJsNumber,
+                    ..
+                }
+            )
+        })
+    });
+    ensure!(
+        has_number_cast,
+        "erased .at index should be coerced with a Number(...) cast"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn rejects_non_numeric_at_index() -> Result<(), String> {
     // A genuinely non-numeric index (here a string) is not coercible and must
     // stay an explicit unsupported diagnostic rather than being silently coerced.
@@ -723,6 +769,36 @@ fn rejects_conditional_expression_with_mismatched_branches() -> Result<(), Strin
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(ts!("const value = true ? 1 : \"no\";"), &mut ctx)?;
     assert_unsupported_ts(&errors, "branches must have the same lowered type")
+}
+
+#[test]
+fn lowers_conditional_numeric_and_optional_numeric_branches() -> Result<(), String> {
+    // A ternary whose branches are a bare numeric literal and an optional-numeric
+    // flow-typed local (mirroring es-toolkit `clamp`'s `isNaN(x) ? 0 : x` where
+    // `x` stays `number | undefined`) must merge to `Optional<Float>` instead of
+    // aborting because a `Float` and `Optional<Float>` have different shapes.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function pick(bound?: number): number | undefined {
+  return bound === undefined ? 0 : bound;
+}
+"),
+        &mut ctx,
+    )?;
+    let _ = module_id;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .any(|body| body
+                .exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. }))),
+        "missing conditional expression"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]

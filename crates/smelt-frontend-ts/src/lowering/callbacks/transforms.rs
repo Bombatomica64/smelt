@@ -678,7 +678,16 @@ impl ModuleBuilder<'_> {
         if self.ctx.krate.types.get(index_ty) == Some(&Type::Float) {
             return Ok(index);
         }
-        if self.is_numeric_like_type(index_ty) || self.optional_numeric_surface(index_ty) {
+        if self.is_numeric_like_type(index_ty)
+            || self.optional_numeric_surface(index_ty)
+            || self.erased_or_union_surface(index_ty)
+        {
+            // A numeric-like, optional-numeric, or erased index (e.g. the
+            // cross-module `toInteger(n)` return that lowers to an opaque surface)
+            // is coerced with a JS `Number(...)` cast. `Array`/`String.prototype.at`
+            // run `ToInteger` on the argument at runtime, so any value is accepted;
+            // the cast makes the emitted normalized-index arithmetic see a concrete
+            // `f64` instead of aborting on the erased shape.
             let float_ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::PrimitiveCast {
