@@ -6743,6 +6743,42 @@ export function run(values: number[]): string {
     );
 }
 
+/// A seeded reduce borrows its receiver for iteration, so the array argument
+/// supplied to a four-parameter callback must be cloned rather than moved out
+/// of the surrounding function or closure.
+#[test]
+fn reduce_clones_array_callback_argument_with_initial_value() {
+    let source = source_for(
+        r"
+export function sum(values: number[]): number {
+  const mapped = values.map(value => value);
+  return mapped.reduce((acc, value, _index, array) => acc + value + array.length, 0);
+}
+",
+    );
+
+    assert!(source.contains("let array = mapped.clone();"), "{source}");
+    assert!(!source.contains("let array = mapped;"), "{source}");
+}
+
+/// Seedless reduce has the same ownership requirement after extracting its
+/// first element: later iterations still borrow the receiver while invoking
+/// the callback with an owned array value.
+#[test]
+fn reduce_clones_array_callback_argument_without_initial_value() {
+    let source = source_for(
+        r"
+export function sum(values: number[]): number {
+  const reversed = values.reverse();
+  return reversed.reduce((acc, value, _index, array) => acc + value + array.length);
+}
+",
+    );
+
+    assert!(source.contains("let array = reversed.clone();"), "{source}");
+    assert!(!source.contains("let array = reversed;"), "{source}");
+}
+
 /// A module const whose initializer is an array spread (es-toolkit's
 /// `arrayViews = [...typedArrays, 'DataView']` shape) inlines into a function
 /// body as a concrete `SmeltList<String>` concat chain. The homogeneous
