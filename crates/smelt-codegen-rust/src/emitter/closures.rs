@@ -408,17 +408,30 @@ impl FunctionEmitter<'_> {
                     }
                 }
             }
+            let closure_return_ty = return_override.unwrap_or(closure.return_ty);
+            let closure_is_async = matches!(
+                self.mir.types.get(closure.return_ty),
+                Some(Type::Future(_))
+            ) || closure.blocks.iter().any(|block| {
+                matches!(block.terminator, Some(Terminator::Await { .. }))
+                    || block.statements.iter().any(|statement| {
+                        matches!(statement, Statement::Assign { value: Rvalue::Await(_), .. })
+                    })
+            });
             let function = MirFunction {
                 id: FuncId(u32::MAX),
                 name: Symbol(u32::MAX),
                 type_params: Vec::new(),
                 origin: HirOrigin::Body(smelt_hir::BodyId(u32::MAX)),
-                is_async: false,
+                // This synthetic emitter owns the body placed inside `async
+                // move`. Mark future-returning/awaiting closures async so early
+                // MIR returns produce the future's `Result<T, _>` output.
+                is_async: closure_is_async,
                 is_test: false,
                 can_throw: closure.can_throw,
                 params: closure.params.clone(),
                 rest: closure.rest,
-                return_ty: return_override.unwrap_or(closure.return_ty),
+                return_ty: closure_return_ty,
                 locals: closure_locals,
                 blocks: closure.blocks.clone(),
                 entry: closure.entry,
@@ -602,7 +615,14 @@ impl FunctionEmitter<'_> {
                 // whose `Ok` type equals the erased `SmeltUnknown` or the concrete
                 // `output_text` the `Ok::<..>` returns already use.
                 let async_value_annotation: Option<String> =
-                    if closure.can_throw && !async_value_needs_await {
+                    if body_text.contains("return Ok") {
+                        // Explicit returns diverge from the inner block, so pin
+                        // its otherwise-unconstrained binding for Rust inference.
+                        // Reaching this branch already proves the wrapper is
+                        // async; contextual function types can lose their
+                        // `is_async` flag while retaining a future return.
+                        Some(format!(": {output_text}"))
+                    } else if closure.can_throw && !async_value_needs_await {
                         let ok_ty_text = if matches!(
                             emitter.mir.types.get(output_ty),
                             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -616,25 +636,33 @@ impl FunctionEmitter<'_> {
                     } else {
                         None
                     };
-                let async_value_annotation = async_value_annotation.unwrap_or_default();
+                let async_value_annotation_text = async_value_annotation.unwrap_or_default();
                 let mut cloned_async_captures = HashSet::new();
                 let async_capture_lines = closure
                     .captures
                     .iter()
                     .filter_map(|capture| {
                         let local = self.local_decl(capture.source_local).ok()?;
+                        let source_name =
+                            self.local_name(capture.source_local).ok()?.to_owned();
                         if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
                             && matches!(local.kind, LocalKind::Param { .. })
                             && !self
                                 .function_parameter_requires_owned(capture.source_local)
                                 .ok()?
+                            // Synthetic closure parameters are owned `Rc<dyn
+                            // Fn>` values even though they are absent from the
+                            // enclosing function's owned-parameter analysis.
+                            // Clone them per invocation before `async move` so
+                            // a returned async closure remains `Fn`, not
+                            // `FnOnce`.
+                            && !source_name.starts_with("closure_arg_")
                             // A shadowed source name is rewritten to an alias in
                             // the nested body, so that alias must still be bound.
                             && !capture_aliases.contains_key(&capture.source_local)
                         {
                             return None;
                         }
-                        let source_name = self.local_name(capture.source_local).ok()?.to_owned();
                         let name = capture_aliases
                             .get(&capture.source_local)
                             .cloned()
@@ -678,7 +706,7 @@ impl FunctionEmitter<'_> {
                     format!("{} ", async_capture_lines.join(" "))
                 };
                 format!(
-                    "|{params_text}| {{ {async_capture_prelude}SmeltFuture::from_future(Box::pin(async move {{\n        let smelt_async_value{async_value_annotation} = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>>) }}"
+                    "|{params_text}| {{ {async_capture_prelude}SmeltFuture::from_future(Box::pin(async move {{\n        let smelt_async_value{async_value_annotation_text} = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>>) }}"
                 )
             } else if function.can_throw {
                 // A fallible closure returns `Result<T, Box<dyn Error>>`. When its
@@ -873,7 +901,7 @@ impl FunctionEmitter<'_> {
             {
                 out.push_str(&format!("    {};\n", self.operand_text(operand)?));
             }
-            if self.function.can_throw {
+            if self.function.can_throw || self.function.is_async {
                 out.push_str("    return Ok::<(), Box<dyn std::error::Error>>(());\n");
             } else {
                 out.push_str("    return ();\n");
@@ -889,7 +917,7 @@ impl FunctionEmitter<'_> {
             _ => self.function.return_ty,
         };
         let value = self.value_at_type(operand, return_ty)?;
-        if self.function.can_throw {
+        if self.function.can_throw || self.function.is_async {
             let return_ty_text = self.type_text_with_impl_trait(return_ty, false)?;
             out.push_str(&format!(
                 "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"

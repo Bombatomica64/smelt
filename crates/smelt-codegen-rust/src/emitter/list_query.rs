@@ -619,8 +619,13 @@ impl FunctionEmitter<'_> {
         let owned_list_text = self.operand_text(list)?;
         let borrowed_list_text = match list {
             Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
-            Operand::Const(_) => owned_list_text.clone(),
+            Operand::Const(_) => owned_list_text,
         };
+        // `fold` borrows the receiver for the duration of iteration. JavaScript
+        // also supplies that receiver as the callback's fourth, owned array
+        // argument, so each invocation must clone it even when MIR classified
+        // the original receiver operand as a final `Move`.
+        let callback_array_text = format!("{borrowed_list_text}.clone()");
         let callback_closure = match self.closure_operand_text_for_declared_type(callback) {
             Ok(callback_closure) => callback_closure,
             // A reduce callback passed as a borrowed function parameter (rather
@@ -639,11 +644,11 @@ impl FunctionEmitter<'_> {
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_text(initial_operand)?;
             Ok(format!(
-                "{borrowed_list_text}.iter().enumerate().fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {owned_list_text}; {callback_text} }})"
+                "{borrowed_list_text}.iter().enumerate().fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }})"
             ))
         } else if dest_ty == element_ty {
             Ok(format!(
-                "{{ let mut reduce_items = {borrowed_list_text}.iter().enumerate(); let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {owned_list_text}; {callback_text} }}) }}"
+                "{{ let mut reduce_items = {borrowed_list_text}.iter().enumerate(); let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }}) }}"
             ))
         } else {
             Err(EmitError::new(
@@ -764,4 +769,3 @@ impl FunctionEmitter<'_> {
 
     // Sorted-list helpers continue in `list_ordering.rs`.
 }
-

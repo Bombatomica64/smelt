@@ -175,6 +175,52 @@ describe("math helpers", () => {
 }
 
 #[test]
+fn emits_distinct_classes_for_same_named_sibling_suite_bindings() {
+    let source = source_for(
+        r#"
+import { describe, expect, it } from "vitest";
+describe("outer", () => {
+  describe("first", () => {
+    class Person { constructor() {} }
+    it("constructs", () => { expect(new Person()).toBeInstanceOf(Person); });
+  });
+  describe("second", () => {
+    class Person {
+      name: string;
+      friends: Person[] = [];
+      self?: Person;
+      constructor(name: string) { this.name = name; }
+    }
+    it("keeps fields", () => {
+      const person = new Person("jake");
+      person.self = person;
+      person.friends = [person];
+      expect(person.name).toBe("jake");
+    });
+  });
+});
+"#,
+    );
+
+    let person_structs = source
+        .lines()
+        .filter(|line| {
+            let Some(name) = line
+                .strip_prefix("struct ")
+                .and_then(|rest| rest.split([' ', '{', '(']).next())
+            else {
+                return false;
+            };
+            name.starts_with("PersonSmeltSuiteF") && !name.ends_with("Inner")
+        })
+        .count();
+    assert_eq!(person_structs, 2, "{source}");
+    assert!(source.contains("::new(\"jake\".to_owned())"), "{source}");
+    assert!(source.contains(".self_ ="), "{source}");
+    assert!(source.contains(".friends ="), "{source}");
+}
+
+#[test]
 fn emits_typescript_vitest_common_positive_matchers() {
     let source = source_for(
         r#"

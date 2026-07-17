@@ -328,14 +328,12 @@ impl FunctionEmitter<'_> {
                     out.push('\n');
                     return Ok(());
                 }
-                if let Some(Type::Dict(key, item)) = self.mir.types.get(base_ty)
-                    && self.mir.types.get(*key) == Some(&Type::String)
-                {
+                if let Some(Type::Dict(key, item)) = self.mir.types.get(base_ty) {
                     let rendered_value = self.rvalue_text_for_dest(value, *item)?;
+                    let key_text = self.dict_field_key_text(*key, *field)?;
                     out.push_str(&format!(
-                        "    {}.insert({:?}.to_owned(), {rendered_value});\n",
+                        "    {}.insert({key_text}, {rendered_value});\n",
                         self.local_mut_value_text(*base)?,
-                        self.symbol_name(*field)?
                     ));
                     return Ok(());
                 }

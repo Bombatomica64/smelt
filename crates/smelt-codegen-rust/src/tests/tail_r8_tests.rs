@@ -86,6 +86,41 @@ function f(): Record<string, unknown> {
 }
 
 #[test]
+fn object_spread_target_temp_is_mutable() {
+    // Object spread lowers through `DictAssign`, whose Rust rendering extends
+    // its target in place. The target temporary must therefore be declared
+    // mutable (was E0596 in Radash's generated test modules).
+    let source = source_for(
+        r"
+function copy() {
+  const key = Symbol('key');
+  const source = { value: 1, [key]: 'symbol' };
+  return { ...source };
+}
+",
+    );
+    let program = source
+        .split_once(PRELUDE_END_MARKER)
+        .map_or(source.as_str(), |(_, program)| program);
+    let extend = program
+        .lines()
+        .find(|line| line.contains(".extend("))
+        .unwrap_or_else(|| panic!("expected object spread to emit `.extend(...)`:\n{source}"));
+    let extend_start = extend.find(".extend(").expect("matched `.extend`");
+    let target_start = extend[..extend_start]
+        .rfind("_smelt_tmp_")
+        .unwrap_or_else(|| panic!("expected spread target temporary:\n{source}"));
+    let target = extend[target_start..]
+        .split('.')
+        .next()
+        .expect("temporary before `.extend`");
+    assert!(
+        source.contains(&format!("let mut {target}:")),
+        "object-spread target must be declared mutable:\n{source}"
+    );
+}
+
+#[test]
 fn flat_depth_literal_disambiguates_float_receiver() {
     // A `flat`/`flatMap` whose depth is a bare literal must cast to `f64` before
     // calling `.max`, otherwise the numeric receiver type is ambiguous.

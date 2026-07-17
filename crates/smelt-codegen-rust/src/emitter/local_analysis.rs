@@ -288,6 +288,19 @@ impl FunctionEmitter<'_> {
     /// Returns whether rendering an rvalue needs a mutable borrow of `local`.
     pub(super) fn rvalue_borrows_local_mutably(&self, value: &Rvalue, local: LocalId) -> bool {
         match value {
+            Rvalue::DictAssign { target, .. } if operand_local(target) == Some(local) => {
+                let Ok(target_ty) = self.operand_ty(target) else {
+                    return false;
+                };
+                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(target_ty) else {
+                    return false;
+                };
+                // String-keyed object records use interior mutability, while
+                // `SmeltJsMap` and plain `HashMap` expose `extend` through a
+                // mutable receiver. Object-spread targets using either latter
+                // representation therefore need a mutable Rust binding.
+                !self.dict_uses_smelt_record(*key_ty)
+            }
             Rvalue::ListCallback { list, .. } if operand_local(list) == Some(local) => {
                 let Ok(list_ty) = self.operand_ty(list) else {
                     return false;

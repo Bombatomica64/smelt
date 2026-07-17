@@ -2,6 +2,82 @@
 
 use super::*;
 
+/// Erasing an async callback into an unknown-rest function must wrap its
+/// returned future directly. Throws from an async body live inside that future;
+/// the callback invocation itself does not return a `Result` to unwrap.
+#[test]
+fn erased_async_throwing_callback_does_not_unwrap_future_as_result() {
+    let input = r#"
+export const tryit = <Args extends unknown[], Return>(
+  func: (...args: Args) => Return
+) => {
+  return (...args: Args): unknown => func(...args)
+}
+
+export function run(): unknown {
+  return tryit(async () => {
+    throw new Error("failure")
+  })
+}
+"#;
+    let source = source_for(input);
+
+    assert!(source.contains("SmeltUnknown::Promise(SmeltPromise::from_future"), "{source}");
+    assert!(
+        !source.contains("(smelt_callback)(smelt_args).unwrap_or_else")
+            && !source.contains("(smelt_callback)().unwrap_or_else"),
+        "{source}"
+    );
+}
+
+/// An async closure whose loop exits only through explicit returns leaves the
+/// trailing async-value expression unreachable. Its binding still needs the
+/// resolved output type so Rust does not have to infer a value from `!`.
+#[test]
+fn async_closure_with_returning_loop_annotates_unreachable_tail() {
+    let source = source_for(
+        r#"
+export function worker(done: (values: unknown[]) => void): () => Promise<void> {
+  return async () => {
+    const values: unknown[] = []
+    while (true) {
+      if (values.length === 0) return done(values)
+    }
+  }
+}
+"#,
+    );
+
+    assert!(
+        source.contains("let smelt_async_value: () = {")
+            || source.contains("let smelt_async_value: SmeltUnknown = {"),
+        "{source}"
+    );
+    assert!(!source.contains("let smelt_async_value = {"), "{source}");
+}
+
+/// A dotted write on a record widened by a symbol key must insert through the
+/// dictionary API; a `.get(..)` read expression is never an assignable place.
+#[test]
+fn dotted_write_to_unknown_key_record_inserts_string_key() {
+    let source = source_for(
+        r#"
+export function cycle(): unknown {
+  const symbolKey = Symbol('key')
+  const complex = { loop: null, [symbolKey]: 'symbol' }
+  complex.loop = complex
+  return complex
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".insert(SmeltUnknown::String(\"loop\".to_owned()),"),
+        "{source}"
+    );
+    assert!(!source.contains("expect(\"missing field\") ="), "{source}");
+}
+
 /// A `return <literal>` statement inside an `async` function returns the
 /// *resolved* value, not a promise: the async lowering wraps the whole body
 /// into the future. When the declared return type is `Promise<[null, T]>` the
@@ -6743,6 +6819,42 @@ export function run(values: number[]): string {
     );
 }
 
+/// A seeded reduce borrows its receiver for iteration, so the array argument
+/// supplied to a four-parameter callback must be cloned rather than moved out
+/// of the surrounding function or closure.
+#[test]
+fn reduce_clones_array_callback_argument_with_initial_value() {
+    let source = source_for(
+        r"
+export function sum(values: number[]): number {
+  const mapped = values.map(value => value);
+  return mapped.reduce((acc, value, _index, array) => acc + value + array.length, 0);
+}
+",
+    );
+
+    assert!(source.contains("let array = mapped.clone();"), "{source}");
+    assert!(!source.contains("let array = mapped;"), "{source}");
+}
+
+/// Seedless reduce has the same ownership requirement after extracting its
+/// first element: later iterations still borrow the receiver while invoking
+/// the callback with an owned array value.
+#[test]
+fn reduce_clones_array_callback_argument_without_initial_value() {
+    let source = source_for(
+        r"
+export function sum(values: number[]): number {
+  const reversed = values.reverse();
+  return reversed.reduce((acc, value, _index, array) => acc + value + array.length);
+}
+",
+    );
+
+    assert!(source.contains("let array = reversed.clone();"), "{source}");
+    assert!(!source.contains("let array = reversed;"), "{source}");
+}
+
 /// A module const whose initializer is an array spread (es-toolkit's
 /// `arrayViews = [...typedArrays, 'DataView']` shape) inlines into a function
 /// body as a concrete `SmeltList<String>` concat chain. The homogeneous
@@ -7880,6 +7992,28 @@ function adapt(
     );
 }
 
+/// Erasing a function returned by an adapted callback must evaluate that
+/// callback once; evaluating it again moves non-Copy arguments twice.
+#[test]
+fn adapted_function_return_is_materialized_before_identity_registration() {
+    let source = source_for(
+        r"
+function adapt(
+  callback: (key: string) => (record: Record<string, number>) => number,
+): (key: string) => unknown {
+  return callback;
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "let smelt_function_value = (_smelt_adapted_callback)(arg0); let smelt_function_origin = smelt_function_value.clone();"
+        ),
+        "{source}"
+    );
+}
+
 /// Regression (warning-reduction R1): a predeclared (hoisted) local that is
 /// assigned inside a loop body keeps its `mut` binding. Rust's
 /// definite-assignment rules reject reassigning an immutable hoisted local from
@@ -8019,6 +8153,30 @@ export async function run(): Promise<number> {
     assert!(
         source.contains(
             "move |closure_arg_0: f64| { let smelt_captured_closure_arg_0 = smelt_captured_closure_arg_0.clone();"
+        ),
+        "{source}"
+    );
+}
+
+/// A zero-parameter async closure returned from a factory remains reusable:
+/// each call clones the factory callback before moving it into a fresh future.
+#[test]
+fn zero_parameter_async_factory_clones_captured_callback_per_call() {
+    let source = source_for(
+        r"
+export async function run(): Promise<number> {
+  const factory = (callback: (value: number) => Promise<number>) =>
+    async () => callback(0);
+  const callback = async (value: number): Promise<number> => value;
+  const generated = factory(callback);
+  return (await generated()) + (await generated());
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "move || { let closure_arg_0 = closure_arg_0.clone(); SmeltFuture::from_future"
         ),
         "{source}"
     );

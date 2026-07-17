@@ -501,6 +501,13 @@ struct ModuleBuilder<'ctx> {
     items: HashMap<String, smelt_hir::ItemId>,
     /// Class definitions by name.
     classes: HashMap<String, smelt_hir::ItemId>,
+    /// Lexically scoped class type symbols keyed by their source binding name.
+    ///
+    /// Test suites are flattened into one Rust module, so sibling suites may
+    /// legally declare different block-local classes with the same source name.
+    /// This map preserves source lookup while giving each declaration a
+    /// distinct emitted type identity.
+    scoped_class_type_names: HashMap<String, smelt_hir::Symbol>,
     /// Class names declared later in the current module.
     pending_class_names: HashSet<String>,
     /// Interface definitions by name.

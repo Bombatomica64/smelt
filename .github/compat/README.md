@@ -4,10 +4,12 @@ Each subdirectory holds a `Smelt.toml` that points Smelt at a third-party
 TypeScript or Python library's source root + test glob. They are used to probe
 how far Smelt can transpile real-world "bug libraries".
 
-`remeda/` is the curated, passing compat target wired into the
-`Compatibility` GitHub Actions workflow. The others are exploratory probes run
-daily by the [`Library Probes`](../workflows/library-probes.yml) workflow, which
-refreshes the report at
+`remeda/` and `radash/` are curated compatibility targets wired into the main
+CI workflow as blocking generated-Rust test gates. The Radash gate compiles
+the full configured source/test crate and runs its 84 currently discovered
+tests. All targets, including those two, are also probed daily by the
+[`Library Probes`](../workflows/library-probes.yml) workflow, which refreshes
+the report at
 [`blocker-logs/library-probes.md`](../../blocker-logs/library-probes.md).
 
 The probe set, pinned refs, and per-library source roots live in
@@ -21,7 +23,7 @@ deliberately to re-baseline a probe against a newer library version.
 | --- | --- | --- |
 | `remeda` | `remeda/remeda` | TS (reference, passes) |
 | `es-toolkit` | `toss/es-toolkit` | TS |
-| `radash` | `sodiray/radash` | TS |
+| `radash` | `sodiray/radash` | TS (compiles; 84 tests pass) |
 | `ts-pattern` | `gvergnaud/ts-pattern` | TS |
 | `valibot` | `fabian-hiller/valibot` | TS |
 | `neverthrow` | `supermacro/neverthrow` | TS |

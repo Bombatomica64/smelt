@@ -1515,13 +1515,44 @@ impl ModuleBuilder<'_> {
                 "Promise constructor lowering requires one executor",
             ));
         };
-        let output_ty = type_hint
-            .and_then(|hint| self.future_inner_type(hint))
+        let bare_delay_timer = match executor_arg {
+            Argument::ArrowFunctionExpression(executor) => {
+                Self::promise_executor_timer_call(executor).filter(|timer_call| {
+                    Self::promise_executor_is_bare_delay(executor, timer_call)
+                })
+            }
+            _ => None,
+        };
+        let mut lowered_executor = None;
+        let contextual_output = type_hint
+            .map(|hint| {
+                // A Promise constructor can be contextualized either by a
+                // `Promise<T>` value slot or by the resolved `T` hint supplied
+                // for a return expression inside an async function. Both
+                // contexts describe the constructor's concrete output `T`.
+                self.future_inner_type(hint).unwrap_or(hint)
+            })
             .or_else(|| {
                 self.promise_constructor_output_type(new_expr)
                     .ok()
                     .flatten()
-            })
+            });
+        let inferred_output = if contextual_output.is_none()
+            && bare_delay_timer.is_none()
+            && matches!(executor_arg, Argument::Identifier(_))
+        {
+            let executor = self.argument(executor_arg, body)?;
+            let executor_ty = Self::expr_ty(body, executor);
+            let inferred = self.promise_executor_resolved_value_type(executor_ty);
+            if inferred.is_some() {
+                lowered_executor = Some(executor);
+            }
+            inferred
+        } else {
+            None
+        };
+        let output_ty = contextual_output
+            .or(inferred_output)
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
         let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
         // Only collapse a Promise to a bare `Sleep` when its executor is the pure
@@ -1531,14 +1562,6 @@ impl ModuleBuilder<'_> {
         // timer callback does real work (e.g. `() => resolve(value)`) must flow
         // through `AsyncOp::Promise`, which threads `resolve`/`reject`; treating
         // it as `Sleep` would silently discard the resolved value.
-        let bare_delay_timer = match executor_arg {
-            Argument::ArrowFunctionExpression(executor) => {
-                Self::promise_executor_timer_call(executor).filter(|timer_call| {
-                    Self::promise_executor_is_bare_delay(executor, timer_call)
-                })
-            }
-            _ => None,
-        };
         let duration = if let Some(timer_call) = bare_delay_timer {
             let Some(duration_argument) = timer_call.arguments.get(1) else {
                 return Err(SmeltError::unsupported(
@@ -1550,6 +1573,11 @@ impl ModuleBuilder<'_> {
         } else {
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             let none_ty = self.ctx.krate.types.intern(Type::None);
+            let resolve_value_ty = if self.ctx.krate.types.get(output_ty) == Some(&Type::None) {
+                unknown_ty
+            } else {
+                output_ty
+            };
             // `resolve`/`reject` accept their value argument optionally: TypeScript
             // types them `(value?: T) => void`, and `resolve()` with no argument is
             // valid (it settles with `undefined`). Recording `required_params: 0`
@@ -1557,7 +1585,7 @@ impl ModuleBuilder<'_> {
             // `Array<() => void>` deferred-task queue used by promise concurrency
             // primitives (semaphore/mutex).
             let resolve_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params: vec![unknown_ty],
+                params: vec![resolve_value_ty],
                 rest: None,
                 required_params: Some(0),
                 mutable_params: Vec::new(),
@@ -1583,7 +1611,10 @@ impl ModuleBuilder<'_> {
                 is_async: false,
                 may_throw: false,
             }));
-            let executor_expr = self.argument_with_hint(executor_arg, body, Some(executor_ty))?;
+            let executor_expr = match lowered_executor {
+                Some(executor) => executor,
+                None => self.argument_with_hint(executor_arg, body, Some(executor_ty))?,
+            };
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::AsyncOp {
                     op: AsyncOp::Promise,
@@ -1601,6 +1632,24 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         })))
+    }
+
+    /// Infer `Promise<T>`'s resolved `T` from a named executor's first callback.
+    ///
+    /// A declaration such as `(resolve: (value: T) => void)` already carries
+    /// the useful static shape, so recovering it avoids an erased resolver ABI.
+    pub(super) fn promise_executor_resolved_value_type(
+        &self,
+        executor_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        let Type::Function(executor) = self.ctx.krate.types.get(executor_ty)? else {
+            return None;
+        };
+        let resolve_ty = *executor.params.first()?;
+        let Type::Function(resolve) = self.ctx.krate.types.get(resolve_ty)? else {
+            return None;
+        };
+        resolve.params.first().copied()
     }
 
     /// Return the explicit `Promise<T>` constructor output type when present.

@@ -2311,9 +2311,36 @@ impl ModuleBuilder<'_> {
                         "await expressions are only lowered inside async functions",
                     ));
                 }
-                let awaited = self.expression(&await_expr.argument, body)?;
+                // The context describes the resolved value; the operand must
+                // therefore produce a future of that value.
+                let awaited_hint =
+                    type_hint.map(|hint| self.ctx.krate.types.intern(Type::Future(hint)));
+                let awaited =
+                    self.expression_with_hint(&await_expr.argument, body, awaited_hint)?;
                 let awaited_ty = Self::expr_ty(body, awaited);
                 let Some(ty) = self.future_inner_type(awaited_ty) else {
+                    if let Some(resolved_ty) = type_hint
+                        && self.erased_or_union_surface(awaited_ty)
+                    {
+                        // An asserted await over an erased conditional call
+                        // still carries a runtime promise. Preserve the call and
+                        // make the checked future extraction explicit.
+                        let future_ty =
+                            self.ctx.krate.types.intern(Type::Future(resolved_ty));
+                        let future = body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value: awaited },
+                            ty: future_ty,
+                            span: self.span(
+                                await_expr.argument.span().start,
+                                await_expr.argument.span().end,
+                            ),
+                        });
+                        return Ok(body.push_expr(Expr {
+                            kind: ExprKind::Await(future),
+                            ty: resolved_ty,
+                            span: self.span(await_expr.span.start, await_expr.span.end),
+                        }));
+                    }
                     let ty = self.ctx.krate.types.intern(Type::Unknown);
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::None),
@@ -2342,7 +2369,40 @@ impl ModuleBuilder<'_> {
                 }
                 self.computed_member(member, body)
             }
-            Expression::CallExpression(call) => self.call_expression(call, body),
+            Expression::CallExpression(call) => {
+                let value = self.call_expression(call, body)?;
+                let statically_callable = body
+                    .exprs
+                    .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+                    .and_then(|lowered_expr| match &lowered_expr.kind {
+                        ExprKind::Call { callee, .. } | ExprKind::ClosureCall { callee, .. } => {
+                            Some(*callee)
+                        }
+                        _ => None,
+                    })
+                    .is_some_and(|callee| {
+                        matches!(
+                            self.ctx.krate.types.get(Self::expr_ty(body, callee)),
+                            Some(Type::Function(_))
+                        )
+                    });
+                if let Some(hint) = type_hint
+                    && statically_callable
+                    && matches!(self.ctx.krate.types.get(hint), Some(Type::Future(_)))
+                    && matches!(
+                        self.ctx.krate.types.get(Self::expr_ty(body, value)),
+                        Some(Type::None | Type::Unknown)
+                    )
+                    && let Some(contextual_expr) = body
+                        .exprs
+                        .get_mut(usize::try_from(value.0).unwrap_or(usize::MAX))
+                {
+                    // Validated contextual future typing recovers an unresolved
+                    // conditional/generic call result without changing the call.
+                    contextual_expr.ty = hint;
+                }
+                Ok(value)
+            }
             Expression::AssignmentExpression(assign) => {
                 if let Some(expr) = self.try_global_assignment_expression(assign, body)? {
                     return Ok(expr);

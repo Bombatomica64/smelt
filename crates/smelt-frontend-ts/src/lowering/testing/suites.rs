@@ -3,14 +3,14 @@
 
 use crate::SmeltError;
 use crate::lowering::support::sanitize_test_name;
-use crate::lowering::{ModuleBuilder, TableBindingValue};
+use crate::lowering::{MethodSig, ModuleBuilder, TableBindingValue};
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, BindingPattern, Expression, ForStatementLeft,
     ObjectPropertyKind, PropertyKey, Statement,
 };
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type};
-use std::collections::HashSet;
+use smelt_hir::{Body, Field, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type};
+use std::collections::{HashMap, HashSet};
 
 /// Class-registry names captured before a test case is lowered so that
 /// block-local synthesized constructor classes can be rolled back afterwards.
@@ -24,6 +24,26 @@ struct TestCaseClassScope {
     fields: HashSet<String>,
     /// Names present in the `class_methods` registry on entry to the test case.
     methods: HashSet<String>,
+}
+
+/// Class lookup state saved while lowering one lexical test-suite body.
+///
+/// Suite-local classes stay visible to tests and nested suites in their
+/// declaring callback, then disappear before a sibling suite is lowered. The
+/// emitted HIR items remain in the crate; only source-name lookup is restored.
+struct TestSuiteClassScope {
+    /// Source class bindings visible before entering the suite.
+    classes: HashMap<String, smelt_hir::ItemId>,
+    /// Class-field sidecars visible before entering the suite.
+    fields: HashMap<String, Vec<Field>>,
+    /// Class-method sidecars visible before entering the suite.
+    methods: HashMap<String, Vec<MethodSig>>,
+    /// Class inheritance metadata visible before entering the suite.
+    bases: HashMap<String, (smelt_hir::Symbol, Vec<smelt_hir::TypeId>)>,
+    /// Active source binding to internal type-symbol mappings.
+    type_names: HashMap<String, smelt_hir::Symbol>,
+    /// Class index-signature metadata visible before entering the suite.
+    index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
 }
 
 impl ModuleBuilder<'_> {
@@ -81,6 +101,7 @@ impl ModuleBuilder<'_> {
         inherited_after_each: Vec<&'a oxc::ast::ast::ArrowFunctionExpression<'a>>,
         table_bindings: &[(&'a str, TableBindingValue<'a>)],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let class_scope = self.enter_test_suite_class_scope(statements);
         let mut items = Vec::new();
         let mut setup = inherited_setup;
         let mut before_each = inherited_before_each;
@@ -211,7 +232,54 @@ impl ModuleBuilder<'_> {
             }
             setup.push(statement);
         }
+        self.restore_test_suite_class_scope(class_scope);
         Ok(items)
+    }
+
+    /// Enter the lexical class scope for a `describe` callback.
+    ///
+    /// Direct class declarations receive deterministic internal symbols before
+    /// lowering. This lets recursive annotations such as `friends: Person[]`
+    /// resolve locally without collapsing same-named classes from sibling
+    /// callbacks into one emitted Rust type.
+    fn enter_test_suite_class_scope(
+        &mut self,
+        statements: &oxc::allocator::Vec<'_, Statement<'_>>,
+    ) -> TestSuiteClassScope {
+        let scope = TestSuiteClassScope {
+            classes: self.classes.clone(),
+            fields: self.class_fields.clone(),
+            methods: self.class_methods.clone(),
+            bases: self.class_bases.clone(),
+            type_names: self.scoped_class_type_names.clone(),
+            index_values: self.class_index_values.clone(),
+        };
+        for statement in statements {
+            let Statement::ClassDeclaration(class) = statement else {
+                continue;
+            };
+            let Some(id) = &class.id else {
+                continue;
+            };
+            let internal_name = format!(
+                "{}SmeltSuiteF{}S{}",
+                id.name, self.file_id.0, class.span.start,
+            );
+            let symbol = self.intern_type_name(&internal_name);
+            self.scoped_class_type_names
+                .insert(id.name.to_string(), symbol);
+        }
+        scope
+    }
+
+    /// Restore the enclosing lexical class lookup after a suite body.
+    fn restore_test_suite_class_scope(&mut self, scope: TestSuiteClassScope) {
+        self.classes = scope.classes;
+        self.class_fields = scope.fields;
+        self.class_methods = scope.methods;
+        self.class_bases = scope.bases;
+        self.scoped_class_type_names = scope.type_names;
+        self.class_index_values = scope.index_values;
     }
 
     /// Expand a comma expression made entirely of test registrations.
