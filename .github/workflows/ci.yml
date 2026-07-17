@@ -202,6 +202,54 @@ jobs:
             echo "No generated Remeda crate to scan; skipping SmeltUnknown report."
           fi
 
+  # Regression gate: transpile Radash at the ref pinned in
+  # .github/compat/libraries.json, then compile and run all generated Rust
+  # tests. Radash declares Jest-style test globals ambiently instead of
+  # importing them; the explicit Vitest import added to the disposable clone
+  # lets Smelt discover the same 84 tests without changing upstream sources.
+  radash-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+
+      - name: Build smelt
+        run: cargo build --bin smelt
+
+      - name: Check out Radash at the pinned ref + copy Smelt fixtures
+        run: |
+          ref="$(python3 -c "import json; libs=json.load(open('.github/compat/libraries.json'))['libraries']; print(next(l['ref'] for l in libs if l['name']=='radash'))")"
+          echo "Radash ref: $ref"
+          repo_dir="target/compat-repos/radash"
+          rm -rf "$repo_dir"
+          git clone --no-tags --filter=blob:none https://github.com/sodiray/radash.git "$repo_dir"
+          git -C "$repo_dir" checkout "$ref"
+          cp -R .github/compat/radash/. "$repo_dir"/
+
+      - name: Expose ambient Radash tests to Smelt discovery
+        run: |
+          test_file="target/compat-repos/radash/src/tests/typed.test.ts"
+          sed -i "/import { assert } from 'chai'/a import { describe, test } from 'vitest'" "$test_file"
+          test "$(grep -Fc "import { describe, test } from 'vitest'" "$test_file")" -eq 1
+
+      - name: Transpile Radash to Rust
+        run: target/debug/smelt --manifest-path target/compat-repos/radash/Smelt.toml build
+
+      - name: Compile and run generated Radash tests (regression gate)
+        run: |
+          RUSTFLAGS=-Awarnings cargo test \
+            --manifest-path target/compat-repos/radash/dist-smelt/Cargo.toml \
+            --no-fail-fast 2>&1 | tee radash-tests.log
+          grep -F "test result: ok. 84 passed; 0 failed;" radash-tests.log
+
   # Regression gate: transpile es-toolkit at the ref pinned in
   # .github/compat/libraries.json with the smelt built from THIS commit, then
   # ratchet against checked-in high-water marks in
@@ -342,4 +390,3 @@ jobs:
             gate-diagnostics.md
             runtime-tests.log
           if-no-files-found: ignore
-
