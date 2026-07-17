@@ -154,6 +154,35 @@ function clone(entries: unknown[]) {
 }
 
 #[test]
+fn lowers_imported_iteratee_alias_local_as_find_index_callback() -> Result<(), String> {
+    // A parameter typed with an *imported* union alias (`ListIterateeCustom`,
+    // whose definition is not present in this lowering unit) surfaces as an
+    // opaque `Type::Class` reference. Passing that named local straight to an
+    // array method — `arr.findIndex(doesMatch)` — must still lower: the value is
+    // callable at runtime (the union's function arm), so it is treated as an
+    // erased callable surface, matching how the whole-crate build lowers the
+    // resolved union. Before this fix the callback dispatch rejected the local
+    // with "array callback local callback `doesMatch` is not defined".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import type { ListIterateeCustom } from "./iteratee";
+
+export function findIndex<T>(
+  arr: T[],
+  doesMatch: ListIterateeCustom<T, boolean>
+): number {
+  return arr.findIndex(doesMatch);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_forward_reference_to_nested_function_declaration() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
