@@ -56,6 +56,28 @@ export function worker(done: (values: unknown[]) => void): () => Promise<void> {
     assert!(!source.contains("let smelt_async_value = {"), "{source}");
 }
 
+/// A dotted write on a record widened by a symbol key must insert through the
+/// dictionary API; a `.get(..)` read expression is never an assignable place.
+#[test]
+fn dotted_write_to_unknown_key_record_inserts_string_key() {
+    let source = source_for(
+        r#"
+export function cycle(): unknown {
+  const symbolKey = Symbol('key')
+  const complex = { loop: null, [symbolKey]: 'symbol' }
+  complex.loop = complex
+  return complex
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".insert(SmeltUnknown::String(\"loop\".to_owned()),"),
+        "{source}"
+    );
+    assert!(!source.contains("expect(\"missing field\") ="), "{source}");
+}
+
 /// A `return <literal>` statement inside an `async` function returns the
 /// *resolved* value, not a promise: the async lowering wraps the whole body
 /// into the future. When the declared return type is `Promise<[null, T]>` the
