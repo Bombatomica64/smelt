@@ -125,7 +125,7 @@ mod tests {
         }
     }
 
-    /// Every typed-array view constructor is recognized, including the BigInt
+    /// Every typed-array view constructor is recognized, including the `BigInt`
     /// views, while plain `Array` and lookalikes are not.
     #[test]
     fn recognizes_typed_array_class_names() {

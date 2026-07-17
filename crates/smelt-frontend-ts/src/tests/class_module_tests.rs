@@ -9,7 +9,7 @@ use super::*;
 fn lowers_private_class_field_read_and_write() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class Counter {
   #count: number;
   constructor(start: number) {
@@ -20,7 +20,7 @@ class Counter {
     return this.#count;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -32,13 +32,13 @@ class Counter {
 fn lowers_this_parameter_function_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Handler = (this: number, value: number) => number;
 
 function run(handler: Handler, value: number): number {
   return handler(value);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -50,14 +50,14 @@ function run(handler: Handler, value: number): number {
 fn lowers_bare_asserts_condition_signature() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function invariant(condition: unknown, message: string): asserts condition {
   if (condition) {
     return;
   }
   throw new Error(message);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -71,9 +71,9 @@ fn lowers_interface_extending_global_lib_type() -> Result<(), String> {
     // `Array`/`ArrayLike` are ambient global lib types with no user interface
     // declaration; the heritage must not block lowering.
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export interface RecursiveArray<T> extends Array<T | RecursiveArray<T>> {}
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -171,12 +171,12 @@ export function identity<T>(x: T): T {
 fn lowers_numeric_property_keys() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export interface ByIndex {
   0: number;
   1: number;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -192,7 +192,7 @@ export interface ByIndex {
 fn lowers_pure_class_index_signature() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class StringBag {
   [key: string]: string;
 }
@@ -200,7 +200,7 @@ class StringBag {
 export function readBag(bag: StringBag, key: string): string | undefined {
   return bag[key];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -257,7 +257,7 @@ export function readBag(bag: StringBag, key: string): string | undefined {
 fn lowers_mixed_class_index_signature_preserving_named_fields() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class MixedBag {
   size: number = 0;
   [key: string]: string | number;
@@ -266,7 +266,7 @@ class MixedBag {
 export function bagSize(bag: MixedBag): number {
   return bag.size;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -317,7 +317,7 @@ export function bagSize(bag: MixedBag): number {
 fn resolves_unnamed_member_through_class_index_signature() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class Flags {
   [key: string]: boolean;
 }
@@ -325,7 +325,7 @@ class Flags {
 export function isEnabled(flags: Flags): boolean {
   return flags.enabled;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -484,11 +484,11 @@ class Node {
 fn lowers_symbol_iterator_computed_interface_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export interface Seq {
   [Symbol.iterator](): number;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -513,11 +513,11 @@ export interface Seq {
 fn rejects_dynamic_computed_class_property_name() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let class_errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 class Dynamic {
   [Math.random()]: number = 0;
 }
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(
@@ -533,7 +533,7 @@ class Dynamic {
 fn lowers_class_index_signature_keyed_write() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class StringBag {
   [key: string]: string;
 }
@@ -541,7 +541,7 @@ class StringBag {
 export function writeBag(bag: StringBag, key: string, value: string): void {
   bag[key] = value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -634,14 +634,14 @@ export function area(radius: number): number {
 fn resolves_dot_access_on_class_index_signature() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class StringBag {
   [key: string]: string;
 }
 export function readBag(bag: StringBag): string {
   return bag.anything;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -676,7 +676,7 @@ export function readBag(bag: StringBag): string {
 fn resolves_dot_access_through_inherited_index_signature() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class Bag {
   [key: string]: string;
 }
@@ -686,7 +686,7 @@ class Derived extends Bag {
 export function readDynamic(derived: Derived): string {
   return derived.dynamic;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -704,20 +704,20 @@ export function readDynamic(derived: Derived): string {
 /// TypeScript this only type-checks for widened/dynamic receivers or — as under
 /// isolated per-file lowering — a receiver whose full member set is not visible
 /// here; either way the honest lowering is the boundary, not a hard error. This
-/// is not SmeltUnknown *widening* of statically-typed access: every static
+/// is not `SmeltUnknown` *widening* of statically-typed access: every static
 /// resolver is tried first, so the declared field `x` keeps its concrete type.
 #[test]
 fn routes_unresolved_class_field_to_dynamic_boundary_without_error() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class Point {
   x: number = 0;
 }
 export function readDynamic(p: Point): unknown {
   return p.y;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -745,11 +745,11 @@ export function readDynamic(p: Point): unknown {
 fn lowers_symbol_async_iterator_computed_interface_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export interface Seq {
   [Symbol.asyncIterator](): number;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -772,13 +772,13 @@ export interface Seq {
 fn lowers_symbol_for_const_keyed_interface_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const matcher = Symbol.for('@ts-pattern/matcher');
 
 export interface Matcher {
   [matcher](): number;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -800,11 +800,11 @@ export interface Matcher {
 fn lowers_inline_symbol_for_computed_interface_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export interface Branded {
   [Symbol.for('@ts-pattern/override')]: number;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -828,20 +828,20 @@ export interface Branded {
 fn lowers_namespace_symbol_for_computed_interface_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export const override = Symbol.for('@ts-pattern/override');
-"#),
+"),
         "symbols.ts",
         &mut ctx,
     )?;
     let module_id = lower_path_ok(
-        ts!(r#"
+        ts!(r"
 import * as symbols from './symbols';
 
 export interface Override {
   [symbols.override]: number;
 }
-"#),
+"),
         "Pattern.ts",
         &mut ctx,
     )?;
@@ -865,13 +865,13 @@ export interface Override {
 fn rejects_unique_symbol_const_computed_property_name() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 const brand = Symbol('brand');
 
 class Branded {
   [brand]: number = 0;
 }
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(
@@ -886,12 +886,12 @@ class Branded {
 /// `smelt_stdlib::host_object` registry, exactly as extending a builtin error or
 /// collection type does. es-toolkit's `isBlob`/`isFile` specs declare
 /// `class File extends Blob {}` to fake the host `File` global, which previously
-/// failed with `base class \`Blob\` is not declared`.
+/// failed with "base class `Blob` is not declared".
 #[test]
 fn lowers_class_extending_host_object_base() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export class MyFile extends Blob {
   name: string;
   constructor(chunks: unknown[], filename: string) {
@@ -899,7 +899,7 @@ export class MyFile extends Blob {
     this.name = filename;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -928,9 +928,9 @@ export class MyFile extends Blob {
 fn rejects_class_extending_undeclared_base() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 export class Widget extends NotARealBaseClass {}
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "base class `NotARealBaseClass` is not declared")?;
@@ -985,7 +985,7 @@ export class Tagged extends Object {
 fn lowers_this_type_in_class_declared_in_function_body() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function build(): number {
   class Node {
     value: number;
@@ -1004,7 +1004,7 @@ export function build(): number {
   node.rebuild();
   return node.value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -1022,14 +1022,14 @@ export function build(): number {
 fn lowers_class_carrying_static_function_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export class Widget {
   a = 1;
   b = 2;
   static make = function () {};
   static build = () => 42;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;

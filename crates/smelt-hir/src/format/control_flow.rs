@@ -30,6 +30,7 @@ pub(super) fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
         Stmt::If { .. }
         | Stmt::While { .. }
         | Stmt::WhileUpdate { .. }
+        | Stmt::WhileUpdateBlock { .. }
         | Stmt::For { .. }
         | Stmt::Match { .. }
         | Stmt::Throw(_)
@@ -65,6 +66,16 @@ fn control_stmt_text(body: &Body, stmt: &Stmt) -> String {
             loop_body,
             expr_ref(*update_target),
             expr_ref(*update_value)
+        ),
+        Stmt::WhileUpdateBlock {
+            cond,
+            body: loop_body,
+            update,
+        } => format!(
+            "while {} {:?} update-block {:?}",
+            expr_ref(*cond),
+            loop_body,
+            update
         ),
         Stmt::For {
             pat,

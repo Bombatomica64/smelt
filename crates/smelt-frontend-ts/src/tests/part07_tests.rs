@@ -124,11 +124,11 @@ fn normalizes_globalthis_namespace_call() -> Result<(), String> {
     // `globalThis.Object.keys(x)` must lower exactly like `Object.keys(x)`.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function keysOf(x: Record<string, number>): string[] {
   return globalThis.Object.keys(x);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(crate_has_expr(&ctx, |kind| matches!(
@@ -146,12 +146,12 @@ fn normalizes_global_alias_namespace_call() -> Result<(), String> {
     // `const g = globalThis; g.Array.isArray(value)` lowers like `Array.isArray`.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function isArr(value: unknown): boolean {
   const g = globalThis;
   return g.Array.isArray(value);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(crate_has_expr(&ctx, |kind| matches!(
@@ -169,11 +169,11 @@ fn normalizes_globalthis_member_read_to_bare_value() -> Result<(), String> {
     // `globalThis.Math` reads the same concrete value as bare `Math`.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function roundTrip(x: number): number {
   return globalThis.Math.floor(x);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(crate_has_expr(&ctx, |kind| matches!(
@@ -249,7 +249,7 @@ fn lowers_for_loop_with_comma_sequence_update() -> Result<(), String> {
     // loop-body assignment, mirroring es-toolkit `sampleSize`.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(size: number, length: number): number[] {
   const result: number[] = [];
   for (let step = length - size, resultIndex = 0; step < length; step++, resultIndex++) {
@@ -257,7 +257,7 @@ function run(size: number, length: number): number[] {
   }
   return result;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -268,14 +268,14 @@ function run(size: number, length: number): number[] {
 fn lowers_statement_sequence_through_assignment_dispatch() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(): number {
   let left = 0;
   let right = 0;
   (left = 1, right = 2);
   return left + right;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -296,11 +296,11 @@ function run(): number {
 fn statement_sequence_spawns_each_future() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(): void {
   (Promise.resolve(1), Promise.resolve(2));
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -357,7 +357,7 @@ fn lowers_switch_case_label_from_folded_string_const() -> Result<(), String> {
     // fold to the same literal through the exported-const folder.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const stringTag = '[object String]';
 const numberTag = '[object Number]';
 
@@ -371,7 +371,7 @@ function classify(tag: string): number {
       return 0;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -389,11 +389,11 @@ fn dynamic_global_computed_read_lowers_to_erased_undefined() -> Result<(), Strin
     // `undefined`, cast to `Unknown` for the downstream erased-value paths.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function dyn(key: string): unknown {
   return globalThis[key];
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -416,11 +416,11 @@ fn literal_key_global_computed_read_normalizes_to_builtin() -> Result<(), String
     // shape instead of erasing to a dynamic `undefined` read.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function arr(): unknown {
   return globalThis['Array'];
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -439,12 +439,12 @@ fn dynamic_global_constructor_read_supports_new_construction() -> Result<(), Str
     // through the erased closure-call ABI rather than aborting the build.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function build(key: string, arg: number): unknown {
   const Ctor = globalThis[key];
   return new Ctor(arg);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -465,12 +465,12 @@ fn lowers_callback_body_reading_non_callable_value_item() -> Result<(), String> 
     // aborting the build.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const whitespace = [' ', '\t'].join('');
 export function run(values: string[]): number[] {
   return values.map(value => (value !== whitespace ? 1 : 0));
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -484,14 +484,14 @@ fn lowers_zero_parameter_named_function_array_callback() -> Result<(), String> {
     // shape) simply ignores the supplied `(value, index, array)` arguments.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function stubTrue(): boolean {
   return true;
 }
 export function run(values: number[]): boolean[] {
   return values.map(stubTrue);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -504,14 +504,14 @@ fn lowers_zero_parameter_named_function_array_predicate() -> Result<(), String> 
     // zero-parameter named callback shape as `map`.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function stubFalse(): boolean {
   return false;
 }
 export function run(values: number[]): number[] {
   return values.filter(stubFalse);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -524,12 +524,12 @@ fn lowers_zero_parameter_local_arrow_array_callback() -> Result<(), String> {
     // arity rule as named items: extra supplied arguments are ignored.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function run(values: string[]): number[] {
   const localStub = () => 42;
   return values.map(localStub);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -544,14 +544,14 @@ fn lowers_named_array_callback_with_optional_parameter_tail() -> Result<(), Stri
     // receiver's supplied arity instead of rejecting the reference.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function withTail(value: number, index?: number, list?: number[], guard?: number): number {
   return value + (guard ?? 0);
 }
 export function run(values: number[]): number[] {
   return values.map(withTail);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -566,7 +566,7 @@ fn callable_local_property_writes_lower_to_typed_callable_object_assign() -> Res
     // carrying the collected property writes — not leak the writes.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Counter {
   (): number;
   reset(): void;
@@ -582,7 +582,7 @@ export function makeCounter(): Counter {
   };
   return counter;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -618,7 +618,7 @@ fn callable_local_conditional_property_write_falls_through() -> Result<(), Strin
     // error and blocked the whole crate.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Counter {
   (): number;
   reset(): void;
@@ -632,7 +632,7 @@ export function makeCounter(flag: boolean): Counter {
   }
   return counter;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -656,7 +656,7 @@ fn callable_local_property_write_after_escape_is_unsupported() -> Result<(), Str
     // documented punt.
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 interface Counter {
   (): number;
   reset(): void;
@@ -670,7 +670,7 @@ export function makeCounter(): Counter {
   counter.reset = function (): void {};
   return counter;
 }
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "after it escapes")
@@ -680,7 +680,7 @@ export function makeCounter(): Counter {
 fn callable_property_collection_does_not_leak_across_arrow_item_lowering() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Throttled = {
   (): void;
   isThrottled(): boolean;
@@ -694,7 +694,7 @@ export const throttle = () => {
   throttled.isThrottled = () => timer !== undefined;
   return throttled;
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -705,14 +705,14 @@ export const throttle = () => {
 fn annotated_local_callback_adapts_unknown_list_elements() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function collect(values: unknown[]): string[] {
   const getStrings = (items: unknown[]): string[] => {
     return items.flatMap(item => item as any);
   };
   return getStrings(values);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -746,7 +746,7 @@ function collect(value: object): string[] {
 fn callable_object_type_alias_remains_callable() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Debounced<TArgs extends any[]> = {
   (...args: TArgs): void;
   cancel(): void;
@@ -755,7 +755,7 @@ type Debounced<TArgs extends any[]> = {
 function invoke(func: Debounced<any>): void {
   func();
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -768,14 +768,14 @@ fn plain_function_local_without_property_writes_is_untouched() -> Result<(), Str
     // callable-object collection and lowers with no CallableObjectAssign.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function run(): number {
   const helper = function (): number {
     return 1;
   };
   return helper();
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -795,7 +795,7 @@ export function run(): number {
 fn nested_callback_uses_remapped_callable_closure_binding() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function list(start: number, end: number): number[] { return [start, end]; }
 export function series(items: number[]) {
   const indexes: Record<number, number> = {};
@@ -809,7 +809,7 @@ export function series(items: number[]) {
   };
   return spin;
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -819,11 +819,11 @@ export function series(items: number[]) {
 fn namespace_function_members_are_materialized_in_value_position() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function helper(value: number): number { return value; }
 const api = { helper };
 export function inspect(): unknown { return api.helper; }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(ctx.krate.bodies.iter().any(|body| {
@@ -839,11 +839,11 @@ export function inspect(): unknown { return api.helper; }
 fn namespace_rest_calls_hint_every_trailing_argument_with_item_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function total(...values: number[]): number { return values[0]; }
 const api = { total };
 export function run(): number { return api.total(1, 2, 3); }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());

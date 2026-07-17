@@ -117,9 +117,38 @@ const merged = Object.assign({}, source, { b: 2 });
 ",
     );
 
-    assert!(source.contains("let mut assigned = "));
-    assert!(source.contains("assigned.extend("));
-    assert!(source.contains("assigned"));
+    // `Object.assign(target, ...)` merges each source into the target in place
+    // and evaluates to the (cloned) merged dict. The `{}` target is a fresh temp
+    // local, so the merge extends that local directly rather than a throwaway
+    // clone.
+    assert!(source.contains(".extend("), "{source}");
+    assert!(source.contains(".clone() }"), "{source}");
+}
+
+#[test]
+fn object_assign_into_local_target_mutates_in_place() {
+    // JavaScript `Object.assign(target, source)` mutates `target` in place and
+    // returns it. When the target is a mutable local, the merge must extend that
+    // local directly so a discarded call still updates the caller's binding,
+    // rather than merging into a throwaway `assigned` clone that is dropped.
+    let source = source_for(
+        r"
+function merge(source: Record<string, number>): Record<string, number> {
+  const result: Record<string, number> = {};
+  Object.assign(result, source);
+  return result;
+}
+",
+    );
+
+    assert!(
+        source.contains("result.extend("),
+        "expected Object.assign into a local to extend the local in place: {source}"
+    );
+    assert!(
+        !source.contains("let mut assigned = result"),
+        "expected no throwaway clone of the local target: {source}"
+    );
 }
 
 #[test]

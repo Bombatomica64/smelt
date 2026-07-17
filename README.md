@@ -5,7 +5,11 @@
 [![crates.io](https://img.shields.io/crates/v/smelt-transpiler.svg)](https://crates.io/crates/smelt-transpiler)
 [![license](https://img.shields.io/crates/l/smelt-transpiler.svg)](LICENSE)
 
-Install the CLI with `cargo install smelt-transpiler`.
+Install the `smelt` CLI from crates.io:
+
+```sh
+cargo install --locked smelt-transpiler
+```
 
 **smelt** is a transpiler that takes strictly-typed TypeScript and Python source code and compiles it down to idiomatic Rust. The goal is not to transpile *all* TS/Python — it is to transpile the statically-typed subset where types actually mean something.
 
@@ -32,17 +36,15 @@ tests lower into native Rust `#[test]` functions and pass under Cargo.
 
 ## Installation
 
-The `smelt` binary is published to crates.io as **`smelt-transpiler`**:
+Install the `smelt` CLI from the **`smelt-transpiler`** package on crates.io:
 
 ```sh
-cargo install smelt-transpiler
+cargo install --locked smelt-transpiler
 smelt --help
 ```
 
-### TypeScript and Python
-
-The published transpiler includes both frontends and enables ty-backed Python
-type resolution by default. Install it with `cargo install smelt-transpiler`.
+The default installation includes the TypeScript and Python frontends, with ty
+support enabled for Python.
 
 Publishing to crates.io is handled by [`scripts/publish-crates.sh`](scripts/publish-crates.sh)
 (`--execute` to publish for real; a bare run does a dry run). It publishes the
@@ -126,9 +128,9 @@ Fork the repo and submit a pr :)
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 76.58% |
-| Lines | 73.03% |
-| Regions | 71.59% |
+| Functions | 77.85% |
+| Lines | 73.92% |
+| Regions | 72.38% |
 | Branches | 63.46% |
 
 ### Per Crate
@@ -136,19 +138,25 @@ Fork the repo and submit a pr :)
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
 | `smelt-asyncio` | 100.00% | 90.91% | 0.00% |
-| `smelt-codegen-rust` | 82.25% | 78.06% | 61.25% |
-| `smelt-frontend-py` | 78.25% | 74.47% | 67.39% |
-| `smelt-frontend-ts` | 81.62% | 75.47% | 65.38% |
-| `smelt-gui` | 13.89% | 13.72% | 81.25% |
-| `smelt-hir` | 57.02% | 30.62% | 56.90% |
-| `smelt-mir` | 78.33% | 76.18% | 68.65% |
+| `smelt-codegen-rust` | 82.50% | 78.18% | 61.29% |
+| `smelt-frontend-py` | 78.25% | 74.46% | 67.34% |
+| `smelt-frontend-ts` | 81.64% | 75.46% | 65.45% |
+| `smelt-hir` | 57.02% | 30.55% | 56.90% |
+| `smelt-mir` | 78.44% | 76.37% | 68.48% |
 | `smelt-py-ty-spike` | 0.00% | 0.00% | 0.00% |
-| `smelt-py-types` | 84.00% | 86.83% | 68.52% |
-| `smelt-specialize` | 44.06% | 48.52% | 36.47% |
-| `smelt-stdlib` | 84.44% | 75.43% | 100.00% |
+| `smelt-py-types` | 84.21% | 87.25% | 68.52% |
+| `smelt-specialize` | 44.20% | 50.33% | 36.12% |
+| `smelt-stdlib` | 84.44% | 75.49% | 100.00% |
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
-| `smelt-transpiler` | 67.89% | 65.99% | 55.28% |
+| `smelt-transpiler` | 68.20% | 66.31% | 55.42% |
 <!-- COVERAGE:END -->
+
+
+
+
+
+
+
 
 
 

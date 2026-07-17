@@ -364,6 +364,8 @@ impl SmeltArray {
     fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values } }
     /// Consume an erased array when lowering back to statically typed list storage.
     fn into_vec(self) -> Vec<SmeltUnknown> { self.values }
+    /// Set the element at a numeric index, extending with `undefined` holes to match JS `arr[i] = v`.
+    fn set_index(&mut self, index: usize, value: SmeltUnknown) { if index >= self.values.len() { self.values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } self.values[index] = value; }
 }
 impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }
 impl ::std::iter::FromIterator<SmeltUnknown> for SmeltArray { fn from_iter<T: IntoIterator<Item = SmeltUnknown>>(iter: T) -> Self { Self::new(iter.into_iter().collect()) } }
@@ -502,6 +504,17 @@ impl Clone for SmeltUnknown {
             Self::Function(value) => Self::Function(value.clone()),
             Self::Promise(value) => Self::Promise(value.clone()),
         }
+    }
+}
+
+fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {
+    match target {
+        SmeltUnknown::Object(map) => { map.insert(key, value); }
+        SmeltUnknown::Array(array) => {
+            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }
+            else { let mut map = ::std::collections::HashMap::new(); map.insert(key, value); *target = SmeltUnknown::Object(SmeltObject::new(map)); }
+        }
+        other => { let mut map = ::std::collections::HashMap::new(); map.insert(key, value); *other = SmeltUnknown::Object(SmeltObject::new(map)); }
     }
 }
 

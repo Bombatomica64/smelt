@@ -11,10 +11,15 @@ members = [
     "crates/smelt-specialize",
     "crates/smelt-test",
     "crates/smelt-transpiler",
-    "crates/smelt-gui",
     "crates/smelt-py-ty-spike",
     "crates/smelt-py-types",
 ]
+# smelt-gui is intentionally NOT a workspace member: it pulls in gpui (~25 min
+# cold) and is not needed by the transpiler pipeline. It lives in its own
+# workspace (see crates/smelt-gui/Cargo.toml) and consumes the published
+# smelt-* crates from crates.io. Excluded here so `cargo build --workspace`
+# never compiles gpui.
+exclude = ["crates/smelt-gui"]
 default-members = [
     "crates/smelt-frontend-ts",
     "crates/smelt-frontend-py",
@@ -31,7 +36,7 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 license = "GPL-3.0-only"

@@ -4,12 +4,12 @@ use super::*;
 fn lowers_set_mutation_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let values: Set<number> = new Set([1, 2]);
 const same = values.add(3);
 const deleted = values.delete(2);
 values.clear();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -46,12 +46,12 @@ values.clear();
 fn lowers_map_and_set_size_properties() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: Set<number> = new Set([1, 2]);
 const mapping: Map<string, number> = new Map();
 const setSize = values.size;
 const mapSize = mapping.size;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -71,7 +71,7 @@ const mapSize = mapping.size;
 fn lowers_map_and_set_projection_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: Set<number> = new Set([1, 2]);
 const valueKeys = values.keys();
 const valueList = values.values();
@@ -80,7 +80,7 @@ const mapping: Map<string, number> = new Map();
 const mapKeys = mapping.keys();
 const mapValues = mapping.values();
 const mapEntries = mapping.entries();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -165,7 +165,7 @@ const value = mapping.get("a");
 fn lowers_untyped_map_has_with_string_key() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 class Container {
   private serviceMap = new Map();
 
@@ -177,7 +177,7 @@ class Container {
     return this.serviceMap.get(name);
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -251,12 +251,12 @@ const limited = word.split(",", 2);
 fn preserves_regexp_separator_from_static_object_for_string_split() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function parts(value: string) {
   return value.split(patterns.separator);
 }
 const patterns = { separator: /[T ]/i };
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -342,13 +342,13 @@ console.log(result);
 fn lowers_generator_yields_into_materialized_unknown_array() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function* values(limit: number): Generator<number> {
   for (let i = 0; i < limit; i += 1) {
     yield i;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -428,16 +428,75 @@ for (let item: number of count) {
 }
 
 #[test]
-fn lowers_set_for_of_to_projection() -> Result<(), String> {
+fn c_style_for_lowers_update_into_separate_block_not_body() -> Result<(), String> {
+    // Regression: a C-style `for (init; test; update)` with a `continue` in the
+    // body must NOT append the update to the loop body — otherwise `continue`
+    // (which jumps to the loop header) skips the update and spins forever. The
+    // update must live in its own block (`WhileUpdateBlock.update`) so MIR can
+    // make it the `continue` target.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
+for (let i = 0; i < 10; i++) {
+  if (i === 3) {
+    continue;
+  }
+  console.log(i);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let Some(Stmt::WhileUpdateBlock {
+        body: loop_body,
+        update,
+        ..
+    }) = body
+        .stmts
+        .iter()
+        .find(|stmt| matches!(stmt, Stmt::WhileUpdateBlock { .. }))
+    else {
+        return Err("expected C-style for to lower to WhileUpdateBlock".to_owned());
+    };
+
+    let is_assign = |block_id: &smelt_hir::BlockId| -> Result<bool, String> {
+        let block = body
+            .blocks
+            .get(usize::try_from(block_id.0).map_err(|err| err.to_string())?)
+            .ok_or_else(|| "expected block".to_owned())?;
+        Ok(block.stmts.iter().any(|stmt| {
+            usize::try_from(stmt.0)
+                .is_ok_and(|index| matches!(body.stmts.get(index), Some(Stmt::Assign { .. })))
+        }))
+    };
+
+    // The update assignment (`i++` -> `i = i + 1`) must be in the update block,
+    // and NOT duplicated into the loop body.
+    ensure!(
+        is_assign(update)?,
+        "update block should contain the loop-update assignment",
+    );
+    ensure!(
+        !is_assign(loop_body)?,
+        "loop body must not contain the update assignment (would be skipped by continue)",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_set_for_of_to_projection() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
 const values: Set<number> = new Set([1, 2]);
 let total = 0;
 for (let item: number of values) {
   total = total + item;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -565,10 +624,10 @@ fn lowers_negative_array_bracket_read_to_undefined() -> Result<(), String> {
     // wrapping like `.at(-1)`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const missing = values[-1];
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -661,10 +720,10 @@ fn lowers_negative_array_bracket_write_as_noop() -> Result<(), String> {
     // to preserve its side effects and no element assignment is produced.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 values[-1] = 99;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;

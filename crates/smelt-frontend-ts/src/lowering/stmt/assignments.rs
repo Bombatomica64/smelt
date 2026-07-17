@@ -2413,16 +2413,70 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         let (target, value) = self.update_parts(update, body)?;
+        let span = self.span(update.span.start, update.span.end);
+
+        // Postfix in a variable-initializer position defers its store until after
+        // the binding statement runs, so a lazy re-read of `target` still observes
+        // the pre-increment value. This is the only case that may safely return the
+        // bare `target` read.
         if !update.prefix
             && let Some(deferred_updates) = self.deferred_postfix_updates.as_mut()
         {
             deferred_updates.push(Stmt::Assign { target, value });
-        } else if let Some(block) = self.current_statement_block {
-            body.push_stmt_to_block(block, Stmt::Assign { target, value });
-        } else {
-            body.push_stmt(Stmt::Assign { target, value });
+            return Ok(target);
         }
-        if update.prefix { Ok(value) } else { Ok(target) }
+
+        // Otherwise the store must run inside the current statement block, *before*
+        // the enclosing expression finishes evaluating (e.g. `arr[k++] = v` or
+        // `y = x++`). A lazy re-read of `target` after the store would observe the
+        // already-mutated value and pick up JavaScript's wrong result, so snapshot
+        // the correct result value into a temporary and evaluate to it: postfix
+        // yields the pre-increment value, prefix the post-increment value.
+        let result_ty = Self::expr_ty(body, target);
+        // Snapshot expression captured before the store: postfix keeps the old
+        // `target` read; prefix keeps the incremented `value`.
+        let snapshot = if update.prefix { value } else { target };
+        let temp_local = body.push_local(LocalDecl {
+            name: Some(self.ctx.krate.symbols.intern("__smelt_update_tmp")),
+            ty: result_ty,
+            mutable: false,
+            span,
+        });
+        let temp_pat = body.push_pattern(Pattern::Binding(temp_local));
+        // For prefix the store writes the snapshotted new value (a fresh read of
+        // the temp) so the increment is not recomputed; for postfix the store
+        // writes `value`, which reads the still-old `target` at store time and
+        // increments it.
+        let store_value = if update.prefix {
+            body.push_expr(Expr {
+                kind: ExprKind::Local(temp_local),
+                ty: result_ty,
+                span,
+            })
+        } else {
+            value
+        };
+        let let_stmt = Stmt::Let {
+            pat: temp_pat,
+            ty: result_ty,
+            value: Some(snapshot),
+        };
+        let assign_stmt = Stmt::Assign {
+            target,
+            value: store_value,
+        };
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, let_stmt);
+            body.push_stmt_to_block(block, assign_stmt);
+        } else {
+            body.push_stmt(let_stmt);
+            body.push_stmt(assign_stmt);
+        }
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Local(temp_local),
+            ty: result_ty,
+            span,
+        }))
     }
 
     /// Convert assignment target to expression.

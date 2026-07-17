@@ -84,11 +84,11 @@ fn new_marker_only_host_builtins_lower_to_concrete_marker_records() -> Result<()
 fn instanceof_marker_only_host_builtin_lowers() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function isWeakMap(value: unknown): boolean {
   return value instanceof WeakMap;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -148,11 +148,11 @@ fn buffer_constructors_lower_to_concrete_marker_records() -> Result<(), String> 
 fn buffer_is_buffer_lowers_to_instanceof_predicate() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function isBuf(value: unknown): boolean {
   return Buffer.isBuffer(value);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -176,11 +176,11 @@ export function isBuf(value: unknown): boolean {
 fn instanceof_buffer_lowers() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function isBuf(value: unknown): boolean {
   return value instanceof Buffer;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -273,14 +273,14 @@ fn math_numeric_constants_fold_to_literals() -> Result<(), String> {
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
-            ExprKind::Literal(Literal::Float(value)) if (value - std::f64::consts::PI).abs() < 1e-12
+            ExprKind::Literal(Literal::Float(value)) if (value - std::f64::consts::PI).abs() < 1e-12_f64
         )),
         "expected `Math.PI` to fold to the PI double literal",
     );
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
-            ExprKind::Literal(Literal::Float(value)) if (value - std::f64::consts::E).abs() < 1e-12
+            ExprKind::Literal(Literal::Float(value)) if (value - std::f64::consts::E).abs() < 1e-12_f64
         )),
         "expected `Math.E` to fold to the E double literal",
     );
@@ -348,14 +348,14 @@ fn bare_global_object_value_lowers_to_marker_record() -> Result<(), String> {
 fn global_detection_chain_short_circuits_absent_window() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const globalThis_: any =
   (typeof globalThis === 'object' && globalThis) ||
   (typeof window === 'object' && window) ||
   (typeof self === 'object' && self) ||
   (typeof global === 'object' && global) ||
   1;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -401,11 +401,11 @@ fn ordinary_or_fallback_is_not_folded_to_global() -> Result<(), String> {
 fn typeof_present_buffer_global_folds_true() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function bufferPresent(): boolean {
   return typeof Buffer !== 'undefined';
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -570,14 +570,14 @@ fn new_blob_lowers_to_concrete_marker_record() -> Result<(), String> {
 /// and the `instanceof Blob` becomes a marker `InstanceOf` predicate.
 #[test]
 fn is_blob_predicate_shape_lowers() -> Result<(), String> {
-    let source = ts!(r#"
+    let source = ts!(r"
 export function isBlob(x: unknown): x is Blob {
   if (typeof Blob === 'undefined') {
     return false;
   }
   return x instanceof Blob;
 }
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(source, &mut ctx)?;
     let _module = module(&ctx, module_id)?;
@@ -601,14 +601,14 @@ export function isBlob(x: unknown): x is Blob {
 /// `__smelt_file` marker instead of aborting on an unmodeled class.
 #[test]
 fn is_file_predicate_shape_lowers() -> Result<(), String> {
-    let source = ts!(r#"
+    let source = ts!(r"
 export function isFile(x: unknown): x is File {
   if (typeof File === 'undefined') {
     return false;
   }
   return x instanceof File;
 }
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(source, &mut ctx)?;
     let _module = module(&ctx, module_id)?;
@@ -634,7 +634,7 @@ export function isFile(x: unknown): x is File {
 fn new_file_lowers_to_blob_from_parts_with_name() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"const f = new File(['content'], 'file.txt', { type: 'text/plain', lastModified: 3 });"#),
+        ts!(r"const f = new File(['content'], 'file.txt', { type: 'text/plain', lastModified: 3 });"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -663,11 +663,11 @@ fn new_file_lowers_to_blob_from_parts_with_name() -> Result<(), String> {
 fn new_blob_retains_dynamic_options_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function cloneBlob(source: Blob): Blob {
   return new Blob([source], { type: source.type });
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -769,14 +769,14 @@ fn new_proxy_lowers_to_target() -> Result<(), String> {
 /// `new Object()` resolves to the user class instead of the record fallback.
 #[test]
 fn new_user_class_shadows_object_builtin() -> Result<(), String> {
-    let source = ts!(r#"
+    let source = ts!(r"
 class Object {
   value: number = 1;
 }
 export function make(): Object {
   return new Object();
 }
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(source, &mut ctx)?;
     let _module = module(&ctx, module_id)?;
@@ -909,11 +909,11 @@ fn instanceof_typed_array_folds_to_boolean() -> Result<(), String> {
 fn is_typed_array_predicate_body_lowers() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function isTypedArray(x: unknown): boolean {
   return ArrayBuffer.isView(x) && !(x instanceof DataView);
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())

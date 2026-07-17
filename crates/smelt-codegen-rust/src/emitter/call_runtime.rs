@@ -878,6 +878,50 @@ impl FunctionEmitter<'_> {
                     }
                     return self.value_at_type_text(&call_text, unknown_ty, dest_ty);
                 }
+                // An optional call `f?.(args)` whose callee is an absent-able
+                // `Option<Rc<dyn Fn(..)>>` must short-circuit to `None`
+                // (JavaScript `undefined`) when the callee is missing, rather
+                // than substitute a null-returning default callback and call it
+                // unconditionally. Render it as `callee.map(|f| f(args))` so an
+                // absent callee yields `None` and a present one yields
+                // `Some(result)`. The non-throwing case is handled here; a
+                // throwing inner function is routed through the terminator call
+                // path (see MIR `ClosureCall` lowering) where
+                // `optional_indirect_call_text_for_dest` applies the same rule.
+                if let Some(Type::Optional(inner_callee_ty)) = self.mir.types.get(callee_ty)
+                    && let Some(Type::Function(function)) =
+                        self.mir.types.get(*inner_callee_ty).cloned()
+                {
+                    let dest_is_optional =
+                        matches!(self.mir.types.get(dest_ty), Some(Type::Optional(_)));
+                    let inner_dest_ty = match self.mir.types.get(dest_ty) {
+                        Some(Type::Optional(inner)) => *inner,
+                        _ => dest_ty,
+                    };
+                    let callee_text = self.operand_text(callee)?;
+                    let rendered_args = self.indirect_call_args_text(&function, args)?;
+                    let raw_call = if function.may_throw {
+                        format!(
+                            "(smelt_function)({rendered_args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                        )
+                    } else {
+                        format!("(smelt_function)({rendered_args})")
+                    };
+                    let coerced_call =
+                        self.value_at_type_text(&raw_call, function.return_ty, inner_dest_ty)?;
+                    let map_expr =
+                        format!("{callee_text}.clone().map(|smelt_function| {coerced_call})");
+                    if dest_is_optional {
+                        return Ok(map_expr);
+                    }
+                    // The destination is not an `Option` (an erased
+                    // `SmeltUnknown` seam): an absent callee lowers to
+                    // `undefined` at the destination type.
+                    let unknown_ty = self.type_id(Type::Unknown)?;
+                    let undefined_text =
+                        self.value_at_type_text("SmeltUnknown::Undefined", unknown_ty, dest_ty)?;
+                    return Ok(format!("{map_expr}.unwrap_or({undefined_text})"));
+                }
                 if !matches!(self.mir.types.get(callee_ty), Some(Type::Function(_))) {
                     return self.default_value(dest_ty);
                 }
