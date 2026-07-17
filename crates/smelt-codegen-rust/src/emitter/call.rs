@@ -1523,6 +1523,16 @@ impl FunctionEmitter<'_> {
     /// MIR `Type::Future(T)` is emitted as `SmeltFuture<T>`. Materializing the
     /// wrapper at call destinations keeps free async functions compatible with
     /// closure temporaries, adapters, and values that escape before an await.
+    ///
+    /// Only callees that are themselves emitted as a real Rust `async fn` yield
+    /// an `impl Future` needing this wrapper: free functions (`HirOrigin::Body`)
+    /// and static methods (`ClassStaticMethod`). An async *instance* method is
+    /// emitted as a synchronous `fn(&self, ..) -> SmeltFuture<T>` whose body
+    /// runs inside a moved `async` block (see `emit_async_method_owned_self_body`),
+    /// so its call already produces a `SmeltFuture<T>`. Wrapping that again in
+    /// `SmeltFuture::from_future(Box::pin(..))` fails to compile because
+    /// `SmeltFuture<T>` is not a `Future` (E0277), so instance methods are
+    /// excluded here and their call value passes through unchanged.
     fn wrap_native_async_call_text(
         &self,
         callee: &Callee,
@@ -1536,7 +1546,7 @@ impl FunctionEmitter<'_> {
             .functions
             .get(id_index(func.0, "function index does not fit usize")?)
             .ok_or_else(|| EmitError::new("call references an unknown function"))?;
-        if function.is_async {
+        if function.is_async && !matches!(function.origin, HirOrigin::ClassMethod { .. }) {
             Ok(format!(
                 "SmeltFuture::from_future(Box::pin({call_text}))"
             ))

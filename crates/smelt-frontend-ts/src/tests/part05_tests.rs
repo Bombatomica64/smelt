@@ -882,7 +882,11 @@ describe("pairs", () => {
     )?;
     ensure!(
         ctx.krate.items.iter().any(|item| matches!(item, Item::Class(class)
-            if ctx.krate.symbols.get(class.name) == Some("Pair"))),
+            if ctx
+                .krate
+                .names
+                .get(class.name)
+                .is_some_and(|name| name.starts_with("Pair")))),
         "a class declared in a describe body should register as a suite-level class",
     );
     ensure!(

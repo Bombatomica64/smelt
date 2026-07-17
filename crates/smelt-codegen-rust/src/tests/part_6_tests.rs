@@ -372,6 +372,42 @@ export function make(): () => Promise<number> {
     );
 }
 
+/// An async *instance* method is emitted as a synchronous
+/// `fn(&self, ..) -> SmeltFuture<T>` whose body already runs inside a moved
+/// `async` block, so calling it yields a `SmeltFuture<T>` directly. Unlike a
+/// free `async fn` (which yields an `impl Future` needing the stable-ABI
+/// wrapper), an instance-method call must NOT be re-wrapped in
+/// `SmeltFuture::from_future(Box::pin(..))` — `SmeltFuture<T>` is not a
+/// `Future`, so the double wrap fails to compile (E0277). Regression guard for
+/// the es-toolkit `Semaphore.acquire` double-wrap.
+#[test]
+fn async_instance_method_call_is_not_double_wrapped() {
+    let source = source_for(
+        r#"
+class Semaphore {
+  private available: number = 1;
+  async acquire(): Promise<number> {
+    return this.available;
+  }
+}
+async function run(): Promise<number> {
+  const sema = new Semaphore();
+  return await sema.acquire();
+}
+"#,
+    );
+
+    assert!(
+        source.contains("fn acquire(&self) -> SmeltFuture<f64>"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("SmeltFuture::from_future(Box::pin(sema.acquire()))"),
+        "async instance-method call must not be re-wrapped: {source}"
+    );
+    assert!(source.contains("sema.acquire()"), "{source}");
+}
+
 #[test]
 fn emits_promise_constructor_executor_ignoring_callbacks() {
     // `new Promise(() => {})` declares a zero-parameter executor. The executor is
