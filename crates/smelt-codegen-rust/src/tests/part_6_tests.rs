@@ -426,6 +426,43 @@ function findKey<Value, Obj extends { [key in string | number]: Value }>(
 }
 
 #[test]
+fn prototype_sentinel_chain_terminates_at_null() {
+    // Regression: `isPlainObject`/`Object.getPrototypeOf` walks the prototype
+    // chain with `while (Object.getPrototypeOf(proto) !== null) proto = ...`,
+    // re-invoking `smelt_prototype_sentinel` on the sentinel it just returned.
+    // The sentinel used to answer `"__smelt_proto:object"` for every non-array,
+    // non-promise, non-class value -- including the sentinel strings themselves
+    // -- so the walk never reached `Null` and hung (es-toolkit toSnakeCaseKeys).
+    // Each sentinel string must now advance one link toward `null`.
+    let source = source_for(
+        r"
+function protoDepth(value: object): number {
+  let depth = 0;
+  let proto = Object.getPrototypeOf(value);
+  while (Object.getPrototypeOf(proto) !== null) {
+    proto = Object.getPrototypeOf(proto);
+    depth = depth + 1;
+  }
+  return depth;
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "SmeltUnknown::String(marker) if marker == \"__smelt_proto:object\" => SmeltUnknown::Null"
+        ),
+        "object-prototype sentinel must terminate the chain at Null: {source}"
+    );
+    assert!(
+        source.contains(
+            "if marker == \"__smelt_proto:array\" || marker == \"__smelt_proto:promise\" || marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".to_owned())"
+        ),
+        "array/promise/class sentinels must advance toward Object.prototype: {source}"
+    );
+}
+
+#[test]
 fn emits_static_function_with_params_and_return_value() {
     let source = source_for(
         "function add(a: number, b: number): number {
