@@ -439,7 +439,7 @@ impl FunctionEmitter<'_> {
                         let index_text = self.operand_text(index)?;
                         let key_text = self.property_key_to_string_text(&index_text, index_ty)?;
                         out.push_str(&format!(
-                            "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; match &mut {} {{ SmeltUnknown::Object(map) => {{ map.insert(smelt_key, smelt_value); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert(smelt_key, smelt_value); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }} }}\n",
+                            "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; smelt_index_assign(&mut {}, smelt_key, smelt_value); }}\n",
                             self.local_mut_value_text(*base)?
                         ));
                         return Ok(());

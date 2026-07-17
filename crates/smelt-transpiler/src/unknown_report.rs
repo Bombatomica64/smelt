@@ -377,7 +377,7 @@ fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
             .position(|line| line.trim() == smelt_codegen_rust::PRELUDE_END_MARKER);
         for (index, line) in text.lines().enumerate() {
             update_prelude_helper_state(line, &mut in_prelude_helper);
-            let count = count_occurrences(line, "SmeltUnknown");
+            let count = count_value_erasures(line);
             if count == 0 {
                 continue;
             }
@@ -464,6 +464,53 @@ fn count_occurrences(haystack: &str, needle: &str) -> usize {
     count
 }
 
+/// Count the `SmeltUnknown` occurrences on a line that represent *erased values*,
+/// excluding pure type-annotation spellings that carry no additional erasure
+/// signal.
+///
+/// # Why annotation tokens are excluded
+///
+/// The metric measures how many *values* fall back to the erased tagged union,
+/// not how many times the `SmeltUnknown` identifier is typed. When PR #156 made
+/// generated functions fallible, two purely syntactic changes inflated the raw
+/// token count without erasing a single additional value:
+///
+/// - Return sites gained a `Ok::<SmeltUnknown, Box<dyn std::error::Error>>(expr)`
+///   turbofish where a bare `expr` stood before — one extra `SmeltUnknown` token
+///   per fallible return that annotates the `Result` `Ok` arm, not a new value.
+/// - Some erased closures gained an explicit typed signature
+///   (`... -> Result<SmeltUnknown, Box<dyn std::error::Error>>`) where an already
+///   erased `SmeltErasedFunction` literal stood before; the `SmeltUnknown` inside
+///   that return annotation is type spelling, not a distinct erased value.
+///
+/// Wrapping a function in `Result` for fallibility must be **count-neutral**: the
+/// erased value it returns is already counted at its construction site, so these
+/// annotation spellings are stripped before counting. The strip is deterministic
+/// (exact spellings only) so the tally stays stable and diffable across runs.
+fn count_value_erasures(line: &str) -> usize {
+    let normalized = strip_annotation_spellings(line);
+    count_occurrences(&normalized, "SmeltUnknown")
+}
+
+/// Strip fallibility-wrapping type-annotation spellings from a line so their
+/// `SmeltUnknown` tokens are not counted as erased values. See
+/// [`count_value_erasures`] for the rationale.
+///
+/// Only exact, unambiguous spellings are rewritten so the transform is
+/// deterministic and never accidentally hides a genuine erased value:
+/// - the `Ok::<SmeltUnknown, Box<dyn std::error::Error>>` return turbofish loses
+///   its annotation entirely (`Ok`);
+/// - the `-> Result<SmeltUnknown, Box<dyn std::error::Error>>` return annotation
+///   has its `SmeltUnknown` replaced with `()` so the surrounding shape is
+///   preserved while the token no longer counts.
+fn strip_annotation_spellings(line: &str) -> String {
+    line.replace("Ok::<SmeltUnknown, Box<dyn std::error::Error>>", "Ok")
+        .replace(
+            "-> Result<SmeltUnknown, Box<dyn std::error::Error>>",
+            "-> Result<(), Box<dyn std::error::Error>>",
+        )
+}
+
 /// Update whether we are inside a `smelt_*` runtime prelude helper definition.
 ///
 /// The prelude helpers are emitted as free functions named `smelt_...` (or `fn
@@ -547,6 +594,21 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
+    // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
+    // result into a `__smelt_update_tmp` local so the store can run inside the
+    // current block without the enclosing expression re-reading the mutated
+    // target. That temp's type is whatever the update target's type is; it is
+    // `SmeltUnknown` *only* when the target is already an erased dynamic value
+    // (e.g. an erased `unknown` callback parameter, as in `(v) => v++`). In that
+    // case the temp is a boundary adapter carrying the dynamic value through JS's
+    // prefix/postfix result semantics — a concrete type is unavailable precisely
+    // because the underlying target is erased, so this is a genuine boundary, not
+    // avoidable program-storage erasure. Match only the snapshot declaration
+    // itself (not array-padding index uses that merely reference the temp).
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("let __smelt_update_tmp") && trimmed.contains(": SmeltUnknown =") {
+        return true;
+    }
     const BOUNDARY_MARKERS: [&str; 8] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
@@ -759,6 +821,38 @@ mod tests {
         assert_eq!(count_occurrences("aaa", "aa"), 1);
     }
 
+    /// Fallibility-wrapping annotation tokens are excluded from the value count.
+    #[test]
+    fn count_value_erasures_excludes_annotation_spellings() {
+        // The `Ok::<...>` turbofish annotates the Result Ok arm; wrapping a bare
+        // return value in it must not raise the erased-value count.
+        assert_eq!(
+            count_value_erasures("        Ok::<SmeltUnknown, Box<dyn std::error::Error>>(value)"),
+            count_value_erasures("        value"),
+            "the Ok turbofish adds no erased value versus the unwrapped return"
+        );
+        // A genuine erased value inside the Ok turbofish is still counted once.
+        assert_eq!(
+            count_value_erasures(
+                "        Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined)"
+            ),
+            1
+        );
+
+        // A closure signature made fallible must not inflate versus the erased
+        // literal it replaced (which carried no `SmeltUnknown` spelling).
+        assert_eq!(
+            count_value_erasures(
+                "    let cb: Rc<dyn Fn(SmeltList<i64>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = f;"
+            ),
+            count_value_erasures("    let cb: SmeltErasedFunction = f;"),
+            "a fallible closure return annotation must be count-neutral"
+        );
+
+        // A bare `-> SmeltUnknown` return still counts its value.
+        assert_eq!(count_value_erasures("fn f() -> SmeltUnknown {"), 1);
+    }
+
     /// Prelude definition starts and single-line helpers toggle state correctly.
     #[test]
     fn tracks_prelude_helper_regions() {
@@ -818,6 +912,36 @@ mod tests {
         );
         assert_eq!(
             classify_line("let values: Vec<SmeltUnknown> = Vec::new();", false),
+            Category::AvoidableErasure
+        );
+    }
+
+    /// A `__smelt_update_tmp` snapshot whose type is `SmeltUnknown` only because
+    /// its update target is an already-erased dynamic value (e.g. an erased
+    /// `unknown` callback parameter in `(v) => v++`) is a boundary adapter, not
+    /// avoidable program storage: no concrete type can represent it because the
+    /// underlying target is erased. Array-padding index uses that merely
+    /// reference the temp stay avoidable.
+    #[test]
+    fn classifies_update_snapshot_at_erased_target_as_boundary() {
+        assert_eq!(
+            classify_line("    let __smelt_update_tmp: SmeltUnknown = _smelt_tmp_2.clone();", false),
+            Category::LegitimateBoundary
+        );
+        assert_eq!(
+            classify_line(
+                "    let __smelt_update_tmp_1: SmeltUnknown = closure_arg_0.clone();",
+                false
+            ),
+            Category::LegitimateBoundary
+        );
+        // Referencing the temp as an array index is not the boundary: array
+        // padding with `SmeltUnknown::Null`/`Undefined` remains avoidable.
+        assert_eq!(
+            classify_line(
+                "    arr.resize(smelt_assign_index, SmeltUnknown::Null); let i = __smelt_update_tmp.clone();",
+                false
+            ),
             Category::AvoidableErasure
         );
     }

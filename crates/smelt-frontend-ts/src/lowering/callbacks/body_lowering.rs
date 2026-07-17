@@ -1455,6 +1455,9 @@ impl ModuleBuilder<'_> {
             | Stmt::WhileUpdate {
                 body: loop_body, ..
             }
+            | Stmt::WhileUpdateBlock {
+                body: loop_body, ..
+            }
             | Stmt::For {
                 body: loop_body, ..
             } => Self::block_contains_uncaught_throw(body, *loop_body),

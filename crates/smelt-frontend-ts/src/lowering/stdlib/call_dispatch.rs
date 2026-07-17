@@ -3488,7 +3488,13 @@ impl<'builder> ModuleBuilder<'builder> {
                 return Ok(None);
             }
         };
-        let callee = if callee_ty == function_ty {
+        // For an optional call `f?.(..)` keep the callee at its declared
+        // `Option<Function>` type. Asserting it down to the bare function type
+        // would coerce an absent callee into a null-returning default callback
+        // that is then called unconditionally, so `f?.(..)` would wrongly yield
+        // `null` instead of `undefined`. The `Option<Function>` callee lets the
+        // emitter render the short-circuiting `callee.map(|f| f(..))`.
+        let callee = if optional_call || callee_ty == function_ty {
             callee
         } else {
             body.push_expr(Expr {
