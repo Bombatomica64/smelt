@@ -8082,6 +8082,30 @@ export async function run(): Promise<number> {
     );
 }
 
+/// A zero-parameter async closure returned from a factory remains reusable:
+/// each call clones the factory callback before moving it into a fresh future.
+#[test]
+fn zero_parameter_async_factory_clones_captured_callback_per_call() {
+    let source = source_for(
+        r"
+export async function run(): Promise<number> {
+  const factory = (callback: (value: number) => Promise<number>) =>
+    async () => callback(0);
+  const callback = async (value: number): Promise<number> => value;
+  const generated = factory(callback);
+  return (await generated()) + (await generated());
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "move || { let closure_arg_0 = closure_arg_0.clone(); SmeltFuture::from_future"
+        ),
+        "{source}"
+    );
+}
+
 /// A mutable outer parameter whose synthetic name is shadowed needs fresh
 /// shared capture storage initialized from that outer parameter.
 #[test]

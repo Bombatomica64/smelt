@@ -640,18 +640,26 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .filter_map(|capture| {
                         let local = self.local_decl(capture.source_local).ok()?;
+                        let source_name =
+                            self.local_name(capture.source_local).ok()?.to_owned();
                         if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
                             && matches!(local.kind, LocalKind::Param { .. })
                             && !self
                                 .function_parameter_requires_owned(capture.source_local)
                                 .ok()?
+                            // Synthetic closure parameters are owned `Rc<dyn
+                            // Fn>` values even though they are absent from the
+                            // enclosing function's owned-parameter analysis.
+                            // Clone them per invocation before `async move` so
+                            // a returned async closure remains `Fn`, not
+                            // `FnOnce`.
+                            && !source_name.starts_with("closure_arg_")
                             // A shadowed source name is rewritten to an alias in
                             // the nested body, so that alias must still be bound.
                             && !capture_aliases.contains_key(&capture.source_local)
                         {
                             return None;
                         }
-                        let source_name = self.local_name(capture.source_local).ok()?.to_owned();
                         let name = capture_aliases
                             .get(&capture.source_local)
                             .cloned()
