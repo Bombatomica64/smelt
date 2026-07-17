@@ -308,9 +308,11 @@ mod tests {
 
     use super::*;
 
+    /// Boxed dynamic error type shared by the artifact tests.
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[test]
-    fn artifact_round_trip_preserves_cycles_and_identity() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn artifact_round_trip_preserves_cycles_and_identity() -> TestResult {
         let temp = tempfile::tempdir()?;
         let store = SpecializationArtifactStore::new(temp.path());
         let key = key()?;
@@ -331,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn packaged_artifact_uses_the_cache_layout() -> Result<(), Box<dyn std::error::Error>> {
+    fn packaged_artifact_uses_the_cache_layout() -> TestResult {
         let cache = tempfile::tempdir()?;
         let package = tempfile::tempdir()?;
         let store = SpecializationArtifactStore::new(cache.path());
@@ -349,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_hit_skips_the_specialization_producer() -> Result<(), Box<dyn std::error::Error>> {
+    fn cache_hit_skips_the_specialization_producer() -> TestResult {
         let temp = tempfile::tempdir()?;
         let store = SpecializationArtifactStore::new(temp.path());
         let key = key()?;

@@ -29,7 +29,7 @@ fn crate_has_mutable_global(ctx: &HirCtx) -> bool {
 fn mutated_module_let_lowers_reads_and_writes_through_globals() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 let idCounter = 0;
 
 export function uniqueId(): number {
@@ -39,7 +39,7 @@ export function uniqueId(): number {
 export function current(): number {
   return idCounter;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -96,13 +96,13 @@ export function lookup(key: string): string {
 fn prefix_increment_returns_global_set_result() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let counter = 0;
 
 export function bump(): number {
   return ++counter;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -129,13 +129,13 @@ export function bump(): number {
 fn postfix_increment_returns_old_value_temp() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let counter = 0;
 
 export function bumpAfter(): number {
   return counter++;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -169,14 +169,14 @@ export function bumpAfter(): number {
 fn compound_assignment_reads_current_value_through_global_get() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let total = 0;
 
 export function add(amount: number): number {
   total += amount;
   return total;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -203,14 +203,14 @@ export function add(amount: number): number {
 fn var_binding_is_treated_like_let() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 var flag = false;
 
 export function toggle(): boolean {
   flag = !flag;
   return flag;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -228,13 +228,13 @@ export function toggle(): boolean {
 fn non_mutated_module_let_keeps_inline_path() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 let greeting = 'hello';
 
 export function greet(): string {
   return greeting;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -255,7 +255,7 @@ export function greet(): string {
 fn function_local_binding_shadows_module_global() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 let counter = 0;
 
 export function bump(): number {
@@ -268,7 +268,7 @@ export function shadowed(): number {
   counter += 1;
   return counter;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = ctx.krate.modules.last().ok_or("missing module")?;
@@ -288,7 +288,7 @@ export function shadowed(): number {
 fn non_literal_initializer_is_a_named_blocker() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 function seed(): number {
   return 41;
 }
@@ -299,7 +299,7 @@ export function bump(): number {
   counter = counter + 1;
   return counter;
 }
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(
@@ -312,13 +312,13 @@ export function bump(): number {
 fn non_primitive_type_is_a_named_blocker() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 let holder: unknown = 0;
 
 export function stash(value: unknown): void {
   holder = value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(
@@ -335,7 +335,7 @@ fn narrowing_facts_do_not_leak_across_sibling_tests() -> Result<(), String> {
     // target into a non-assignable optional projection (`OptionalIndex`).
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 import { describe, expect, it } from 'vitest';
 
 describe('narrowing scope', () => {
@@ -352,7 +352,7 @@ describe('narrowing scope', () => {
     expect(array1).toBe(array1);
   });
 });
-"#),
+"),
         "src/narrowing-scope.spec.ts",
         &mut ctx,
     )?;

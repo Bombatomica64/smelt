@@ -45,7 +45,7 @@ test("case", () => {});
 fn generic_interfaces_substitute_defaults_and_inherited_fields() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(
-        ts!(r#"
+        ts!(r"
 interface ContextOptions<DateType extends Date = Date> {
   in?: DateType;
 }
@@ -64,7 +64,7 @@ function sameDate<DateType extends Date>(
 ): DateType {
   return date;
 }
-"#),
+"),
         "src/generic-options.ts",
         &mut ctx,
     )?;
@@ -128,7 +128,7 @@ function sameDate<DateType extends Date>(
 fn date_fns_shared_types_lower() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(
-        ts!(r##"
+        ts!(r"
 export type DateArg<DateType extends Date> = DateType | number | string;
 
 export interface ConstructableDate extends Date {
@@ -165,7 +165,7 @@ export interface ContextOptions<DateType extends Date> {
   in?: ContextFn<DateType> | undefined;
 }
 export type ResultType<DateType extends Date> = DateType extends Date ? DateType : Date;
-"##),
+"),
         "src/types.ts",
         &mut ctx,
     )?;
@@ -195,13 +195,13 @@ export type ResultType<DateType extends Date> = DateType extends Date ? DateType
 fn lowers_never_type_surface_without_runtime_values() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export type StrictFunction = (...args: never) => unknown;
 export type Value = string | never;
 export type ImpossibleTuple = [never, ...never[]];
 export type NTuple<T, Result extends unknown[] = []> = [...Result, T];
 export type NonEmptyArray<T> = [T, ...T[]];
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -308,14 +308,14 @@ fn rejects_runtime_never_values() -> Result<(), String> {
 fn preserves_runtime_value_of_never_assertions() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function intersects<T>(left: readonly T[], right: readonly T[]): boolean {
   return false;
 }
 
 const left = intersects(null as unknown as never, []);
 const right = intersects([], null as unknown as never);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -368,6 +368,7 @@ function values<Value extends string>(input: string[]): string[] {
 }
 
 #[test]
+#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
 fn exported_literal_constants_are_visible_to_later_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
@@ -392,7 +393,7 @@ export function quartersToMonths(quarters: number): number {
 
     ensure!(
         body.exprs.iter().any(
-            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 3.0)
+            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 3.0_f64)
         )
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -400,15 +401,16 @@ export function quartersToMonths(quarters: number): number {
 }
 
 #[test]
+#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
 fn exported_foldable_constants_are_visible_to_later_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export const base = Math.pow(10, 2);
 export const maxTime = base * 5;
 export const minTime = -maxTime;
 export const rounded = Math.trunc((+minTime) / 3);
-"#),
+"),
         "src/constants.ts",
         &mut ctx,
     )?;
@@ -423,15 +425,16 @@ const value = minTime + rounded;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
     ensure!(body.exprs.iter().any(
-        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -500.0)
+        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -500.0_f64)
     ));
     ensure!(body.exprs.iter().any(
-        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -166.0)
+        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -166.0_f64)
     ));
     Ok(())
 }
 
 #[test]
+#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
 fn date_fns_constant_slice_folds_importable_numeric_consts() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
@@ -469,11 +472,11 @@ export function quartersToMonths(quarters: number): number {
 
     ensure!(
         body.exprs.iter().any(
-            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 3.0)
+            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 3.0_f64)
         )
     );
     ensure!(body.exprs.iter().any(
-        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -8640000000000000.0)
+        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -8_640_000_000_000_000.0_f64)
     ));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -532,13 +535,14 @@ export const WORD_SEPARATORS: ReadonlyArray<string> = separators;
 /// object resolves through the referenced const instead of being rejected by
 /// the well-known Number/Math member folder.
 #[test]
+#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
 fn exported_const_from_module_const_member() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const limits = { lower: 1, upper: 640 };
 export const UPPER_LIMIT = limits.upper;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -550,7 +554,7 @@ export const UPPER_LIMIT = limits.upper;
         .ok_or("missing const item body")?;
     ensure!(
         body.exprs.iter().any(
-            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 640.0)
+            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 640.0_f64)
         ),
         "expected the const object member to resolve to its literal value"
     );
@@ -561,13 +565,14 @@ export const UPPER_LIMIT = limits.upper;
 /// Well-known Number/Math numeric constants keep folding to literal consts
 /// (they must not be routed through the module-reference expression path).
 #[test]
+#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
 fn exported_const_number_math_constants_still_fold() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export const MAX_INTEGER = Number.MAX_VALUE;
 export const PI_VALUE = Math.PI;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -600,13 +605,13 @@ export const PI_VALUE = Math.PI;
 fn exported_const_builtin_member_lowers_to_unknown() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export const arrayProto = Array.prototype;
 export const slice = Array.prototype.slice;
 export const objectProto = Object.prototype;
 export const stringProto = String.prototype;
 export const numberProto = Number.prototype;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -626,13 +631,14 @@ export const numberProto = Number.prototype;
 /// literal const while the prototype member routes to the general path — so the
 /// numeric folder is not disturbed by the new member routing.
 #[test]
+#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
 fn exported_const_mixed_builtin_member_and_numeric_constant() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export const MAX_INTEGER = Number.MAX_VALUE;
 export const slice = Array.prototype.slice;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -743,9 +749,9 @@ export function viewCount(): number {
 fn imported_const_with_method_chain_initializer_inlines() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export const smallNumbers = [0, 1].concat([2, 3, 4].slice(1));
-"#),
+"),
         "src/constants.ts",
         &mut ctx,
     )?;
@@ -836,9 +842,9 @@ export function padded(value: string): string {
 fn exported_const_unresolved_member_still_errors() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 export const MYSTERY = missingNamespace.someMember;
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -936,10 +942,10 @@ const value = double(4);
 fn exported_object_constants_can_act_as_namespace_apis() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export function double(value: number): number { return value * 2; }
 export const NumberInstances = { double };
-"#),
+"),
         "src/number.ts",
         &mut ctx,
     )?;
@@ -965,9 +971,9 @@ const value = NumberInstances.double(4);
 fn exported_literal_object_constants_are_visible_to_later_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export const SKIP_ITEM = { done: false, hasNext: false } as const;
-"#),
+"),
         "src/utilityEvaluators.ts",
         &mut ctx,
     )?;
@@ -994,7 +1000,7 @@ const value = SKIP_ITEM;
 fn remeda_lazy_utility_evaluator_consts_lower() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(
-        ts!(r#"
+        ts!(r"
 type LazyResult<T> =
   | { done: true; hasNext: false }
   | { done: false; hasNext: false }
@@ -1009,7 +1015,7 @@ export const lazyIdentityEvaluator = <T>(value: T) =>
     next: value,
     done: false,
   }) as const;
-"#),
+"),
         "src/internal/utilityEvaluators.ts",
         &mut ctx,
     )?;
@@ -1030,7 +1036,7 @@ export const lazyIdentityEvaluator = <T>(value: T) =>
 fn remeda_local_arrow_const_is_visible_before_declaration_order() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(
-        ts!(r#"
+        ts!(r"
 type StrictFunction = (...args: never) => unknown;
 
 function purry(fn: StrictFunction, args: readonly unknown[]): unknown {
@@ -1043,7 +1049,7 @@ export function add(...args: readonly unknown[]): unknown {
 
 const addImplementation = (value: number, addend: number): number =>
   value + addend;
-"#),
+"),
         "src/add.ts",
         &mut ctx,
     )?;
@@ -1067,7 +1073,7 @@ const addImplementation = (value: number, addend: number): number =>
 fn remeda_overload_calls_select_public_signature() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export function add(value: number, addend: number): number;
 export function add(addend: number): (value: number) => number;
 export function add(...args: readonly unknown[]): unknown {
@@ -1076,7 +1082,7 @@ export function add(...args: readonly unknown[]): unknown {
 
 const dataFirst = add(10, 5);
 const dataLast = add(5)(10);
-"#),
+"),
         "src/add.ts",
         &mut ctx,
     )?;
@@ -1101,14 +1107,14 @@ const dataLast = add(5)(10);
 fn remeda_overload_signatures_are_visible_to_imports() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export function add(value: bigint, addend: bigint): bigint;
 export function add(value: number, addend: number): number;
 export function add(addend: number): (value: number) => number;
 export function add(...args: readonly unknown[]): unknown {
   return args;
 }
-"#),
+"),
         "src/add.ts",
         &mut ctx,
     )?;
@@ -1136,7 +1142,7 @@ const dataLast = add(5)(10);
 fn constrained_data_last_overload_does_not_capture_direct_string_argument() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 type Options = { readonly preserve?: boolean };
 
 export function convert<T extends string>(data: T): string;
@@ -1144,7 +1150,7 @@ export function convert<Config extends Options>(options?: Config): (data: string
 export function convert(value?: Options | string): unknown {
   return value;
 }
-"#),
+"),
         "src/convert.ts",
         &mut ctx,
     )?;
@@ -1185,14 +1191,14 @@ const dataLast = convert({ preserve: true });
 fn dependent_data_last_constraint_waits_for_callback_context() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export function pick<T extends object, K extends KeysOf<T>>(
   key: K,
 ): (data: T) => unknown;
 export function pick(value: unknown): unknown {
   return value;
 }
-"#),
+"),
         "src/pick.ts",
         &mut ctx,
     )?;
@@ -1222,13 +1228,13 @@ const getter = pick("active");
 fn optional_overload_parameters_preserve_data_first_selection() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export function flatten<T extends readonly unknown[]>(data: T, depth?: number): unknown[];
 export function flatten(depth?: number): (data: readonly unknown[]) => unknown[];
 export function flatten(value?: readonly unknown[] | number, depth?: number): unknown {
   return value;
 }
-"#),
+"),
         "src/flatten.ts",
         &mut ctx,
     )?;
@@ -1271,7 +1277,7 @@ const curried = flatten(2);
 fn union_overload_parameters_preserve_numeric_datalast_selection() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export function split(data: string, separator: RegExp, limit?: number): string[];
 export function split(separator: RegExp, limit?: number): (data: string) => string[];
 export function split<S extends string, Separator extends string, N extends number | undefined = undefined>(
@@ -1290,7 +1296,7 @@ export function split(
 ): unknown {
   return dataOrSeparator;
 }
-"#),
+"),
         "src/split.ts",
         &mut ctx,
     )?;
@@ -1334,7 +1340,7 @@ const limited = split(",", 1);
 fn remeda_test_overload_fallback_rejects_impossible_argument_shapes() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 type Case<In, Out, When extends (x: In) => boolean = (x: In) => boolean> =
   readonly [when: When, then: (x: In) => Out];
 type DefaultCase<In, Out> = (x: In) => Out;
@@ -1351,7 +1357,7 @@ export function conditional<T, Fn0 extends (x: T) => boolean, Return0, Fallback 
 export function conditional(...args: readonly unknown[]): unknown {
   return args;
 }
-"#),
+"),
         "src/conditional.ts",
         &mut ctx,
     )?;
@@ -1448,7 +1454,7 @@ const actual = pipe({ a: 1 }, addProp("b", 2));
 fn remeda_predicate_array_arrows_lower_as_closure_values() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export function allPass<T>(
   data: T,
   fns: readonly ((data: T) => boolean)[],
@@ -1463,7 +1469,7 @@ export function allPass(...args: readonly unknown[]): unknown {
 const fns = [(x: number) => x % 3 === 0, (x: number) => x % 4 === 0] as const;
 const dataFirst = allPass(12, fns);
 const dataLast = allPass(fns)(12);
-"#),
+"),
         "src/allPass.test.ts",
         &mut ctx,
     )?;
@@ -1533,7 +1539,7 @@ describe("data first", () => {
 fn function_can_read_module_const_object_function_table() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(
-        ts!(r#"
+        ts!(r"
 const COMPARATORS = {
   asc: (x: number, y: number) => x > y,
   desc: (x: number, y: number) => x < y,
@@ -1543,7 +1549,7 @@ export function compare(direction: string, x: number, y: number): boolean {
   const { [direction]: comparator } = COMPARATORS;
   return comparator(x, y);
 }
-"#),
+"),
         "src/comparators.ts",
         &mut ctx,
     )?;
@@ -1574,7 +1580,7 @@ export function compare(direction: string, x: number, y: number): boolean {
 fn spread_call_uses_optional_index_for_optional_fixed_parameter() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(
-        ts!(r#"
+        ts!(r"
 function choose(primary: string, secondary?: string, ...rest: string[]): string {
   return secondary ?? primary;
 }
@@ -1582,7 +1588,7 @@ function choose(primary: string, secondary?: string, ...rest: string[]): string 
 export function run(values: string[]): string {
   return choose(...values);
 }
-"#),
+"),
         "src/spread-optional.ts",
         &mut ctx,
     )?;
@@ -1682,7 +1688,7 @@ export const withPrecision =
 
 #[test]
 fn unknown_and_readonly_unknown_array_types_lower() -> Result<(), String> {
-    let source = ts!(r#"
+    let source = ts!(r"
 export function identity(value: unknown): unknown {
   return value;
 }
@@ -1690,7 +1696,7 @@ export function identity(value: unknown): unknown {
 export function passthrough(values: readonly unknown[]): readonly unknown[] {
   return values;
 }
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_ok(source, &mut ctx)?;
     ensure!(
@@ -2298,11 +2304,11 @@ fn lowers_array_length_constructor_as_list_container() -> Result<(), String> {
 fn lowers_index_access_on_union_collections() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function read(value: number[] | [string]): number | string {
   return value[0];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2359,13 +2365,13 @@ fn lowers_nested_array_destructuring_rest_binding() -> Result<(), String> {
 fn lowers_unhinted_empty_array_call_argument_as_unknown_list() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function passthrough(values: unknown[]): unknown[] {
   return values;
 }
 
 const result = passthrough([]);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2388,11 +2394,11 @@ const result = passthrough([]);
 fn lowers_destructured_arrow_function_parameters() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Limits = { min?: number; max?: number };
 const clampImplementation = (value: number, { min, max }: Limits): number =>
   min !== undefined && value < min ? min : max !== undefined && value > max ? max : value;
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2404,11 +2410,11 @@ const clampImplementation = (value: number, { min, max }: Limits): number =>
 fn lowers_object_constraint_and_structured_clone() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function cloneObject<T extends object>(value: T): T {
   return structuredClone(value);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2420,11 +2426,11 @@ function cloneObject<T extends object>(value: T): T {
 fn lowers_push_into_unknown_array() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: unknown[] = [];
 const copied: Record<PropertyKey, unknown> = {};
 values.push(copied);
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2436,14 +2442,14 @@ values.push(copied);
 fn lowers_object_prototype_and_entries_on_generic_object() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function inspect<T extends object>(value: T): unknown {
   const prototype = Object.getPrototypeOf(value);
   const same = prototype === Object.prototype;
   const entries = Object.entries(value);
   return entries[0];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2455,12 +2461,12 @@ function inspect<T extends object>(value: T): unknown {
 fn lowers_unknown_array_cycle_lookup() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function lookup<T>(value: T, refFrom: unknown[] = [], refTo: unknown[] = []): T {
   const idx = refFrom.indexOf(value);
   return refTo[idx] as T;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2472,13 +2478,13 @@ function lookup<T>(value: T, refFrom: unknown[] = [], refTo: unknown[] = []): T 
 fn lowers_unknown_array_index_assignment() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function copy(index: number, item: unknown): unknown[] {
   const copiedValue: unknown[] = [];
   copiedValue[index] = item;
   return copiedValue;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2490,7 +2496,7 @@ function copy(index: number, item: unknown): unknown[] {
 fn lowers_array_entries_for_destructured_for_of() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function copy(value: readonly unknown[]): unknown[] {
   const copiedValue: unknown[] = [];
   for (const [index, item] of value.entries()) {
@@ -2498,7 +2504,7 @@ function copy(value: readonly unknown[]): unknown[] {
   }
   return copiedValue;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2510,10 +2516,10 @@ function copy(value: readonly unknown[]): unknown[] {
 fn lowers_any_like_unknown_access_in_test_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(
-        ts!(r#"
+        ts!(r"
 const value: any = { a: [{ b: 1 }] };
 const first = value.a[0].b;
-"#),
+"),
         "src/clone.test.ts",
         &mut ctx,
     )?;
@@ -2526,9 +2532,9 @@ const first = value.a[0].b;
 fn lowers_object_and_regexp_array_elements() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values = [{ a: (x: number): number => x + x }, /x/u];
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2613,7 +2619,7 @@ fn lowers_runtime_index_access_on_unknown_metadata() -> Result<(), String> {
 fn same_named_rest_function_does_not_leak_rest_slot_across_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export function delay(
   fn: (...args: readonly unknown[]) => unknown,
   wait: number,
@@ -2621,12 +2627,12 @@ export function delay(
 ): unknown {
   return fn(...args);
 }
-"#),
+"),
         "src/compat.ts",
         &mut ctx,
     )?;
     let module_id = lower_path_ok(
-        ts!(r#"
+        ts!(r"
 interface DelayOptions {
   signal?: number;
 }
@@ -2636,7 +2642,7 @@ export function delay(ms: number, { signal }: DelayOptions = {}): number {
 export function run(): number {
   return delay(100);
 }
-"#),
+"),
         "src/promise.ts",
         &mut ctx,
     )?;

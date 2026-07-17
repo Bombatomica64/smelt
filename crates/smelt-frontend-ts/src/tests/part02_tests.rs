@@ -107,7 +107,7 @@ describe("suite", () => {
 
 #[test]
 fn lowers_callback_dynamic_function_table_lookup() -> Result<(), String> {
-    let source = ts!(r#"
+    let source = ts!(r"
 type Formatter = (value: string) => string;
 
 const lower: Formatter = (value) => value.toLowerCase();
@@ -125,7 +125,7 @@ export function apply(values: string[]): string[] {
     return formatter(value);
   });
 }
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_ok(source, &mut ctx)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -239,10 +239,10 @@ fn distinguishes_array_at_from_negative_bracket_index() -> Result<(), String> {
     // not become `.at`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const last = values.at(-1);
-"#),
+"),
         &mut ctx,
     )?;
     let at_module = module(&ctx, module_id)?;
@@ -262,10 +262,10 @@ const last = values.at(-1);
     // `Index` access (i.e. it is not rewritten into `.at`).
     let mut bracket_ctx = HirCtx::new();
     let bracket_module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const missing = values[-1];
-"#),
+"),
         &mut bracket_ctx,
     )?;
     let bracket_module = module(&bracket_ctx, bracket_module_id)?;
@@ -297,11 +297,11 @@ fn coerces_optional_numeric_at_index() -> Result<(), String> {
     // `Number(...)` primitive cast) instead of rejecting it.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function pick(values: number[], index: number | undefined): number | undefined {
   return values.at(index);
 }
-"#),
+"),
         &mut ctx,
     )?;
     // The `.at` call lives in the `pick` function body, so scan every body.
@@ -342,11 +342,11 @@ fn coerces_numeric_type_param_at_index() -> Result<(), String> {
     // parameter constraint, so `.at` must coerce rather than reject it.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function pickAt<T extends number>(values: string[], index: T): string | undefined {
   return values.at(index);
 }
-"#),
+"),
         &mut ctx,
     )?;
     // Lowering succeeded (`lower_ok`); confirm the `.at` call became optional
@@ -372,11 +372,11 @@ fn rejects_non_numeric_at_index() -> Result<(), String> {
     // A genuinely non-numeric index (here a string) is not coercible and must
     // stay an explicit unsupported diagnostic rather than being silently coerced.
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 function pick(values: number[], key: string): number | undefined {
   return values.at(key);
 }
-"#),
+"),
         &mut HirCtx::new(),
     )?;
     assert_unsupported_ts(&errors, "array/string at index must be a number")
@@ -386,10 +386,10 @@ function pick(values: number[], key: string): number | undefined {
 fn lowers_math_abs_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const value = -5;
 const positive = Math.abs(value);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -461,13 +461,13 @@ function truthy<T>(value: T): boolean {
 fn lowers_string_conversion_from_numeric_literal_union() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Day = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 function label(day: Day): string {
   return String(day);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -479,10 +479,10 @@ function label(day: Day): string {
 fn lowers_number_to_string_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const value = 42;
 const text = value.toString();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -526,11 +526,11 @@ const value = Number.parseFloat("42.5");
 fn lowers_parse_float_erased_inputs_through_string_coercion() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function parseValues(value: any): number[] {
   return [parseFloat(value), Number.parseFloat(value)];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -628,11 +628,11 @@ const shifted = exponent === undefined ? 0 : Number.parseInt(exponent, 10);
 fn lowers_infinity_identifier() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const upper = Infinity;
 const lower = -Infinity;
 const missing = NaN;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -652,11 +652,11 @@ const missing = NaN;
 fn lowers_date_now_and_to_iso_string() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const now = Date.now();
 const current = new Date();
 const iso = new Date(now).toISOString();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -734,7 +734,7 @@ fn lowers_unary_plus_expression() -> Result<(), String> {
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(1.0)))),
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(1.0_f64)))),
         "missing unary plus numeric value"
     );
     Ok(())
@@ -760,11 +760,11 @@ fn lowers_unary_plus_bool_to_float() -> Result<(), String> {
 fn lowers_postfix_update_expression_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values = [10, 20];
 let index = 0;
 const value = values[index++];
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -837,7 +837,7 @@ y = x++;
 fn lowers_empty_statements_as_noops() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function answer(): number {
   ;
   {
@@ -845,7 +845,7 @@ function answer(): number {
   }
   return 42;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -863,13 +863,13 @@ function answer(): number {
 fn keeps_postfix_update_expression_side_effect_inside_loop_body() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values = [10, 20];
 let index = 0;
 while (index < values.length) {
   const value = values[index++];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -979,7 +979,7 @@ const parts = "ab"
 fn lowers_nested_array_callback_inside_map_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Setter {
   priority: number;
   subPriority: number;
@@ -996,7 +996,7 @@ const uniquePrioritySetters = setters
       .sort((a, b) => b.subPriority - a.subPriority),
   )
   .map((setterArray) => setterArray[0]);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1098,7 +1098,7 @@ fn narrows_union_param_in_switch_typeof_cases() -> Result<(), String> {
     // union receiver and fail to lower. Mirrors es-toolkit `string/trimStart.ts`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function trimStartLike(str: string, chars: string | string[]): number {
   let startIndex = 0;
   switch (typeof chars) {
@@ -1119,7 +1119,7 @@ export function trimStartLike(str: string, chars: string | string[]): number {
   }
   return startIndex;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1146,7 +1146,7 @@ const zero = 0n;
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(0.0))))
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(0.0_f64))))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -1156,11 +1156,11 @@ const zero = 0n;
 fn lowers_coercive_nullish_equality_idiom() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function emptyish(data: object | string | undefined): boolean {
   return data == undefined || data != null;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1173,12 +1173,12 @@ function emptyish(data: object | string | undefined): boolean {
 fn lowers_destructuring_declarations() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const pair: number[] = [1, 2];
 const [first, second] = pair;
 const data: Record<string, number> = { count: 3 };
 const { count } = data;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1206,7 +1206,7 @@ const { count } = data;
 fn lowers_defaulted_object_destructuring_as_non_optional_binding() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Duration {
   years?: number;
   months?: number;
@@ -1216,7 +1216,7 @@ export function monthsInDuration(duration: Duration): number {
   const { years = 0, months = 0 } = duration;
   return months + years * 12;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1262,7 +1262,7 @@ export function monthsInDuration(duration: Duration): number {
 fn lowers_defaulted_unknown_object_destructuring_to_fallback_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Duration {
   years?: unknown;
   months?: unknown;
@@ -1272,7 +1272,7 @@ export function monthsInDuration(duration: Duration): number {
   const { years = 0, months = 0 } = duration;
   return months + years * 12;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1311,10 +1311,10 @@ export function monthsInDuration(duration: Duration): number {
 fn infers_object_literal_record_type_without_annotation() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const options = { weekStartsOn: 1 };
 const value = options.weekStartsOn;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1338,7 +1338,7 @@ const value = options.weekStartsOn;
 fn lowers_empty_object_for_date_fns_default_options_alias() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface LocalizedOptions {
   locale?: string;
 }
@@ -1347,7 +1347,7 @@ interface WeekOptions {
 }
 type DefaultOptions = LocalizedOptions & WeekOptions;
 let defaultOptions: DefaultOptions = {};
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1372,7 +1372,7 @@ fn lowers_module_mutable_default_options_accessors() -> Result<(), String> {
     // blocker surfaces the same gap earlier and more precisely.
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 interface LocalizedOptions {
   locale?: string;
 }
@@ -1387,7 +1387,7 @@ function getDefaultOptions(): DefaultOptions {
 function setDefaultOptions(newOptions: DefaultOptions): void {
   defaultOptions = newOptions;
 }
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(
@@ -1400,7 +1400,7 @@ function setDefaultOptions(newOptions: DefaultOptions): void {
 fn lowers_date_fns_date_parts() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const date = new Date(2014, 8, 2, 11, 55, 0);
 function timestamp(value: number): number {
   return value;
@@ -1433,7 +1433,7 @@ const values: DateValues = { year: 2020, date: 3, hours: 4 };
 if (values.year != null) date.setFullYear(values.year);
 if (values.date != null) date.setDate(values.date);
 if (values.hours != null) date.setHours(values.hours);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1499,11 +1499,11 @@ const href = new URL("https://example.com/path?q=1").toString();
 
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [3, 1, 2];
 const sorted = values.sort();
 const sortedByCompare = values.sort((left, right) => left - right);
-"#),
+"),
         &mut ctx,
     )?;
     let sort_module = module(&ctx, module_id)?;
@@ -1527,11 +1527,11 @@ const sortedByCompare = values.sort((left, right) => left - right);
 fn lowers_instanceof_for_class_values() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class Box {}
 const value = new Box();
 const result = value instanceof Box;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1552,13 +1552,13 @@ fn lowers_instanceof_for_record_left_operand() -> Result<(), String> {
     // codegen resolves to `false`) instead of aborting the build.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class Foo {}
 function make(): Record<string, unknown> {
   return {};
 }
 const result = make() instanceof Foo;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1579,11 +1579,11 @@ fn lowers_zero_argument_primitive_coercions() -> Result<(), String> {
     // `String()` -> `""`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const b = Boolean();
 const n = Number();
 const s = String();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1612,11 +1612,11 @@ const s = String();
 fn lowers_date_instanceof_for_union_that_can_contain_date() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type DateArg = number | string | Date;
 const value: DateArg = 1;
 const result = value instanceof Date;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1633,13 +1633,13 @@ const result = value instanceof Date;
 fn folds_date_instanceof_true_for_constrained_timestamp_date_result() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function identity<ResultDate extends Date>(date: ResultDate): ResultDate {
   return date;
 }
 const value = identity(new Date(0));
 const result = value instanceof Date;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1682,10 +1682,10 @@ it("preserves Date identity", () => {
 fn folds_date_instanceof_true_for_declared_date_timestamp() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const value: Date = new Date(0);
 const result = value instanceof Date;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1702,9 +1702,9 @@ const result = value instanceof Date;
 fn folds_date_now_instanceof_false_for_numeric_timestamp() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const result = Date.now() instanceof Date;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1721,11 +1721,11 @@ const result = Date.now() instanceof Date;
 fn lowers_date_instanceof_for_unknown_runtime_date_identity() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function isDate(value: unknown): boolean {
   return value instanceof Date;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1751,11 +1751,11 @@ function isDate(value: unknown): boolean {
 fn lowers_error_instanceof_for_generic_union_guard() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function isError<T>(data: Error | T): boolean {
   return data instanceof Error;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1782,11 +1782,11 @@ function isError<T>(data: Error | T): boolean {
 fn lowers_promise_instanceof_for_generic_union_guard() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function isPromise<T>(data: PromiseLike<unknown> | T): boolean {
   return data instanceof Promise;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1813,11 +1813,11 @@ function isPromise<T>(data: PromiseLike<unknown> | T): boolean {
 fn lowers_date_constructor_member_as_date_from_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const date: Date = new Date(1);
 const value = 2;
 const result = new (date.constructor as unknown)(value);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1834,11 +1834,11 @@ const result = new (date.constructor as unknown)(value);
 fn lowers_asserted_generic_constructor_member_without_date_interception() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function clone<T extends object>(value: T): T {
   return new ((value as object).constructor as { new (): T })();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1860,11 +1860,11 @@ function clone<T extends object>(value: T): T {
 fn lowers_new_date_from_datearg_union_to_timestamp() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type DateArg = number | string | Date;
 const value: DateArg = 1;
 const result = new Date(value);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1881,12 +1881,12 @@ const result = new Date(value);
 fn lowers_unary_plus_datearg_to_timestamp() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type DateArg = number | string | Date;
 function timestamp(value: DateArg): number {
   return +value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1917,14 +1917,14 @@ function timestamp(value: DateArg): number {
 fn lowers_optional_chain_or_fallback_to_rhs_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Options {
   in?: number;
 }
 function read(options: Options, date: number): number {
   return options?.in || date;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1944,7 +1944,7 @@ function read(options: Options, date: number): number {
 fn lowers_optional_chain_call_argument() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Options {
   in?: number;
 }
@@ -1954,7 +1954,7 @@ function useContext(date: number, context?: number): number {
 function read(options: Options, date: number): number {
   return useContext(date, options?.in);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -1966,7 +1966,7 @@ function read(options: Options, date: number): number {
 fn lowers_optional_chain_context_into_date_get_day() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface ContextOptions<DateType extends Date = Date> {
   in?: DateType;
 }
@@ -1983,7 +1983,7 @@ function isSaturday<DateType extends Date>(
 ): boolean {
   return toDate(date, options?.in).getDay() === 6;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2090,7 +2090,7 @@ export type LocaleUnit = "second" | "minute";
 fn lowers_date_fns_fp_type_surfaces() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export type FPFnInput = (...args: any[]) => any;
 export type FPArity = 1 | 2 | 3 | 4;
 export type FPFn<Fn extends FPFnInput> = FPFn2<
@@ -2105,7 +2105,7 @@ export interface FPFn2<Result, Arg2, Arg1> {
   (arg2: Arg2): FPFn1<Result, Arg1>;
   (arg2: Arg2, arg1: Arg1): Result;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2117,13 +2117,13 @@ export interface FPFn2<Result, Arg2, Arg1> {
 fn lowers_date_fns_fp_exported_convert_to_fp_wrapper() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function difference(dateLeft: number, dateRight: number): number {
   return dateLeft - dateRight;
 }
 
 export const differenceFp = convertToFP(difference, 2);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2168,13 +2168,13 @@ export const differenceFp = convertToFP(difference, 2);
 fn lowers_date_fns_fp_wrapper_with_erased_optional_tail_param() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function addDays(date: number, amount: number): number {
   return date + amount;
 }
 
 export const addDaysWithOptions = convertToFP(addDays, 3);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2216,9 +2216,9 @@ export const addDaysWithOptions = convertToFP(addDays, 3);
 fn skips_date_fns_context_options_type_only_heritage() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export interface AddOptions<DateType extends Date = Date> extends ContextOptions<DateType> {}
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -2228,7 +2228,7 @@ export interface AddOptions<DateType extends Date = Date> extends ContextOptions
 fn ignores_safe_function_overload_signatures() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function double(value: number): number;
 function double(value: number): number {
   return value * 2;
@@ -2238,7 +2238,7 @@ export function identity(value: string): string;
 export function identity(value: string): string {
   return value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2255,9 +2255,9 @@ export function identity(value: string): string {
 fn rejects_unimplemented_function_overload_signature() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 function missing(value: number): number;
-"#),
+"),
         &mut ctx,
     )?;
 
@@ -2268,9 +2268,9 @@ function missing(value: number): number;
 fn ignores_exported_ambient_declare_functions() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export declare function addLeadingZeros(number: number, targetLength: number): string;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2283,7 +2283,7 @@ export declare function addLeadingZeros(number: number, targetLength: number): s
 fn lowers_exported_arrow_const_from_function_type_annotation() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type FormatDistanceFn = (
   token: string,
   count: number,
@@ -2296,7 +2296,7 @@ export const formatDistance: FormatDistanceFn = (token, count, options) => {
   }
   return token;
 };
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2539,7 +2539,7 @@ function read(date: Date): string {
 fn lowers_function_valued_object_properties_with_contextual_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Formatter = (date: Date, token: string) => string;
 
 export const formatters: { [token: string]: Formatter } = {
@@ -2547,7 +2547,7 @@ export const formatters: { [token: string]: Formatter } = {
     return token + String(date.getFullYear());
   },
 };
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2603,13 +2603,13 @@ export const formatters: { [token: string]: Formatter } = {
 fn lowers_arrow_valued_record_properties_with_contextual_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Formatter = (date: Date, token: string) => string;
 
 export const formatters: { [token: string]: Formatter } = {
   y: (date, token) => token + String(date.getFullYear()),
 };
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2621,7 +2621,7 @@ export const formatters: { [token: string]: Formatter } = {
 fn lowers_unary_plus_inside_function_valued_object_property() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Formatter = (date: Date, token: string) => number;
 
 export const formatters: { [token: string]: Formatter } = {
@@ -2629,7 +2629,7 @@ export const formatters: { [token: string]: Formatter } = {
     return +date;
   },
 };
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2663,11 +2663,11 @@ function check(): boolean {
 fn lowers_regex_literal_call_arguments() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function parts(pattern: string): string[] | null {
   return pattern.match(/(P+)(p+)?/);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -2753,13 +2753,13 @@ function width(args: Args): string {
 fn lowers_optional_object_logical_or_as_selected_runtime_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Result<T> = { value: T; rest: string } | null;
 
 function select(left: Result<number>, right: Result<number>): unknown {
   return left || right;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2799,14 +2799,14 @@ function select(left: Result<number>, right: Result<number>): unknown {
 fn lowers_optional_callable_logical_or_as_selected_runtime_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function select(
   value: unknown,
   context?: (value: unknown) => unknown,
 ): unknown {
   return context || value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2834,11 +2834,11 @@ function select(
 fn lowers_unknown_logical_or_as_selected_runtime_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function select(value: unknown, fallback: unknown): unknown {
   return value || fallback;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2883,13 +2883,13 @@ function select(value: unknown, fallback: unknown): unknown {
 fn lowers_optional_date_type_parameter_logical_or_nan_as_selected_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function select<ResultDate extends Date>(
   result: ResultDate | undefined,
 ): unknown {
   return result || NaN;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3006,13 +3006,13 @@ export const localize: Localize = {
 fn lowers_negated_optional_date_type_parameter_as_presence_check() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function absent<ResultDate extends Date>(
   result: ResultDate | undefined,
 ): boolean {
   return !result;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3067,13 +3067,13 @@ function locale(options?: Options): Locale {
 fn lowers_nullish_coalescing_when_fallback_matches_union_member() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Delay = number | (() => void) | undefined;
 
 function delay(value: Delay): number | (() => void) {
   return value ?? 0;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3094,12 +3094,12 @@ function delay(value: Delay): number | (() => void) {
 fn lowers_numeric_logical_or_as_value_fallback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function localDay(day: number, weekStartsOn: number): string {
   const localDayOfWeek = (day - weekStartsOn + 8) % 7 || 7;
   return String(localDayOfWeek);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3119,11 +3119,11 @@ function localDay(day: number, weekStartsOn: number): string {
 fn preserves_mixed_string_numeric_logical_fallback_for_numeric_coercion() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function offset(values: string[]): number {
   return +(values[0] || 0);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3204,7 +3204,7 @@ function buildLocalizeFn<
 fn lowers_nullishable_callback_union_in_condition() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Callback = (value: string) => string;
 type Args<ArgCallback extends Callback | undefined> =
   ArgCallback extends undefined
@@ -3217,7 +3217,7 @@ function call<ArgCallback extends Callback | undefined>(
 ): string {
   return args.argumentCallback ? args.argumentCallback(value) : value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -3229,14 +3229,14 @@ function call<ArgCallback extends Callback | undefined>(
 fn lowers_optional_captured_callback_in_array_callback_condition() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Mapper = ((value: number) => number) | undefined;
 
 function applyMaybe(mapper: Mapper, value: number): number {
   const values = [value].map((item) => mapper ? mapper(item) : item);
   return values[0];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -3389,7 +3389,7 @@ export const localize: Localize = {
 fn lowers_date_fns_find_key_for_in_loop() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function findKey<Value, Obj extends { [key in string | number]: Value }>(
   object: Obj,
   predicate: (value: Value) => boolean,
@@ -3404,7 +3404,7 @@ function findKey<Value, Obj extends { [key in string | number]: Value }>(
   }
   return undefined;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -3433,7 +3433,7 @@ function findKey<Value, Obj extends { [key in string | number]: Value }>(
 fn lowers_string_match_as_optional_match_array() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function firstMatch(text: string, pattern: string): string | undefined {
   const matchResult = text.match(pattern);
   if (!matchResult) {
@@ -3441,7 +3441,7 @@ function firstMatch(text: string, pattern: string): string | undefined {
   }
   return matchResult[0];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -3505,7 +3505,7 @@ function select<Value>(value: Value, callback: ((value: Value) => Value) | undef
 fn narrows_optional_after_negated_truthy_guard_exits() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function rest(matchResult: string[] | undefined, text: string): string | undefined {
   if (!matchResult) {
     return undefined;
@@ -3516,7 +3516,7 @@ function rest(matchResult: string[] | undefined, text: string): string | undefin
   }
   return text.slice(matchedString.length);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -3529,7 +3529,7 @@ fn keeps_conditional_assignment_to_uninitialized_value_nullishable_after_branch(
 -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function read(available: boolean): Date {
   let date;
   if (available) {
@@ -3540,7 +3540,7 @@ function read(available: boolean): Date {
   }
   return date;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3609,7 +3609,7 @@ const floatValue = parseFloat("42.5");
 fn lowers_computed_class_record_reads_as_optional_runtime_lookups() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class Parser {
   run(): number { return 1; }
 }
@@ -3620,7 +3620,7 @@ function read(parsers: Record<string, Parser>, key: string): number {
   }
   return 0;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;

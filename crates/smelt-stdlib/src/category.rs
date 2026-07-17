@@ -78,11 +78,12 @@ mod tests {
 
     /// Serde uses the same kebab-case spelling as `as_str`.
     #[test]
-    fn serde_matches_as_str() -> Result<(), serde_json::Error> {
-        let json = serde_json::to_string(&DiagnosticCategory::TypeConstraint)?;
+    fn serde_matches_as_str() {
+        let json = serde_json::to_string(&DiagnosticCategory::TypeConstraint)
+            .expect("category serializes to JSON");
         assert_eq!(json, "\"type-constraint\"");
-        let back: DiagnosticCategory = serde_json::from_str(&json)?;
+        let back: DiagnosticCategory =
+            serde_json::from_str(&json).expect("category deserializes from JSON");
         assert_eq!(back, DiagnosticCategory::TypeConstraint);
-        Ok(())
     }
 }

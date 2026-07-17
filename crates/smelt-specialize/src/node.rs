@@ -380,7 +380,7 @@ mod tests {
         }
         let project = tempfile::tempdir().map_err(|error| error.to_string())?;
         let source = project.path().join("fixture.ts");
-        fs::write(&source, decorated_fixture()).map_err(|error| error.to_string())?;
+        fs::write(&source, DECORATED_FIXTURE).map_err(|error| error.to_string())?;
         let emitted_dir = project.path().join("dist");
         let compile = Command::new(tsc)
             .arg(&source)
@@ -448,9 +448,8 @@ mod tests {
             hashes: fixture_hashes(),
             sandbox_policy: fixture_policy(project.path()),
         };
-        let error = match NodeSpecializer::new(backend).specialize(&request) {
-            Ok(_) => return Err("legacy decorators unexpectedly specialized".to_owned()),
-            Err(error) => error,
+        let Err(error) = NodeSpecializer::new(backend).specialize(&request) else {
+            return Err("legacy decorators unexpectedly specialized".to_owned());
         };
         if error
             .to_string()
@@ -503,11 +502,10 @@ mod tests {
                 hashes: fixture_hashes(),
                 sandbox_policy: fixture_policy(project.path()),
             };
-            let error = match NodeSpecializer::new(crate::LinuxBubblewrapBackend::discover())
+            let Err(error) = NodeSpecializer::new(crate::LinuxBubblewrapBackend::discover())
                 .specialize(&request)
-            {
-                Ok(_) => return Err(format!("{label} object unexpectedly specialized")),
-                Err(error) => error,
+            else {
+                return Err(format!("{label} object unexpectedly specialized"));
             };
             if !error
                 .to_string()
@@ -529,8 +527,7 @@ mod tests {
     }
 
     /// Representative standard-decorator TypeScript fixture.
-    fn decorated_fixture() -> &'static str {
-        r#"
+    const DECORATED_FIXTURE: &str = r#"
 (Symbol as any).metadata ??= Symbol("metadata");
 
 function decorate(value: any, context: ClassDecoratorContext) {
@@ -627,8 +624,7 @@ export class Replaced {}
 
 export const cycle: any = {};
 cycle.self = cycle;
-"#
-    }
+"#;
 
     /// Restrictive sandbox policy for the Node fixture.
     fn fixture_policy(project: &Path) -> SandboxPolicyRecord {
@@ -748,7 +744,7 @@ cycle.self = cycle;
                 example.initializers
             ));
         }
-        let source = decorated_fixture();
+        let source = DECORATED_FIXTURE;
         if example.initializers.iter().all(|initializer| {
             let start = usize::try_from(initializer.callable.span.start).unwrap_or(usize::MAX);
             let end = usize::try_from(initializer.callable.span.end).unwrap_or(usize::MAX);

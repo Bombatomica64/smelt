@@ -137,7 +137,7 @@ function deleted(entries: unknown[]) {
 fn lowers_async_pipe_factory_as_array_map_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const async: {
   pipe: (...fns: unknown[]) => (value: unknown) => unknown;
 };
@@ -145,7 +145,7 @@ declare const async: {
 function clone(entries: unknown[]) {
   return entries.map(async.pipe((value: unknown) => value));
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -205,7 +205,7 @@ export const repository = () => {
 fn resolves_namespace_qualified_type_aliases() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 declare namespace Custom {
   export type Id = string;
 }
@@ -213,7 +213,7 @@ declare namespace Custom {
 function accept(id: Custom.Id): Custom.Id {
   return id;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -244,11 +244,11 @@ function accept(id: Custom.Id): Custom.Id {
 fn resolves_imported_namespace_alias_members() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export namespace Types {
   export type Id = string;
 }
-"#),
+"),
         "types.ts",
         &mut ctx,
     )?;
@@ -274,9 +274,9 @@ export function hasSeen(id: LocalTypes.Id): boolean {
 fn resolves_namespace_reexport_alias_members() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export type Id = string;
-"#),
+"),
         "ids.ts",
         &mut ctx,
     )?;
@@ -309,7 +309,7 @@ export function hasSeen(id: Ids.Id): boolean {
 fn lowers_extract_utility_to_extracted_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type RegistryKey<TRegistry extends object, TIndexType extends string> = Extract<
   keyof TRegistry,
   TIndexType
@@ -322,7 +322,7 @@ const seen = new Map<string, number>();
 export function hasSeen(id: Id): boolean {
   return seen.has(id);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -366,7 +366,7 @@ export function pad(value: string): string {
 fn lowers_forward_module_global_callable_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Env = typeof envFn;
 
 function envFn(key: string, defaultValue?: string): string | undefined {
@@ -378,7 +378,7 @@ export function oneOf(key: string, defaultValue?: string): string | undefined {
 }
 
 const env: Env = Object.assign(envFn, {});
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -390,9 +390,9 @@ const env: Env = Object.assign(envFn, {});
 fn resolves_type_namespace_import_members() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export type Id = string;
-"#),
+"),
         "ids.ts",
         &mut ctx,
     )?;
@@ -418,12 +418,12 @@ export function hasSeen(id: Ids.Id): boolean {
 fn resolves_nested_namespace_import_and_reexport_aliases() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
-        ts!(r#"
+        ts!(r"
 export type Keys<TRegistry extends object, TIndexType extends string> = Extract<
   keyof TRegistry,
   TIndexType
 >;
-"#),
+"),
         "registry.ts",
         &mut ctx,
     )?;
@@ -472,13 +472,13 @@ export function hasSeen(id: UID.ContentType): boolean {
 fn lowers_string_cast_for_erased_id_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Entry<T> = T;
 
 function key<T>(entry: Entry<T>): string {
   return String(entry.id);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -529,7 +529,7 @@ function mark(): Error {
 fn lowers_callback_member_assignment_as_erased_side_effect() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Relation = { id: number; position?: { before?: number } };
 
 function build(ids: number[], position: { before?: number }): Relation[] {
@@ -541,7 +541,7 @@ function build(ids: number[], position: { before?: number }): Relation[] {
     return relation;
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -553,13 +553,13 @@ function build(ids: number[], position: { before?: number }): Relation[] {
 fn lowers_callback_object_literal_with_computed_key() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function update(relations: Record<string, unknown>[], column: string, newId: number) {
   return relations.map((relation) => {
     return { ...relation, [column]: newId };
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -571,11 +571,11 @@ function update(relations: Record<string, unknown>[], column: string, newId: num
 fn lowers_callback_array_literal_with_mixed_item_types() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function pairs(entries: Record<string, unknown>[]) {
   return entries.map((entry: any) => [`${entry.document_id}_${entry.locale}`, entry.id]);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -587,11 +587,11 @@ function pairs(entries: Record<string, unknown>[]) {
 fn lowers_callback_dynamic_access_with_erased_key() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function pick(rows: Record<string, unknown>[], column: unknown) {
   return rows.map((row) => row[column as string]);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -631,7 +631,7 @@ function populate(model: { attributes: Record<string, Attribute> }) {
 fn lowers_reduce_on_optional_array_fallback_tuple() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Attribute = { components?: string[] };
 
 function collect(attribute: Attribute) {
@@ -640,7 +640,7 @@ function collect(attribute: Attribute) {
     return acc;
   }, {});
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -749,11 +749,11 @@ export const BOOLEAN_LITERAL_VALUES = ["t", "1", "true", "f", "0", "false"] as c
 fn lowers_void_block_arrow_const_without_return_annotation() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export const safeGlobalRegistrySet = (value: string) => {
   console.log(value);
 };
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -783,10 +783,10 @@ function builtin(id: SchemaUid): boolean {
 fn lowers_object_keys_on_erased_optional_chain_fallback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const schema: unknown = {};
 const fieldCount = Object.keys((schema as any)?._def?.shape || {}).length || 0;
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -816,10 +816,10 @@ function maybeArray(schema: unknown): boolean {
 fn lowers_url_constructor_with_unknown_string_source() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const adminAbsoluteUrl: unknown = {};
 const sameOrigin = new URL(adminAbsoluteUrl).origin === new URL(adminAbsoluteUrl).origin;
-"#),
+"),
         &mut ctx,
     )?;
     let lowered_module = module(&ctx, module_id)?;
@@ -887,13 +887,13 @@ const value = { id: "1", ...enabled };
 fn lowers_temporal_global_as_opaque_unknown_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function zone(): unknown {
   return Temporal.Instant.fromEpochMilliseconds(0).toZonedDateTimeISO(
     Temporal.Now.timeZoneId(),
   );
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -957,10 +957,10 @@ values.push("x");
     // "exactly one item argument" restriction was lifted by multi-arg push).
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 let values: number[] = [1, 2];
 values.push(3, 4);
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -980,10 +980,10 @@ values.unshift("x");
 
     let mut ctx = HirCtx::new();
     let non_local = lowering_errors(
-        ts!(r#"
+        ts!(r"
 function values(): number[] { return [1, 2]; }
 values().unshift(0);
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&non_local, "local array receiver")
@@ -993,10 +993,10 @@ values().unshift(0);
 fn rejects_unsupported_array_pop_forms() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 let values: number[] = [1, 2];
 values.pop(0);
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "requires no arguments")
@@ -1006,10 +1006,10 @@ values.pop(0);
 fn rejects_unsupported_array_shift_forms() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 let values: number[] = [1, 2];
 values.shift(0);
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "requires no arguments")
@@ -1019,10 +1019,10 @@ values.shift(0);
 fn rejects_unsupported_slice_argument_forms() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let too_many = lowering_errors(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const bad = values.slice(0, 1, 2);
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&too_many, "omitted, start, and end arguments")
@@ -1032,11 +1032,11 @@ const bad = values.slice(0, 1, 2);
 fn lowers_array_is_array_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const yes = Array.isArray(values);
 const no = Array.isArray(1);
-"#),
+"),
         &mut ctx,
     )?;
     let module_ref = module(&ctx, module_id)?;
@@ -1059,7 +1059,7 @@ const no = Array.isArray(1);
 fn lowers_math_sqrt_pow_sign() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const value = 4;
 const root = Math.sqrt(value);
 const cubeRoot = Math.cbrt(value);
@@ -1079,7 +1079,7 @@ const raised = Math.pow(value, 2);
 const raisedOperator = 1000 ** value;
 const distance = Math.hypot(value, 3);
 const sample = Math.random();
-"#),
+"),
         &mut ctx,
     )?;
     let lowered_module = module(&ctx, module_id)?;
@@ -1133,14 +1133,14 @@ const sample = Math.random();
 fn lowers_number_predicate_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const value = 4;
 const finite = Number.isFinite(value);
 const integer = Number.isInteger(value);
 const nan = Number.isNaN(value);
 const globalNan = isNaN(value);
 const missing = undefined;
-"#),
+"),
         &mut ctx,
     )?;
     let lowered_module = module(&ctx, module_id)?;
@@ -1184,7 +1184,7 @@ fn lowers_bare_builtin_functions_as_closure_values() -> Result<(), String> {
     // an erased `SmeltUnknown` tag.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function take<A, R>(fn: (a: A) => R): (a: A) => R {
   return (a: A) => fn(a);
 }
@@ -1195,7 +1195,7 @@ const asInt = take(parseInt);
 const asFloat = take(parseFloat);
 const checkNaN = take(isNaN);
 const checkFinite = take(isFinite);
-"#),
+"),
         &mut ctx,
     )?;
     let lowered_module = module(&ctx, module_id)?;
@@ -1226,11 +1226,10 @@ const checkFinite = take(isFinite);
                         cast_ops.push(op);
                     }
                 }
-                ExprKind::NumericPredicate { op, .. } => {
-                    if !predicate_ops.contains(&op) {
+                ExprKind::NumericPredicate { op, .. }
+                    if !predicate_ops.contains(&op) => {
                         predicate_ops.push(op);
                     }
-                }
                 _ => {}
             }
         }
@@ -1465,11 +1464,11 @@ const values = [" a ", " "].filter(value => !!value.trim());
 fn coerces_erased_string_trim_receiver_inside_callback_body() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function clean(value: any): any[] {
   return [value].filter(item => !!item.trim());
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1494,11 +1493,11 @@ function clean(value: any): any[] {
 fn first_class_array_is_array_respects_shadowing() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const Array = { isArray: (value: unknown): boolean => false };
 const predicate = Array.isArray;
 const result = predicate([1]);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1552,13 +1551,13 @@ const remapped = Object.fromEntries(Object.entries(mapping).map(([key, value]) =
 fn lowers_static_record_projection_utilities() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const utils: unknown;
 const mapping: Record<string, number> = { a: 1, b: 2 };
 const keys = utils.keys(mapping);
 const values = utils.values(mapping);
 const entries = utils.entries(mapping);
-"#),
+"),
         &mut ctx,
     )?;
     let second_module = module(&ctx, module_id)?;
@@ -1580,11 +1579,11 @@ const entries = utils.entries(mapping);
 fn lowers_static_array_reduce_utility() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const utils: unknown;
 const values: number[] = [1, 2, 3];
 const total = utils.reduce(values, (acc, value) => acc + value, 0);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1602,7 +1601,7 @@ const total = utils.reduce(values, (acc, value) => acc + value, 0);
 fn lowers_static_record_reduce_utility_to_accumulator_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const utils: unknown;
 const mapping: Record<string, { writable?: boolean }> = { a: { writable: false } };
 const hidden = utils.reduce(
@@ -1610,7 +1609,7 @@ const hidden = utils.reduce(
   (acc, attr, attrName) => (attr.writable === false ? acc.concat(attrName) : acc),
   [] as string[]
 );
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1628,7 +1627,7 @@ const hidden = utils.reduce(
 fn lowers_interface_index_signature_field_access() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Attribute {
   type: string;
   [key: string]: any;
@@ -1636,7 +1635,7 @@ interface Attribute {
 function requiresValidation(attribute: Attribute) {
   return attribute.required || attribute.unique;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -1648,10 +1647,10 @@ function requiresValidation(attribute: Attribute) {
 fn lowers_object_assign_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const source: Record<string, number> = { a: 1 };
 const merged = Object.assign({}, source, { b: 2 });
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1669,7 +1668,7 @@ const merged = Object.assign({}, source, { b: 2 });
 fn lowers_object_assign_with_optional_interface_source() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Options {
   addSuffix?: boolean;
 }
@@ -1680,7 +1679,7 @@ function merge(options?: Options): Record<string, unknown> {
     comparison: 1,
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1692,13 +1691,13 @@ function merge(options?: Options): Record<string, unknown> {
 fn lowers_module_global_array_with_null_elements() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const daysInMonths = [31, null, 31];
 
 function days(month: number): number {
   return daysInMonths[month] || 28;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1734,7 +1733,7 @@ function parseYear(dateString: string, additionalDigits: number): string[] | und
 fn lowers_optional_string_length_after_truthy_guard() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface DateString {
   date?: string;
 }
@@ -1745,7 +1744,7 @@ function read(dateStrings: DateString): number {
   }
   return 0;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1757,13 +1756,13 @@ function read(dateStrings: DateString): number {
 fn lowers_global_is_nan_with_coercible_unknown() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function read(): boolean {
   let offset;
   offset = 1;
   return isNaN(offset);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1775,11 +1774,11 @@ function read(): boolean {
 fn lowers_global_is_nan_with_optional_number() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function read(value: number | undefined): boolean {
   return value != null && isNaN(value);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1811,12 +1810,12 @@ function read(value: number | undefined): boolean {
 fn lowers_console_warn_and_error_like_console_log() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function warn(message: string): void {
   console.warn(message);
   console.error(message);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1828,11 +1827,11 @@ function warn(message: string): void {
 fn lowers_error_constructor_with_unknown_message() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function fail(message: unknown): void {
   throw new RangeError(message);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1844,11 +1843,11 @@ function fail(message: unknown): void {
 fn lowers_date_timezone_offset_as_number() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function offset(date: Date): number {
   return Math.abs(date.getTimezoneOffset());
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1921,12 +1920,12 @@ const inMidway = tz("Pacific/Midway");
 fn lowers_qualified_external_type_reference_as_opaque_class() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function fakeDate(): void {
   let clock: sinon.SinonFakeTimers | undefined;
   clock = undefined;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1938,7 +1937,7 @@ function fakeDate(): void {
 fn lowers_nested_function_declaration_as_local_closure() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function outer(value: number): { inner: (next: number) => void } {
   let current = value;
   function inner(next: number) {
@@ -1946,7 +1945,7 @@ function outer(value: number): { inner: (next: number) => void } {
   }
   return { inner };
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1964,7 +1963,7 @@ fn lowers_nested_function_declaration_with_rest_parameter() -> Result<(), String
     // lowered yet".
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function outer(): (value: number) => number {
   function collect(first: number, ...rest: number[]): number {
     let total = first;
@@ -1977,7 +1976,7 @@ function outer(): (value: number) => number {
     return collect(value, value, value);
   };
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1989,7 +1988,7 @@ function outer(): (value: number) => number {
 fn lowers_sinon_fake_timers_helper_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function fakeDate(date: number | Date): { fakeNow: (date: number | Date) => void } {
   let clock: sinon.SinonFakeTimers | undefined;
   function fakeNow(date: number | Date) {
@@ -1998,7 +1997,7 @@ function fakeDate(date: number | Date): { fakeNow: (date: number | Date) => void
   }
   return { fakeNow };
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2010,7 +2009,7 @@ function fakeDate(date: number | Date): { fakeNow: (date: number | Date) => void
 fn lowers_do_while_statement() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function countDown(value: number): number {
   let current = value;
   do {
@@ -2018,7 +2017,7 @@ function countDown(value: number): number {
   } while (current > 0);
   return current;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2030,11 +2029,11 @@ function countDown(value: number): number {
 fn lowers_unknown_static_field_access() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function read(value: unknown): unknown {
   return value.date;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2046,11 +2045,11 @@ function read(value: unknown): unknown {
 fn lowers_unknown_index_access() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function read(values: unknown, index: number): unknown {
   return values[index];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2088,13 +2087,13 @@ describe("group", () => {
 fn lowers_object_values_through_partial_record_alias() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Boxed<T> = Partial<Record<string, T[]>>;
 
 function values(result: Boxed<number>): number {
   return Object.values(result).length;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2143,9 +2142,9 @@ it("checks date", () => {
 fn lowers_intl_timezone_probe_for_test_labels() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || process.env.tz;
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2210,11 +2209,11 @@ function formatDistance(value: number, unit: string, options?: Options): string 
 fn lowers_guarded_dynamic_date_constructor_identifier() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function transpose(constructor: unknown): Date {
   return new constructor(0);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2223,7 +2222,7 @@ function transpose(constructor: unknown): Date {
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(0.0))))
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(0.0_f64))))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -2233,13 +2232,13 @@ function transpose(constructor: unknown): Date {
 fn lowers_local_arrow_defaults_referencing_prior_params() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const override = (
   base: Date,
   year = base.getFullYear(),
   month = base.getMonth(),
 ) => new Date(year, month);
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2251,7 +2250,7 @@ const override = (
 fn lowers_for_each_statement_callback_as_loop() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function maxValue(values: number[]): number {
   let result = 0;
   values.forEach((value, index) => {
@@ -2260,7 +2259,7 @@ function maxValue(values: number[]): number {
   });
   return result;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2272,7 +2271,7 @@ function maxValue(values: number[]): number {
 fn lowers_for_each_statement_on_logical_or_empty_array_fallback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Column = { name: string };
 type Table = { columns?: Column[] };
 
@@ -2281,7 +2280,7 @@ declare function createColumn(column: Column): void;
 function build(table: Table): void {
   (table.columns || []).forEach((column) => createColumn(column));
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2293,7 +2292,7 @@ function build(table: Table): void {
 fn keeps_for_of_bindings_scoped_before_later_helper_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type ForeignKey = { name: string };
 
 function dropForeignKey(key: ForeignKey): void {}
@@ -2306,7 +2305,7 @@ function alter(removed: ForeignKey[], updated: { object: ForeignKey }[]): void {
     dropForeignKey(updatedForeignKey.object);
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2318,7 +2317,7 @@ function alter(removed: ForeignKey[], updated: { object: ForeignKey }[]): void {
 fn keeps_returned_object_method_locals_from_shadowing_later_arrow_helpers() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type ForeignKey = { name: string };
 type Table = { name: string, foreignKeys: { removed: ForeignKey[], updated: { object: ForeignKey }[] } };
 type SchemaDiff = { tables: { updated: Table[], removed: Table[] } };
@@ -2357,7 +2356,7 @@ export default () => {
 };
 
 declare function schemaBuilder(callback: () => Promise<void>): Promise<void>;
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2369,14 +2368,14 @@ declare function schemaBuilder(callback: () => Promise<void>): Promise<void>;
 fn pushes_async_transform_into_sync_or_promise_function_array() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Data = Record<string, unknown>;
 
 function add(transforms: Array<(data: Data) => Data | Promise<Data>>): void {
   const routeBodySanitizeTransform = async (data: Data): Promise<Data> => data;
   (transforms as Array<(data: Data) => Data | Promise<Data>>).push(routeBodySanitizeTransform);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2394,7 +2393,7 @@ fn pushes_optional_param_callback_into_shorter_function_array() -> Result<(), St
     // raising "array push argument must match the array element type".
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class Sema {
   private deferredTasks: Array<() => void> = [];
   acquire(): Promise<void> {
@@ -2404,7 +2403,7 @@ class Sema {
   }
 }
 export { Sema };
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2416,13 +2415,13 @@ export { Sema };
 fn lowers_method_call_on_erased_function_receiver_as_unknown() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type CallableObject = (() => void) & { getSchemaName(): string | undefined };
 
 function read(db: CallableObject): string | undefined {
   return db.getSchemaName();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2441,12 +2440,12 @@ fn lowers_unmodeled_method_call_on_builtin_receiver_through_dynamic_boundary()
     // already are.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function cmp(a: string, b: string): number {
   a.localeCompare(b);
   return a.length - b.length;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2460,12 +2459,12 @@ fn lowers_unmodeled_method_call_on_template_string_receiver() -> Result<(), Stri
     // same non-class method-call path and must lower instead of aborting.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function cmp(a: string, b: string): number {
   `${a}`.localeCompare(b);
   return 0;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2480,12 +2479,12 @@ fn lowers_unmodeled_method_call_on_record_receiver() -> Result<(), String> {
     // non-class value.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function touch(record: Record<string, number>): number {
   (record as any).clearWeird();
   return Object.keys(record).length;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2577,7 +2576,7 @@ class Identifiers {
 fn lowers_private_field_assignment_in_constructor() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Options = { maxLength: number };
 
 class Identifiers {
@@ -2591,7 +2590,7 @@ class Identifiers {
     return this.#options;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2637,7 +2636,7 @@ declare function createRelation(name: string, metadata: Metadata): void;
 fn lowers_exported_object_methods_without_return_annotations() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Event = { params: { data: unknown } };
 type Subscriber = { beforeCreate(event: Event): void };
 
@@ -2649,7 +2648,7 @@ export const subscriber: Subscriber = {
 };
 
 declare function touch(value: unknown): void;
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2661,11 +2660,11 @@ declare function touch(value: unknown): void;
 fn lowers_for_each_statement_function_callback_as_list_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function call(data: readonly number[], callbackfn: (value: number, index: number, data: readonly number[]) => void): void {
   data.forEach(callbackfn);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2686,7 +2685,7 @@ function call(data: readonly number[], callbackfn: (value: number, index: number
 fn packs_normal_and_spread_arguments_into_rest_parameter() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function collect(first: number, ...rest: number[]): number {
   return rest.length;
 }
@@ -2694,7 +2693,7 @@ function collect(first: number, ...rest: number[]): number {
 function call(values: number[]): number {
   return collect(1, 2, ...values);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2797,7 +2796,7 @@ function call<Values extends unknown[]>(values: Values): unknown[] {
 fn selects_array_rest_overload_for_conditional_array_spread() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function normalize(context: unknown, ...values: [number, number]): [number, number];
 function normalize(context: unknown, ...values: number[]): number[];
 function normalize(context: unknown, ...values: number[]): number[] {
@@ -2807,7 +2806,7 @@ function normalize(context: unknown, ...values: number[]): number[] {
 function call(context: unknown, comparison: number, left: number, right: number): number[] {
   return normalize(context, ...(comparison > 0 ? [left, right] : [right, left]));
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -2824,12 +2823,12 @@ function call(context: unknown, comparison: number, left: number, right: number)
 fn lowers_tuple_rest_destructuring_as_list() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function pick(index: number): number {
   const [first, ...rest] = [1, 2, 3] as [number, number, number];
   return rest[index];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2841,7 +2840,7 @@ function pick(index: number): number {
 fn lowers_array_sort_with_function_reference_comparator() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function compare(left: number, right: number): number {
   return left - right;
 }
@@ -2849,7 +2848,7 @@ function compare(left: number, right: number): number {
 function sortValues(values: number[]): number[] {
   return values.sort(compare);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2861,10 +2860,10 @@ function sortValues(values: number[]): number[] {
 fn preserves_set_item_type_through_spread_sort() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const sampleIndices = new Set<number>();
 const sorted = [...sampleIndices].sort((a, b) => a - b);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -2875,12 +2874,12 @@ const sorted = [...sampleIndices].sort((a, b) => a - b);
 fn lowers_callback_dynamic_index_with_non_null_assertion() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function sample<T>(data: readonly T[]): T[] {
   const sampleIndices = new Set<number>();
   return [...sampleIndices].sort((a, b) => a - b).map((index) => data[index]!);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -2891,12 +2890,12 @@ function sample<T>(data: readonly T[]): T[] {
 fn lowers_sort_with_comparator_function_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const sortByImplementation = <T>(
   data: readonly T[],
   compareFn: (left: T, right: T) => number,
 ): T[] => [...data].sort(compareFn);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -2947,13 +2946,13 @@ test("range error", () => {
 fn lowers_constructor_field_on_date_like_values() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const value = new Date(0);
 const ctor = value.constructor;
 class CustomDate extends Date {}
 const custom = new CustomDate(0);
 const customCtor = custom.constructor;
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2991,7 +2990,7 @@ const name = user.name;
 fn lowers_unannotated_class_getters_as_unknown_fields() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class Validator {
   public get scalarFieldsEnum() {
     return {};
@@ -2999,7 +2998,7 @@ class Validator {
 }
 const validator = new Validator();
 const value = validator.scalarFieldsEnum;
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3011,7 +3010,7 @@ const value = validator.scalarFieldsEnum;
 fn lowers_block_scoped_class_declarations() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function make(): void {
   class CustomDate extends Date {}
   function acceptDate(value: CustomDate): void {}
@@ -3022,7 +3021,7 @@ function make(): void {
   const base = new Date(0);
   base instanceof CustomDate;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3034,7 +3033,7 @@ function make(): void {
 fn lowers_block_scoped_type_declarations() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function check(): void {
   interface AB {
     a: number;
@@ -3044,7 +3043,7 @@ function check(): void {
   const item: Boxed = { value: { a: 1, b: 2 } };
   item.value.a;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3077,11 +3076,11 @@ it("checks extension date", () => {
 fn allows_map_get_with_union_member_key_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function lookup<T, S>(map: Map<S | T, number>, value: T): number | undefined {
   return map.get(value);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3137,11 +3136,11 @@ function hasEnumerable(data: unknown): boolean {
 fn lowers_object_get_own_property_symbols_length() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function symbolCount(data: unknown): number {
   return Object.getOwnPropertySymbols(data).length;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3153,7 +3152,7 @@ function symbolCount(data: unknown): number {
 fn lowers_uninitialized_let_as_unknown_for_date_coercion() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function parseDate(): Date {
   return new Date(0);
 }
@@ -3163,7 +3162,7 @@ function read(): number {
   date = parseDate();
   return +date;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3175,10 +3174,10 @@ function read(): number {
 fn lowers_object_assign_call_on_callable_target() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const fnValue = (value: number): number => value;
 const assigned = Object.assign(fnValue, { lazy: fnValue });
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3194,12 +3193,12 @@ const assigned = Object.assign(fnValue, { lazy: fnValue });
 fn lowers_object_assign_call_on_inline_callable_target() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const assigned = Object.assign(
   (value: number): number => value,
   { flush: (): number => 1 },
 );
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3215,24 +3214,24 @@ const assigned = Object.assign(
 fn local_function_implementations_shadow_cross_module_overloads() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Debouncer<F> = { readonly call: () => void };
 function debounce<F>(func: F): Debouncer<F>;
 function debounce<F>(func: F): Debouncer<F> {
   return { call: () => {} };
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function debounce(func: () => void) {
   return Object.assign(func, { cancel: () => {} });
 }
 
 const debounced = debounce(() => {});
 debounced();
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3245,7 +3244,7 @@ debounced();
 fn infers_async_arrow_const_return_type_from_await_body() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -3257,7 +3256,7 @@ async function run(): Promise<void> {
 }
 
 const yieldExecution = async () => await sleep(0);
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3270,7 +3269,7 @@ const yieldExecution = async () => await sleep(0);
 fn lowers_ignored_promise_then_catch_chain() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 async function load(values: number[]): Promise<number[]> {
   return values;
 }
@@ -3282,7 +3281,7 @@ function run(values: number[]): void {
     })
     .catch((_error) => {});
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3295,11 +3294,11 @@ function run(values: number[]): void {
 fn lowers_array_spread_from_generic_accumulator_fallback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function append<T>(items: T | undefined, item: number): number[] {
   return [...(items ?? []), item];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3414,13 +3413,13 @@ export const VALUES = Object.values(DATA);
 fn lowers_generic_promise_constructor_executor_as_future() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function makeValue(): Promise<number> {
   return new Promise<number>((resolve) => {
     resolve(1);
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3433,14 +3432,14 @@ function makeValue(): Promise<number> {
 fn lowers_named_promise_constructor_executor_as_future() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function makeQueue(): Promise<number[]> {
   const processor = async (resolve: (value: number[]) => void) => {
     resolve([1, 2]);
   };
   return new Promise(processor);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3461,7 +3460,7 @@ function makeQueue(): Promise<number[]> {
 fn preserves_optional_callback_local_in_async_generic_arrow() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare function range(start: number, end: number): number[];
 declare function sleep(milliseconds: number): Promise<void>;
 
@@ -3476,7 +3475,7 @@ export const retry = async <TResponse>(options: {
   }
   return undefined as unknown as TResponse;
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -3487,13 +3486,13 @@ export const retry = async <TResponse>(options: {
 fn lowers_postfix_update_as_call_argument() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function collect(value: number): number {
   return value;
 }
 let index = 0;
 const previous = collect(index++);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3510,10 +3509,10 @@ const previous = collect(index++);
 fn lowers_function_length_to_len_expr() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const fnValue = (left: number, right: number): number => left + right;
 const arity = fnValue.length;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3531,7 +3530,7 @@ const arity = fnValue.length;
 fn lowers_function_bind_result_as_array_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function add(left: number, right: number): number {
   return left + right;
 }
@@ -3540,7 +3539,7 @@ function shift(values: number[]): number[] {
   const addOne = add.bind(null, 1);
   return values.map(addOne);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3631,7 +3630,7 @@ function max(dates: unknown[]): unknown {
 fn selects_tuple_rest_overload_from_source_arguments() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function pair(...values: [number, number]): [number, number];
 function pair(...values: number[]): number[] {
   return values;
@@ -3645,7 +3644,7 @@ function pairWithSeed(seed: number, ...values: number[]): number[] {
 }
 
 const selectedWithSeed = pairWithSeed(0, 1, 2);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3700,7 +3699,7 @@ fn infers_generic_param_from_array_arm_of_union_callback_return() -> Result<(), 
     // gate.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function flatMap<T, U>(
   data: readonly T[],
   callbackfn: (value: T, index: number, data: readonly T[]) => readonly U[] | U,
@@ -3710,7 +3709,7 @@ function flatMap(...args: readonly unknown[]): unknown {
 }
 
 const result = flatMap([1, 2], (x) => [x * 2, x * 3]);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -3776,13 +3775,13 @@ function read(options?: DefaultOptions): number {
 fn lowers_never_rest_strict_function_spread_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type StrictFunction = (...args: never) => unknown;
 
 function callStrict(fn: StrictFunction, args: readonly unknown[]): unknown {
   return fn(...args);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3801,7 +3800,7 @@ function callStrict(fn: StrictFunction, args: readonly unknown[]): unknown {
 fn allows_strict_function_as_function_argument() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type StrictFunction = (...args: never) => unknown;
 
 function dataLast(fn: StrictFunction, args: readonly unknown[]): unknown {
@@ -3811,7 +3810,7 @@ function dataLast(fn: StrictFunction, args: readonly unknown[]): unknown {
 function purry(fn: StrictFunction, args: readonly unknown[]): unknown {
   return dataLast(fn, args);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3830,14 +3829,14 @@ function purry(fn: StrictFunction, args: readonly unknown[]): unknown {
 fn lowers_parenthesized_callable_intersection_type_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type LazyFn = (value: unknown) => unknown;
 type LazyMeta = { readonly single?: boolean };
 export type LazyDefinition = {
   readonly lazy: LazyMeta & ((...args: any) => LazyFn);
   readonly lazyArgs: readonly unknown[];
 };
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3856,7 +3855,7 @@ export type LazyDefinition = {
 fn keeps_callable_alias_intersections_callable_after_reference() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type LazyEvaluator<T = unknown, R = T> = (
   item: T,
   index: number,
@@ -3872,7 +3871,7 @@ function processItem(lazyFn: PreparedLazyFunction<number>): number {
   const { index, items } = lazyFn;
   return lazyFn(1, index, items);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3920,14 +3919,14 @@ function direction<T>(primaryRule: OrderRule<T>): string {
 fn calls_callable_branch_of_union_local_and_nested_result() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Curried = ((value: number) => Curried | string) | string;
 
 function run(fn: Curried): string {
   const first = fn(3);
   return first(2) as string;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -3948,7 +3947,7 @@ function run(fn: Curried): string {
 fn calls_overloaded_interface_call_signature_by_argument_count() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Step1 {
   (): Step1;
   (value: number): string;
@@ -3964,7 +3963,7 @@ function run(fn: Step2): string {
   const first = fn(2);
   return first(1);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4015,11 +4014,11 @@ fn preserves_optional_and_rest_arity_on_interface_method_field() -> Result<(), S
     // hardcoded `rest: None, required_params: None`, masking the real arity.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Logger {
   log(message: string, level?: string, ...extra: string[]): void;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4046,14 +4045,14 @@ fn narrows_optional_local_after_nullish_default_assignment() -> Result<(), Strin
     // E0308: expected `Option<f64>`, found `f64`).
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function idx<T>(array: T[], fromIndex?: number): number {
   fromIndex = fromIndex ?? 0;
   let i = fromIndex;
   i = i + 1;
   return i;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -4063,8 +4062,7 @@ export function idx<T>(array: T[], fromIndex?: number): number {
         local
             .name
             .and_then(|name| ctx.krate.names.get(name))
-            .map(|name| name == "i")
-            .unwrap_or(false)
+            .is_some_and(|name| name == "i")
             && matches!(ctx.krate.types.get(local.ty), Some(Type::Float | Type::Int))
     });
     ensure!(
@@ -4086,7 +4084,7 @@ fn flattens_nested_union_from_composed_type_alias() -> Result<(), String> {
     // (`expected String, found SmeltRecord`).
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Criterion<T> = ((item: T) => unknown) | PropertyKey | PropertyKey[] | null | undefined;
 export function pick<T>(
   criterion: Criterion<T> | { key: PropertyKey; path: string[] },
@@ -4094,7 +4092,7 @@ export function pick<T>(
 ): T {
   return object;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -4120,11 +4118,11 @@ fn preserves_required_arity_on_callable_type_alias() -> Result<(), String> {
     // to `params.len()` and rejecting or erasing legal partial calls.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Holder {
   handler: (first: number, second?: number) => number;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4149,7 +4147,7 @@ fn types_curried_under_application_through_callable_field_signature() -> Result<
     // the erased arity-short fallback. The HIR must validate cleanly.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Curried {
   (seed: number): Inner;
 }
@@ -4162,7 +4160,7 @@ function run(make: Curried): number {
   const inner = make(1);
   return inner();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4203,7 +4201,7 @@ fn missing_required_param_before_rest_slot_erases_under_application() -> Result<
     // never synthesize a typed `None` for the non-optional `first`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Factory {
   (seed: number): Handler;
 }
@@ -4215,7 +4213,7 @@ interface Handler {
 function run(make: Factory): number {
   return make(1)();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4240,7 +4238,7 @@ function run(make: Factory): number {
 fn lowers_unhinted_function_expression_object_property_as_unknown_callable() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function build(args: { callback?: unknown }): unknown {
   return args.callback;
 }
@@ -4250,7 +4248,7 @@ const result = build({
     return Number(value) - 1;
   },
 });
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4394,7 +4392,7 @@ export function read(value: unknown): () => string {
 fn lowers_async_arrow_expression_object_property() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type AsyncCaller = {
   readonly call: (...params: number[]) => Promise<void>;
 };
@@ -4405,7 +4403,7 @@ export function makeCaller(): AsyncCaller {
       new Promise<void>((resolve) => setTimeout(resolve, 1)),
   };
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4442,7 +4440,7 @@ export function makeCaller(): AsyncCaller {
 fn lowers_function_local_arrow_forward_references() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function run(): void {
   const first = (): void => {
     second();
@@ -4450,7 +4448,7 @@ export function run(): void {
   const second = (): void => {};
   first();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4463,13 +4461,13 @@ export function run(): void {
 fn lowers_nullish_assignment_on_optional_locals() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function read(value: number | undefined): number | undefined {
   const now = 1;
   value ??= now;
   return value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4482,12 +4480,12 @@ export function read(value: number | undefined): number | undefined {
 fn lowers_logical_or_assignment_as_lazy_value_selection() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function initialize(value: number): number {
   value ||= 3;
   return value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -4544,11 +4542,11 @@ export function read<R>({ minQuietPeriodMs }: Options<R>): number {
 fn infers_function_parameter_types_from_defaults() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function delay(wait = 0): number {
   return wait + 1;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4681,12 +4679,12 @@ function generic<T>(value: T, key: string): boolean {
 fn lowers_computed_destructuring_key_with_type_assertion() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function pick<T>(value: T, key: string): unknown {
   const { [key as keyof T]: picked } = value;
   return picked;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -4705,9 +4703,9 @@ function pick<T>(value: T, key: string): unknown {
 fn lowers_generic_record_key_aliases_for_later_instantiation() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type UpsertProp<T, K extends PropertyKey, V> = T & Record<K, V>;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -4753,11 +4751,11 @@ type UnionRecord = Record<number, string> | Record<string, number>;
 fn lowers_template_literal_tuple_element_types() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Entry = readonly [`testing_${string}`, boolean];
 type Entries = readonly Entry[];
 type BigIntLiterals = 1n | 2n | 3n;
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -4775,13 +4773,13 @@ type BigIntLiterals = 1n | 2n | 3n;
 fn lowers_top_level_arrow_const_used_by_later_function() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const compare = (left: number, right: number): number => left - right;
 
 function sortValues(values: number[]): number[] {
   return values.toSorted(compare);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -4800,7 +4798,7 @@ function sortValues(values: number[]): number[] {
 fn lowers_object_static_function_references() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function useUnary(fn: (value: unknown) => unknown): unknown {
   return fn([]);
 }
@@ -4815,7 +4813,7 @@ const keys = useUnary(Object.keys);
 const rebuilt = useUnary(Object.fromEntries);
 const same = useBinary(Object.is);
 const owned = useBinary(Object.hasOwn);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -4860,10 +4858,10 @@ const values = ["a", "b"].map((item) => typeof item);
 fn lowers_object_spread_literals_as_ordered_assignments() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const base: Record<string, number> = { a: 1, b: 2 };
 const merged: Record<string, number> = { ...base, b: 3, c: 4 };
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -4881,14 +4879,14 @@ const merged: Record<string, number> = { ...base, b: 3, c: 4 };
 fn lowers_generic_object_spread_with_computed_key() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type UpsertProp<T, K extends PropertyKey, V> = T & Record<K, V>;
 export const addPropImplementation = <T, K extends PropertyKey, V>(
   obj: T,
   prop: K,
   value: V,
 ): UpsertProp<T, K, V> => ({ ...obj, [prop]: value });
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -4915,7 +4913,7 @@ export const addPropImplementation = <T, K extends PropertyKey, V>(
 fn lowers_optional_object_spread_for_option_bags() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Options {
   value?: number;
 }
@@ -4923,7 +4921,7 @@ interface Options {
 function merge(options?: Options): Record<string, number> {
   return { ...options, value: 1 };
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -4935,14 +4933,14 @@ function merge(options?: Options): Record<string, number> {
 fn lowers_conditional_object_spread_sources() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function merge(maxWait: number | undefined): Record<string, number> {
   return {
     minQuietPeriodMs: 0,
     ...(maxWait !== undefined && { maxBurstDurationMs: maxWait }),
   };
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -4994,12 +4992,12 @@ function merge(trailing: boolean, leading: boolean): Record<string, string> {
 fn lowers_type_assertion_call_arguments_with_asserted_object_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function readA(value: Record<string, string>): string {
   return value.a;
 }
 const result = readA({} as { a: string });
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -5044,10 +5042,10 @@ test("type assertion", () => {
 fn lowers_json_stringify_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2];
 const text = JSON.stringify(values);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -5066,7 +5064,7 @@ const text = JSON.stringify(values);
 fn lowers_json_stringify_with_optional_union_fields() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const result: {
   license?: string | null;
   error?: string;
@@ -5074,7 +5072,7 @@ const result: {
 } = { lastCheckAt: Date.now() };
 
 const text = JSON.stringify(result);
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -5084,7 +5082,7 @@ const text = JSON.stringify(result);
 fn captures_unannotated_module_let_literals_in_arrow_functions() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 let initialized = false;
 
 const init = () => {
@@ -5094,7 +5092,7 @@ const init = () => {
 
   initialized = true;
 };
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -5104,12 +5102,12 @@ const init = () => {
 fn lowers_node_path_join_and_resolve_static_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import path from 'path';
 
 const configPath = path.join('/tmp', '.strapi-updater.json');
 const resourcePath = path.resolve(__dirname, '../resources/key.pub');
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -5164,10 +5162,10 @@ const values = JSON.parse(text);
 fn lowers_json_parse_with_erased_text_argument() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const parseStored = (result: any) => (result ? JSON.parse(result.value) : result);
 const parseTyped = (result: any) => JSON.parse<Record<string, unknown>>(result.value);
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -5246,11 +5244,11 @@ const objectPatternMatches = patterns.delimiter.test(text);
 fn lowers_regexp_test_with_erased_haystack() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function hasDigits(value: unknown) {
   return /\d+/.test(value);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -5261,7 +5259,7 @@ function hasDigits(value: unknown) {
 fn does_not_route_validation_test_methods_as_regexp() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { yup } from '@strapi/utils';
 
 const schema = yup
@@ -5269,7 +5267,7 @@ const schema = yup
   .test('is-valid-text', 'Text must be defined', (text: unknown) => {
     return typeof text === 'string' || text === '';
   });
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -5303,10 +5301,10 @@ const text = "abc123";
 fn lowers_json_stringify_replacer_and_class_values() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2];
 const text = JSON.stringify(values, null);
-"#),
+"),
         &mut ctx,
     )?;
     let first_module = module(&ctx, module_id)?;
@@ -5382,11 +5380,11 @@ const has = word.includes("mel");
 fn lowers_string_includes_with_position() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function containsFrom(haystack: string, needle: string, from: number): boolean {
   return haystack.includes(needle, from);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module_id;
@@ -5413,10 +5411,10 @@ export function containsFrom(haystack: string, needle: string, from: number): bo
 fn lowers_array_includes_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const has = values.includes(2);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -5435,14 +5433,14 @@ const has = values.includes(2);
 fn lowers_optional_array_includes_before_string_includes() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Includes {
   populate?: string[];
 }
 function run(includes?: Includes) {
   return includes?.populate?.includes('nonAttributesOperators');
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -5453,7 +5451,7 @@ function run(includes?: Includes) {
 fn lowers_set_constructor_and_has_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: Set<number> = new Set([1, 2, 3]);
 const has = values.has(2);
 const empty: Set<string> = new Set();
@@ -5461,7 +5459,7 @@ const genericEmpty = new Set<number>();
 const genericEmptyLiteral = new Set<string>([]);
 const source: readonly number[] = [1, 2, 3];
 const fromSource = new Set(source);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -5494,7 +5492,7 @@ const fromSource = new Set(source);
 fn lowers_rest_parameters_with_type_level_tuple_alias_constraints() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type StrictFunction = (...args: never) => unknown;
 type IterableContainer = readonly unknown[];
 type TuplePrefix<T extends IterableContainer> = readonly unknown[];
@@ -5533,7 +5531,7 @@ export function partialLastBind<
 ) => ReturnType<F> {
   return (...rest) => func(...rest, ...partial);
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -5543,7 +5541,7 @@ export function partialLastBind<
 fn lowers_all_rest_tuple_spread_return_type_as_list() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type IterableContainer = readonly unknown[];
 
 export const concatImplementation = <
@@ -5553,7 +5551,7 @@ export const concatImplementation = <
   arr1: T1,
   arr2: T2,
 ): [...T1, ...T2] => [...arr1, ...arr2];
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -5643,7 +5641,7 @@ fn lowers_bitwise_and_or_xor_operators() -> Result<(), String> {
     // by es-toolkit's `parseHex` (`(colorValue >> 16) & 0xff`).
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function parseHex(value: number): [number, number, number] {
   const red = (value >> 16) & 0xff;
   const green = (value >> 8) & 0xff;
@@ -5651,7 +5649,7 @@ export function parseHex(value: number): [number, number, number] {
   const mixed = (red | green) ^ blue;
   return [red, green, mixed];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -5709,14 +5707,14 @@ fn lowers_number_to_fixed_method_call() -> Result<(), String> {
     // `n.toFixed(1)` method call.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function fmt(n: number): string {
   return n.toFixed(1);
 }
 export function fmtDefault(n: number): string {
   return n.toFixed();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -5743,11 +5741,11 @@ fn lowers_immediately_invoked_function_expressions() -> Result<(), String> {
     // IIFE shape used throughout es-toolkit's compat predicate specs.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export const sum = (function (a: number, b: number): number { return a + b; })(1, 2);
 export const doubled = ((a: number): number => a * 2)(5);
 export const packed = (function (...rest: number[]): number { return rest.length; })(1, 2, 3);
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -5775,12 +5773,12 @@ fn lowers_dynamic_index_access_on_boolean_primitive() -> Result<(), String> {
     // transform.spec.ts `root[type]` where `root` came from `a && b`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function pick(a: boolean, b: boolean, key: string): unknown {
   const root = a && b;
   return root[key];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -5796,13 +5794,13 @@ fn lowers_conditional_with_list_branches_of_differing_element_types() -> Result<
     // `(index ? largeArray : smallArray).slice()`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function pick(index: number): number[] {
   const a = [1, 2, 3];
   const b = [4, 5, 6, null];
   return (index ? a : b).slice() as number[];
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -5850,11 +5848,11 @@ export function membership(record: Record<string, number>): boolean[] {
 fn lowers_array_from_length_mapper() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function range(start: number, length: number, step: number): number[] {
   return Array.from({ length }, (_, i) => (i === 0 ? start : start + i * step));
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -5897,7 +5895,7 @@ fn lowers_array_from_length_without_mapper() -> Result<(), String> {
 fn lowers_zero_arg_computed_member_function_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type QueryParam = 'fields' | 'populate';
 
 const map: Record<QueryParam, () => string> = {
@@ -5907,7 +5905,7 @@ const map: Record<QueryParam, () => string> = {
 
 const param: QueryParam = 'fields';
 const value = map[param]();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -5925,13 +5923,13 @@ const value = map[param]();
 fn lowers_for_each_statement_on_opaque_array_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function addRoutes(routes: any) {
   routes.routes.forEach((route) => {
     route.handler;
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -5942,11 +5940,11 @@ function addRoutes(routes: any) {
 fn lowers_template_literals_inside_array_literals() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const prefix = 'api::';
 const route = { handler: 'article.find' };
 const scope = [`${route.handler.startsWith(prefix) ? '' : prefix}${route.handler}`];
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -5957,7 +5955,7 @@ const scope = [`${route.handler.startsWith(prefix) ? '' : prefix}${route.handler
 fn lowers_lodash_for_each_collection_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import _ from 'lodash';
 
 function register(routes: any) {
@@ -5965,7 +5963,7 @@ function register(routes: any) {
     router.type = router.type || 'admin';
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -5976,7 +5974,7 @@ function register(routes: any) {
 fn lowers_strapi_register_routes_lodash_for_each_shape() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import _ from 'lodash';
 
 const createRouteScopeGenerator = (namespace: string) => (route: any) => {
@@ -6004,7 +6002,7 @@ function register(strapi: any) {
     strapi.server.routes(router);
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6015,7 +6013,7 @@ function register(strapi: any) {
 fn lowers_yup_test_and_await_opaque_async_surfaces() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { yup } from '@strapi/utils';
 
 const schema = yup.mixed().test(() => false);
@@ -6029,7 +6027,7 @@ const validate = async (config: unknown) => {
   await schema.validate(config, { strict: true });
   await arraySchema.validate(config, { strict: true });
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6040,13 +6038,13 @@ const validate = async (config: unknown) => {
 fn lowers_callback_instanceof_dynamic_constructor() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const mappings = [{ classError: Error, status: 400 }];
 
 function format(error: unknown) {
   return mappings.find((pair) => error instanceof pair.classError);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6057,7 +6055,7 @@ function format(error: unknown) {
 fn lowers_ambient_module_and_this_in_function_expression() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare module 'koa' {
   interface BaseResponse {
     send: (data: any, status?: number) => void;
@@ -6069,7 +6067,7 @@ response.send = function send(data, status = 200) {
   this.status = status;
   this.body = data;
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6080,7 +6078,7 @@ response.send = function send(data, status = 200) {
 fn lowers_top_level_destructured_module_globals_in_functions() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { contentTypes as contentTypesUtils } from '@strapi/utils';
 
 const {
@@ -6094,7 +6092,7 @@ function addTimestamps(schema: any) {
     [UPDATED_AT_ATTRIBUTE]: { type: 'datetime' },
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6105,7 +6103,7 @@ function addTimestamps(schema: any) {
 fn lowers_lodash_has_path_predicates() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import _ from 'lodash';
 
 function addOptions(schema: any) {
@@ -6113,7 +6111,7 @@ function addOptions(schema: any) {
     schema.options = { draftAndPublish: false };
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6124,7 +6122,7 @@ function addOptions(schema: any) {
 fn lowers_typeof_undefined_checks() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function shouldCount(withCount?: boolean): boolean {
   if (typeof withCount === 'undefined') {
     return false;
@@ -6132,7 +6130,7 @@ function shouldCount(withCount?: boolean): boolean {
 
   return typeof withCount !== 'undefined';
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6142,13 +6140,13 @@ function shouldCount(withCount?: boolean): boolean {
 fn lowers_external_static_member_new_expressions() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { errors } from '@strapi/utils';
 
 function fail(): never {
   throw new errors.ValidationError('invalid');
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6158,7 +6156,7 @@ function fail(): never {
 fn lowers_object_metadata_mutation_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const target = {};
 const proto = {};
 Object.setPrototypeOf(target, proto);
@@ -6166,7 +6164,7 @@ Object.defineProperty(target, Symbol('custom'), {
   writable: false,
 });
 Object.freeze(target);
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6176,7 +6174,7 @@ Object.freeze(target);
 fn lowers_node_dirname_buffer_and_error_call_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { resolve } from 'path';
 
 const keyPath = resolve(__dirname, '../key.pub');
@@ -6187,7 +6185,7 @@ const payload = Buffer.alloc(3);
 function fail(): never {
   throw Error('bad license');
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -6205,7 +6203,7 @@ function fail(): never {
 fn lowers_error_subclass_construction() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 class LicenseCheckError extends Error {
   shouldFallback = false;
 
@@ -6222,7 +6220,7 @@ function fail(): never {
 const failLater = () => {
   throw new LicenseCheckError('bad license', true);
 };
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6232,7 +6230,7 @@ const failLater = () => {
 fn lowers_cron_style_math_floor_and_negated_filter_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { isEmpty, negate } from 'lodash/fp';
 
 const COMPONENTS: { limit: number }[] = [{ limit: 60 }];
@@ -6245,7 +6243,7 @@ const shift = (component: string, index: number) => {
 };
 
 export const clean = (rule: string) => rule.trim().split(' ').filter(negate(isEmpty));
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6255,7 +6253,7 @@ export const clean = (rule: string) => rule.trim().split(' ').filter(negate(isEm
 fn lowers_complex_object_getters_as_opaque_values() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 let cached: string[];
 
 const router = {
@@ -6267,7 +6265,7 @@ const router = {
     return cached;
   },
 };
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6277,12 +6275,12 @@ const router = {
 fn lowers_asserted_arrow_array_callbacks() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const values = [{ type: 'dynamiczone' }, { type: 'text' }];
 const has = values.some(
   (({ type }: { type: string }) => type === 'dynamiczone' || type === 'component') as any
 );
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6292,7 +6290,7 @@ const has = values.some(
 fn lowers_imported_value_alias_const_references() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { createId } from '@paralleldrive/cuid2';
 
 export const createDocumentId = createId;
@@ -6300,7 +6298,7 @@ export const createDocumentId = createId;
 const attribute = {
   documentId: { type: 'string', default: createDocumentId },
 };
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6310,14 +6308,14 @@ const attribute = {
 fn lowers_computed_member_object_keys() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function model(identifiers: any, entityId: string) {
   return {
     [identifiers.ID_COLUMN]: { type: 'increments' },
     [entityId]: { type: 'integer' },
   };
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6327,13 +6325,13 @@ function model(identifiers: any, entityId: string) {
 fn lowers_truthy_dynamic_index_filter_callbacks() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const model: { attributes: Record<string, { type: string }> } = {
   attributes: { documentId: { type: 'string' } },
 };
 
 const columns = ['documentId', 'locale', 'publishedAt'].filter((name) => model.attributes[name]);
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6343,7 +6341,7 @@ const columns = ['documentId', 'locale', 'publishedAt'].filter((name) => model.a
 fn lowers_nested_function_self_property_references() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function createFetch() {
   function strapiFetch(url: string) {
     const options = {
@@ -6356,7 +6354,7 @@ function createFetch() {
   strapiFetch.dispatcher = {};
   return strapiFetch;
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6366,7 +6364,7 @@ function createFetch() {
 fn lowers_function_expression_captures_and_qualified_interface_extends() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import http from 'http';
 
 export interface Server extends http.Server {
@@ -6390,7 +6388,7 @@ function create(koaApp: any) {
 
   return listener;
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6400,7 +6398,7 @@ function create(koaApp: any) {
 fn lowers_unannotated_catch_error_property_guards() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function resolve(resolve: string) {
   try {
     return require.resolve(resolve);
@@ -6412,7 +6410,7 @@ function resolve(resolve: string) {
     throw error;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6422,14 +6420,14 @@ function resolve(resolve: string) {
 fn local_unknown_callable_shadows_same_named_item() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const run = () => {
   const { get } = ({} as any);
   return get();
 };
 
 const get = (featureName: string) => featureName;
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6439,7 +6437,7 @@ const get = (featureName: string) => featureName;
 fn preserves_callable_return_for_erased_function_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import type { Modules } from '@strapi/types';
 
 export const createStrapiFetch = (): Modules.Fetch.Fetch => {
@@ -6455,7 +6453,7 @@ async function readTrial(): Promise<unknown> {
   const res = await silentFetch('https://example.com', { method: 'GET' });
   return res.json();
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -6503,14 +6501,14 @@ const unionValue = use(
 fn lowers_untyped_map_and_erased_map_mutations() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const pairs = new Map();
 
 function remember(rawKey: unknown, rawValue: unknown) {
   pairs.set(rawKey, rawValue);
   pairs.delete(rawKey);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6521,13 +6519,13 @@ function remember(rawKey: unknown, rawValue: unknown) {
 fn lowers_array_from_collection_and_unknown_sources() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function keysFromMap(input: Map<string, number>, opaque: unknown) {
   const keys = Array.from(input.keys());
   const anyItems = Array.from(opaque);
   return keys.length + anyItems.length;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6538,14 +6536,14 @@ function keysFromMap(input: Map<string, number>, opaque: unknown) {
 fn lowers_erased_union_callable_and_nullish_fallback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type MaybeBuilder = unknown | ((table: string) => unknown);
 
 function run(trx: MaybeBuilder, maybeName: unknown) {
   const tableName = maybeName ?? 'articles';
   return trx(tableName as string);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6556,13 +6554,13 @@ function run(trx: MaybeBuilder, maybeName: unknown) {
 fn lowers_any_tuple_elements_and_erased_number_casts() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Row = [string, any];
 
 function read(row: Row, raw: { value: unknown }) {
   return Number(raw.value) + row.length;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6573,12 +6571,12 @@ function read(row: Row, raw: { value: unknown }) {
 fn lowers_map_from_existing_entries_and_boolean_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function clone(input: Map<string, number>, values: unknown[]) {
   const copied = new Map(input.entries());
   return values.filter(Boolean).length + copied.size;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6589,12 +6587,12 @@ function clone(input: Map<string, number>, values: unknown[]) {
 fn lowers_zero_arg_callbacks_and_opaque_reduce_receiver() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(items: unknown) {
   const count = (items as unknown).reduce(() => 0, 0);
   return [1, 2].some(() => true) ? count : 0;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6605,11 +6603,11 @@ function run(items: unknown) {
 fn lowers_dynamic_in_checks_and_erased_math_min() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function pick(keys: unknown[], row: unknown, raw: unknown) {
   return keys.filter((key) => key in row).length + Math.min(raw, 10);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6620,7 +6618,7 @@ function pick(keys: unknown[], row: unknown, raw: unknown) {
 fn lowers_push_spread_and_callback_nullish_coalesce() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function collect(batches: Array<Array<string | null>>) {
   const out: Array<string | null> = [];
   batches.forEach((batch) => {
@@ -6628,7 +6626,7 @@ function collect(batches: Array<Array<string | null>>) {
   });
   return out;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6639,13 +6637,13 @@ function collect(batches: Array<Array<string | null>>) {
 fn lowers_for_await_of_as_async_iterable_loop() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 async function run(source: unknown) {
   for await (const batch of source) {
     await Promise.resolve(batch);
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6656,7 +6654,7 @@ async function run(source: unknown) {
 fn lowers_callback_flat_method_into_closure_body() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(batches: string[][][]) {
   return batches.map((batch, index) => index > 0 ? batch.flat() : batch.flat(1));
 }
@@ -6664,7 +6662,7 @@ function run(batches: string[][][]) {
 function lazy(value: unknown, depth: number) {
   return Array.isArray(value) ? value.flat(depth - 1) : value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -6683,7 +6681,7 @@ function lazy(value: unknown, depth: number) {
 fn lowers_callback_call_method_spread_into_closure_body() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Funnel = { call: (...args: string[]) => void; flush: () => void; cancel: () => void };
 
 function run(funnel: Funnel, args: string[]) {
@@ -6694,7 +6692,7 @@ function run(funnel: Funnel, args: string[]) {
     return value;
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -6718,13 +6716,13 @@ function run(funnel: Funnel, args: string[]) {
 fn lowers_callback_spread_call_through_captured_function_parameter() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type StrictFunction = (...args: unknown[]) => unknown;
 
 function partialBind<F extends StrictFunction>(func: F, ...partial: unknown[]) {
   return (...rest: unknown[]) => func(...partial, ...rest);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -6780,13 +6778,13 @@ function run(
 fn lowers_returned_callback_capturing_function_list() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare function pipe(value: unknown, ...functions: ((input: unknown) => unknown)[]): unknown;
 
 export function piped(...functions: readonly ((input: unknown) => unknown)[]) {
   return (value: unknown): unknown => pipe(value, ...functions);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -6811,7 +6809,7 @@ export function piped(...functions: readonly ((input: unknown) => unknown)[]) {
 fn lowers_callback_assignment_to_migrated_capture() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(values: number[]) {
   let count = 0;
   return values.map((value) => {
@@ -6819,7 +6817,7 @@ function run(values: number[]) {
     return value + count;
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -6838,7 +6836,7 @@ function run(values: number[]) {
 fn lowers_for_await_of_future_batches_with_record_indexing() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function batches(): Promise<Array<Array<string>>> {
   return Promise.resolve([['a']]);
 }
@@ -6849,7 +6847,7 @@ async function run(records: Record<string, string>) {
     records[first];
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6860,12 +6858,12 @@ async function run(records: Record<string, string>) {
 fn lowers_erased_none_index_access_as_unknown() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(key: string) {
   const erased = undefined as unknown as Record<string, string>;
   return erased[key];
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6876,14 +6874,14 @@ function run(key: string) {
 fn lowers_strapi_async_map_with_options() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { async } from '@strapi/utils';
 
 async function run(batch: Array<{ documentId: string; locale: string }>) {
   const discardDraft = async (entry: { documentId: string; locale: string }) => entry.documentId;
   await async.map(batch, discardDraft, { concurrency: 10 });
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6894,11 +6892,11 @@ async function run(batch: Array<{ documentId: string; locale: string }>) {
 fn lowers_buffer_to_string_with_encoding_argument() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(bytes: unknown) {
   return bytes.toString('hex');
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6909,7 +6907,7 @@ function run(bytes: unknown) {
 fn lowers_class_method_reference_for_bind_assignment() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 class Manager {
   generateSessionId(): string {
     return 'id';
@@ -6919,7 +6917,7 @@ class Manager {
 function wire(api: { generateSessionId?: () => string }, manager: Manager) {
   api.generateSessionId = manager.generateSessionId.bind(manager);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6930,7 +6928,7 @@ function wire(api: { generateSessionId?: () => string }, manager: Manager) {
 fn lowers_new_from_destructured_import_object_member() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { errors } from '@strapi/utils';
 
 const { ValidationError } = errors;
@@ -6938,7 +6936,7 @@ const { ValidationError } = errors;
 function run(message: string) {
   throw new ValidationError(message);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6949,7 +6947,7 @@ function run(message: string) {
 fn lowers_class_method_signature_with_destructured_parameter() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Event {
   event: string;
   info: unknown;
@@ -6961,7 +6959,7 @@ class Runner {
     info;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6972,11 +6970,11 @@ class Runner {
 fn lowers_abort_signal_timeout_global() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run() {
   return AbortSignal.timeout(10000);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -6987,7 +6985,7 @@ function run() {
 fn lowers_map_for_each_statement_receiver() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(items: Map<string, string[]>) {
   items.forEach((values, key) => {
     const filtered = values.filter((value) => value !== key);
@@ -6998,7 +6996,7 @@ function run(items: Map<string, string[]>) {
     }
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7009,11 +7007,11 @@ function run(items: Map<string, string[]>) {
 fn lowers_concat_on_array_is_array_conditional_receiver() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(attr: { enum: unknown }) {
   return (Array.isArray(attr.enum) ? attr.enum : [attr.enum]).concat(null as any);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7024,14 +7022,14 @@ function run(attr: { enum: unknown }) {
 fn lowers_array_spread_from_optional_erased_path() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(metas: { componentContext?: { pathToComponent?: string[] } }, name: string) {
   return [
     ...(metas?.componentContext?.pathToComponent ?? []),
     name,
   ];
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7042,14 +7040,14 @@ function run(metas: { componentContext?: { pathToComponent?: string[] } }, name:
 fn lowers_callback_capturing_destructured_function_parameter() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run({ model }: { model: { attributes: Record<string, string> } }, data: string[]) {
   return data.reduce((out, name) => {
     out[name] = model.attributes[name];
     return out;
   }, {} as Record<string, string>);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7060,13 +7058,13 @@ function run({ model }: { model: { attributes: Record<string, string> } }, data:
 fn lowers_opaque_method_function_callback_without_body_capture() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(model: { uid: string }, schema: unknown) {
   return schema.test('relations-test', 'check relations', async function validate(data: unknown) {
     return model.uid === String(data);
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7077,13 +7075,13 @@ function run(model: { uid: string }, schema: unknown) {
 fn lowers_callback_conditional_object_or_value_branch() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(source: Array<object | number>) {
   return source.map((value) => ({
     id: typeof value === 'object' ? value.id : value,
   }));
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7094,7 +7092,7 @@ function run(source: Array<object | number>) {
 fn lowers_stacked_switch_case_with_block_break() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(kind: string) {
   let value = 0;
   switch (kind) {
@@ -7108,7 +7106,7 @@ function run(kind: string) {
   }
   return value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7119,14 +7117,14 @@ function run(kind: string) {
 fn lowers_call_through_asserted_function_callee() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run<T>(schemaOrFactory: T | ((value: string) => T)): T {
   if (typeof schemaOrFactory === 'function') {
     return (schemaOrFactory as (value: string) => T)('z');
   }
   return schemaOrFactory;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7137,13 +7135,13 @@ function run<T>(schemaOrFactory: T | ((value: string) => T)): T {
 fn lowers_array_push_erased_structural_item() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Entry = { param: string; schema: { name: string }; matchRoute?: unknown };
 
 function run(entries: Entry[], schema: unknown, matchRoute: unknown) {
   entries.push({ param: 'sort', schema, matchRoute });
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7154,14 +7152,14 @@ function run(entries: Entry[], schema: unknown, matchRoute: unknown) {
 fn lowers_callback_object_literal_with_opaque_spread() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function run(routes: Array<{ path: string }>, prefix: string) {
   return routes.map((route) => ({
     ...route,
     path: `${prefix}${route.path}`,
   }));
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7173,13 +7171,13 @@ fn lowers_unknown_object_spread_before_callback_field_with_static_call_shape() -
 {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const base: unknown;
 const merged = {
   ...base,
   call: (...params: unknown[]) => params[0],
 };
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -7187,10 +7185,7 @@ const merged = {
     let dict_assign = body
         .exprs
         .iter()
-        .find_map(|expr| match expr.kind {
-            ExprKind::DictAssign { .. } => Some(expr),
-            _ => None,
-        })
+        .find(|expr| matches!(expr.kind, ExprKind::DictAssign { .. }))
         .ok_or_else(|| "expected object spread to lower through DictAssign".to_owned())?;
     let Some(Type::Dict(_, value_ty)) = ctx.krate.types.get(dict_assign.ty) else {
         return Err("expected spread result to be a dictionary".to_owned());
@@ -7209,13 +7204,13 @@ fn lowers_unknown_object_spread_without_coercing_existing_values_to_later_field_
 -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const base: unknown;
 const merged = {
   ...base,
   a: { b: 2 },
 };
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -7223,10 +7218,7 @@ const merged = {
     let dict_assign = body
         .exprs
         .iter()
-        .find_map(|expr| match expr.kind {
-            ExprKind::DictAssign { .. } => Some(expr),
-            _ => None,
-        })
+        .find(|expr| matches!(expr.kind, ExprKind::DictAssign { .. }))
         .ok_or_else(|| "expected object spread to lower through DictAssign".to_owned())?;
     let Some(Type::Dict(_, value_ty)) = ctx.krate.types.get(dict_assign.ty) else {
         return Err("expected spread result to be a dictionary".to_owned());
@@ -7243,7 +7235,7 @@ const merged = {
 fn captures_outer_value_used_only_inside_new_promise_executor() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const outer: { call(value: unknown): void };
 
 const api = {
@@ -7253,7 +7245,7 @@ const api = {
       resolve(value);
     }),
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7264,7 +7256,7 @@ const api = {
 fn lowers_unannotated_rest_arrow_closure_as_unknown_array() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Visitor = (...args: unknown[]) => void;
 declare const first: Visitor;
 declare const second: Visitor;
@@ -7274,7 +7266,7 @@ use((...args) => {
   first(...args);
   second(...args);
 });
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7285,7 +7277,7 @@ use((...args) => {
 fn lowers_forward_typed_arrow_const_inside_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Fn = (value: unknown) => unknown;
 const outer = () => {
   const visit: Fn = (value: unknown) => {
@@ -7296,7 +7288,7 @@ const outer = () => {
   };
   return visit;
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7307,7 +7299,7 @@ const outer = () => {
 fn lowers_calls_to_const_items_with_callable_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function wrap<T extends (...args: any[]) => any>(value: T): T {
   return value;
 }
@@ -7317,7 +7309,7 @@ export const validate = wrap((value: unknown, extra: string[]) => value);
 export const run = (value: unknown) => {
   return validate(value, ['a']);
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7328,7 +7320,7 @@ export const run = (value: unknown) => {
 fn lowers_const_callable_items_inside_callbacks() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function wrap<T extends (...args: any[]) => any>(value: T): T {
   return value;
 }
@@ -7338,7 +7330,7 @@ export const validate = wrap((value: unknown) => value);
 export const run = (values: unknown[]) => {
   return values.map((value) => validate(value));
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7349,7 +7341,7 @@ export const run = (values: unknown[]) => {
 fn lowers_namespace_const_callable_member_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function wrap<T extends (...args: any[]) => any>(value: T): T {
   return value;
 }
@@ -7360,7 +7352,7 @@ const validators = { validate };
 export const run = (value: unknown) => {
   return validators.validate(value);
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7371,7 +7363,7 @@ export const run = (value: unknown) => {
 fn lowers_optional_interface_methods_as_optional_function_fields() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Options {
   validator?(config: unknown): void;
   handler(...args: any[]): any;
@@ -7384,7 +7376,7 @@ export const run = (options: Options, config: unknown) => {
   }
   return handler(config);
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7425,12 +7417,12 @@ export const run = (values: string[]) => _.join(values, '/');
 fn lowers_global_string_constructor_as_callback_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const castIncludes = (arr: unknown[], val: unknown, cast: (val: unknown) => unknown): boolean =>
   arr.map((val) => cast(val)).includes(cast(val));
 
 export const includesString = (arr: unknown[], val: unknown) => castIncludes(arr, val, String);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7441,10 +7433,10 @@ export const includesString = (arr: unknown[], val: unknown) => castIncludes(arr
 fn lowers_empty_callback_arrays_with_asserted_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const keysDeep = (obj: object): string[] =>
   Object.keys(obj).reduce((acc, key) => acc, [] as string[]);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7503,7 +7495,7 @@ export const run = () => _.concat(left, right);
 fn lowers_print_value_stdlib_surfaces() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const symbolToString = typeof Symbol !== 'undefined' ? Symbol.prototype.toString : () => '';
 const errorToString = Error.prototype.toString;
 
@@ -7526,7 +7518,7 @@ function printValue(value: unknown, quoteStrings: boolean) {
     2
   );
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7537,11 +7529,11 @@ function printValue(value: unknown, quoteStrings: boolean) {
 fn lowers_in_check_on_generic_object_receiver() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const isObjKey = <T extends object>(key: string | symbol | number, obj: T): key is keyof T => {
   return key in obj;
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7588,11 +7580,11 @@ export const run = (value: object) => Object.values(value).every(_.isFunction);
 fn lowers_nested_static_member_as_array_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const providers: { condition: { get: (value: string) => unknown } };
 
 export const run = (values: string[]) => values.map(providers.condition.get);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7634,11 +7626,11 @@ export const run = (values: Array<{ result: unknown }>) => pickResults(values).f
 fn lowers_call_expression_factory_as_array_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const resultPropEq: (value: boolean) => (entry: { result: unknown }) => boolean;
 
 export const run = (values: Array<{ result: unknown }>) => values.every(resultPropEq(false));
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7649,9 +7641,9 @@ export const run = (values: Array<{ result: unknown }>) => values.every(resultPr
 fn lowers_global_string_constructor_as_array_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export const run = (values: unknown[]) => values.map(String);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7662,7 +7654,7 @@ export const run = (values: unknown[]) => values.map(String);
 fn falls_back_for_arrow_callback_side_effect_if_blocks() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare function mergeWith(
   callback: (objValue: unknown, srcValue: unknown) => unknown,
   left: unknown,
@@ -7676,7 +7668,7 @@ export const run = (left: unknown, right: unknown) =>
     }
     return undefined;
   }, left, right);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7687,11 +7679,11 @@ export const run = (left: unknown, right: unknown) =>
 fn lowers_parenthesized_union_tuple_element_types() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Fragment = { id: string };
 type Nested = { path: string };
 type Params = [string, (Fragment | Nested)];
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7702,7 +7694,7 @@ type Params = [string, (Fragment | Nested)];
 fn lowers_array_concat_on_optional_list_after_array_guard() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Permission {
   conditions?: string[];
 }
@@ -7711,7 +7703,7 @@ export const run = (condition: string, permission: Permission) => {
   const { conditions } = permission;
   return Array.isArray(conditions) ? conditions.concat(condition) : [condition];
 };
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7722,12 +7714,12 @@ export const run = (condition: string, permission: Permission) => {
 fn lowers_this_return_types_in_interfaces_as_erased_self() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export interface Registry {
   add(path: string): this;
   has(path: string): boolean;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7738,7 +7730,7 @@ export interface Registry {
 fn lowers_destructured_interface_method_parameters() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Event {
   event: string;
   info: Record<string, unknown>;
@@ -7747,7 +7739,7 @@ interface Event {
 export interface Runner {
   executeListener({ event, info }: Event): Promise<void>;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7758,7 +7750,7 @@ export interface Runner {
 fn allows_interface_extends_object_type_alias() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type Generic = {
   [method: string | number | symbol]: unknown;
 };
@@ -7766,7 +7758,7 @@ type Generic = {
 export interface RouterConfig extends Generic {
   find?: unknown;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7777,7 +7769,7 @@ export interface RouterConfig extends Generic {
 fn lowers_function_arguments_as_array_like_unknown() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare function isEmptyish(value: unknown): boolean;
 
 function empty(): boolean {
@@ -7787,7 +7779,7 @@ function empty(): boolean {
 function nonEmpty(value: string, count: number): boolean {
   return isEmptyish(arguments);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7827,14 +7819,14 @@ export const result = [countArgs(), captureArgs("a", "b")];
 fn lowers_object_create_to_erased_prototype_shape() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare function isEmptyish(value: unknown): boolean;
 
 const empty = Object.create(Object.create({}));
 const filled = Object.create(Object.create({ a: 123 }));
 
 export const result = [isEmptyish(empty), isEmptyish(filled)];
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7848,14 +7840,14 @@ fn lowers_constructor_type_annotation_to_callable() -> Result<(), String> {
     // the function must route through the closure/indirect-call machinery.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function makeError(
   ctor: new (message: string) => Error,
   message: string,
 ): Error {
   return new ctor(message);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -7953,7 +7945,7 @@ fn lowers_construct_signature_interface_to_constructor_slot() -> Result<(), Stri
     // whose return type is the constructed type, not an erased dictionary.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface MapCache {
   size: number;
 }
@@ -7965,7 +7957,7 @@ interface MapCacheConstructor {
 function make(ctor: MapCacheConstructor): MapCache {
   return new ctor();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -7991,7 +7983,7 @@ fn lowers_callable_object_construct_signature_field() -> Result<(), String> {
     // interface. `new memoize.Cache()` must construct the concrete `MapCache`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface MapCache {
   size: number;
 }
@@ -8008,7 +8000,7 @@ interface Memoize {
 declare const memoize: Memoize;
 
 export const cache = new memoize.Cache();
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8026,7 +8018,7 @@ fn preserves_construct_slot_through_type_alias() -> Result<(), String> {
     // constructor slot so assignments and `new` keep the constructed type.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface MapCache {
   size: number;
 }
@@ -8041,7 +8033,7 @@ function build(ctor: CacheCtor): MapCache {
   const local: CacheCtor = ctor;
   return new local();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8059,7 +8051,7 @@ fn lowers_parameterized_construct_signature_return() -> Result<(), String> {
     // the reference: `new (): Box<number>` constructs a concrete `Box`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Box<T> {
   value: T;
 }
@@ -8071,7 +8063,7 @@ interface BoxConstructor {
 function make(ctor: BoxConstructor): Box<number> {
   return new ctor();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8096,12 +8088,12 @@ fn lowers_stdlib_method_call_inside_timer_callback_body() -> Result<(), String> 
     // promise/delay.spec.ts `setTimeout(() => controller.abort(), 50)`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function abortLater(): void {
   const controller = new AbortController();
   setTimeout(() => controller.abort(), 50);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8127,11 +8119,11 @@ fn lowers_date_method_call_inside_map_callback_body() -> Result<(), String> {
     // yet". Mirrors es-toolkit's math/maxBy.spec.ts `date => date.getTime()`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function toTimes(dates: Date[]): number[] {
   return dates.map((d) => d.getTime());
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8157,7 +8149,7 @@ fn lowers_captured_class_method_call_inside_map_callback_body() -> Result<(), St
     // method is dispatched with the callback's element argument.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 class Counter {
   base: number;
   constructor(b: number) {
@@ -8173,7 +8165,7 @@ export function scaleAll(xs: number[]): number[] {
   const c = new Counter(2);
   return xs.map((x) => c.scaled(x));
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8199,11 +8191,11 @@ fn lowers_callback_ternary_with_differing_list_branches() -> Result<(), String> 
     // `value => (value === undefined ? ['a', 'a', 'a'] : [1, 2, 3])`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function widen(values: (string | undefined)[]): (string | number)[][] {
   return values.map(value => (value === undefined ? ['a', 'a', 'a'] : [1, 2, 3]));
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8229,11 +8221,11 @@ fn lowers_callback_ternary_with_empty_list_branch() -> Result<(), String> {
     // `value => (typeof value === 'string' ? ['0'] : [])`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function keyEcho(values: unknown[]): string[][] {
   return values.map(value => (typeof value === 'string' ? ['0'] : []));
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8294,7 +8286,7 @@ fn lowers_callback_if_else_chain_with_param_mutation_via_closure_body() -> Resul
     // es-toolkit's `toFinite.spec.ts` mapper.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function normalize(values: number[]): number[][] {
   return values.map(value => {
     if (value === Infinity) {
@@ -8306,7 +8298,7 @@ export function normalize(values: number[]): number[][] {
     return [value, neg];
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8331,7 +8323,7 @@ fn lowers_callback_final_if_else_with_mutation() -> Result<(), String> {
     // terminate" error once the alternate arm is accepted.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function tally(values: number[]): number {
   let count = 0;
   values.forEach(value => {
@@ -8343,7 +8335,7 @@ export function tally(values: number[]): number {
   });
   return count;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8362,7 +8354,7 @@ fn lowers_erased_iterator_next_done_value_loop() -> Result<(), String> {
     // for Record/class/interface" gate on a unit-typed value.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function drive(data: Iterable<unknown>): unknown[] {
   const result: unknown[] = [];
   const iterator = data[Symbol.iterator]();
@@ -8373,7 +8365,7 @@ export function drive(data: Iterable<unknown>): unknown[] {
   }
   return result;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -8404,7 +8396,7 @@ fn lowers_erased_iterator_field_reads() -> Result<(), String> {
     // path.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function firstValue(data: Iterable<unknown>): unknown {
   const step = data[Symbol.iterator]().next();
   if (step.done) {
@@ -8412,7 +8404,7 @@ export function firstValue(data: Iterable<unknown>): unknown {
   }
   return step.value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8440,12 +8432,12 @@ fn erased_receiver_next_is_not_swallowed_by_sinon_helper() -> Result<(), String>
     // `.value` still reads.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function head(data: Iterable<unknown>): unknown {
   const iterator = data[Symbol.iterator]();
   return iterator.next().value;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -8465,7 +8457,7 @@ fn sinon_fake_timers_clock_methods_still_lower() -> Result<(), String> {
     // `clock?`) must still lower through the fake-timers helper.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function useClock(): void {
   let clock: sinon.SinonFakeTimers | undefined;
   clock = sinon.useFakeTimers(0);
@@ -8473,7 +8465,7 @@ function useClock(): void {
   clock?.next();
   clock?.restore();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8489,7 +8481,7 @@ fn lowers_suppressed_zero_argument_overload_call_against_implementation() -> Res
     // implementation signature instead of aborting on the overload table.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function joinText(left: string | null | undefined, right?: string): string;
 function joinText(left: string | null | undefined, index: number, guard: object): string;
 function joinText(left?: any, right?: any, sep?: any): string {
@@ -8500,7 +8492,7 @@ function probe(): string {
   // @ts-expect-error
   return joinText();
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -8515,7 +8507,7 @@ fn lowers_ts_ignore_suppressed_under_applied_overload_call() -> Result<(), Strin
     // types and keeps the implementation return type.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function scale(value: number, factor: number): number;
 function scale(value: number, factor: number, offset: number): number;
 function scale(value: number, factor?: number, offset?: number): number {
@@ -8529,7 +8521,7 @@ function probe(): number {
   // @ts-ignore - testing runtime behavior when only one argument is provided
   return scale(5);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -8549,7 +8541,7 @@ fn rejects_unsuppressed_overload_call_with_missing_arguments() -> Result<(), Str
     // so genuine signature mismatches are still surfaced.
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 function scale(value: number, factor: number): number;
 function scale(value: number, factor: number, offset: number): number;
 function scale(value: number, factor?: number, offset?: number): number {
@@ -8559,7 +8551,7 @@ function scale(value: number, factor?: number, offset?: number): number {
 function probe(): number {
   return scale();
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -8578,7 +8570,7 @@ fn suppression_pragma_does_not_leak_past_intervening_code() -> Result<(), String
     // window heuristic used for coded `@ts-expect-error` scans.
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 function scale(value: number, factor: number): number;
 function scale(value: number, factor: number, offset: number): number;
 function scale(value: number, factor?: number, offset?: number): number {
@@ -8591,7 +8583,7 @@ function probe(): number {
   const second = scale();
   return second;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -8613,7 +8605,7 @@ fn prefers_undefined_absorbing_overload_for_void_callback() -> Result<(), String
     // collapsing the call's result to `None`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 type Customizer<T, R> = (value: T, key: number | string | undefined) => R;
 
 function cloneWith<T, R extends object | string | number | boolean | null>(
@@ -8630,7 +8622,7 @@ function noop(): void {}
 function probe(): unknown {
   return cloneWith({ a: 1 }, noop);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -8665,11 +8657,11 @@ fn lowers_default_sort_on_union_element_arrays() -> Result<(), String> {
     // with "array sort supports boolean, number, and string arrays for now".
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function sortMixed(values: Array<string | number>): Array<string | number> {
   return values.sort();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8693,11 +8685,11 @@ fn lowers_default_sort_on_erased_element_arrays() -> Result<(), String> {
     // indexed-access surface).
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function sortErased(values: unknown[]): unknown[] {
   return values.sort();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8724,11 +8716,11 @@ fn concat_widens_element_type_for_null_list_argument() -> Result<(), String> {
     // argument matching the receiver".
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function pad(values: number[]): unknown {
   return values.concat([null as any]);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8782,12 +8774,12 @@ fn lowers_object_builtin_as_identity_callback() -> Result<(), String> {
     // (es-toolkit parseInt.spec's `['6', '08', '10'].map(Object)`).
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function boxAll(values: string[]): unknown {
   const boxed = values.map(Object);
   return boxed;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8813,11 +8805,11 @@ fn lowers_in_operator_inside_callback_array_literal() -> Result<(), String> {
     // `props.map(key => [unset(object, key), toString(key) in object])`).
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function flags(keys: string[], object: { [key: string]: number }): boolean[][] {
   return keys.map(key => [key !== '', key in object]);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8834,14 +8826,14 @@ fn compound_member_assignment_in_callback_retries_closure_body() -> Result<(), S
     // locals".
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function tag(rows: string[][], suffix: string): string[][] {
   return rows.map(row => {
     row[0] += suffix;
     return row;
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -8860,11 +8852,11 @@ function tag(rows: string[][], suffix: string): string[][] {
 fn lowers_default_sort_over_type_parameter_list() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function sortItems<T>(items: T[]): T[] {
   return items.sort();
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -8889,13 +8881,13 @@ export function sortItems<T>(items: T[]): T[] {
 fn lowers_new_set_assigned_to_optional_set_binding() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function build(): boolean {
   let s: Set<number> | undefined;
   s = new Set();
   return s !== undefined;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;

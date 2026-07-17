@@ -4,13 +4,13 @@ use super::*;
 fn lowers_math_rounding_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const value = 5.5;
 const floor = Math.floor(value);
 const ceil = Math.ceil(value);
 const round = Math.round(value);
 const trunc = Math.trunc(value);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -36,12 +36,12 @@ const trunc = Math.trunc(value);
 fn lowers_math_ceil_after_sorted_array_destructuring() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function overlap(right: number, left: number, millisecondsInDay: number): number {
   const [start, end] = [right, left].sort((a, b) => a - b);
   return Math.ceil((end - start) / millisecondsInDay);
 }
-"#),
+"),
         &mut ctx,
     )?;
 
@@ -71,7 +71,7 @@ export function overlap(right: number, left: number, millisecondsInDay: number):
 fn lowers_math_ceil_after_datearg_array_destructuring() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 type DateArg<DateType extends Date> = DateType | number | string;
 interface Interval<DateType extends Date = Date> {
   start: DateArg<DateType>;
@@ -98,7 +98,7 @@ export function overlap(intervalLeft: Interval, intervalRight: Interval, millise
   const right = overlapRight - offset(overlapRight);
   return Math.ceil((right - left) / millisecondsInDay);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -109,13 +109,13 @@ export function overlap(intervalLeft: Interval, intervalRight: Interval, millise
 fn lowers_optional_number_arithmetic_as_number() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function read(values: Array<number | undefined>): number {
   const left = values[0];
   const right = values[1];
   return (right - left) / 10;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let float_ty = ctx.krate.types.intern(Type::Float);
@@ -142,7 +142,7 @@ function read(values: Array<number | undefined>): number {
 fn narrows_unannotated_local_after_numeric_assignment() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function years(value: number): number {
   let months;
   if (value < 2) {
@@ -152,7 +152,7 @@ export function years(value: number): number {
   months = value;
   return Math.trunc(months / 12);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -179,12 +179,12 @@ export function years(value: number): number {
 fn lowers_math_extrema_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const first = 1;
 const second = 2;
 const highest = Math.max(first, second, 3);
 const lowest = Math.min(first, second, -1);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -203,11 +203,11 @@ const lowest = Math.min(first, second, -1);
 fn lowers_math_extrema_spread_argument() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const highest = Math.max(...values);
 const bounded = Math.min(0, ...values);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -271,10 +271,10 @@ const upper = word.toUpperCase();
 fn lowers_string_case_methods_on_erased_receivers() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const value: unknown;
 const lower = value.toLowerCase();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -442,11 +442,11 @@ const replaced = "1".replace(/\d/g, function (match) {
 fn lowers_callback_regex_replace_uppercase_inside_template_literal() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function format(units: string[]): string[] {
   return units.map((unit) => `x${unit.replace(/(^.)/, (m) => m.toUpperCase())}` as string);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -457,11 +457,11 @@ export function format(units: string[]): string[] {
 fn lowers_callback_string_key_record_access() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function values(record: Record<string, number>, keys: string[]): number[] {
   return keys.map((key) => record[key]);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -555,12 +555,12 @@ export function extract(token: string): string | undefined {
 fn types_addition_with_string_operand_as_string() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function format(count: number, translated: string): string {
   const result = count + translated;
   return true ? translated : result;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -706,11 +706,11 @@ const unknownJoined = values.join("-");
 fn lowers_array_concat_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const left: number[] = [1, 2];
 const right: number[] = [3, 4];
 const merged = left.concat(right);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -728,11 +728,11 @@ const merged = left.concat(right);
 fn lowers_array_search_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3, 2];
 const first = values.indexOf(2);
 const last = values.lastIndexOf(2);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -752,14 +752,14 @@ const last = values.lastIndexOf(2);
 fn lowers_array_search_methods_with_from_index() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function findFrom(values: readonly number[], target: number, from: number): number {
   return values.indexOf(target, from);
 }
 export function findLastFrom(values: readonly number[], target: number, from: number): number {
   return values.lastIndexOf(target, from);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module_id;
@@ -789,7 +789,7 @@ export function findLastFrom(values: readonly number[], target: number, from: nu
 fn lowers_array_callback_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const mapped = values.map(value => value + 1);
 const filtered = values.filter(value => value > 1);
@@ -799,7 +799,7 @@ const hasAny = values.some(value => value > 1);
 const hasEvery = values.every(value => value > 0);
 values.forEach(value => value + 1);
 const total = values.reduce((acc, value) => acc + value, 0);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -838,7 +838,7 @@ const total = values.reduce((acc, value) => acc + value, 0);
 fn lowers_array_callback_index_parameters() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const mapped = values.map((value, index) => value + index);
 const filtered = values.filter((value, index) => value > index);
@@ -849,7 +849,7 @@ const hasEvery = values.every((value, index) => value >= index);
 values.forEach((value, index) => value + index);
 const total = values.reduce((acc, value, index) => acc + value + index);
 const arrays = values.map((value, index, array) => array);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -910,7 +910,7 @@ const arrays = values.map((value, index, array) => array);
 fn lowers_modern_array_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let values: number[] = [1, 2, 3, 4];
 let nested: number[][] = [[1], [2, 3]];
 let erasedNested: unknown[] = [[1], [[2]]];
@@ -930,7 +930,7 @@ const lastIndex = values.findLastIndex((value, index) => value > index);
 const keys = values.keys();
 const vals = values.values();
 const entries = values.entries();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1027,11 +1027,11 @@ const entries = values.entries();
 fn lowers_array_callback_captures() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const minimum = values.length;
 const filtered = values.filter(value => value > minimum);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1091,11 +1091,11 @@ const first = values.map(value => value[0]);
 fn lowers_read_only_mutable_filter_callback_captures() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 let minimum = 1;
 const filtered = values.filter(value => value > minimum);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1125,12 +1125,12 @@ const filtered = values.filter(value => value > minimum);
 fn lowers_local_closure_callback_values() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const offset = 10;
 const scale = (value: number): number => value + offset;
 const mapped = values.map(scale);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1153,11 +1153,11 @@ const mapped = values.map(scale);
 fn lowers_mutable_array_callback_captures() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 let total = 0;
 values.forEach(value => total += value);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1182,11 +1182,11 @@ values.forEach(value => total += value);
 fn rejects_const_array_callback_assignment() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const total = 0;
 values.forEach(value => total += value);
-"#),
+"),
         &mut ctx,
     )?;
 
@@ -1268,11 +1268,11 @@ const next = values.concat("a");
 fn lowers_array_push_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let values: number[] = [1, 2];
 values.push(3);
 const length = values.push(4);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1356,13 +1356,13 @@ fn lowers_array_push_tuple_literal_into_tuple_element_array() -> Result<(), Stri
     // `List<Unknown>` into the tuple destination is required.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function collect(value: number, key: string): Array<[number, string]> {
   const result: Array<[number, string]> = [];
   result.push([value, key]);
   return result;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
@@ -1420,12 +1420,12 @@ export function mixed(): Array<number | string> {
 fn lowers_array_unshift_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let values: number[] = [2, 3];
 const sameLength = values.unshift();
 const oneMore = values.unshift(1);
 const threeMore = values.unshift(-1, 0);
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1443,11 +1443,11 @@ const threeMore = values.unshift(-1, 0);
 fn lowers_array_reverse_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let values: number[] = [1, 2];
 values.reverse();
 const reversed = values.reverse();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1465,11 +1465,11 @@ const reversed = values.reverse();
 fn lowers_array_pop_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let values: number[] = [1, 2];
 values.pop();
 const item = values.pop();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1509,7 +1509,7 @@ fn lowers_erased_spread_into_fresh_list() -> Result<(), String> {
     // `.sort(cmp)` stays dynamic and its result is discarded (the sort bug).
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function sortImpl<T extends readonly unknown[]>(
   items: T,
   cmp: (a: T[number], b: T[number]) => number,
@@ -1518,7 +1518,7 @@ function sortImpl<T extends readonly unknown[]>(
   ret.sort(cmp);
   return ret;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1547,12 +1547,12 @@ fn lowers_typed_spread_to_fresh_list() -> Result<(), String> {
     // `ListConcat(items, [])` rather than aliasing the source.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function copy(items: readonly number[]): number[] {
   const ret = [...items];
   return ret;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;

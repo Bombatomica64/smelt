@@ -40,11 +40,11 @@ fn crate_has_string_literal(ctx: &HirCtx, text: &str) -> bool {
 fn request_construction_stamps_marker_record() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function make(): unknown {
   return new Request('http://localhost');
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -65,11 +65,11 @@ export function make(): unknown {
 fn zero_argument_regexp_lowers_to_empty_pattern() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function make() {
   return new RegExp();
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -97,7 +97,7 @@ export function make() {
 fn for_in_over_function_value_iterates_empty() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function run(): Record<string, number> {
   function fn() {}
   const result: Record<string, number> = {};
@@ -108,7 +108,7 @@ export function run(): Record<string, number> {
   }
   return result;
 }
-"#),
+"),
         &mut ctx,
     )?;
     // The function value must NOT be cast to a record for key projection: a
@@ -139,11 +139,11 @@ export function run(): Record<string, number> {
 fn instanceof_array_on_list_folds_true() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function check(values: number[]): boolean {
   return values instanceof Array;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(crate_has(&ctx, |kind| matches!(
@@ -162,11 +162,11 @@ export function check(values: number[]): boolean {
 fn instanceof_array_on_unknown_probes_runtime() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function check(value: unknown): boolean {
   return value instanceof Array;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(crate_has(&ctx, |kind| matches!(
@@ -191,11 +191,11 @@ export function check(value: unknown): boolean {
 fn string_raw_tagged_template_lowers_to_raw_text() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function raw(): string {
   return String.raw`rawtemplate`;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -211,12 +211,12 @@ fn non_string_raw_tagged_template_still_rejected() -> Result<(), String> {
     // rather than silently dropping its call-with-strings-array protocol.
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 declare function tag(strings: TemplateStringsArray): string;
 export function use(): string {
   return tag`hello`;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -240,12 +240,12 @@ export function use(): string {
 fn typed_array_presence_guard_folds_to_consequent() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function make() {
   const typedArray = Uint8Array ? new Uint8Array([1]) : { buffer: [1] };
   return { value: typedArray };
 }
-"#),
+"),
         &mut ctx,
     )?;
     // The always-true probe is folded away: no conditional node survives.

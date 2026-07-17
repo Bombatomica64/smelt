@@ -53,7 +53,7 @@ export function colorName(c: Color): string {
         &mut ctx,
     )?;
     // Case labels resolve to the folded numeric member values.
-    for value in [0.0, 1.0, 2.0] {
+    for value in [0.0_f64, 1.0_f64, 2.0_f64] {
         ensure!(
             has_match_arm_label(&ctx, &Literal::Float(value)),
             "missing match arm for enum member value {value}"
@@ -67,7 +67,7 @@ export function colorName(c: Color): string {
 fn numeric_enum_param_type_lowers_to_float() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 enum Color {
   Red,
   Green,
@@ -84,7 +84,7 @@ export function colorRank(c: Color): number {
       return 0;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -96,7 +96,7 @@ export function colorRank(c: Color): number {
         .ok_or_else(|| "color_rank has no parameter".to_owned())?;
     ensure_eq!(ctx.krate.types.get(param.ty), Some(&Type::Float));
     // Implicit members auto-increment from 0.
-    for value in [0.0, 1.0] {
+    for value in [0.0_f64, 1.0_f64] {
         ensure!(has_match_arm_label(&ctx, &Literal::Float(value)));
     }
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -145,10 +145,11 @@ export function levelLabel(l: Level): string {
 }
 
 #[test]
+#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
 fn enum_member_read_folds_to_member_literal() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 enum Status {
   Ok = 200,
   NotFound = 404,
@@ -157,7 +158,7 @@ enum Status {
 export function okStatus(): number {
   return Status.Ok;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -167,7 +168,7 @@ export function okStatus(): number {
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(v)) if v == 200.0)),
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(v)) if v == 200.0_f64)),
         "enum member read did not fold to its literal"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -175,10 +176,11 @@ export function okStatus(): number {
 }
 
 #[test]
+#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
 fn enum_member_initializer_references_earlier_member() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 enum Flag {
   First = 1,
   Alias = First,
@@ -187,7 +189,7 @@ enum Flag {
 export function aliasValue(): number {
   return Flag.Alias;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -196,7 +198,7 @@ export function aliasValue(): number {
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(v)) if v == 1.0)),
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(v)) if v == 1.0_f64)),
         "enum member referencing an earlier member did not fold"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -207,7 +209,7 @@ export function aliasValue(): number {
 fn exported_enum_is_consumed_without_error() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export enum Direction {
   Up,
   Down,
@@ -221,7 +223,7 @@ export function isUp(d: Direction): boolean {
       return false;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());

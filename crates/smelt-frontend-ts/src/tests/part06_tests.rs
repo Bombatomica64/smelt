@@ -371,7 +371,7 @@ fn lowers_unannotated_abstract_method_as_unknown_return() -> Result<(), String> 
 fn lowers_abstract_class_method_default_params() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export abstract class CoreService {
   getFetchParams(params = {}): any {
     return {
@@ -380,7 +380,7 @@ export abstract class CoreService {
     };
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -390,13 +390,13 @@ export abstract class CoreService {
 fn lowers_unannotated_async_class_methods_as_unknown_future() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 class Service {
   async find(params = {}) {
     return params;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -406,11 +406,11 @@ class Service {
 fn ignores_qualified_external_implements_clauses() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import type { Core } from '@strapi/types';
 
 class SingleTypeService implements Core.CoreAPI.Service.SingleType {}
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -420,7 +420,7 @@ class SingleTypeService implements Core.CoreAPI.Service.SingleType {}
 fn lowers_unknown_missing_fields_on_derived_classes() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 class Base {}
 
 class Derived extends Base {
@@ -428,7 +428,7 @@ class Derived extends Base {
     return this.externalField;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -438,7 +438,7 @@ class Derived extends Base {
 fn lowers_optional_receiver_field_access_as_optional() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Config {
   pagination?: { withCount?: boolean };
 }
@@ -446,7 +446,7 @@ interface Config {
 function read(config?: Config) {
   return config?.pagination?.withCount;
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -881,11 +881,11 @@ fn rejects_await_outside_async_function() -> Result<(), String> {
 fn lowers_fetch_with_options_and_url_objects() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 async function load(url: RequestInfo | URL, options?: RequestInit): Promise<string> {
   return await fetch(url, options);
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -1057,7 +1057,7 @@ fn captures_enclosing_locals_in_for_loop_closure_body() -> Result<(), String> {
     // update, and body were skipped and `xs` failed with `unresolved identifier`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function overEvery(...xs: number[]): (v: number) => boolean {
   return function (v: number): boolean {
     let total = 0;
@@ -1067,7 +1067,7 @@ export function overEvery(...xs: number[]): (v: number) => boolean {
     return total > v;
   };
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1082,7 +1082,7 @@ fn captures_mutated_counter_across_arrow_closure() -> Result<(), String> {
     // capture machinery must record both across the C-style/conditional body.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function after(n: number, func: () => number): () => number {
   let counter = 0;
   return (): number => {
@@ -1093,7 +1093,7 @@ export function after(n: number, func: () => number): () => number {
     return 0;
   };
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -1110,7 +1110,7 @@ fn capturing_const_function_binding_is_not_synthesized_as_class() -> Result<(), 
     // lower without an `unresolved identifier`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function bind(...xs: number[]): (v: number) => number {
   const bound = function (v: number): number {
     let total = v;
@@ -1121,7 +1121,7 @@ export function bind(...xs: number[]): (v: number) => number {
   };
   return bound;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
