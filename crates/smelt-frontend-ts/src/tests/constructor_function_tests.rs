@@ -18,7 +18,7 @@ fn class_by_name<'a>(ctx: &'a HirCtx, name: &str) -> Option<&'a Class> {
 fn function_constructor_with_new_synthesizes_class() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { describe, expect, it } from 'vitest';
 
 describe('ctor', () => {
@@ -33,7 +33,7 @@ describe('ctor', () => {
     expect(value).toBeDefined();
   });
 });
-"#),
+"),
         &mut ctx,
     )?;
     let class = class_by_name(&ctx, "Foo").ok_or("expected synthesized class `Foo`")?;
@@ -58,7 +58,7 @@ describe('ctor', () => {
 fn function_constructor_instanceof_resolves() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { describe, expect, it } from 'vitest';
 
 describe('ctor', () => {
@@ -70,7 +70,7 @@ describe('ctor', () => {
     expect(value instanceof Foo).toBe(true);
   });
 });
-"#),
+"),
         &mut ctx,
     )?;
     let class = class_by_name(&ctx, "Foo").ok_or("expected synthesized class `Foo`")?;
@@ -85,7 +85,7 @@ describe('ctor', () => {
 fn const_function_expression_constructor_synthesizes_class() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { describe, expect, it } from 'vitest';
 
 describe('ctor', () => {
@@ -100,7 +100,7 @@ describe('ctor', () => {
     expect(value instanceof Foo).toBe(true);
   });
 });
-"#),
+"),
         &mut ctx,
     )?;
     let class = class_by_name(&ctx, "Foo").ok_or("expected synthesized class `Foo`")?;
@@ -119,7 +119,7 @@ fn describe_scoped_constructor_used_in_nested_it() -> Result<(), String> {
     // The constructor function and its prototype assignment live in the
     // `describe` body, while `new Foo()` lives in a nested `it` callback.
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { describe, expect, it } from 'vitest';
 
 describe('ctor', () => {
@@ -135,7 +135,7 @@ describe('ctor', () => {
     expect(value).toBeDefined();
   });
 });
-"#),
+"),
         &mut ctx,
     )?;
     class_by_name(&ctx, "Foo").ok_or("expected synthesized class `Foo` from describe scope")?;
@@ -148,11 +148,11 @@ fn plain_function_without_new_is_not_a_class() -> Result<(), String> {
     // A `function` that is only ever called normally must stay a function, not
     // be promoted to a class.
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function helper(value: number): number {
   return value + 1;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -169,14 +169,14 @@ fn later_parameter_default_references_earlier_parameter() -> Result<(), String> 
     // before inferring later parameter defaults.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function fillRange<T>(array: T[], value: T, start = 0, end = array.length): T[] {
   for (let i = start; i < end; i++) {
     array[i] = value;
   }
   return array;
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -192,7 +192,7 @@ fn unannotated_constructor_parameter_defaults_to_unknown() -> Result<(), String>
     // `object: any`). Ordinary untyped functions still require an annotation.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { describe, expect, it } from 'vitest';
 
 describe('nonplain', () => {
@@ -204,7 +204,7 @@ describe('nonplain', () => {
     expect((object as any).a.b).toBe(1);
   });
 });
-"#),
+"),
         &mut ctx,
     )?;
     let class = class_by_name(&ctx, "Foo").ok_or("expected synthesized class `Foo`")?;
@@ -222,11 +222,11 @@ fn plain_unannotated_function_parameter_still_rejected() -> Result<(), String> {
     // explicit annotations, so this must still fail to lower.
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 export function plain(object) {
   return object;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -247,7 +247,7 @@ fn sibling_it_blocks_synthesize_independent_constructor_classes() -> Result<(), 
     // would otherwise fall back to the plain-function path and fail to lower).
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 import { describe, expect, it } from 'vitest';
 
 describe('scoping', () => {
@@ -266,7 +266,7 @@ describe('scoping', () => {
     expect((object as any).a.b).toBe(1);
   });
 });
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())

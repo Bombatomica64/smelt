@@ -10,18 +10,18 @@
 
 use super::*;
 
-/// `String.raw`…`` lowers to concatenation of the template's *raw* quasis
+/// A `String.raw` tagged template lowers to concatenation of the template's *raw* quasis
 /// (backslash escapes verbatim) interleaved with the substitutions, producing a
 /// `string`. Tagged templates were previously rejected outright.
 #[test]
 fn string_raw_tagged_template_lowers_to_raw_string() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function raw(name: string): string {
   return String.raw`a\n${name}`;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -50,12 +50,12 @@ export function raw(name: string): string {
 fn array_length_assignment_lowers_to_splice() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function truncate<T>(arr: T[], n: number): T[] {
   arr.length = n;
   return arr;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -83,7 +83,7 @@ export function truncate<T>(arr: T[], n: number): T[] {
 fn let_arrow_reassignment_binds_closure_local() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function pick<T>(values: Array<(a: T, b: T) => boolean>): (a: T, b: T) => boolean {
   let comparator = (a: T, b: T) => a === b;
   const last = values[0];
@@ -92,7 +92,7 @@ export function pick<T>(values: Array<(a: T, b: T) => boolean>): (a: T, b: T) =>
   }
   return comparator;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -172,7 +172,7 @@ fn new_request_lowers_to_marker_record() -> Result<(), String> {
 fn index_write_after_default_init_uses_index_target() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function copyArray<T>(source: T[], array?: T[]): T[] {
   const length = source.length;
   if (array == null) {
@@ -183,7 +183,7 @@ export function copyArray<T>(source: T[], array?: T[]): T[] {
   }
   return array;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;

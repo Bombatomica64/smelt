@@ -4,12 +4,12 @@ use super::*;
 fn lowers_set_mutation_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let values: Set<number> = new Set([1, 2]);
 const same = values.add(3);
 const deleted = values.delete(2);
 values.clear();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -46,12 +46,12 @@ values.clear();
 fn lowers_map_and_set_size_properties() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: Set<number> = new Set([1, 2]);
 const mapping: Map<string, number> = new Map();
 const setSize = values.size;
 const mapSize = mapping.size;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -71,7 +71,7 @@ const mapSize = mapping.size;
 fn lowers_map_and_set_projection_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: Set<number> = new Set([1, 2]);
 const valueKeys = values.keys();
 const valueList = values.values();
@@ -80,7 +80,7 @@ const mapping: Map<string, number> = new Map();
 const mapKeys = mapping.keys();
 const mapValues = mapping.values();
 const mapEntries = mapping.entries();
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -165,7 +165,7 @@ const value = mapping.get("a");
 fn lowers_untyped_map_has_with_string_key() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 class Container {
   private serviceMap = new Map();
 
@@ -177,7 +177,7 @@ class Container {
     return this.serviceMap.get(name);
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -251,12 +251,12 @@ const limited = word.split(",", 2);
 fn preserves_regexp_separator_from_static_object_for_string_split() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function parts(value: string) {
   return value.split(patterns.separator);
 }
 const patterns = { separator: /[T ]/i };
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -342,13 +342,13 @@ console.log(result);
 fn lowers_generator_yields_into_materialized_unknown_array() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 function* values(limit: number): Generator<number> {
   for (let i = 0; i < limit; i += 1) {
     yield i;
   }
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -431,13 +431,13 @@ for (let item: number of count) {
 fn lowers_set_for_of_to_projection() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: Set<number> = new Set([1, 2]);
 let total = 0;
 for (let item: number of values) {
   total = total + item;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -565,10 +565,10 @@ fn lowers_negative_array_bracket_read_to_undefined() -> Result<(), String> {
     // wrapping like `.at(-1)`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 const missing = values[-1];
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -661,10 +661,10 @@ fn lowers_negative_array_bracket_write_as_noop() -> Result<(), String> {
     // to preserve its side effects and no element assignment is produced.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const values: number[] = [1, 2, 3];
 values[-1] = 99;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;

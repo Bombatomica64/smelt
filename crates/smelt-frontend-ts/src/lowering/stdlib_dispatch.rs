@@ -136,6 +136,18 @@ fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Opt
     }
 }
 
+/// Return the shared stdlib rule matching a TypeScript property expression.
+#[must_use]
+pub(super) fn property_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Option<RuleId> {
+    let Expression::NewExpression(new_expr) = &member.object else {
+        return None;
+    };
+    let Expression::Identifier(callee) = &new_expr.callee else {
+        return None;
+    };
+    (callee.name == "URL").then_some(RuleId::TsUrlField)
+}
+
 #[cfg(test)]
 mod tests {
     use oxc::{allocator::Allocator, parser::Parser, span::SourceType};
@@ -146,7 +158,9 @@ mod tests {
     fn parse_call_rule(source: &str) -> Option<RuleId> {
         let allocator = Allocator::default();
         let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
-        let statement = parsed.program.body.first().expect("expression statement");
+        let Some(statement) = parsed.program.body.first() else {
+            panic!("expected expression statement");
+        };
         let oxc::ast::ast::Statement::ExpressionStatement(statement) = statement else {
             panic!("expected expression statement");
         };
@@ -188,16 +202,4 @@ mod tests {
             assert_eq!(parse_call_rule(source), None, "{source}");
         }
     }
-}
-
-/// Return the shared stdlib rule matching a TypeScript property expression.
-#[must_use]
-pub(super) fn property_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Option<RuleId> {
-    let Expression::NewExpression(new_expr) = &member.object else {
-        return None;
-    };
-    let Expression::Identifier(callee) = &new_expr.callee else {
-        return None;
-    };
-    (callee.name == "URL").then_some(RuleId::TsUrlField)
 }
