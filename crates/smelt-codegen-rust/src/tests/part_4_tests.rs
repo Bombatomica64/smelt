@@ -478,6 +478,25 @@ text: str = json.dumps(values)
     assert!(py_source.contains(".expect(\"JSON serialization failed\")"));
 }
 
+/// JSON serialization supports typed records whose values contain typed lists,
+/// matching `JSON.stringify({ args })` without erasing the record or its list.
+#[test]
+fn emits_json_stringify_for_records_with_list_values() {
+    let source = source_for(
+        r"
+export function key(args: unknown[]): string {
+  return JSON.stringify({ args });
+}
+",
+    );
+
+    assert!(
+        source.contains("serde::Serialize for SmeltRecord<K, V>"),
+        "{source}"
+    );
+    assert!(source.contains("serde_json::to_string(&"), "{source}");
+}
+
 #[test]
 fn emits_json_parse_calls() {
     let ts_source = source_for(

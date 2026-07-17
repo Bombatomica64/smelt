@@ -686,6 +686,19 @@ fn emit_source_with_free_function_router(
         );
         writer.line("}");
         writer.blank_line();
+        if needs_serde_json {
+            writer.line("impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + serde::Serialize, V: serde::Serialize {");
+            writer.line("    /// Serialize record entries in JavaScript insertion order.");
+            writer.line("    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {");
+            writer.line("        let values = self.values.borrow();");
+            writer.line("        let order = self.order.borrow();");
+            writer.line("        let mut map = serde::Serializer::serialize_map(serializer, Some(order.len()))?;");
+            writer.line("        for key in order.iter() { if let Some(value) = values.get(key) { serde::ser::SerializeMap::serialize_entry(&mut map, key, value)?; } }");
+            writer.line("        serde::ser::SerializeMap::end(map)");
+            writer.line("    }");
+            writer.line("}");
+            writer.blank_line();
+        }
         writer.line("trait SmeltOwnedOptionCloned<T> {");
         writer.line("    /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.");
         writer.line("    fn cloned(self) -> Option<T>;");
