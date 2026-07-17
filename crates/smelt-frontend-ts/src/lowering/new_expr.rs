@@ -2629,6 +2629,13 @@ impl ModuleBuilder<'_> {
             Ok(self.ctx.krate.types.intern(Type::Optional(else_ty)))
         } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
             Ok(self.ctx.krate.types.intern(Type::Optional(then_ty)))
+        } else if let Some(unified) = self.unify_optional_conditional_branches(then_ty, else_ty) {
+            // One branch is `Optional<inner>` and the other is compatible with
+            // `inner` (equal or numerically widenable), e.g. a `number | undefined`
+            // flow-typed local vs a `number` literal (`isNaN(x) ? 0 : x`). Merge
+            // to `Optional<unified-inner>` so the optional surface is preserved
+            // instead of aborting because a bare and an optional numeric differ.
+            Ok(unified)
         } else if self.compatible_function_branch_types(then_ty, else_ty) {
             Ok(then_ty)
         } else if let Some(function_ty) = self.single_function_branch_type(then_ty, else_ty) {
@@ -2687,6 +2694,54 @@ impl ModuleBuilder<'_> {
                     self.ctx.krate.types.get(else_ty)
                 ),
             ))
+        }
+    }
+
+    /// Merge a conditional whose branches are a value and an `Optional` of a
+    /// compatible value into a single `Optional` result.
+    ///
+    /// Returns `Some(Optional<inner>)` when exactly one branch is `Optional<a>`
+    /// and the other branch's type unifies with `a` (identical, or numerically
+    /// widenable so `Float`/`Int` mix), or when both branches are optionals whose
+    /// inners unify. This preserves the optional surface produced by flow typing
+    /// (`x: number | undefined; cond ? 0 : x`) instead of failing because a bare
+    /// numeric and an optional numeric have different lowered shapes. Returns
+    /// `None` when neither branch is optional or the inners are unrelated.
+    fn unify_optional_conditional_branches(
+        &mut self,
+        then_ty: smelt_hir::TypeId,
+        else_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        let then_opt = match self.ctx.krate.types.get(then_ty) {
+            Some(Type::Optional(inner)) => Some(*inner),
+            _ => None,
+        };
+        let else_opt = match self.ctx.krate.types.get(else_ty) {
+            Some(Type::Optional(inner)) => Some(*inner),
+            _ => None,
+        };
+        let inner = match (then_opt, else_opt) {
+            (Some(a), Some(b)) => self.unify_compatible_branch_inner(a, b)?,
+            (Some(a), None) => self.unify_compatible_branch_inner(a, else_ty)?,
+            (None, Some(b)) => self.unify_compatible_branch_inner(then_ty, b)?,
+            (None, None) => return None,
+        };
+        Some(self.ctx.krate.types.intern(Type::Optional(inner)))
+    }
+
+    /// Return the unified inner type for two conditional-branch inners that are
+    /// identical or numerically compatible, or `None` if unrelated.
+    fn unify_compatible_branch_inner(
+        &mut self,
+        a: smelt_hir::TypeId,
+        b: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        if a == b {
+            Some(a)
+        } else if self.numeric_type_compatible(a, b) {
+            Some(self.ctx.krate.types.intern(Type::Float))
+        } else {
+            None
         }
     }
 

@@ -833,6 +833,33 @@ impl ModuleBuilder<'_> {
                     item: expected,
                 }
             }
+            // The actual may itself be erased (`Unknown`/leaked type param) when
+            // it comes from a cross-module helper whose return type does not
+            // resolve in this lowering unit (`expect(keysIn(buffer)).toContain(k)`).
+            // JavaScript containment inspects the live value, so project the
+            // erased actual to an erased list and erase the needle; the emitted
+            // runtime projection panics if the value is not an array, matching
+            // how other matchers treat erased actuals.
+            Some(Type::Unknown | Type::TypeParam { .. }) => {
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+                let matcher_span = self.span(span.start, span.end);
+                let list = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: actual },
+                    ty: list_ty,
+                    span: matcher_span,
+                });
+                let item = if expected_ty == unknown_ty {
+                    expected
+                } else {
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: expected },
+                        ty: unknown_ty,
+                        span: matcher_span,
+                    })
+                };
+                ExprKind::ListContains { list, item }
+            }
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(span.start, span.end),

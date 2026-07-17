@@ -1095,6 +1095,43 @@ describe("sample", () => {
 }
 
 #[test]
+fn expect_to_contain_accepts_erased_actual_collection() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    // `keysIn(value)` resolves to an erased value when the helper's module is
+    // not part of this lowering unit; toContain must project the erased actual
+    // to an erased list and run the containment check at runtime instead of
+    // rejecting the matcher.
+    lower_path_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+import { keysIn } from "./keysIn";
+
+describe("sample", () => {
+  it("does not expose buffer keys", () => {
+    const actual = keysIn({ a: 1 });
+    expect(actual).not.toContain("offset");
+  });
+});
+"#),
+        "src/sample.spec.ts",
+        &mut ctx,
+    )?;
+    ensure!(
+        has_test_named(&ctx, "test_sample_does_not_expose_buffer_keys"),
+        "expect(erased).toContain(value) should lower the test",
+    );
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ListContains { .. })),
+        "erased actual should lower to a runtime list containment check",
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_new_map_with_declared_union_value_type() -> Result<(), String> {
     // A `Map<K, V>` annotation whose value type is a union should accept
     // heterogeneous `[key, value]` entries: each entry coerces to the declared
