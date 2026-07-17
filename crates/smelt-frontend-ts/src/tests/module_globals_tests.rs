@@ -58,6 +58,41 @@ export function current(): number {
 }
 
 #[test]
+fn module_map_const_rematerializes_entries_inside_functions() -> Result<(), String> {
+    // A module-level literal `new Map([...])` const is a string-keyed dictionary.
+    // A function that reads it must re-materialize the full dictionary (like the
+    // object-literal const path), not inline an empty default whose real
+    // construction only lives in the never-called module body.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const table = new Map([["a", "x"], ["b", "y"]]);
+
+export function lookup(key: string): string {
+  return table.get(key) ?? key;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "lookup")?;
+    let body = function_body(&ctx, function)?;
+    let dict_entries = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::DictLit(entries) => Some(entries.len()),
+            _ => None,
+        })
+        .ok_or_else(|| "expected a re-materialized dict literal in the function body".to_owned())?;
+    ensure!(
+        dict_entries == 2,
+        "function reading a module Map const should re-materialize all entries, got {dict_entries}",
+    );
+    Ok(())
+}
+
+#[test]
 fn prefix_increment_returns_global_set_result() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

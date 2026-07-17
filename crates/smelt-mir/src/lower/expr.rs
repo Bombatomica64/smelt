@@ -1985,10 +1985,21 @@ impl LoweringCtx<'_> {
                     .map(|arg| self.lower_expr(*arg))
                     .collect::<Result<Vec<_>, _>>()?;
                 let dest = self.push_temp(expr.ty, expr.span);
-                if matches!(
-                    self.krate.types.get(callee_ty),
-                    Some(Type::Function(function)) if function.may_throw
-                ) {
+                // A throwing callee is routed through the terminator call path so
+                // its `?`/unwind is modeled. An optional callee (`f?.(..)` typed
+                // `Option<Fn>`) whose inner function throws must take the same
+                // path: the emitter's `optional_indirect_call_text_for_dest`
+                // short-circuits an absent callee to `None` while propagating the
+                // throw of a present one.
+                let inner_throws = match self.krate.types.get(callee_ty) {
+                    Some(Type::Function(function)) => function.may_throw,
+                    Some(Type::Optional(inner)) => matches!(
+                        self.krate.types.get(*inner),
+                        Some(Type::Function(function)) if function.may_throw
+                    ),
+                    _ => false,
+                };
+                if inner_throws {
                     let target = self.function.push_block(expr.span);
                     self.set_terminator(Terminator::Call {
                         callee: Callee::Indirect(callee_operand),

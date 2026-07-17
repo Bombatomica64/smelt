@@ -2288,7 +2288,18 @@ impl ModuleBuilder<'_> {
             };
             items.push(item);
         }
-        let ty = if let Some(hint) = type_hint {
+        // Adopt the whole-literal hint unless it can never hold an array value.
+        // A `Function` hint (e.g. a data-last overload's `Fn(...) -> ...` type
+        // flowing in as a contextual hint from a deep-equality matcher) must not
+        // be stamped onto the array literal, which would emit a
+        // `let tmp: Rc<dyn Fn(...)> = vec![...]` mismatch (E0308). Erased
+        // (`Unknown`), union, and `never`-assertion hints legitimately type array
+        // literals, so only function-shaped hints are rejected; then fall back to
+        // the inferred list type as if no hint was given.
+        let array_compatible_hint = type_hint.filter(|hint| {
+            !matches!(self.ctx.krate.types.get(*hint), Some(Type::Function(_)))
+        });
+        let ty = if let Some(hint) = array_compatible_hint {
             hint
         } else if !items.is_empty() {
             let item_ty = self.array_literal_item_type(&items, body);

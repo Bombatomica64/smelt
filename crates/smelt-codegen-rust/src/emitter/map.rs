@@ -454,8 +454,32 @@ impl FunctionEmitter<'_> {
                 "dict assign destination must match the target dict type",
             ));
         }
-        let target_text = self.operand_text(target)?;
-        let mut steps = vec![format!("let mut assigned = {target_text}.clone();")];
+        // JavaScript `Object.assign(target, ...sources)` mutates `target` in
+        // place and returns it. When `target` is a mutable local, extend that
+        // local directly so the caller's binding observes the merge (a plain
+        // discarded `Object.assign(result, src)` must still update `result`),
+        // then evaluate to the mutated dict. When `target` is not a place
+        // (e.g. `Object.assign({}, a, b)`), fall back to merging into a fresh
+        // clone since there is nothing to write back.
+        let target_place = match target {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
+            _ => None,
+        };
+        let (accumulator, mut steps, final_value) = match target_place {
+            Some(local) => {
+                let target_text = self.local_mut_value_text(local)?;
+                let final_value = format!("{target_text}.clone()");
+                (target_text, Vec::new(), final_value)
+            }
+            None => {
+                let target_text = self.operand_text(target)?;
+                (
+                    "assigned".to_owned(),
+                    vec![format!("let mut assigned = {target_text}.clone();")],
+                    "assigned".to_owned(),
+                )
+            }
+        };
         for source in sources {
             let source_ty = self.operand_ty(source)?;
             let source_text = if source_ty == target_ty {
@@ -466,10 +490,10 @@ impl FunctionEmitter<'_> {
                 continue;
             };
             steps.push(format!(
-                "assigned.extend({source_text}.iter().map(|(key, value)| (key.clone(), value.clone())));"
+                "{accumulator}.extend({source_text}.iter().map(|(key, value)| (key.clone(), value.clone())));"
             ));
         }
-        steps.push("assigned".to_owned());
+        steps.push(final_value);
         Ok(format!("{{ {} }}", steps.join(" ")))
     }
 

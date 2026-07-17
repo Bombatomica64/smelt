@@ -39,7 +39,11 @@ Counting is textual and deterministic:
 
 1. Roots are expanded to a sorted, de-duplicated list of `.rs` files
    (directories walked recursively; `target/` skipped).
-2. Each line is scanned for `SmeltUnknown` tokens and classified.
+2. Each line is scanned for `SmeltUnknown` tokens and classified. Pure
+   fallibility-annotation spellings — the `Ok::<SmeltUnknown, Box<dyn
+   std::error::Error>>` return turbofish and `-> Result<SmeltUnknown, ...>`
+   return annotations — are stripped before counting: they annotate types, not
+   erased values, so wrapping a function in `Result` stays count-neutral.
 3. Occurrences are grouped by a normalized *shape* (string/char literals →
    `"S"`/`'C'`, digit runs → `N`, whitespace collapsed; identifiers kept), then
    sorted by count descending with category and shape as tie-breakers.

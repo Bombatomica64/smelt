@@ -780,6 +780,60 @@ const value = values[index++];
 }
 
 #[test]
+fn postfix_update_in_index_assignment_snapshots_old_value() -> Result<(), String> {
+    // Regression: `arr[k++] = v` must index with the *old* value of `k` and then
+    // increment. Because the increment store runs inside the current statement
+    // block, the enclosing index expression cannot lazily re-read `k` (it would
+    // observe the already-incremented value); the old value is snapshotted into a
+    // synthetic `__smelt_update_tmp` local instead.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const arr = [0, 0, 0];
+let k = 0;
+arr[k++] = 42;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.locals.iter().any(|local| local
+            .name
+            .is_some_and(|name| ctx.krate.symbols.get(name) == Some("__smelt_update_tmp"))),
+        "expected postfix update in value position to snapshot the old value into a temp: {:?}",
+        body.locals,
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn postfix_update_value_binding_snapshots_old_value() -> Result<(), String> {
+    // Regression: `y = x++` binds `y` to the pre-increment value of `x`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let x = 0;
+let y = 0;
+y = x++;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.locals.iter().any(|local| local
+            .name
+            .is_some_and(|name| ctx.krate.symbols.get(name) == Some("__smelt_update_tmp"))),
+        "expected postfix update value use to snapshot the old value into a temp: {:?}",
+        body.locals,
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_empty_statements_as_noops() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -803,7 +803,7 @@ merged.flush();
         "{source}"
     );
     assert!(source.contains(".remove(&\"call\".to_owned())"), "{source}");
-    assert!(source.contains("assigned.extend("), "{source}");
+    assert!(source.contains(".extend("), "{source}");
 }
 
 #[test]
@@ -4444,6 +4444,63 @@ export function read(options?: Options): ((value: number) => number) | undefined
 }
 
 #[test]
+fn optional_call_on_absent_callback_short_circuits_to_none() {
+    // `customizer?.(value)` where `customizer` is an absent `Option<Fn>` must
+    // short-circuit to `undefined` (rendered `None` / `.map(..)`), NOT coerce the
+    // callee into a null-returning default callback that is then invoked
+    // unconditionally. The latter regression made `cloneDeepWith`/`cloneDeep`
+    // return `null` early for arrays and objects (es-toolkit clone family).
+    let source = source_for(
+        r"
+export function apply(customizer?: (value: number) => number): number | undefined {
+  return customizer?.(1);
+}
+",
+    );
+
+    // The callee stays an `Option` and is mapped, so an absent callee yields `None`.
+    assert!(
+        source.contains(".map(|smelt_function|"),
+        "optional call must map over the optional callee: {source}"
+    );
+    // It must NOT substitute a default callback and call it unconditionally.
+    assert!(
+        !source.contains("smelt_default_callback"),
+        "optional call must not fall back to a null-returning default callback: {source}"
+    );
+}
+
+#[test]
+fn erased_array_indexed_assignment_sets_element_not_object() {
+    // `result[i] = value` where `result` holds a runtime `SmeltUnknown::Array`
+    // must set the array element (extending with `undefined`), not convert the
+    // array into an object. The regression turned cloned arrays into objects
+    // keyed by "0","1",..., breaking round-trips back to a typed list.
+    let source = source_for(
+        r"
+export function fill(): unknown {
+  const result: any = [];
+  for (let i = 0; i < 3; i++) {
+    result[i] = i;
+  }
+  return result;
+}
+",
+    );
+
+    // The call site routes through the prelude helper, which sets an array
+    // element (via `set_index`) instead of converting the array to an object.
+    assert!(
+        source.contains("smelt_index_assign(&mut result,"),
+        "erased indexed assignment must route through the prelude helper: {source}"
+    );
+    assert!(
+        source.contains("array.set_index(index, value)"),
+        "the prelude helper must set an array element at a numeric index: {source}"
+    );
+}
+
+#[test]
 fn preserves_optional_callable_values_across_compatible_parameter_adaptation() {
     let source = source_for(
         r"
@@ -4567,11 +4624,10 @@ function build(key: unknown, value: unknown): unknown {
 ",
     );
 
-    assert!(source.contains("SmeltUnknown::Object(map)"), "{source}");
-    assert!(
-        source.contains("map.insert(smelt_key, smelt_value)"),
-        "{source}"
-    );
+    // The dynamic index write routes through the prelude helper, which inserts
+    // an object property (and handles arrays/other values) in one place.
+    assert!(source.contains("smelt_index_assign(&mut result,"), "{source}");
+    assert!(source.contains("map.insert(key, value)"), "{source}");
     assert!(!source.contains("unknown is not null"), "{source}");
 }
 

@@ -237,6 +237,24 @@ pub enum Stmt {
         /// Assignment value evaluated after each iteration.
         update_value: ExprId,
     },
+    /// While loop whose update *block* runs before each next test.
+    ///
+    /// This is the desugaring target for a C-style `for (init; test; update)`
+    /// loop. Unlike [`Stmt::WhileUpdate`], the update is an entire block of
+    /// statements rather than a single assignment, so it models compound and
+    /// comma-sequence updates (`i += 2`, `i++, j++`). MIR lowers the update
+    /// block into a dedicated latch block that becomes the `continue` target,
+    /// so a `continue` inside the body re-runs the update before re-testing the
+    /// condition (mirroring for-of lowering). Appending the update to the body
+    /// instead would skip it on `continue`, causing an infinite loop.
+    WhileUpdateBlock {
+        /// The loop condition.
+        cond: ExprId,
+        /// The loop body.
+        body: BlockId,
+        /// The update block, run after the body and on every `continue`.
+        update: BlockId,
+    },
     /// For-in loop with pattern, iterator, and body.
     For {
         /// The pattern binding the iterator value.

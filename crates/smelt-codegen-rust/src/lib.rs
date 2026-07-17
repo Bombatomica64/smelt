@@ -975,6 +975,10 @@ fn emit_source_with_free_function_router(
             "    /// Consume an erased array when lowering back to statically typed list storage.",
         );
         writer.line("    fn into_vec(self) -> Vec<SmeltUnknown> { self.values }");
+        writer.line(
+            "    /// Set the element at a numeric index, extending with `undefined` holes to match JS `arr[i] = v`.",
+        );
+        writer.line("    fn set_index(&mut self, index: usize, value: SmeltUnknown) { if index >= self.values.len() { self.values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } self.values[index] = value; }");
         writer.line("}");
         writer.line("impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }");
         writer.line("impl ::std::iter::FromIterator<SmeltUnknown> for SmeltArray { fn from_iter<T: IntoIterator<Item = SmeltUnknown>>(iter: T) -> Self { Self::new(iter.into_iter().collect()) } }");
@@ -1292,6 +1296,23 @@ fn emit_source_with_free_function_router(
             writer.line("}");
             writer.blank_line();
         }
+        // Erased dynamic indexed assignment `target[key] = value`. Mirrors JS:
+        // an object gets a string property; an array with a numeric index sets
+        // (and extends) that element; any other value (or an array with a
+        // non-index key) becomes a fresh object holding the single property.
+        // Centralizing this keeps each call site a single call instead of an
+        // inline `match` that repeats `SmeltUnknown` at every assignment.
+        writer.line("fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {");
+        writer.line("    match target {");
+        writer.line("        SmeltUnknown::Object(map) => { map.insert(key, value); }");
+        writer.line("        SmeltUnknown::Array(array) => {");
+        writer.line("            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }");
+        writer.line("            else { let mut map = ::std::collections::HashMap::new(); map.insert(key, value); *target = SmeltUnknown::Object(SmeltObject::new(map)); }");
+        writer.line("        }");
+        writer.line("        other => { let mut map = ::std::collections::HashMap::new(); map.insert(key, value); *other = SmeltUnknown::Object(SmeltObject::new(map)); }");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
         writer.line("    // A missing property reads as JS `undefined`, distinct from an");
         writer.line("    // explicit `null` value (`obj.missing === undefined`, `!== null`).");
