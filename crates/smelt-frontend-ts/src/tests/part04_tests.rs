@@ -6707,6 +6707,36 @@ function lazy(value: unknown, depth: number) {
 }
 
 #[test]
+fn lowers_callback_apply_method_into_closure_body() -> Result<(), String> {
+    // `fn.apply(thisArg, argsArray)` inside a closure body: the erased `this`
+    // operand is dropped and the trailing array spreads through the
+    // packed-argument closure-call ABI, mirroring the `.call(...args)` form
+    // (es-toolkit debounce forwards `_debounced.apply(this, args)`).
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function run(callback: (...args: number[]) => void, args: number[]) {
+  return [1, 2].map((value) => {
+    callback.apply(undefined, args);
+    return value;
+  });
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCallSpread { .. })),
+        "expected callback .apply(thisArg, args) to lower as a spread closure call"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_callback_call_method_spread_into_closure_body() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
