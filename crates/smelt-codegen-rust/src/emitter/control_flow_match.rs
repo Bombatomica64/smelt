@@ -93,7 +93,7 @@ impl FunctionEmitter<'_> {
         continue_target: smelt_mir::BlockId,
         break_target: Option<smelt_mir::BlockId>,
         out: &mut String,
-        visited: &HashSet<smelt_mir::BlockId>,
+        visited: &BlockIdSet,
     ) -> Result<(), EmitError> {
         let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
         let scrutinee_ty = self.operand_ty(scrutinee)?;

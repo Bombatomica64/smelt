@@ -539,7 +539,7 @@ impl FunctionEmitter<'_> {
         match terminator {
             Terminator::Goto(target) => {
                 if target.0 <= current.0 {
-                    if self.block_eventually_terminates(*target, &mut HashSet::new())? {
+                    if self.block_eventually_terminates(*target, &mut BlockIdSet::default())? {
                         return self.emit_block(self.block(*target)?, out);
                     }
                     return self.emit_fallthrough_return(out);
@@ -1088,7 +1088,7 @@ impl FunctionEmitter<'_> {
         if let (Some(Terminator::Goto(then_target)), Some(Terminator::Goto(else_target))) =
             (&then.terminator, &else_.terminator)
             && then_target != else_target
-            && self.block_can_reach(*then_target, *else_target, &mut HashSet::new())
+            && self.block_can_reach(*then_target, *else_target, &mut BlockIdSet::default())
         {
             let branch_label = format!(
                 "'smelt_branch_{}_{}_{}_{}",
@@ -1116,7 +1116,7 @@ impl FunctionEmitter<'_> {
         // join as its direct sibling. Keep emitting the common continuation
         // instead of treating the direct edge as an unstructured escape.
         if let Some(Terminator::Goto(then_target)) = then.terminator
-            && self.branch_join_target(else_.id, &mut HashSet::new())? == Some(then_target)
+            && self.branch_join_target(else_.id, &mut BlockIdSet::default())? == Some(then_target)
         {
             let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
@@ -1130,7 +1130,7 @@ impl FunctionEmitter<'_> {
         }
 
         if let Some(Terminator::Goto(else_target)) = else_.terminator
-            && self.branch_join_target(then.id, &mut HashSet::new())? == Some(else_target)
+            && self.branch_join_target(then.id, &mut BlockIdSet::default())? == Some(else_target)
         {
             let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
@@ -1145,7 +1145,7 @@ impl FunctionEmitter<'_> {
 
         if let Some(Terminator::Goto(then_target)) = then.terminator
             && then_target.0 > current.0
-            && (self.block_eventually_terminates(then_target, &mut HashSet::new())?
+            && (self.block_eventually_terminates(then_target, &mut BlockIdSet::default())?
                 || self.while_header(self.block(then_target)?)?.is_some()
                 || self
                     .while_header_with_latch(self.block(then_target)?)?
@@ -1196,7 +1196,7 @@ impl FunctionEmitter<'_> {
                 // labeled block. True loop latches — backward edges whose target
                 // does not eventually terminate — keep the previous behavior so we
                 // do not re-emit a loop body outside its loop.
-                if self.block_eventually_terminates(then_target, &mut HashSet::new())? {
+                if self.block_eventually_terminates(then_target, &mut BlockIdSet::default())? {
                     return self.emit_block(self.block(then_target)?, out);
                 }
                 // The labeled-block statement falls through (see the forward
@@ -1226,8 +1226,8 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
 
-        if self.block_eventually_terminates(then.id, &mut HashSet::new())?
-            && self.block_eventually_terminates(else_.id, &mut HashSet::new())?
+        if self.block_eventually_terminates(then.id, &mut BlockIdSet::default())?
+            && self.block_eventually_terminates(else_.id, &mut BlockIdSet::default())?
         {
             let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
@@ -1240,7 +1240,7 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
 
-        if self.block_eventually_terminates(then.id, &mut HashSet::new())? {
+        if self.block_eventually_terminates(then.id, &mut BlockIdSet::default())? {
             let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
             self.emit_block(then, out)?;
@@ -1253,7 +1253,7 @@ impl FunctionEmitter<'_> {
             return self.emit_block(else_, out);
         }
 
-        if self.block_eventually_terminates(else_.id, &mut HashSet::new())? {
+        if self.block_eventually_terminates(else_.id, &mut BlockIdSet::default())? {
             let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!(
                 "    if !({}) {{\n",
@@ -1270,8 +1270,8 @@ impl FunctionEmitter<'_> {
         }
 
         if let (Some(then_join), Some(else_join)) = (
-            self.branch_join_target(then.id, &mut HashSet::new())?,
-            self.branch_join_target(else_.id, &mut HashSet::new())?,
+            self.branch_join_target(then.id, &mut BlockIdSet::default())?,
+            self.branch_join_target(else_.id, &mut BlockIdSet::default())?,
         ) && then_join == else_join
         {
             let branch_declared = self.declared_locals_snapshot();
@@ -1304,7 +1304,7 @@ impl FunctionEmitter<'_> {
     fn branch_join_target(
         &self,
         block_id: smelt_mir::BlockId,
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> Result<Option<smelt_mir::BlockId>, EmitError> {
         if !visited.insert(block_id) {
             return Ok(None);
@@ -1322,7 +1322,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn block_eventually_terminates(
         &self,
         block_id: smelt_mir::BlockId,
-        visiting: &mut HashSet<smelt_mir::BlockId>,
+        visiting: &mut BlockIdSet,
     ) -> Result<bool, EmitError> {
         if let Some(result) = self.termination_cache.borrow().get(&block_id).copied() {
             return Ok(result);
@@ -1388,14 +1388,14 @@ impl FunctionEmitter<'_> {
         else {
             return Ok(None);
         };
-        if !self.block_reaches_target(*then_block, block.id, &mut HashSet::new()) {
+        if !self.block_reaches_target(*then_block, block.id, &mut BlockIdSet::default()) {
             return Ok(None);
         }
         if !self.block_exits_to_loop(
             self.block(*then_block)?,
             block.id,
             *else_block,
-            &mut HashSet::new(),
+            &mut BlockIdSet::default(),
         )? {
             return Ok(None);
         }
@@ -1442,8 +1442,8 @@ impl FunctionEmitter<'_> {
         else {
             return Ok(None);
         };
-        let then_repeats = self.block_reaches_target(*then_block, block.id, &mut HashSet::new());
-        let else_repeats = self.block_reaches_target(*else_block, block.id, &mut HashSet::new());
+        let then_repeats = self.block_reaches_target(*then_block, block.id, &mut BlockIdSet::default());
+        let else_repeats = self.block_reaches_target(*else_block, block.id, &mut BlockIdSet::default());
         if then_repeats == else_repeats {
             return Ok(None);
         }
@@ -1452,7 +1452,7 @@ impl FunctionEmitter<'_> {
                 self.block(*then_block)?,
                 block.id,
                 *else_block,
-                &mut HashSet::new(),
+                &mut BlockIdSet::default(),
             )?
         {
             return Ok(Some((
@@ -1467,7 +1467,7 @@ impl FunctionEmitter<'_> {
                 self.block(*else_block)?,
                 block.id,
                 *then_block,
-                &mut HashSet::new(),
+                &mut BlockIdSet::default(),
             )?
         {
             return Ok(Some((
@@ -1502,7 +1502,7 @@ impl FunctionEmitter<'_> {
         block: &BasicBlock,
         continue_target: smelt_mir::BlockId,
         break_target: smelt_mir::BlockId,
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> Result<bool, EmitError> {
         let cache_key = (block.id, continue_target, break_target);
         if let Some(result) = self.loop_exit_cache.borrow().get(&cache_key).copied() {
@@ -1584,7 +1584,7 @@ impl FunctionEmitter<'_> {
         &self,
         block_id: smelt_mir::BlockId,
         target: smelt_mir::BlockId,
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> bool {
         if block_id == target {
             return true;
@@ -1592,12 +1592,7 @@ impl FunctionEmitter<'_> {
         if !visited.insert(block_id) {
             return false;
         }
-        let Some(block) = self
-            .function
-            .blocks
-            .iter()
-            .find(|block| block.id == block_id)
-        else {
+        let Some(block) = self.block(block_id).ok() else {
             return false;
         };
         let Some(terminator) = &block.terminator else {
@@ -1614,7 +1609,7 @@ impl FunctionEmitter<'_> {
         block_id: smelt_mir::BlockId,
         target: smelt_mir::BlockId,
         avoid: &[smelt_mir::BlockId],
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> bool {
         if avoid.contains(&block_id) {
             return false;
@@ -1625,12 +1620,7 @@ impl FunctionEmitter<'_> {
         if !visited.insert(block_id) {
             return false;
         }
-        let Some(block) = self
-            .function
-            .blocks
-            .iter()
-            .find(|block| block.id == block_id)
-        else {
+        let Some(block) = self.block(block_id).ok() else {
             return false;
         };
         let Some(terminator) = &block.terminator else {
@@ -1764,7 +1754,7 @@ impl FunctionEmitter<'_> {
                 block.id,
                 candidate.id,
                 block.id,
-                &mut HashSet::new(),
+                &mut BlockIdSet::default(),
             )? {
                 continue;
             }
@@ -1778,7 +1768,7 @@ impl FunctionEmitter<'_> {
                 self.function.entry,
                 candidate.id,
                 &[block.id],
-                &mut HashSet::new(),
+                &mut BlockIdSet::default(),
             ) {
                 continue;
             }
@@ -1789,13 +1779,13 @@ impl FunctionEmitter<'_> {
                 *then_block,
                 block.id,
                 &branch_avoid,
-                &mut HashSet::new(),
+                &mut BlockIdSet::default(),
             );
             let else_repeats = self.block_reaches_target_avoiding(
                 *else_block,
                 block.id,
                 &branch_avoid,
-                &mut HashSet::new(),
+                &mut BlockIdSet::default(),
             );
             if then_repeats == else_repeats {
                 continue;
@@ -1830,7 +1820,7 @@ impl FunctionEmitter<'_> {
                         self.function.entry,
                         header,
                         &[candidate],
-                        &mut HashSet::new(),
+                        &mut BlockIdSet::default(),
                     )
             })
             .collect()
@@ -1848,7 +1838,7 @@ impl FunctionEmitter<'_> {
         block_id: smelt_mir::BlockId,
         decision: smelt_mir::BlockId,
         header: smelt_mir::BlockId,
-        visiting: &mut HashSet<smelt_mir::BlockId>,
+        visiting: &mut BlockIdSet,
     ) -> Result<bool, EmitError> {
         if block_id == decision {
             return Ok(true);
@@ -1891,7 +1881,7 @@ impl FunctionEmitter<'_> {
         block: &BasicBlock,
         decision: smelt_mir::BlockId,
         out: &mut String,
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> Result<(), EmitError> {
         if block.id == decision {
             return Ok(());
@@ -1952,7 +1942,7 @@ impl FunctionEmitter<'_> {
         };
         let loop_declared = self.declared_locals_snapshot();
         out.push_str("    loop {\n");
-        self.emit_condition_region(block, decision, out, &mut HashSet::new())?;
+        self.emit_condition_region(block, decision, out, &mut BlockIdSet::default())?;
         out.push_str(&format!("    if {cond_text} {{\n"));
         if body_is_then {
             self.emit_block_until_goto(self.block(body_entry)?, block.id, Some(exit_entry), out)?;
@@ -1992,7 +1982,7 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
         let result =
-            self.emit_block_until_goto_inner(block, stop, break_target, out, &mut HashSet::new());
+            self.emit_block_until_goto_inner(block, stop, break_target, out, &mut BlockIdSet::default());
         EMIT_UNTIL_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
         result
     }
@@ -2004,7 +1994,7 @@ impl FunctionEmitter<'_> {
         stop: smelt_mir::BlockId,
         break_target: Option<smelt_mir::BlockId>,
         out: &mut String,
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> Result<(), EmitError> {
         if !visited.insert(block.id) {
             out.push_str("    continue;\n");
@@ -2089,7 +2079,7 @@ impl FunctionEmitter<'_> {
             continue_target,
             break_target,
             out,
-            &mut HashSet::new(),
+            &mut BlockIdSet::default(),
         )
     }
 
@@ -2100,7 +2090,7 @@ impl FunctionEmitter<'_> {
         continue_target: smelt_mir::BlockId,
         break_target: Option<smelt_mir::BlockId>,
         out: &mut String,
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> Result<(), EmitError> {
         if !visited.insert(block.id) {
             out.push_str("    continue;\n");
@@ -2208,7 +2198,7 @@ impl FunctionEmitter<'_> {
         stop: smelt_mir::BlockId,
         break_target: Option<smelt_mir::BlockId>,
         out: &mut String,
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> Result<bool, EmitError> {
         let already_emitting_nested_region = EMIT_UNTIL_DEPTH.with(|depth| depth.get() > 1);
         if already_emitting_nested_region {
@@ -2231,7 +2221,7 @@ impl FunctionEmitter<'_> {
                 body_entry,
                 stop,
                 &[block.id, exit_entry],
-                &mut HashSet::new(),
+                &mut BlockIdSet::default(),
             )
         {
             self.emit_compound_while(block, decision, body_entry, exit_entry, body_is_then, out)?;
@@ -2246,7 +2236,7 @@ impl FunctionEmitter<'_> {
                 then_block,
                 stop,
                 &[block.id, else_block],
-                &mut HashSet::new(),
+                &mut BlockIdSet::default(),
             ) {
                 return Ok(false);
             }
@@ -2285,7 +2275,7 @@ impl FunctionEmitter<'_> {
                 then_block,
                 stop,
                 &[block.id, latch_block, else_block],
-                &mut HashSet::new(),
+                &mut BlockIdSet::default(),
             ) {
                 return Ok(false);
             }
@@ -2331,7 +2321,7 @@ impl FunctionEmitter<'_> {
         stop: smelt_mir::BlockId,
         break_target: Option<smelt_mir::BlockId>,
         out: &mut String,
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> Result<(), EmitError> {
         if exit_block == stop {
             return Ok(());

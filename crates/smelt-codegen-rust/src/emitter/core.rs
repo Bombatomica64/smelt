@@ -221,7 +221,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // reports whether the *rendered* tail already diverges, so consulting
         // it as well suppresses a trailing `return` that would otherwise be
         // dead `unreachable_code`.
-        if !self.block_eventually_terminates(self.function.entry, &mut HashSet::new())?
+        if !self.block_eventually_terminates(self.function.entry, &mut BlockIdSet::default())?
             && !control_flow::last_emit_diverged()
             && !emitted_tail_returns(out)
         {

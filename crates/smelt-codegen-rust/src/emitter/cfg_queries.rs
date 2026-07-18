@@ -8,14 +8,9 @@ impl FunctionEmitter<'_> {
     pub(super) fn block_can_repeat(
         &self,
         block_id: smelt_mir::BlockId,
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> bool {
-        let Some(block) = self
-            .function
-            .blocks
-            .iter()
-            .find(|block| block.id == block_id)
-        else {
+        let Some(block) = self.block(block_id).ok() else {
             return true;
         };
         let Some(terminator) = &block.terminator else {
@@ -44,8 +39,8 @@ impl FunctionEmitter<'_> {
             .iter()
             .filter(|candidate| candidate.id != block_id)
             .any(|candidate| {
-                self.block_can_repeat(candidate.id, &mut HashSet::new())
-                    && self.block_can_reach(candidate.id, block_id, &mut HashSet::new())
+                self.block_can_repeat(candidate.id, &mut BlockIdSet::default())
+                    && self.block_can_reach(candidate.id, block_id, &mut BlockIdSet::default())
             })
     }
 
@@ -54,7 +49,7 @@ impl FunctionEmitter<'_> {
         &self,
         block_id: smelt_mir::BlockId,
         target: smelt_mir::BlockId,
-        visited: &mut HashSet<smelt_mir::BlockId>,
+        visited: &mut BlockIdSet,
     ) -> bool {
         if block_id == target {
             return true;
@@ -62,10 +57,8 @@ impl FunctionEmitter<'_> {
         if !visited.insert(block_id) {
             return false;
         }
-        self.function
-            .blocks
-            .iter()
-            .find(|block| block.id == block_id)
+        self.block(block_id)
+            .ok()
             .and_then(|block| block.terminator.as_ref())
             .is_some_and(|terminator| {
                 terminator_successors(terminator)

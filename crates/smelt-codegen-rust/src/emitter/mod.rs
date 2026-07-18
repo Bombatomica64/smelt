@@ -21,6 +21,15 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
+/// Hash set of MIR block ids using a fast, non-DoS-resistant hasher.
+///
+/// The control-flow reachability queries (`block_reaches_target*`,
+/// `block_can_reach`, …) build short-lived visited sets keyed by `BlockId`, a
+/// dense `u32`. Profiling `emit_crate` on es-toolkit showed the default
+/// SipHash's per-key cost dominating those queries; `FxHashSet` hashes a `u32`
+/// in a couple of instructions and removes that cost without changing behavior.
+pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
+
 mod binary_ops;
 mod call;
 mod call_runtime;

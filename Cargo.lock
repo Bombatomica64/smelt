@@ -2628,6 +2628,7 @@ name = "smelt-codegen-rust"
 version = "0.1.1"
 dependencies = [
  "insta",
+ "rustc-hash",
  "smelt-frontend-py",
  "smelt-frontend-ts",
  "smelt-hir",
