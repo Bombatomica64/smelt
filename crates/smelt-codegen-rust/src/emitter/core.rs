@@ -1987,7 +1987,14 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("({callback_text})({args})")
         };
-        let call_value = if source.may_throw {
+        // An async callback carries its throw path inside the returned future's
+        // `Result`; invoking the callback yields the future directly. Only a
+        // synchronous throwing callback returns a `Result` at this call site.
+        let source_returns_future = matches!(
+            self.mir.types.get(source.return_ty),
+            Some(Type::Future(_))
+        );
+        let call_value = if source.may_throw && !source_returns_future {
             format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
         } else {
             call

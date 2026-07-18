@@ -87,7 +87,15 @@ impl ModuleBuilder<'_> {
             }));
         }
         if self.classes.contains_key(name) {
-            let symbol = self.intern_type_name(name);
+            let symbol = self
+                .classes
+                .get(name)
+                .copied()
+                .and_then(|item| match self.item_ref(item) {
+                    Item::Class(class) => Some(class.name),
+                    _ => None,
+                })
+                .unwrap_or_else(|| self.intern_type_name(name));
             let ty = self.ctx.krate.types.intern(Type::Class {
                 name: symbol,
                 args: Vec::new(),

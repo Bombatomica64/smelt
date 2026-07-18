@@ -92,6 +92,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             mutable_global_items: HashMap::new(),
             items,
             classes,
+            scoped_class_type_names: HashMap::new(),
             pending_class_names: HashSet::new(),
             interfaces,
             class_fields: HashMap::new(),

@@ -1875,6 +1875,9 @@ return_ty: function.return_ty,
 
     /// Resolve a source type reference through local import aliases to its declared symbol.
     pub(in crate::lowering) fn resolve_type_reference_symbol(&mut self, name_text: &str) -> smelt_hir::Symbol {
+        if let Some(symbol) = self.scoped_class_type_names.get(name_text).copied() {
+            return symbol;
+        }
         if let Some(item) = self.items.get(name_text).copied() {
             match self.item_ref(item) {
                 Item::TypeAlias(alias) => return alias.name,

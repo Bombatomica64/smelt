@@ -217,10 +217,20 @@ impl FunctionEmitter<'_> {
                     _ => format!("({executor_text})(smelt_resolve, smelt_reject);"),
                 };
                 let output_text = self.type_text(output_ty)?;
+                // `Promise<void>` still accepts an ignored optional value, but
+                // a concrete `Promise<T>` exposes a typed resolver. Keeping the
+                // resolver parameter at `T` lets named executors pass through
+                // without erasing and reconstructing their argument.
+                let resolve_input_ty = if self.mir.types.get(output_ty) == Some(&Type::None) {
+                    self.type_id(Type::Unknown)?
+                } else {
+                    output_ty
+                };
+                let resolve_input_text = self.type_text(resolve_input_ty)?;
                 let resolve_value =
-                    self.value_at_type_text("value", self.type_id(Type::Unknown)?, output_ty)?;
+                    self.value_at_type_text("value", resolve_input_ty, output_ty)?;
                 Ok(format!(
-                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |value: SmeltUnknown| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
+                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
@@ -1502,8 +1512,47 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
+        call_text = self.wrap_native_async_call_text(callee, call_text)?;
         let source_ty = self.call_emitted_source_ty(callee, dest_ty)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty)
+    }
+
+    /// Wrap a generated native `async fn` call in Smelt's stable future ABI.
+    ///
+    /// Rust evaluates an `async fn` call as an anonymous `impl Future`, while
+    /// MIR `Type::Future(T)` is emitted as `SmeltFuture<T>`. Materializing the
+    /// wrapper at call destinations keeps free async functions compatible with
+    /// closure temporaries, adapters, and values that escape before an await.
+    ///
+    /// Only callees that are themselves emitted as a real Rust `async fn` yield
+    /// an `impl Future` needing this wrapper: free functions (`HirOrigin::Body`)
+    /// and static methods (`ClassStaticMethod`). An async *instance* method is
+    /// emitted as a synchronous `fn(&self, ..) -> SmeltFuture<T>` whose body
+    /// runs inside a moved `async` block (see `emit_async_method_owned_self_body`),
+    /// so its call already produces a `SmeltFuture<T>`. Wrapping that again in
+    /// `SmeltFuture::from_future(Box::pin(..))` fails to compile because
+    /// `SmeltFuture<T>` is not a `Future` (E0277), so instance methods are
+    /// excluded here and their call value passes through unchanged.
+    fn wrap_native_async_call_text(
+        &self,
+        callee: &Callee,
+        call_text: String,
+    ) -> Result<String, EmitError> {
+        let Callee::Static(func) = callee else {
+            return Ok(call_text);
+        };
+        let function = self
+            .mir
+            .functions
+            .get(id_index(func.0, "function index does not fit usize")?)
+            .ok_or_else(|| EmitError::new("call references an unknown function"))?;
+        if function.is_async && !matches!(function.origin, HirOrigin::ClassMethod { .. }) {
+            Ok(format!(
+                "SmeltFuture::from_future(Box::pin({call_text}))"
+            ))
+        } else {
+            Ok(call_text)
+        }
     }
 
     /// Returns the Rust type a call *actually* evaluates to in the emitted code.
@@ -1586,6 +1635,7 @@ impl FunctionEmitter<'_> {
         if let Some(stripped) = call_text.strip_suffix('?') {
             call_text = format!("{stripped}.unwrap_or_else(|error| panic!(\"{{}}\", error))");
         }
+        call_text = self.wrap_native_async_call_text(callee, call_text)?;
         let source_ty = self.call_source_ty(callee)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty)
     }

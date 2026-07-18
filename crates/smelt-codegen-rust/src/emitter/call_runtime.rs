@@ -166,6 +166,26 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::Use(operand) => self.value_at_type(operand, dest_ty),
             Rvalue::List(items) => {
+                // A contextual tuple assertion keeps the literal as a `List`
+                // rvalue while changing its destination storage to a Rust tuple.
+                // Render its heterogeneous elements directly into that tuple.
+                if let Some(Type::Tuple(target_items)) = self.mir.types.get(dest_ty)
+                    && target_items.len() == items.len()
+                {
+                    let items_text = items
+                        .iter()
+                        .zip(target_items)
+                        .map(|(item, target_ty)| {
+                            self.value_at_type(&self.list_literal_operand(item), *target_ty)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ");
+                    return if target_items.len() == 1 {
+                        Ok(format!("({items_text},)"))
+                    } else {
+                        Ok(format!("({items_text})"))
+                    };
+                }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty) {
                     if matches!(
                         self.mir.types.get(*inner),
@@ -270,7 +290,16 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .map(|(key, entry_value)| {
                         let key_text = if let Some((key_ty, _)) = dict_types {
-                            self.value_at_type(key, key_ty)?
+                            if self.mir.types.get(key_ty) == Some(&Type::String)
+                                && self.mir.types.get(self.operand_ty(key)?) != Some(&Type::String)
+                            {
+                                self.property_key_to_string_text(
+                                    &self.operand_text(key)?,
+                                    self.operand_ty(key)?,
+                                )?
+                            } else {
+                                self.value_at_type(key, key_ty)?
+                            }
                         } else {
                             self.operand_text(key)?
                         };

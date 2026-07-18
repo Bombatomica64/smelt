@@ -3,6 +3,33 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Render a dotted property name as the concrete key type of a dictionary.
+    ///
+    /// JavaScript permits dotted writes on records whose key domain widened to
+    /// `unknown` (for example after adding a symbol-keyed property). Reads and
+    /// writes share this conversion so `record.loop` addresses the same entry.
+    pub(super) fn dict_field_key_text(
+        &self,
+        key: TypeId,
+        field: Symbol,
+    ) -> Result<String, EmitError> {
+        let field_name = self.symbol_source_name(field)?;
+        if self.mir.types.get(key) == Some(&Type::String) {
+            return Ok(format!("{field_name:?}.to_owned()"));
+        }
+        if matches!(
+            self.mir.types.get(key),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(key)
+        {
+            return self.erase_value_text(
+                &format!("{field_name:?}.to_owned()"),
+                self.type_id(Type::String)?,
+            );
+        }
+        self.default_value(key)
+    }
+
     /// Converts a place to its Rust text representation.
     pub(super) fn place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
@@ -10,21 +37,7 @@ impl FunctionEmitter<'_> {
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 if let Some(Type::Dict(key, value)) = self.mir.types.get(base_ty) {
-                    let field_name = self.symbol_source_name(*field)?;
-                    let key_text = if self.mir.types.get(*key) == Some(&Type::String) {
-                        format!("{field_name:?}.to_owned()")
-                    } else if matches!(
-                        self.mir.types.get(*key),
-                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                    ) || self.is_erased_class_type(*key)
-                    {
-                        self.erase_value_text(
-                            &format!("{field_name:?}.to_owned()"),
-                            self.type_id(Type::String)?,
-                        )?
-                    } else {
-                        self.default_value(*key)?
-                    };
+                    let key_text = self.dict_field_key_text(*key, *field)?;
                     let base_text = self.local_value_text(*base)?;
                     if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
                         if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
