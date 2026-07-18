@@ -851,6 +851,85 @@ export function run(): number { return api.total(1, 2, 3); }
 }
 
 #[test]
+fn typeof_of_erased_value_emits_runtime_tag_check_not_object_literal() -> Result<(), String> {
+    // `typeof a === typeof b` on two `any` params must compare runtime tags, not
+    // fold both sides to the literal `"object"`. Folding (the historical
+    // `.unwrap_or("object")`) made `isEqualWith(1, '1', ...)` mis-report equal
+    // typeof and left the primitive `switch (typeof a)` arms dead.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function sameType(a: any, b: any): boolean {
+  return typeof a === typeof b;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::TypeofValue { .. }
+    )));
+    // No side of the comparison folded to a bare `"object"` string literal.
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::Literal(Literal::String(s)) if s == "object"
+    )));
+    Ok(())
+}
+
+#[test]
+fn switch_typeof_on_erased_value_keeps_all_arms_live() -> Result<(), String> {
+    // `switch (typeof x)` on an `any` value must inspect the tag at runtime so the
+    // number/string/boolean/function arms stay reachable, rather than the scrutinee
+    // collapsing to a constant `"object"` that only the object arm can match.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function classify(x: any): string {
+  switch (typeof x) {
+    case "number":
+      return "n";
+    case "string":
+      return "s";
+    default:
+      return "o";
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::TypeofValue { .. }
+    )));
+    Ok(())
+}
+
+#[test]
+fn typeof_of_concrete_string_still_folds_to_literal() -> Result<(), String> {
+    // A statically-known `typeof` spelling must keep folding: a `string` value's
+    // `typeof` is always `"string"`, so no runtime tag inspection is emitted.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function tag(s: string): string {
+  return typeof s;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(!crate_has_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::TypeofValue { .. }
+    )));
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::Literal(Literal::String(s)) if s == "string"
+    )));
+    Ok(())
+}
+
+#[test]
 fn mixed_runtime_and_test_sequence_is_rejected_explicitly() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(

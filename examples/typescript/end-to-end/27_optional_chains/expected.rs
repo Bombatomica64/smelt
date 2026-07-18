@@ -304,7 +304,14 @@ fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> 
 /// Class instances carry a hidden `__smelt_class` marker and map to a distinct
 /// `"__smelt_proto:class"` sentinel so they are not treated as plain objects; arrays,
 /// `null`, and plain objects keep their existing sentinels.
-fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String("__smelt_proto:array".to_owned()), SmeltUnknown::Promise(_) => SmeltUnknown::String("__smelt_proto:promise".to_owned()), SmeltUnknown::Object(map) if map.contains_key("__smelt_class") => SmeltUnknown::String("__smelt_proto:class".to_owned()), _ => SmeltUnknown::String("__smelt_proto:object".to_owned()) } }
+///
+/// The sentinel strings are themselves valid inputs: walking the prototype
+/// chain (`while (Object.getPrototypeOf(proto) !== null)`) re-invokes this
+/// helper on a returned sentinel, so each sentinel must advance one link
+/// toward `null` (Array/Promise/class prototypes inherit from
+/// `Object.prototype`, whose prototype is `null`). Without this the walk
+/// would return `"__smelt_proto:object"` forever and never terminate.
+fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String("__smelt_proto:array".to_owned()), SmeltUnknown::Promise(_) => SmeltUnknown::String("__smelt_proto:promise".to_owned()), SmeltUnknown::Object(map) if map.contains_key("__smelt_class") => SmeltUnknown::String("__smelt_proto:class".to_owned()), SmeltUnknown::String(marker) if marker == "__smelt_proto:object" => SmeltUnknown::Null, SmeltUnknown::String(marker) if marker == "__smelt_proto:array" || marker == "__smelt_proto:promise" || marker == "__smelt_proto:class" => SmeltUnknown::String("__smelt_proto:object".to_owned()), _ => SmeltUnknown::String("__smelt_proto:object".to_owned()) } }
 
 /// Resolve the JavaScript `Object.prototype.toString.call(x)` tag for an erased value.
 ///

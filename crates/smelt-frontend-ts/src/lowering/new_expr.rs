@@ -2528,10 +2528,24 @@ impl ModuleBuilder<'_> {
         }
         let operand = self.expression(&unary.argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
-        let kind = self.typeof_type_name(operand_ty).unwrap_or("object");
         let ty = self.ctx.krate.types.intern(Type::String);
+        // When the operand has no statically-known `typeof` spelling (erased
+        // `unknown`/`any`, unions, type params, futures — everything
+        // `typeof_type_name` returns `None` for), the JavaScript `typeof` must be
+        // computed at runtime by inspecting the value's tag. Folding to a literal
+        // here (the historical `.unwrap_or("object")`) mis-typed erased values as
+        // objects, which made `typeof a === typeof b` fold to `"object" ==
+        // "object"` and the primitive arms of `switch (typeof a)` dead (see
+        // es-toolkit `isEqualWith`). Only fold when the type pins a single spelling.
+        if let Some(kind) = self.typeof_type_name(operand_ty) {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(kind.to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
         Ok(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(kind.to_owned())),
+            kind: ExprKind::TypeofValue { value: operand },
             ty,
             span: self.span(unary.span.start, unary.span.end),
         }))
