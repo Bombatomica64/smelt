@@ -702,7 +702,7 @@ impl ModuleBuilder<'_> {
                     };
                     let field = self.intern_source_name(field_text);
                     let field_ty = match self.ctx.krate.types.get(param_ty) {
-                        Some(Type::Dict(_, value)) => *value,
+                        Some(Type::Dict(_, value) | Type::JsMap(_, value)) => *value,
                         Some(Type::Class { .. }) => self.class_field_type(param_ty, field)?,
                         _ => param_ty,
                     };

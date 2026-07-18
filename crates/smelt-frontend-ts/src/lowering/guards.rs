@@ -264,12 +264,18 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for builtin targets represented by non-class HIR values today.
+    ///
+    /// `Map` is intentionally absent: a source `Map` erases to a marker object
+    /// (`{ __smelt_map: [...] }`), so `value instanceof Map` resolves through
+    /// that marker in `instance_of_text` rather than folding to a constant
+    /// `false`. `Set` stays here because a `Set` erases to a bare array with no
+    /// distinguishing marker, and `Date`/`RegExp` are timestamp/marker values
+    /// whose `instanceof` remains a deliberate `false` fold for erased operands.
     pub(super) fn instanceof_fold_false_builtin_target(target: &str) -> bool {
         matches!(
             smelt_stdlib::typescript_stdlib_class(target),
             Some(
                 smelt_stdlib::StdlibClass::Date
-                    | smelt_stdlib::StdlibClass::Map
                     | smelt_stdlib::StdlibClass::RegExp
                     | smelt_stdlib::StdlibClass::Set
             )
@@ -366,7 +372,10 @@ impl ModuleBuilder<'_> {
                 // `value instanceof UserClass` resolves through the concrete
                 // `InstanceOf` codegen to `false` instead of aborting the build
                 // (records are never instances of a user-declared class here).
-                | Type::Dict(..),
+                // A source `Map` (`JsMap`) is likewise a supported operand: it is
+                // `instanceof Map` and `false` for any other class.
+                | Type::Dict(..)
+                | Type::JsMap(..),
             ) => true,
             Some(Type::Union(items)) => items
                 .iter()
@@ -761,6 +770,7 @@ impl ModuleBuilder<'_> {
                 Type::List(_)
                 | Type::Set(_)
                 | Type::Dict(_, _)
+                | Type::JsMap(_, _)
                 | Type::Tuple(_)
                 | Type::Class { .. }
                 | Type::Optional(_),

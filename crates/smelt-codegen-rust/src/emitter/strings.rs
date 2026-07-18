@@ -601,6 +601,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
                 Ok("\"[object Object]\".to_owned()".to_owned())
             }
+            Some(Type::JsMap(_, _)) => Ok("\"[object Map]\".to_owned()".to_owned()),
             Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => Ok(
                 format!("{}.unwrap_or_default()", self.operand_text(operand)?),
             ),

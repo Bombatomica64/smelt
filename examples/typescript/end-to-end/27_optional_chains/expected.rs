@@ -503,6 +503,7 @@ fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknow
 }
 
 fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
+    if field == "size" && let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); }
     // A missing property reads as JS `undefined`, distinct from an
     // explicit `null` value (`obj.missing === undefined`, `!== null`).
     match map.get(field).unwrap_or(SmeltUnknown::Undefined) {

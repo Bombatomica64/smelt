@@ -355,6 +355,9 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
                 ts_type(krate, *value)
             )
         }
+        Some(Type::JsMap(key, value)) => {
+            format!("Map<{}, {}>", ts_type(krate, *key), ts_type(krate, *value))
+        }
         Some(Type::Tuple(items)) => {
             let tuple_items = items
                 .iter()
@@ -405,7 +408,7 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
         Some(Type::None) => "None".to_owned(),
         Some(Type::List(item)) => format!("list[{}]", py_type(krate, *item)),
         Some(Type::Set(item)) => format!("set[{}]", py_type(krate, *item)),
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value)) | Some(Type::JsMap(key, value)) => {
             format!("dict[{}, {}]", py_type(krate, *key), py_type(krate, *value))
         }
         Some(Type::Tuple(items)) => {

@@ -3005,7 +3005,7 @@ impl<'builder> ModuleBuilder<'builder> {
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
                 self.overload_constraint_contains_unresolved_type_param(*item)
             }
-            Some(Type::Dict(key, value)) => {
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.overload_constraint_contains_unresolved_type_param(*key)
                     || self.overload_constraint_contains_unresolved_type_param(*value)
             }

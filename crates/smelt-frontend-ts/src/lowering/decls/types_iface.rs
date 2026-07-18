@@ -1402,7 +1402,8 @@ impl ModuleBuilder<'_> {
         // `map.forEach((value, key) => …)` receives the *key* as its second
         // argument, not a numeric index: iterate the `[key, value]` entries
         // list and bind both callback parameters from each entry tuple.
-        if let Some(Type::Dict(key_ty, value_ty)) = self.ctx.krate.types.get(iter_ty).cloned()
+        if let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.ctx.krate.types.get(iter_ty).cloned()
             && arrow.params.items.len() >= 2
         {
             let span = self.span(call.span.start, call.span.end);

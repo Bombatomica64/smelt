@@ -1671,7 +1671,7 @@ impl ModuleBuilder<'_> {
             Type::Union(items) => items
                 .iter()
                 .all(|item| self.is_json_serializable_type_inner(*item, seen)),
-            Type::Dict(key, value) => {
+            Type::Dict(key, value) | Type::JsMap(key, value) => {
                 matches!(self.ctx.krate.types.get(key), Some(Type::String))
                     && self.is_json_serializable_type_inner(value, seen)
             }

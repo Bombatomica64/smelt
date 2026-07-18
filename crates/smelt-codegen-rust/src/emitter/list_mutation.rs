@@ -471,7 +471,10 @@ impl FunctionEmitter<'_> {
         let collection_ty = self.operand_ty(collection)?;
         let expected_collection = match collection_name {
             "list" => matches!(self.mir.types.get(collection_ty), Some(Type::List(_))),
-            "dict" => matches!(self.mir.types.get(collection_ty), Some(Type::Dict(_, _))),
+            "dict" => matches!(
+                self.mir.types.get(collection_ty),
+                Some(Type::Dict(_, _) | Type::JsMap(_, _))
+            ),
             "set" => matches!(self.mir.types.get(collection_ty), Some(Type::Set(_))),
             _ => false,
         };

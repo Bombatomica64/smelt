@@ -1362,6 +1362,13 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
+        // An erased `Map` is a marker object `{ __smelt_map: [[k, v], ...] }`.
+        // Real Maps expose `.size` through `Map.prototype`, which the marker
+        // object does not store as an own field, so synthesize it from the entry
+        // count when a `.size` read reaches an erased Map. This keeps generic
+        // `unknown`-typed code that probes `value.size` (e.g. `isEmptyish`)
+        // correct without materializing the typed `SmeltJsMap`.
+        writer.line("    if field == \"size\" && let Some(SmeltUnknown::Array(pairs)) = map.get(\"__smelt_map\") { return SmeltUnknown::Number(pairs.len() as f64); }");
         writer.line("    // A missing property reads as JS `undefined`, distinct from an");
         writer.line("    // explicit `null` value (`obj.missing === undefined`, `!== null`).");
         writer.line("    match map.get(field).unwrap_or(SmeltUnknown::Undefined) {");
@@ -3401,7 +3408,7 @@ fn type_contains_function(mir: &Mir, ty: TypeId) -> bool {
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
             type_contains_function(mir, *item)
         }
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_contains_function(mir, *key) || type_contains_function(mir, *value)
         }
         Some(Type::Tuple(items) | Type::Union(items)) => {
@@ -3445,7 +3452,7 @@ fn type_supports_partial_eq(
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
             type_supports_partial_eq(mir, context, *item, seen)
         }
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_supports_partial_eq(mir, context, *key, seen)
                 && type_supports_partial_eq(mir, context, *value, seen)
         }
@@ -3574,7 +3581,7 @@ fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId) -> Result<
                 "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| (key, {item_text})).collect()))"
             )
         }
-        Some(Type::Dict(_, _) | Type::Tuple(_) | Type::Class { .. }) => {
+        Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Tuple(_) | Type::Class { .. }) => {
             format!("({value_text}).into_smelt_unknown()")
         }
         Some(Type::Function(_)) => "SmeltUnknown::Null".to_owned(),
