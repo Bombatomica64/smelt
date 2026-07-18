@@ -9000,3 +9000,56 @@ export function build(): boolean {
     );
     Ok(())
 }
+
+#[test]
+fn postfix_increment_in_ternary_consequent_stays_in_arm_block() -> Result<(), String> {
+    // Regression: a postfix `k++` inside a ternary consequent (`cond ? xs[k++] :
+    // y`) must increment `k` only when the consequent arm is taken. The update's
+    // store was previously pushed into the enclosing statement block, hoisting
+    // the increment out of the branch so it ran unconditionally — the es-toolkit
+    // `partial`/`partialRight` `providedArgs[idx++]` placeholder bug. The arm's
+    // side effects must now live in an `ExprKind::Block` wrapping the consequent.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export function pick(cond: boolean, xs: number[], y: number): number {
+  let k = 0;
+  return cond ? xs[k++] : y;
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    // Locate the ternary and confirm its consequent is a block-wrapped arm whose
+    // block carries the increment store (a `Let`/`Assign`), not a bare index.
+    let then_expr = body
+        .exprs
+        .iter()
+        .find_map(|expr| match expr.kind {
+            ExprKind::Conditional { then_expr, .. } => Some(then_expr),
+            _ => None,
+        })
+        .ok_or_else(|| "no Conditional expression lowered".to_owned())?;
+    let ExprKind::Block(arm_block) = body.exprs[then_expr.0 as usize].kind else {
+        return Err("ternary consequent was not wrapped in an arm block".to_owned());
+    };
+    ensure!(
+        !body.blocks[arm_block.0 as usize].stmts.is_empty(),
+        "consequent arm block does not carry the `k++` increment store",
+    );
+
+    // The increment store must NOT be hoisted into the function root block.
+    let root_has_assign = body.blocks[body.root.0 as usize]
+        .stmts
+        .iter()
+        .any(|stmt_id| matches!(body.stmts[stmt_id.0 as usize], Stmt::Assign { .. }));
+    ensure!(
+        !root_has_assign,
+        "postfix increment store was hoisted to the enclosing statement block",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
