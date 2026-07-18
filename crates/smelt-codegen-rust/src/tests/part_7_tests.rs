@@ -8207,3 +8207,72 @@ export function run(): void {
         "{source}"
     );
 }
+
+#[test]
+fn erased_apply_call_bind_function_receiver() {
+    // `func.apply`/`func.call` on an erased receiver must resolve when `func` is
+    // a `SmeltUnknown::Function`, not only when it is an object. The plain
+    // object-field read returns `Undefined` for a function receiver, which
+    // collapses every invocation to a null callback (the `partial`/`partialRight`
+    // regression). The read routes through `smelt_function_method`, which binds
+    // the callable with `this`-dropping/argument-spreading semantics.
+    let source = source_for(
+        r#"
+export function invokeApply(func: any, args: unknown[]): unknown {
+  return func.apply(undefined, args);
+}
+export function invokeCall(func: any, first: unknown): unknown {
+  return func.call(undefined, first);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_function_method(") && source.contains("\"apply\""),
+        "erased `.apply` must route through the function-method binder\n{source}"
+    );
+    assert!(
+        source.contains("\"call\""),
+        "erased `.call` must route through the function-method binder\n{source}"
+    );
+    assert!(
+        source.contains("fn smelt_function_method("),
+        "the runtime prelude must define the function-method binder\n{source}"
+    );
+}
+
+#[test]
+fn erased_rest_adapter_packs_target_arguments() {
+    // Adapting an erased-rest (`SmeltErasedFunction`) source to a fixed-arity
+    // target must pack every positional target argument into the erased rest
+    // list, forwarding all of them. A per-source-parameter mapping instead
+    // coerces `arg0` *into* the list — spreading its elements and dropping
+    // `arg1` — which panics on non-iterable values and corrupts multi-argument
+    // adapters (the `partial`/`partialRight` two-argument case; the text-path
+    // variant of this adapter is exercised end-to-end by the es-toolkit
+    // `partial`/`partialRight` suites).
+    let source = source_for(
+        r#"
+type ErasedBinary = (a: unknown, b: unknown) => unknown;
+function makeErased<R>(f: (...args: unknown[]) => R): (...args: unknown[]) => R {
+  return (...args: unknown[]) => f(...args);
+}
+export function adapt(f: (...args: unknown[]) => unknown): ErasedBinary {
+  return makeErased(f);
+}
+"#,
+    );
+
+    // Both target arguments are forwarded into the erased rest list, in order.
+    assert!(
+        source.contains("smelt_forwarded_args.push(arg0);")
+            && source.contains("smelt_forwarded_args.push(arg1);"),
+        "erased-rest adapter must forward every target argument, not drop the tail\n{source}"
+    );
+    // The scalar target arguments must not be spread as if each were the whole
+    // argument list (the corrupting behavior the fix removes).
+    assert!(
+        !source.contains("panic!(\"unknown is not iterable\")"),
+        "erased-rest adapter must not spread a scalar target argument\n{source}"
+    );
+}

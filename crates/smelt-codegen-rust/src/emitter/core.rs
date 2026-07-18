@@ -2349,7 +2349,29 @@ impl<'mir> FunctionEmitter<'mir> {
         // Rust `Fn` and cannot be invoked with call syntax. Route it through the
         // erased callable ABI (`.call(..)`) instead of `(callback)(..)`.
         let call = if self.is_erased_unknown_rest_function(source_function) {
-            format!("smelt_callback.call({forwarded})")
+            if self.is_erased_unknown_rest_function(target_function) {
+                // The target is itself an erased-rest callable: its single
+                // argument already *is* the packed argument list, so forward it
+                // unchanged.
+                "smelt_callback.call(arg0)".to_owned()
+            } else {
+                // The target has fixed arity. Pack every positional argument
+                // into the erased rest list. The per-source-parameter mapping in
+                // `forwarded` would instead coerce `arg0` *into* the list —
+                // spreading its elements and dropping `arg1..` — which panics on
+                // non-iterable values and corrupts multi-argument adapters (see
+                // `partial`/`partialRight` two-argument callbacks).
+                let packed = target_function
+                    .params
+                    .iter()
+                    .enumerate()
+                    .map(|(index, target_param)| {
+                        self.erase_value_text(&format!("arg{index}"), *target_param)
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ");
+                format!("smelt_callback.call(vec![{packed}])")
+            }
         } else {
             format!("(smelt_callback)({forwarded})")
         };
