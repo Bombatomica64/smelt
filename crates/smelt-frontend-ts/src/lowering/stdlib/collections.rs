@@ -68,7 +68,9 @@ impl ModuleBuilder<'_> {
             };
         let effective_ty = optional_inner.unwrap_or(receiver_ty);
         let receiver_kind = match self.ctx.krate.types.get(effective_ty) {
-            Some(Type::Dict(_, _)) => smelt_stdlib::TypeScriptReceiverKind::Map,
+            Some(Type::Dict(_, _) | Type::JsMap(_, _)) => {
+                smelt_stdlib::TypeScriptReceiverKind::Map
+            }
             Some(Type::Set(_)) => smelt_stdlib::TypeScriptReceiverKind::Set,
             _ => return Ok(None),
         };
@@ -334,7 +336,9 @@ impl ModuleBuilder<'_> {
         };
         let dict = receiver;
         let dict_ty = Self::expr_ty(body, dict);
-        let Some(Type::Dict(dict_key_ty, _)) = self.ctx.krate.types.get(dict_ty) else {
+        let Some(Type::Dict(dict_key_ty, _) | Type::JsMap(dict_key_ty, _)) =
+            self.ctx.krate.types.get(dict_ty)
+        else {
             return Ok(None);
         };
         let key_ty = *dict_key_ty;
@@ -370,7 +374,9 @@ impl ModuleBuilder<'_> {
         }
         let dict = receiver;
         let dict_ty = Self::expr_ty(body, dict);
-        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+        let Some(Type::Dict(dict_key_ty, dict_value_ty) | Type::JsMap(dict_key_ty, dict_value_ty)) =
+            self.ctx.krate.types.get(dict_ty)
+        else {
             return Ok(None);
         };
         let [key_argument] = call.arguments.as_slice() else {
@@ -418,7 +424,9 @@ impl ModuleBuilder<'_> {
         }
         let dict = receiver;
         let dict_ty = Self::expr_ty(body, dict);
-        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+        let Some(Type::Dict(dict_key_ty, dict_value_ty) | Type::JsMap(dict_key_ty, dict_value_ty)) =
+            self.ctx.krate.types.get(dict_ty)
+        else {
             return Ok(None);
         };
         let key_ty = *dict_key_ty;
@@ -576,7 +584,9 @@ impl ModuleBuilder<'_> {
         }
         let dict = receiver;
         let dict_ty = Self::expr_ty(body, dict);
-        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+        let Some(Type::Dict(dict_key_ty, dict_value_ty) | Type::JsMap(dict_key_ty, dict_value_ty)) =
+            self.ctx.krate.types.get(dict_ty)
+        else {
             return Ok(None);
         };
         let key_ty = *dict_key_ty;

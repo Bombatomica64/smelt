@@ -3232,7 +3232,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(
                 Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
             ) => self.type_contains_function(*item),
-            Some(Type::Dict(key, value)) => {
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.type_contains_function(*key) || self.type_contains_function(*value)
             }
             Some(Type::Tuple(items) | Type::Union(items)) => {
@@ -3278,7 +3278,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(
                 Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
             ) => self.type_contains_unknown(*item),
-            Some(Type::Dict(key, value)) => {
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.type_contains_unknown(*key) || self.type_contains_unknown(*value)
             }
             Some(Type::Tuple(items)) => items.iter().any(|item| self.type_contains_unknown(*item)),
@@ -3339,6 +3339,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 | Type::List(_)
                 | Type::Set(_)
                 | Type::Dict(_, _)
+                | Type::JsMap(_, _)
                 | Type::Tuple(_)
                 | Type::Function(_)
                 | Type::Class { .. },

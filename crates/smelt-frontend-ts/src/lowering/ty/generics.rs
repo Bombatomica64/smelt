@@ -137,6 +137,11 @@ impl ModuleBuilder<'_> {
                 let value = self.substitute_type_params(value, substitutions);
                 self.ctx.krate.types.intern(Type::Dict(key, value))
             }
+            Type::JsMap(key, value) => {
+                let key = self.substitute_type_params(key, substitutions);
+                let value = self.substitute_type_params(value, substitutions);
+                self.ctx.krate.types.intern(Type::JsMap(key, value))
+            }
             Type::Tuple(items) => {
                 let items = items
                     .into_iter()

@@ -34,7 +34,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item) | Type::Set(item) | Type::Future(item)) => {
                 self.union_member_is_concrete(*item)
             }
-            Some(Type::Dict(key, value)) => {
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.union_member_is_concrete(*key) && self.union_member_is_concrete(*value)
             }
             Some(Type::Tuple(items)) => items

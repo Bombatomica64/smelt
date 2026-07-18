@@ -133,7 +133,7 @@ fn class_type_param_used_as_map_key(mir: &Mir, class: &MirClass, name: Symbol) -
 /// require `SmeltJsKeyEq`.
 fn type_param_in_dict_key(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     match mir.types.get(ty) {
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_param_occurs(mir, *key, name) || type_param_in_dict_key(mir, *value, name)
         }
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
@@ -382,7 +382,7 @@ fn type_param_directly_inferable(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
             type_param_directly_inferable(mir, *item, name)
         }
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_param_directly_inferable(mir, *key, name)
                 || type_param_directly_inferable(mir, *value, name)
         }
@@ -430,7 +430,7 @@ fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
             type_param_in_callback(mir, *item, name)
         }
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_param_in_callback(mir, *key, name)
                 || type_param_in_callback(mir, *value, name)
         }
@@ -463,7 +463,7 @@ fn type_param_occurs(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
             type_param_occurs(mir, *item, name)
         }
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_param_occurs(mir, *key, name) || type_param_occurs(mir, *value, name)
         }
         Some(Type::Tuple(items) | Type::Union(items)) => {

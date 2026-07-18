@@ -286,6 +286,7 @@ impl FunctionEmitter<'_> {
             | Some(Type::List(_))
             | Some(Type::Tuple(_))
             | Some(Type::Dict(_, _))
+            | Some(Type::JsMap(_, _))
             | Some(Type::Set(_))
             | Some(Type::Future(_)) => Ok(format!("{operand_text}.is_some()")),
             None => Err(EmitError::new("optional truthiness inner type is unknown")),
@@ -341,6 +342,7 @@ impl FunctionEmitter<'_> {
                 | Type::List(_)
                 | Type::Tuple(_)
                 | Type::Dict(_, _)
+                | Type::JsMap(_, _)
                 | Type::Set(_)
                 | Type::Future(_),
             ) => Ok(format!("{{ let _ = ({value_text}); true }}")),
@@ -513,7 +515,7 @@ impl FunctionEmitter<'_> {
                         }
                         self.type_id(Type::Unknown)
                     }
-                    Some(Type::Dict(_, value)) => Ok(*value),
+                    Some(Type::Dict(_, value) | Type::JsMap(_, value)) => Ok(*value),
                     Some(Type::String) => self.type_id(Type::String),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(base_ty),
                     Some(Type::Tuple(items)) => {
@@ -840,6 +842,16 @@ impl FunctionEmitter<'_> {
                 self.type_text_with_scoped_type_params(*key, false, scoped_type_params)?,
                 self.type_text_with_scoped_type_params(*value, false, scoped_type_params)?
             )),
+            // A source-spelled `Map` always uses the `SmeltJsMap` container, even
+            // when string-keyed. Unlike a string-keyed `Record` (which uses
+            // `SmeltRecord`), `SmeltJsMap`'s `IntoSmeltUnknown` stamps the
+            // `__smelt_map` marker so erased `Map`s remain observable as Maps
+            // (`isMap`, `[object Map]`, structural `isEqual`).
+            Type::JsMap(key, value) => Ok(format!(
+                "SmeltJsMap<{}, {}>",
+                self.type_text_with_scoped_type_params(*key, false, scoped_type_params)?,
+                self.type_text_with_scoped_type_params(*value, false, scoped_type_params)?
+            )),
             Type::Tuple(items) => {
                 let items_text = items
                     .iter()
@@ -965,6 +977,7 @@ impl FunctionEmitter<'_> {
                 Ok("SmeltJsMap::new()".to_owned())
             }
             Type::Dict(_, _) => Ok("::std::collections::HashMap::new()".to_owned()),
+            Type::JsMap(_, _) => Ok("SmeltJsMap::new()".to_owned()),
             Type::Optional(inner) => Ok(format!(
                 "None::<{}>",
                 self.type_text_with_impl_trait(self.flatten_optional_inner(*inner), false)?

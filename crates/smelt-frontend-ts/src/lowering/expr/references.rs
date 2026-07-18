@@ -1305,7 +1305,7 @@ impl ModuleBuilder<'_> {
             }));
         }
         let kind = match self.ctx.krate.types.get(ty) {
-            Some(Type::Dict(_, _)) => ExprKind::DictLit(Vec::new()),
+            Some(Type::Dict(_, _) | Type::JsMap(_, _)) => ExprKind::DictLit(Vec::new()),
             Some(Type::None | Type::Optional(_)) => ExprKind::Literal(Literal::None),
             Some(Type::Bool) => ExprKind::Literal(Literal::Bool(false)),
             Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
@@ -1501,7 +1501,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Float) => ExprKind::Literal(Literal::Float(0.0)),
             Some(Type::String) => ExprKind::Literal(Literal::String(String::new())),
             Some(Type::List(_)) => ExprKind::ListLit(Vec::new()),
-            Some(Type::Dict(_, _)) => ExprKind::DictLit(Vec::new()),
+            Some(Type::Dict(_, _) | Type::JsMap(_, _)) => ExprKind::DictLit(Vec::new()),
             Some(Type::Optional(_)) => {
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 return Ok(body.push_expr(Expr {

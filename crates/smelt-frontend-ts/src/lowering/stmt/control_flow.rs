@@ -248,7 +248,7 @@ impl ModuleBuilder<'_> {
                     span: self.expression_span(source),
                 })
             }
-            Some(Type::Dict(key_ty, value_ty)) => {
+            Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) => {
                 let entry_ty = self
                     .ctx
                     .krate

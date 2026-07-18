@@ -761,6 +761,7 @@ impl ModuleBuilder<'_> {
                 Type::List(_)
                 | Type::Set(_)
                 | Type::Dict(_, _)
+                | Type::JsMap(_, _)
                 | Type::Tuple(_)
                 | Type::Class { .. }
                 | Type::Optional(_),

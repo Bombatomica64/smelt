@@ -951,6 +951,13 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_l = {text}; SmeltUnknown::Array(SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}"
                 ))
             }
+            // A source-spelled `Map` erases through its own `SmeltJsMap`
+            // `IntoSmeltUnknown` adapter, which stamps the `__smelt_map` marker
+            // object (entries as `[k, v]` pair arrays + stable id). This is the
+            // one place `Map` spelling diverges from `Record`: a `Record` erases
+            // to a plain object, a `Map` to a marker so `isMap`/`isEqual`/
+            // `[object Map]` observe it as a Map.
+            Some(Type::JsMap(_, _)) => Ok(format!("({text}).clone().into_smelt_unknown()")),
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
@@ -1307,6 +1314,13 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_l = {}; SmeltUnknown::Array(SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}",
                     value.parenthesized_if_needed()
                 ))
+            }
+            // A source-spelled `Map` erases through its `SmeltJsMap`
+            // `IntoSmeltUnknown` adapter, stamping the `__smelt_map` marker so
+            // the erased value stays observable as a Map (see the operand-based
+            // erasure above).
+            Some(Type::JsMap(_, _)) => {
+                Ok(format!("({value_text}).clone().into_smelt_unknown()"))
             }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)

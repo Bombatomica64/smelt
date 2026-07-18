@@ -1550,7 +1550,7 @@ return_ty: function.return_ty,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
                 self.concrete_type_requires_never_value(*item)
             }
-            Some(Type::Dict(key, value)) => {
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.concrete_type_requires_never_value(*key)
                     || self.concrete_type_requires_never_value(*value)
             }
@@ -3228,7 +3228,7 @@ return_ty: function.return_ty,
     pub(in crate::lowering) fn supports_stdlib_size(&self, receiver_ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Dict(_, _) | Type::Set(_) | Type::TypeParam { .. })
+            Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Set(_) | Type::TypeParam { .. })
         )
     }
 

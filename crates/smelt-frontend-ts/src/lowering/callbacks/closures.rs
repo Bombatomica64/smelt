@@ -750,7 +750,10 @@ impl ModuleBuilder<'_> {
                 }))
             }
             "has" if args.len() == 1
-                && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Dict(_, _))) =>
+                && matches!(
+                    self.ctx.krate.types.get(receiver_ty),
+                    Some(Type::Dict(_, _) | Type::JsMap(_, _))
+                ) =>
             {
                 // `Map.prototype.has` inside a callback body mirrors the direct
                 // `map_has_call` lowering: a `DictContainsKey` over the Map receiver

@@ -3401,7 +3401,7 @@ fn type_contains_function(mir: &Mir, ty: TypeId) -> bool {
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
             type_contains_function(mir, *item)
         }
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_contains_function(mir, *key) || type_contains_function(mir, *value)
         }
         Some(Type::Tuple(items) | Type::Union(items)) => {
@@ -3445,7 +3445,7 @@ fn type_supports_partial_eq(
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
             type_supports_partial_eq(mir, context, *item, seen)
         }
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_supports_partial_eq(mir, context, *key, seen)
                 && type_supports_partial_eq(mir, context, *value, seen)
         }
@@ -3574,7 +3574,7 @@ fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId) -> Result<
                 "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| (key, {item_text})).collect()))"
             )
         }
-        Some(Type::Dict(_, _) | Type::Tuple(_) | Type::Class { .. }) => {
+        Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Tuple(_) | Type::Class { .. }) => {
             format!("({value_text}).into_smelt_unknown()")
         }
         Some(Type::Function(_)) => "SmeltUnknown::Null".to_owned(),

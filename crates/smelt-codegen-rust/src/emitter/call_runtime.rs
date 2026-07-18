@@ -282,8 +282,15 @@ impl FunctionEmitter<'_> {
                         .join(", ");
                     return Ok(self.erase_object_text(&entries_text));
                 }
+                // A source-spelled `Map` dest and a plain `Dict`/record dest share
+                // the same `Rvalue::Dict` literal; `dest_is_js_map` selects the
+                // `SmeltJsMap` backing (whose erasure stamps `__smelt_map`) for
+                // the former, even when string-keyed.
+                let dest_is_js_map = matches!(self.mir.types.get(dest_ty), Some(Type::JsMap(_, _)));
                 let dict_types = match self.mir.types.get(dest_ty) {
-                    Some(Type::Dict(key_ty, value_ty)) => Some((*key_ty, *value_ty)),
+                    Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) => {
+                        Some((*key_ty, *value_ty))
+                    }
                     _ => None,
                 };
                 let entries_text = entries
@@ -320,6 +327,9 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
+                if dest_is_js_map {
+                    return Ok(format!("SmeltJsMap::from([{entries_text}])"));
+                }
                 if let Some((key_ty, _)) = dict_types {
                     if self.dict_uses_smelt_record(key_ty) {
                         return Ok(format!("SmeltRecord::from([{entries_text}])"));

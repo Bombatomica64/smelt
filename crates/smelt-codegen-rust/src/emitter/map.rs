@@ -22,7 +22,8 @@ impl FunctionEmitter<'_> {
         {
             return Ok(check);
         }
-        let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) = self.mir.types.get(dict_ty)
+        else {
             if self.dict_contains_key_uses_erased_object(dict_ty) {
                 let dict_text = self.operand_text(dict)?;
                 let key_text = self.operand_text(key)?;
@@ -87,7 +88,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.mir.types.get(dict_ty)
+        else {
             return Err(EmitError::new("dict get receiver must be a dict"));
         };
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
@@ -173,7 +176,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.mir.types.get(dict_ty)
+        else {
             return Err(EmitError::new("dict setdefault receiver must be a dict"));
         };
         if self.operand_ty(key)? != *key_ty {
@@ -220,7 +225,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.mir.types.get(dict_ty)
+        else {
             return Ok("Default::default()".to_owned());
         };
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
@@ -295,7 +302,8 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) = self.mir.types.get(dict_ty)
+        else {
             if matches!(
                 self.mir.types.get(dict_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Never | Type::Union(_))
@@ -369,7 +377,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.mir.types.get(dict_ty)
+        else {
             return Err(EmitError::new("dict pop receiver must be a dict"));
         };
         if self.operand_ty(key)? != *key_ty {
@@ -610,7 +620,7 @@ impl FunctionEmitter<'_> {
         }
         if !matches!(
             self.mir.types.get(self.operand_ty(dict)?),
-            Some(Type::Dict(_, _))
+            Some(Type::Dict(_, _) | Type::JsMap(_, _))
         ) {
             return Err(EmitError::new("dict projection receiver must be a dict"));
         }
@@ -619,7 +629,9 @@ impl FunctionEmitter<'_> {
                 Err(EmitError::new("fromEntries receiver must be erased"))
             }
             smelt_hir::DictProjectionOp::Keys => {
-                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
@@ -655,7 +667,9 @@ impl FunctionEmitter<'_> {
                 }
             }
             smelt_hir::DictProjectionOp::ForInKeys => {
-                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
@@ -677,7 +691,9 @@ impl FunctionEmitter<'_> {
                 }
             }
             smelt_hir::DictProjectionOp::Symbols => {
-                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
@@ -693,7 +709,9 @@ impl FunctionEmitter<'_> {
                 }
             }
             smelt_hir::DictProjectionOp::Values => {
-                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
@@ -715,7 +733,9 @@ impl FunctionEmitter<'_> {
                 }
             }
             smelt_hir::DictProjectionOp::Entries => {
-                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
@@ -799,7 +819,7 @@ impl FunctionEmitter<'_> {
         // so deserializing directly into them fails (was E0277 in `isJSON`).
         // Parse into the erased `SmeltUnknown` (which is `Deserialize`) and then
         // run the ordinary coercion into the concrete destination.
-        if matches!(self.mir.types.get(dest_ty), Some(Type::Dict(_, _))) {
+        if matches!(self.mir.types.get(dest_ty), Some(Type::Dict(_, _) | Type::JsMap(_, _))) {
             let parsed = format!(
                 "serde_json::from_str::<SmeltUnknown>(&{}).expect(\"JSON parse failed\")",
                 self.operand_text(text)?

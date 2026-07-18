@@ -1303,7 +1303,7 @@ impl ModuleBuilder<'_> {
                 let receiver = self.callback_expression(&member.object, params, body)?;
                 let field = self.intern_source_name(member.property.name.as_str());
                 let ty = match self.ctx.krate.types.get(receiver.ty) {
-                    Some(Type::Dict(_, value)) => *value,
+                    Some(Type::Dict(_, value) | Type::JsMap(_, value)) => *value,
                     Some(Type::Optional(_)) => self.class_field_type(receiver.ty, field)?,
                     Some(Type::Class { .. }) => self.class_field_type(receiver.ty, field)?,
                     Some(Type::Unknown | Type::TypeParam { .. }) => {
@@ -1465,7 +1465,7 @@ impl ModuleBuilder<'_> {
                 let item_ty = match self.ctx.krate.types.get(receiver_ty) {
                     Some(Type::List(item_ty)) => *item_ty,
                     Some(Type::String) => self.ctx.krate.types.intern(Type::String),
-                    Some(Type::Dict(_, value_ty)) => *value_ty,
+                    Some(Type::Dict(_, value_ty) | Type::JsMap(_, value_ty)) => *value_ty,
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
                         self.ctx.krate.types.intern(Type::Unknown)
                     }
