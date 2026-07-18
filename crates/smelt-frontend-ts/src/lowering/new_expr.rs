@@ -2015,8 +2015,17 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 };
-                let lhs = self.expression(&binary.left, body)?;
-                let rhs = self.expression(&binary.right, body)?;
+                let mut lhs = self.expression(&binary.left, body)?;
+                let mut rhs = self.expression(&binary.right, body)?;
+                // Strict-equality operands narrowed by a `typeof` guard must stay
+                // the erased originals: re-materializing a narrowed function
+                // through an adapter builds a fresh `Rc` whose `Rc::ptr_eq` never
+                // matches, so `f === f` would wrongly be `false`. See the peel in
+                // `binary_expression` for the full rationale.
+                if matches!(op, BinOp::JsStrictEq | BinOp::JsStrictNotEq) {
+                    lhs = self.peel_narrowing_cast_for_identity(body, lhs);
+                    rhs = self.peel_narrowing_cast_for_identity(body, rhs);
+                }
                 let lhs_ty = Self::expr_ty(body, lhs);
                 let rhs_ty = Self::expr_ty(body, rhs);
                 let ty = if op == BinOp::Add
@@ -2105,12 +2114,14 @@ impl ModuleBuilder<'_> {
                     return self.expression_with_hint(&conditional.consequent, body, type_hint);
                 }
                 let cond = self.condition_expression(&conditional.test, body)?;
+                let arm_span = self.span(conditional.span.start, conditional.span.end);
                 let then_narrowing = self.guard_narrowing(&conditional.test, body);
                 if let Some(narrowing) = then_narrowing.clone() {
                     self.narrowed_locals.push(narrowing);
                 }
-                let then_expr =
-                    self.expression_with_hint(&conditional.consequent, body, type_hint)?;
+                let then_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
+                    slf.expression_with_hint(&conditional.consequent, body, type_hint)
+                })?;
                 if then_narrowing.is_some() {
                     self.narrowed_locals.pop();
                 }
@@ -2119,8 +2130,9 @@ impl ModuleBuilder<'_> {
                 if let Some(narrowing) = else_narrowing.clone() {
                     self.narrowed_locals.push(narrowing);
                 }
-                let else_expr =
-                    self.expression_with_hint(&conditional.alternate, body, branch_hint)?;
+                let else_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
+                    slf.expression_with_hint(&conditional.alternate, body, branch_hint)
+                })?;
                 if else_narrowing.is_some() {
                     self.narrowed_locals.pop();
                 }
@@ -2552,6 +2564,43 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a TypeScript conditional expression when it appears outside normal expression nodes.
+    /// Lower one arm of a conditional expression, capturing any statement-level
+    /// side effects it produces into a per-arm block so they run only when that
+    /// arm is taken.
+    ///
+    /// Effectful sub-expressions such as a postfix `k++` inside `xs[k++]` lower
+    /// their store into `self.current_statement_block` (see `update_expression`).
+    /// For a ternary operand that block is the *enclosing* statement block, so
+    /// without redirection the increment is hoisted out of the branch and runs
+    /// unconditionally on every evaluation — the es-toolkit `partial`/
+    /// `partialRight` `providedArgs[idx++]` placeholder bug. Redirecting the arm
+    /// to a fresh block and wrapping it as an `ExprKind::Block` (tail = the arm
+    /// value) keeps the increment inside the arm, where MIR lowers it within the
+    /// matching switch branch. Arms with no side effects return their expression
+    /// unwrapped so simple ternaries are unchanged.
+    fn lower_conditional_arm(
+        &mut self,
+        body: &mut Body,
+        span: Span,
+        lower: impl FnOnce(&mut Self, &mut Body) -> Result<smelt_hir::ExprId, SmeltError>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let arm_block = body.push_block(span);
+        let previous_block = self.current_statement_block.replace(arm_block);
+        let arm_result = lower(self, body);
+        self.current_statement_block = previous_block;
+        let arm_expr = arm_result?;
+        if body.blocks[arm_block.0 as usize].stmts.is_empty() {
+            return Ok(arm_expr);
+        }
+        body.blocks[arm_block.0 as usize].tail = Some(arm_expr);
+        let ty = Self::expr_ty(body, arm_expr);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Block(arm_block),
+            ty,
+            span,
+        }))
+    }
+
     pub(super) fn conditional_expression(
         &mut self,
         conditional: &oxc::ast::ast::ConditionalExpression<'_>,
@@ -2574,9 +2623,14 @@ impl ModuleBuilder<'_> {
             return self.expression_with_hint(&conditional.consequent, body, type_hint);
         }
         let cond = self.condition_expression(&conditional.test, body)?;
-        let then_expr = self.expression_with_hint(&conditional.consequent, body, type_hint)?;
+        let arm_span = self.span(conditional.span.start, conditional.span.end);
+        let then_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
+            slf.expression_with_hint(&conditional.consequent, body, type_hint)
+        })?;
         let branch_hint = Some(Self::expr_ty(body, then_expr));
-        let else_expr = self.expression_with_hint(&conditional.alternate, body, branch_hint)?;
+        let else_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
+            slf.expression_with_hint(&conditional.alternate, body, branch_hint)
+        })?;
         let then_ty = Self::expr_ty(body, then_expr);
         let else_ty = Self::expr_ty(body, else_expr);
         let ty = self.conditional_branch_type(

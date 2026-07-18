@@ -1215,8 +1215,22 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
-        let lhs = self.expression(&binary.left, body)?;
-        let rhs = self.expression(&binary.right, body)?;
+        let mut lhs = self.expression(&binary.left, body)?;
+        let mut rhs = self.expression(&binary.right, body)?;
+        // JavaScript `===`/`!==` on erased values compares the ORIGINAL erased
+        // `SmeltUnknown` (reference identity for objects/arrays/functions, value
+        // for primitives). A `typeof`-guard narrows an operand to a concrete
+        // type (e.g. `Function`), which lowers the reference as an
+        // `UnknownCast` that re-materializes the value through an adapter — for
+        // a function that means a FRESH `Rc` whose `Rc::ptr_eq` never matches,
+        // so `f === f` wrongly yields `false`. The narrowing carries no benefit
+        // for a bare strict-equality operand, so peel it back to the pre-cast
+        // erased value and let both sides compare as the untouched originals.
+        if matches!(op, BinOp::JsStrictEq | BinOp::JsStrictNotEq) {
+            lhs = self.peel_narrowing_cast_for_identity(body, lhs);
+            rhs = self.peel_narrowing_cast_for_identity(body, rhs);
+        }
+
         let lhs_ty = Self::expr_ty(body, lhs);
         let rhs_ty = Self::expr_ty(body, rhs);
         let ty = self.binary_result_type(op, lhs_ty, rhs_ty);
@@ -1225,6 +1239,60 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(binary.span.start, binary.span.end),
         }))
+    }
+
+    /// Peel a narrowing [`ExprKind::UnknownCast`] off a strict-equality operand.
+    ///
+    /// A `typeof`/`instanceof` guard narrows an erased local to a concrete type
+    /// via an `UnknownCast` whose inner value is still an erased `SmeltUnknown`.
+    /// For a bare `===`/`!==` operand the narrowed concrete type is discarded
+    /// anyway (the comparison lowers through `js_strict_eq` on the erased
+    /// representation), and materializing the concrete shape can re-wrap the
+    /// value through an adapter that breaks JS reference identity (a function
+    /// becomes a fresh `Rc`, so `f === f` is `false`). Returning the pre-cast
+    /// erased value keeps the comparison on the untouched original. Only peels
+    /// when the inner value is genuinely erased, so ordinary casts are left
+    /// intact.
+    pub(in crate::lowering) fn peel_narrowing_cast_for_identity(
+        &self,
+        body: &mut Body,
+        expr: smelt_hir::ExprId,
+    ) -> smelt_hir::ExprId {
+        let index = usize::try_from(expr.0).expect("expr id should fit into usize");
+        let Some(Expr {
+            kind: ExprKind::UnknownCast { value, .. },
+            span,
+            ..
+        }) = body.exprs.get(index)
+        else {
+            return expr;
+        };
+        let inner = *value;
+        let span = *span;
+        // The narrowing cast rewraps a `Local` read at the narrowed type; recover
+        // the local and re-read it at its erased base type so the comparison sees
+        // the untouched original `SmeltUnknown`.
+        let inner_index = usize::try_from(inner.0).expect("expr id should fit into usize");
+        let Some(Expr {
+            kind: ExprKind::Local(local),
+            ..
+        }) = body.exprs.get(inner_index)
+        else {
+            return expr;
+        };
+        let local = *local;
+        let base_ty = Self::local_ty(body, local);
+        if matches!(
+            self.ctx.krate.types.get(base_ty),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+        ) {
+            return body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty: base_ty,
+                span,
+            });
+        }
+        expr
     }
 
     /// Lower a logical expression.

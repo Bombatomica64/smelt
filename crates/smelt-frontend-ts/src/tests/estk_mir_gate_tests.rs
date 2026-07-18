@@ -107,6 +107,59 @@ export function pick<T>(values: Array<(a: T, b: T) => boolean>): (a: T, b: T) =>
     Ok(())
 }
 
+/// `typeof a === 'function'` narrowing must NOT re-materialize the operand for
+/// a following `a === b` reference check. Narrowing lowers a bare reference as
+/// an `UnknownCast` to `Function`, which the emitter would extract into a fresh
+/// `Rc` closure before `js_strict_eq` — and `Rc::ptr_eq` on a freshly built
+/// closure never matches, so `f === f` would wrongly be `false`. The
+/// strict-equality operands must stay the erased originals (this mirrors
+/// es-toolkit `isEqualWith`'s `case 'function': return a === b`).
+#[test]
+fn typeof_function_strict_eq_compares_erased_originals() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export function pick(a: unknown, b: unknown): boolean {
+  if (typeof a === 'function' && typeof b === 'function') {
+    return a === b;
+  }
+  return false;
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "pick")?;
+    let body = function_body(&ctx, function)?;
+    let strict_eq = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::BinOp {
+                op: BinOp::JsStrictEq,
+                lhs,
+                rhs,
+            } => Some((*lhs, *rhs)),
+            _ => None,
+        })
+        .ok_or_else(|| "expected a `JsStrictEq` comparison for `a === b`".to_owned())?;
+    for operand in [strict_eq.0, strict_eq.1] {
+        let index = usize::try_from(operand.0).expect("expr id should fit into usize");
+        let operand_expr = &body.exprs[index];
+        ensure!(
+            !matches!(&operand_expr.kind, ExprKind::UnknownCast { .. }),
+            "strict-equality operand must be the erased original, not an \
+             `UnknownCast` that re-materializes a fresh function",
+        );
+        ensure!(
+            matches!(ctx.krate.types.get(operand_expr.ty), Some(Type::Unknown)),
+            "strict-equality operand must keep its erased `unknown` type so it \
+             compares via `js_strict_eq` on the original value",
+        );
+    }
+    Ok(())
+}
+
 /// A non-`async` test callback that returns `expect(promise).rejects.toThrow()`
 /// desugars into an inlined `await`, so the synthesized test function must be
 /// marked async (emitting `#[tokio::test] async fn`), matching JavaScript's

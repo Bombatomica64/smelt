@@ -116,6 +116,19 @@ impl FunctionEmitter<'_> {
                             "match {scrutinee} {{ SmeltUnknown::Object(map) if map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\") => smelt_abort_method(map, {field_name:?}), SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                         ));
                     }
+                    // `Function.prototype.apply`/`call` must resolve when the
+                    // erased receiver is a `SmeltUnknown::Function` (not just an
+                    // object). The plain object field match below returns
+                    // `Undefined` for a function receiver, collapsing every
+                    // invocation to a null callback (see `partial`/`partialRight`).
+                    // The runtime helper binds the callable with the correct
+                    // this-dropping/argument-spreading semantics and falls back to
+                    // the ordinary field read for object receivers.
+                    if matches!(field_name, "apply" | "call") {
+                        return Ok(format!(
+                            "smelt_function_method({scrutinee}, {field_name:?})"
+                        ));
+                    }
                     return Ok(format!(
                         "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                     ));

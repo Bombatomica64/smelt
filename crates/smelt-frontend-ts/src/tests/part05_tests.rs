@@ -386,6 +386,41 @@ function* values(limit: number): Generator<number> {
     Ok(())
 }
 
+/// Async generators carry generator return annotations rather than
+/// `Promise<T>`, while still using Smelt's async state-machine metadata.
+#[test]
+fn lowers_free_async_generator_declaration() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+async function* values(): AsyncGenerator<number, void> {
+  yield 1;
+}
+"),
+        &mut ctx,
+    )?;
+    let function = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some("values") => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing free async generator".to_owned())?;
+    let body = function_body(&ctx, function)?;
+    ensure!(body.async_state_machine.is_some());
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 #[test]
 fn lowers_if_else_while_and_for_of_to_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
