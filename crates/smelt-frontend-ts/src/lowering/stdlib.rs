@@ -1365,17 +1365,36 @@ impl ModuleBuilder<'_> {
         }
         let haystack = self.expression(&member.object, body)?;
         let haystack_ty = Self::expr_ty(body, haystack);
-        if !self.string_match_receiver_type_is_string(haystack_ty) {
+        // Disambiguate `String.prototype.match` from unrelated `.match` methods
+        // (e.g. neverthrow's `result.match(okFn, errFn)`) by call shape, so both
+        // behaviors survive. A definitely-string receiver is always String.match.
+        // An erased/string-compatible-but-not-definite receiver is only String.match
+        // when the call shape is unambiguously a regex search: exactly one argument
+        // whose type is RegExp / a regex literal / a string pattern. Any other shape
+        // (wrong arity, function-typed callbacks) returns `Ok(None)` so the call
+        // routes to dynamic member dispatch.
+        let receiver_is_string = self.string_match_receiver_type_is_string(haystack_ty);
+        if !receiver_is_string && !self.is_string_compatible_type(haystack_ty) {
             return Ok(None);
         }
         let [pattern_argument] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "String.match() requires exactly one RegExp argument",
-            ));
+            if receiver_is_string {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "String.match() requires exactly one RegExp argument",
+                ));
+            }
+            return Ok(None);
         };
         let pattern = self.argument(pattern_argument, body)?;
         let pattern_ty = Self::expr_ty(body, pattern);
+        // Erased receivers only lower to String.match for regex-shaped arguments;
+        // a function-typed argument (neverthrow single-callback style) stays dynamic.
+        if !receiver_is_string
+            && !(self.regexp_receiver_type(pattern_ty) || self.type_contains_unknown(pattern_ty))
+        {
+            return Ok(None);
+        }
         let pattern = if self.is_string_compatible_type(pattern_ty) {
             pattern
         } else if self.ctx.krate.types.get(pattern_ty) == Some(&Type::Unknown)

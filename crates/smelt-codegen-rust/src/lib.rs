@@ -1158,6 +1158,17 @@ fn emit_source_with_free_function_router(
         writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
         writer.line("fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }");
         writer.blank_line();
+        // `Function.prototype.apply`/`call` on an erased receiver. A
+        // `SmeltUnknown::Function` receiver is not an object, so the plain
+        // erased-object field read (`smelt_get_object_field`) finds nothing and
+        // the value falls through to a null callback. This helper binds the
+        // callable directly: `apply` drops the `this` argument and spreads the
+        // trailing array, `call` drops `this` and forwards the remaining
+        // positional arguments. Object receivers keep the ordinary field read so
+        // user-defined `.apply`/`.call` properties still resolve.
+        writer.line("/// Bind `Function.prototype.apply`/`call` on an erased receiver, or read the field of an object receiver.");
+        writer.line("fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown { match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let forwarded: Vec<SmeltUnknown> = if method == \"apply\" { match args.get(1) { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() } } else { args.into_iter().skip(1).collect() }; function(forwarded) })) } SmeltUnknown::Object(map) => smelt_get_object_field(&map, method), _ => SmeltUnknown::Undefined } }");
+        writer.blank_line();
         // `AbortController`/`AbortSignal` cancellation model. Both erase to
         // marker-bearing `SmeltObject`s whose shared `Rc<RefCell<..>>` storage
         // makes `controller.abort()` observable through any binding that read

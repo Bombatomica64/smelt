@@ -124,7 +124,6 @@ impl LoweringCtx<'_> {
                 let dest = self.push_temp(expr.ty, expr.span);
                 let then_block = self.function.push_block(expr.span);
                 let else_block = self.function.push_block(expr.span);
-                let join_block = self.function.push_block(expr.span);
                 self.set_terminator(Terminator::Switch {
                     cond: cond_operand,
                     then_block,
@@ -137,9 +136,14 @@ impl LoweringCtx<'_> {
                     dest,
                     value: Rvalue::Use(then_operand),
                 });
-                if self.block()?.terminator.is_none() {
-                    self.set_terminator(Terminator::Goto(join_block))?;
-                }
+                // Record where each arm falls through (if it does not already
+                // diverge) so the shared `join_block` can be wired only after it
+                // exists.
+                let then_tail = self
+                    .block()?
+                    .terminator
+                    .is_none()
+                    .then_some(self.current_block);
 
                 self.current_block = else_block;
                 let else_operand = self.lower_expr(*else_expr)?;
@@ -147,7 +151,34 @@ impl LoweringCtx<'_> {
                     dest,
                     value: Rvalue::Use(else_operand),
                 });
-                if self.block()?.terminator.is_none() {
+                let else_tail = self
+                    .block()?
+                    .terminator
+                    .is_none()
+                    .then_some(self.current_block);
+
+                // Allocate `join_block` *after* both arms are fully lowered so
+                // its block id ranks above every block either arm introduced
+                // (an arm may itself be a `Conditional`, e.g. `a || (b && c)`,
+                // pushing nested blocks). The Rust emitter treats a `goto` to a
+                // lower-id block as a loop back-edge; giving `join_block` the
+                // highest id keeps every `goto join_block` a forward edge, so a
+                // continuation that follows the conditional in the same source
+                // block (e.g. a `const x = a || (b && c);` initializer followed
+                // by more statements inside a `switch` case) is always emitted.
+                // Allocating `join_block` before lowering the else arm (as
+                // before) let the else arm's nested blocks outrank it, turning
+                // their `goto join_block` into a spurious back-edge that the
+                // emitter dropped along with the whole post-conditional tail —
+                // the es-toolkit isEqualWith `||`-in-switch-case tail loss. This
+                // mirrors the join-ordering fix already applied to `lower_match`.
+                let join_block = self.function.push_block(expr.span);
+                if let Some(tail) = then_tail {
+                    self.current_block = tail;
+                    self.set_terminator(Terminator::Goto(join_block))?;
+                }
+                if let Some(tail) = else_tail {
+                    self.current_block = tail;
                     self.set_terminator(Terminator::Goto(join_block))?;
                 }
 

@@ -1287,6 +1287,60 @@ async function run(): Promise<void> {
     );
 }
 
+/// A `const x = a || (b && c);` initializer inside a `switch` case lowers the
+/// short-circuit to a `Conditional` (nested `Conditional` for the `&&` arm).
+/// The conditional's join block must rank above every block its arms introduce,
+/// otherwise the else arm's nested blocks outrank the join, the `goto join`
+/// becomes a spurious back-edge, and the Rust emitter drops the whole tail that
+/// follows the initializer in the same case body — the es-toolkit `isEqualWith`
+/// `[object Object]` arm lost its `if (!areEqualInstances) return false;`, the
+/// `Object.keys` walk, and the final `return true`.
+#[test]
+fn short_circuit_initializer_keeps_switch_case_tail() {
+    let source = source_for(
+        "function f(a: unknown, b: unknown, tag: string, ks: number[]): boolean {
+  switch (tag) {
+    case \"x\": {
+      const flag = g(a) || (h(a) && h(b));
+      if (!flag) {
+        return false;
+      }
+      for (const k of ks) {
+        if (k === 0) {
+          return false;
+        }
+      }
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+function g(x: unknown): boolean { return x === null; }
+function h(x: unknown): boolean { return x === undefined; }
+const r = f(1, 2, \"x\", [1]);
+console.log(r);
+",
+    );
+
+    // The post-initializer tail must survive: the `!flag` guard, the loop that
+    // walks `ks`, and the terminating `return true` all follow the short-circuit
+    // assignment inside the same case body.
+    assert!(source.contains("flag = "), "flag assignment dropped: {source}");
+    assert!(
+        source.contains("!(flag)") || source.contains("!flag"),
+        "`if (!flag)` guard dropped: {source}"
+    );
+    assert!(
+        source.contains("ks.len()"),
+        "`Object.keys`-style tail loop dropped: {source}"
+    );
+    assert!(
+        source.contains("return true;"),
+        "terminating `return true` dropped: {source}"
+    );
+}
+
 /// A local declared with an explicit `any` annotation is the erased dynamic
 /// boundary by source spelling, so a later concrete object assignment must not
 /// flow-narrow it to that value's record type. Otherwise a self-referential
