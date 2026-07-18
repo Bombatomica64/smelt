@@ -4056,6 +4056,23 @@ function matchUnknown(value: unknown): string[] | undefined {
 }
 
 #[test]
+fn erased_receiver_two_callback_match_stays_dynamic_not_string_match() {
+    // Regression: an erased receiver whose `.match(okFn, errFn)` call shape is a
+    // neverthrow-style two-callback dispatch must NOT be lowered to
+    // `String.prototype.match`; only a single regex/string-pattern argument on an
+    // erased receiver qualifies. Wrong arity routes to dynamic member dispatch.
+    let source = source_for(
+        r"
+function fold(value: any): number {
+  return value.match((ok: number) => ok, (_err: string) => 0);
+}
+",
+    );
+
+    assert!(!source.contains(".match_string(&"), "{source}");
+}
+
+#[test]
 fn emits_string_match_with_regexp_flags_preserved() {
     let source = source_for(
         r"
