@@ -1457,7 +1457,7 @@ impl ModuleBuilder<'_> {
         let implements = class
             .implements
             .iter()
-            .filter_map(|imp| self.implements_symbol(imp).transpose())
+            .filter_map(|imp| self.implements_reference(imp).transpose())
             .collect::<Result<Vec<_>, _>>()?;
         self.inject_error_marker_fields(base, class_span, &mut fields);
         let item = self.ctx.krate.push_item(Item::Class(Class {

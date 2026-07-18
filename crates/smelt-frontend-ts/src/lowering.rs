@@ -510,6 +510,11 @@ struct ModuleBuilder<'ctx> {
     scoped_class_type_names: HashMap<String, smelt_hir::Symbol>,
     /// Class names declared later in the current module.
     pending_class_names: HashSet<String>,
+    /// Interface names declared in the current module, including declarations
+    /// that appear after a class which implements them.
+    pending_interface_names: HashSet<String>,
+    /// Local interface symbols whose declarations have finished lowering.
+    lowered_local_interfaces: HashSet<smelt_hir::Symbol>,
     /// Interface definitions by name.
     interfaces: HashMap<String, smelt_hir::ItemId>,
     /// Fields for each class.

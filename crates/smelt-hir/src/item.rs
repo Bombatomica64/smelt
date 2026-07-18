@@ -171,8 +171,8 @@ pub struct Class {
     pub static_methods: Vec<ItemId>,
     /// Abstract method signatures required by this class.
     pub abstract_methods: Vec<MethodSig>,
-    /// Interfaces implemented by this class.
-    pub implements: Vec<Symbol>,
+    /// Interfaces implemented by this class, including supplied type arguments.
+    pub implements: Vec<InterfaceHeritage>,
 }
 
 /// A typed materialized descriptor member.

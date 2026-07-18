@@ -463,6 +463,7 @@ impl ModuleBuilder<'_> {
             self.ctx.interface_index_values.insert(name, index_value_ty);
         }
         self.interfaces.insert(name_text, item);
+        self.lowered_local_interfaces.insert(name);
         Ok(item)
     }
 

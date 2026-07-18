@@ -1,5 +1,216 @@
 use super::*;
 
+/// Generic implementation arguments instantiate both interface fields and
+/// method signatures before structural class validation.
+#[test]
+fn lowers_generic_implements_with_concrete_members() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+interface Value<T> {
+  value: T;
+  map(input: T): T;
+}
+class StringValue implements Value<string> {
+  value: string;
+  constructor(value: string) {
+    this.value = value;
+  }
+  map(input: string): string {
+    return input;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// TypeScript overload declarations may share one explicit-`any` runtime
+/// implementation, which structurally satisfies every instantiated signature.
+#[test]
+fn lowers_generic_implements_with_overloaded_any_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+interface Mapper<T> {
+  map(value: T): T;
+  map<U>(value: T): U;
+}
+class StringMapper implements Mapper<string> {
+  map(value: string): string;
+  map<U>(value: string): U;
+  map(value: any): any {
+    return value;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A concrete generic implementation still rejects members that satisfy the
+/// uninstantiated shape but not the supplied type argument.
+#[test]
+fn rejects_mismatched_generic_implements_member() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+interface Value<T> {
+  value: T;
+}
+class NumberValue implements Value<string> {
+  value: number;
+  constructor(value: number) {
+    this.value = value;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "mismatched type")
+}
+
+/// Imported generic interfaces have no local structural definition for Smelt
+/// to validate and remain an opaque boundary after TypeScript validation.
+#[test]
+fn ignores_imported_generic_implements_clause() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import type { Contract } from "external-contracts";
+class Service implements Contract<string> {}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+/// An imported interface must not bind to an unrelated same-name interface
+/// that happened to be lowered from an earlier module.
+#[test]
+fn imported_generic_implements_ignores_cross_module_name_collision() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r"
+export interface Contract<T> {
+  value: T;
+}
+"),
+        "local-contract.ts",
+        &mut ctx,
+    )?;
+    lower_path_ok(
+        ts!(r#"
+import type { Contract } from "external-contracts";
+class Service implements Contract<string> {}
+"#),
+        "service.ts",
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+/// Interface declarations are module-scoped and may follow the class that
+/// implements them.
+#[test]
+fn lowers_forward_declared_generic_implements() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+class StringValue implements Value<string> {
+  value: string;
+  constructor(value: string) {
+    this.value = value;
+  }
+}
+interface Value<T> {
+  value: T;
+}
+"),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+/// Deferred validation still rejects a forward-declared generic interface
+/// whose instantiated member type does not match the class.
+#[test]
+fn rejects_mismatched_forward_declared_generic_implements() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+class NumberValue implements Value<string> {
+  value: number;
+  constructor(value: number) {
+    this.value = value;
+  }
+}
+interface Value<T> {
+  value: T;
+}
+"),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "mismatched type")
+}
+
+/// Eager validation of a forward declaration must not borrow a same-name
+/// interface shape from an earlier module before the local declaration lowers.
+#[test]
+fn forward_generic_implements_ignores_prior_module_name_collision() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r"
+export interface Value<T> {
+  priorOnly: number;
+}
+"),
+        "prior.ts",
+        &mut ctx,
+    )?;
+    lower_path_ok(
+        ts!(r"
+class StringValue implements Value<string> {
+  value: string;
+  constructor(value: string) {
+    this.value = value;
+  }
+}
+interface Value<T> {
+  value: T;
+}
+"),
+        "current.ts",
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+/// Generic substitution applies to method parameters and returns as well as
+/// data fields.
+#[test]
+fn rejects_mismatched_generic_implements_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+interface Mapper<T> {
+  map(value: T): T;
+}
+class NumberMapper implements Mapper<string> {
+  map(value: number): number {
+    return value;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "mismatched signature")
+}
+
 #[test]
 fn lowers_interface_inheritance_into_shape_requirements() -> Result<(), String> {
     let mut ctx = HirCtx::new();

@@ -94,6 +94,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             classes,
             scoped_class_type_names: HashMap::new(),
             pending_class_names: HashSet::new(),
+            pending_interface_names: HashSet::new(),
+            lowered_local_interfaces: HashSet::new(),
             interfaces,
             class_fields: HashMap::new(),
             class_methods: HashMap::new(),
@@ -253,6 +255,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_module_globals(program);
         self.collect_mutable_globals(program, &mut module, &mut errors);
         self.pending_class_names = Self::program_class_names(program);
+        self.pending_interface_names = Self::program_interface_names(program);
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
@@ -466,6 +469,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
         }
 
+        // TypeScript declarations are visible throughout their module. A class
+        // may therefore implement an interface declared later in the file. Its
+        // eager validation skips that not-yet-lowered shape; validate every
+        // emitted module class once more after declaration lowering completes.
+        for item_id in module.items.clone() {
+            if matches!(self.item_ref(item_id), Item::Class(_))
+                && let Err(error) = self.validate_implements(item_id)
+            {
+                errors.push(error);
+            }
+        }
+
         if !errors.is_empty() {
             return Err(errors);
         }
@@ -539,6 +554,33 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     _ => return None,
                 };
                 class.id.as_ref().map(|id| id.name.to_string())
+            })
+            .collect()
+    }
+
+    /// Collect interface names declared in the current module before lowering.
+    ///
+    /// This distinguishes lexically local interfaces, including forward
+    /// declarations, from imported or ambient names that happen to share a
+    /// symbol with an interface lowered from another source file.
+    pub(super) fn program_interface_names(program: &Program<'_>) -> HashSet<String> {
+        program
+            .body
+            .iter()
+            .filter_map(|statement| {
+                let interface = match statement {
+                    Statement::TSInterfaceDeclaration(interface) => interface,
+                    Statement::ExportNamedDeclaration(export) => {
+                        let Some(Declaration::TSInterfaceDeclaration(interface)) =
+                            &export.declaration
+                        else {
+                            return None;
+                        };
+                        interface
+                    }
+                    _ => return None,
+                };
+                Some(interface.id.name.to_string())
             })
             .collect()
     }
