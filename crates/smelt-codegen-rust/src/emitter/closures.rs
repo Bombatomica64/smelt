@@ -960,7 +960,7 @@ impl FunctionEmitter<'_> {
             then_block,
             else_block,
         } = terminator
-            && self.block_can_reach(*then_block, block.id, &mut HashSet::new())
+            && self.block_can_reach(*then_block, block.id, &mut BlockIdSet::default())
         {
             out.push_str("    loop {\n");
             for statement in &block.statements {

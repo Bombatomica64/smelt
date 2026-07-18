@@ -56,7 +56,7 @@ impl FunctionEmitter<'_> {
                         // warnings into E0384/E0596 errors in the generated
                         // crate, so the rule stays conservative.
                         if self.predeclared_locals.contains(&local)
-                            && (self.block_can_repeat(block.id, &mut HashSet::new())
+                            && (self.block_can_repeat(block.id, &mut BlockIdSet::default())
                                 || self.block_is_reached_from_repeating_region(block.id))
                         {
                             return true;
@@ -211,12 +211,7 @@ impl FunctionEmitter<'_> {
         if !seen.insert((block_id, assigned)) {
             return false;
         }
-        let Some(block) = self
-            .function
-            .blocks
-            .iter()
-            .find(|block| block.id == block_id)
-        else {
+        let Some(block) = self.block(block_id).ok() else {
             return true;
         };
         for phi in &block.phis {
