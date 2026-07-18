@@ -1021,6 +1021,17 @@ impl FunctionEmitter<'_> {
                 self.class_unknown_object_text(&text, self.operand_ty(operand)?)
             }
             Some(Type::Set(item)) => {
+                // A `SmeltJsSet`-backed Set carries JS identity: erase through the
+                // single `IntoSmeltUnknown` adapter, which stamps the `__smelt_set`
+                // marker (and preserves the set's stable object id) so
+                // `isSet`/`instanceof Set`/`Object.prototype.toString` recognize the
+                // erased value and `SmeltFromUnknown` round-trips it. Mirrors the
+                // `SmeltJsMap` erasure. A `HashSet`-backed Set (value-equality
+                // primitives) has no such adapter, so it keeps the bare-array
+                // projection below.
+                if !self.type_is_hash_set_key_safe(*item) {
+                    return Ok(format!("({text}).clone().into_smelt_unknown()"));
+                }
                 let value_wrap = self.erase_value_text("value", *item)?;
                 // A Set erases to an array; like list bindings, the SAME source
                 // Set binding erased twice must compare `===` equal (arrays
@@ -1382,6 +1393,15 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { .. }) if self.is_erased_class_type(ty) => Ok(value_text.to_owned()),
             Some(Type::Class { .. }) => self.class_unknown_object_text(value_text, ty),
             Some(Type::Set(item)) => {
+                // See the sibling `Type::Set` arm above: a `SmeltJsSet`-backed Set
+                // erases through the `__smelt_set` marker adapter; only a
+                // `HashSet`-backed primitive Set falls through to a bare array.
+                if !self.type_is_hash_set_key_safe(*item) {
+                    return Ok(format!(
+                        "({}).clone().into_smelt_unknown()",
+                        value.parenthesized_if_needed()
+                    ));
+                }
                 let value_wrap = self.erase_value_text("value", *item)?;
                 Ok(format!(
                     "{{ let mut values = {}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}",
@@ -1964,18 +1984,18 @@ impl FunctionEmitter<'_> {
             // unaffected.
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}) }}"
+                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }} }}, _ => panic!(\"unknown is not iterable\") }}) }}"
                 ))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
                 Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}) }}"
+                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }} }}, _ => panic!(\"unknown is not iterable\") }}) }}"
                 ))
             }
             Some(Type::List(item)) => {
                 let item_text = self.extract_value_text("value", *item)?;
                 Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return array\") }}, _ => panic!(\"unknown is not array\") }}, _ => panic!(\"unknown is not array\") }}) }}"
+                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec().into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return array\") }}, _ => panic!(\"unknown is not array\") }} }}, _ => panic!(\"unknown is not array\") }}) }}"
                 ))
             }
             Some(Type::Dict(key, item))
@@ -2119,6 +2139,20 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 Ok("Default::default()".to_owned())
+            }
+            // A source `Set` recovers through `SmeltJsSet`'s `SmeltFromUnknown`
+            // impl, which round-trips the `__smelt_set` marker (rebuilding members
+            // and the stable id) and tolerantly accepts a bare array. This is the
+            // inverse of the `SmeltJsSet` erasure adapter, so an `unknown -> Set`
+            // cast (e.g. `data as unknown as Set` in a deep-equality walk) recovers
+            // the real members instead of an empty set. Only `SmeltJsSet`-backed
+            // sets have this impl; a `HashSet`-backed primitive set keeps the
+            // `Default::default()` fallback below.
+            Some(Type::Set(item)) if !self.type_is_hash_set_key_safe(*item) => {
+                let target_text = self.type_text_with_impl_trait(target, false)?;
+                Ok(format!(
+                    "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
+                ))
             }
             Some(Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
                 Ok("Default::default()".to_owned())
