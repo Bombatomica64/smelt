@@ -109,7 +109,8 @@ impl FunctionEmitter<'_> {
                 ));
             }
             let get_text =
-                if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     format!("{}.get(&{})", self.operand_text(dict)?, key_text)
                 } else {
                     format!("{}.get(&{}).cloned()", self.operand_text(dict)?, key_text)
@@ -134,7 +135,8 @@ impl FunctionEmitter<'_> {
                 if value_inner == dest_inner =>
             {
                 let get_text =
-                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         format!("{}.get(&{})", self.operand_text(dict)?, key_text)
                     } else {
                         format!("{}.get(&{}).cloned()", self.operand_text(dict)?, key_text)
@@ -142,7 +144,8 @@ impl FunctionEmitter<'_> {
                 Ok(format!("{get_text}.flatten()"))
             }
             (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => {
-                if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!("{}.get(&{})", self.operand_text(dict)?, key_text))
                 } else {
                     Ok(format!(
@@ -204,7 +207,8 @@ impl FunctionEmitter<'_> {
         let dict_text = self.local_mut_value_text(*local)?;
         let key_text = self.operand_text(key)?;
         let default_text = self.operand_text(default)?;
-        if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+        if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
             Ok(format!(
                 "{{ if let Some(value) = {dict_text}.get(&{key_text}) {{ value }} else {{ {dict_text}.insert({key_text}, {default_text}.clone()); {default_text} }} }}"
             ))
@@ -645,11 +649,11 @@ impl FunctionEmitter<'_> {
                     // those markers can appear — so the `SmeltJsMap` and plain
                     // dict backings keep the symbol-only filter (they never carry
                     // internal markers, and the helper would not type-check there).
-                    if self.dict_uses_smelt_record(*key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
                             "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
                         ))
-                    } else if self.dict_uses_js_key_map(*key_ty) {
+                    } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
                             "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>()"
                         ))
@@ -658,7 +662,7 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
                         ))
                     }
-                } else if self.dict_uses_js_key_map(*key_ty) {
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))
@@ -673,7 +677,8 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
                             "{dict_text}.keys().filter(|key| smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
                         ))
@@ -682,7 +687,7 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.keys().filter(|key| smelt_is_for_in_record_key(&{dict_text}, key)).cloned().collect::<Vec<_>>()"
                         ))
                     }
-                } else if self.dict_uses_js_key_map(*key_ty) {
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))
@@ -700,7 +705,7 @@ impl FunctionEmitter<'_> {
                     Ok(format!(
                         "{dict_text}.keys().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(str::to_owned)).collect::<Vec<_>>()"
                     ))
-                } else if self.dict_uses_js_key_map(*key_ty) {
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.keys().filter_map(|key| match key {{ SmeltUnknown::Symbol(value) => Some(value), _ => None }}).collect::<Vec<_>>()"
                     ))
@@ -715,7 +720,8 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
                         ))
@@ -724,7 +730,7 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
                         ))
                     }
-                } else if self.dict_uses_js_key_map(*key_ty) {
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(_, value)| value).collect::<Vec<_>>()"
                     ))
@@ -739,7 +745,8 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
                         ))
@@ -748,7 +755,7 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
                         ))
                     }
-                } else if self.dict_uses_js_key_map(*key_ty) {
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))

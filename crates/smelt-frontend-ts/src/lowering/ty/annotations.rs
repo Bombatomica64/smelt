@@ -1669,13 +1669,18 @@ return_ty: function.return_ty,
                     .intern(Type::Dict(lowered_key, lowered_value)))
             }
             ("Map" | "ReadonlyMap", [key, value]) => {
+                // A `Map<K, V>` annotation lowers to the distinct `JsMap` variant
+                // (not `Dict`) so the source Map spelling survives interning and
+                // erasure can stamp the `__smelt_map` marker. `JsMap` shares all
+                // of `Dict`'s machinery and is interchangeable with it under
+                // assignability, so this does not reject `Record`-shaped flows.
                 let lowered_key = self.ts_type_to_hir(key)?;
                 let lowered_value = self.ts_type_to_hir(value)?;
                 Ok(self
                     .ctx
                     .krate
                     .types
-                    .intern(Type::Dict(lowered_key, lowered_value)))
+                    .intern(Type::JsMap(lowered_key, lowered_value)))
             }
             ("Promise", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;

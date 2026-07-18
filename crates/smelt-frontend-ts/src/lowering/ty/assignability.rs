@@ -94,7 +94,18 @@ impl ModuleBuilder<'_> {
                 .all(|actual_item| {
                     self.type_assignable_to_inner(*actual_item, expected_item, depth + 1)
                 }),
-            (Type::Dict(actual_key, actual_value), Type::Dict(expected_key, expected_value)) => {
+            // `Dict` and `JsMap` are structurally identical and share the same
+            // internal machinery: `JsMap` exists only to preserve the `Map`
+            // spelling through interning so erasure can stamp the `__smelt_map`
+            // marker. At the type-check level the source-spelling distinction is
+            // irrelevant, so the two are assignable in both directions with the
+            // same recursive key/value check `Dict` always had. Keeping them
+            // interchangeable here is what prevents `new Map(...)`/`Map<K,V>`
+            // stamping from rejecting mappings that previously typed as `Dict`.
+            (
+                Type::Dict(actual_key, actual_value) | Type::JsMap(actual_key, actual_value),
+                Type::Dict(expected_key, expected_value) | Type::JsMap(expected_key, expected_value),
+            ) => {
                 self.type_assignable_to_inner(actual_key, expected_key, depth + 1)
                     && self.type_assignable_to_inner(actual_value, expected_value, depth + 1)
             }

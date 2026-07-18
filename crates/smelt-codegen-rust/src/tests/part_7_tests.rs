@@ -2358,7 +2358,13 @@ function countPresent(values: string[]): Record<string, number> {
     );
 
     assert!(source.contains("loop {"), "{source}");
-    assert!(source.contains("return out;"), "{source}");
+    // `out` is a source `Map` (`SmeltJsMap`), so `Object.fromEntries(out)` is a
+    // genuine Map->Record conversion (erase the map's entries, then collect into
+    // the declared `Record<string, number>`), not an identity `return out;`.
+    assert!(
+        source.contains(".collect::<SmeltRecord<String, f64>>()"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -8293,3 +8299,4 @@ export function adapt(f: (...args: unknown[]) => unknown): ErasedBinary {
         "erased-rest adapter must not spread a scalar target argument\n{source}"
     );
 }
+

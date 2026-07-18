@@ -375,11 +375,22 @@ const mapEntries = mapping.entries();
 ",
     );
 
-    // A non-primitive `Set` (here `Set<number>`) turns on the unknown carrier,
-    // so the string-keyed `Map` is backed by identity-preserving `SmeltRecord`
-    // and its projections use the record key/value filters.
+    // A source `Map` backs onto `SmeltJsMap` regardless of key type, so its
+    // projections take the symbol-only filter (SmeltJsMap never carries the
+    // internal `__smelt_symbol:`/`__smelt_class` marker keys that only a
+    // `SmeltRecord` object accumulates, and `smelt_is_for_in_record_key` is not
+    // defined over `SmeltJsMap`). Keys therefore have no record-marker filter.
     assert!(
         source.contains(
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>()"
+        ),
+        "{source}"
+    );
+    // The map keys projection must not apply the `SmeltRecord`-only marker
+    // filter (`smelt_is_for_in_record_key`, which is defined in the prelude but
+    // must not appear in a `SmeltJsMap` keys projection).
+    assert!(
+        !source.contains(
             ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&"
         ),
         "{source}"
@@ -439,13 +450,18 @@ const value = mapping.get("a");
 "#,
     );
 
-    assert!(source.contains("::std::collections::HashMap<String, f64>"));
-    assert!(source.contains("::std::collections::HashMap::from([]);"));
+    // A source `Map` backs onto `SmeltJsMap` (not `HashMap`) even when
+    // string-keyed, so erasure can stamp the `__smelt_map` marker. `SmeltJsMap`
+    // stores owned entries, so `get` returns `Option<V>` directly with no
+    // `.cloned()`.
+    assert!(source.contains("SmeltJsMap<String, f64>"));
+    assert!(source.contains("SmeltJsMap::from([]);"));
     assert!(source.contains(
-        "::std::collections::HashMap::from([(\"a\".to_owned(), 1.0), (\"b\".to_owned(), 2.0)])"
+        "SmeltJsMap::from([(\"a\".to_owned(), 1.0), (\"b\".to_owned(), 2.0)])"
     ));
     assert!(source.contains(".contains_key(&\"a\".to_owned());"));
-    assert!(source.contains(".get(&\"a\".to_owned()).cloned();"));
+    assert!(source.contains(".get(&\"a\".to_owned());"));
+    assert!(!source.contains(".get(&\"a\".to_owned()).cloned();"));
 }
 
 #[test]
@@ -826,4 +842,50 @@ const entries = values.entries();
     assert!(source.contains(".iter().enumerate().rev().find_map("));
     assert!(source.contains("(0.."));
     assert!(source.contains(".iter().cloned().enumerate().map(|(idx, item)|"));
+}
+
+/// A source `Map` and a plain object literal erase differently: only the `Map`
+/// carries the `__smelt_map` identity marker.
+///
+/// This is the both-directions guard for stage-2 Map identity. A `new Map(...)`
+/// backs onto `SmeltJsMap`, whose `IntoSmeltUnknown` stamps the `__smelt_map`
+/// marker so the erased value stays observable as a Map (`isMap`, `[object
+/// Map]`, structural `isEqual`). An object literal (a `Record` internally) backs
+/// onto `SmeltRecord`, whose erasure is an ordinary unmarked object — no
+/// `__smelt_map`. If Map stamping ever leaked onto object literals (or a Map
+/// lost its `SmeltJsMap` backing), one of these type bindings would flip.
+#[test]
+fn erases_map_with_marker_but_object_literal_unmarked() {
+    let source = source_for(
+        r#"
+const m = new Map<string, number>([["a", 1]]);
+const asMap: unknown = m;
+const obj = { a: 1 };
+const asRecord: unknown = obj;
+"#,
+    );
+
+    // Direction 1: the Map is backed by the marker-stamping `SmeltJsMap`.
+    assert!(
+        source.contains("let m: SmeltJsMap<String, f64> ="),
+        "{source}"
+    );
+    // Direction 2: the object literal stays an unmarked `SmeltRecord`, never a
+    // `SmeltJsMap`.
+    assert!(
+        source.contains("let obj: SmeltRecord<String, f64> ="),
+        "{source}"
+    );
+    assert!(
+        !source.contains("let obj: SmeltJsMap"),
+        "an object literal must not acquire the Map backing:\n{source}"
+    );
+    // The `__smelt_map` marker exists only inside `SmeltJsMap`'s erasure adapter
+    // (a legitimate dynamic boundary), never in `SmeltRecord`'s.
+    assert!(
+        source.contains(
+            "object.insert(\"__smelt_map\".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))"
+        ),
+        "{source}"
+    );
 }

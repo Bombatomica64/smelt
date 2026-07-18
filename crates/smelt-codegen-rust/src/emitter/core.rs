@@ -3360,6 +3360,35 @@ impl<'mir> FunctionEmitter<'mir> {
             && self.mir.types.get(key_ty) == Some(&Type::String)
     }
 
+    /// Returns whether a Map/dict operation must use the `SmeltRecord` backing.
+    ///
+    /// Receiver-aware wrapper over [`Self::dict_uses_smelt_record`]. A source
+    /// `Map` (`Type::JsMap`) *always* backs onto `SmeltJsMap` — even when
+    /// string-keyed — so the `SmeltRecord`-specific emission (notably the
+    /// `smelt_is_for_in_record_key` marker filter, which only type-checks over
+    /// `SmeltRecord`) must never fire for it. Only a `Type::Dict` receiver can
+    /// use the `SmeltRecord` backing, and only under the ordinary key rule.
+    pub(super) fn map_op_uses_smelt_record(&self, receiver_ty: TypeId, key_ty: TypeId) -> bool {
+        if matches!(self.mir.types.get(receiver_ty), Some(Type::JsMap(_, _))) {
+            return false;
+        }
+        self.dict_uses_smelt_record(key_ty)
+    }
+
+    /// Returns whether a Map/dict operation uses the `SmeltJsMap` backing.
+    ///
+    /// Receiver-aware wrapper over [`Self::dict_uses_js_key_map`]. A source
+    /// `Map` (`Type::JsMap`) always backs onto `SmeltJsMap`, so its projections
+    /// take the same owned-key/value, symbol-only-filter emission as an
+    /// object-keyed dict — regardless of key type. A `Type::Dict` receiver keeps
+    /// the ordinary key-driven decision.
+    pub(super) fn map_op_uses_js_key_map(&self, receiver_ty: TypeId, key_ty: TypeId) -> bool {
+        if matches!(self.mir.types.get(receiver_ty), Some(Type::JsMap(_, _))) {
+            return true;
+        }
+        self.dict_uses_js_key_map(key_ty)
+    }
+
     /// Returns whether list membership should use JavaScript SameValueZero.
     ///
     /// `Array.prototype.includes`, `indexOf`, and `splice`-style removals do
