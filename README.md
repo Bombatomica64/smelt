@@ -130,7 +130,7 @@ Fork the repo and submit a pr :)
 | --- | ---: |
 | Functions | 77.89% |
 | Lines | 74.07% |
-| Regions | 72.53% |
+| Regions | 72.54% |
 | Branches | 63.63% |
 
 ### Per Crate
@@ -150,6 +150,7 @@ Fork the repo and submit a pr :)
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
 | `smelt-transpiler` | 68.20% | 66.31% | 55.42% |
 <!-- COVERAGE:END -->
+
 
 
 
