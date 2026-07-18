@@ -609,7 +609,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
     if trimmed.starts_with("let __smelt_update_tmp") && trimmed.contains(": SmeltUnknown =") {
         return true;
     }
-    const BOUNDARY_MARKERS: [&str; 8] = [
+    const BOUNDARY_MARKERS: [&str; 9] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         "IntoSmeltUnknown",
@@ -618,6 +618,13 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         "js_typeof",
         "tag_check",
         "smelt_unknown_is_",
+        // `.slice()` on an erased receiver (a generic `T` / `unknown` value that
+        // may be an array, string, or a typed-array/array-buffer marker at
+        // runtime) emits a `smelt_slice_value` tag match that dispatches on the
+        // `SmeltUnknown` variant — a genuine runtime-narrowing boundary. A
+        // concrete type is unavailable precisely because the receiver is erased,
+        // so this is a boundary adapter, not avoidable program-storage erasure.
+        "smelt_slice_value",
     ];
     BOUNDARY_MARKERS.iter().any(|marker| line.contains(marker))
 }

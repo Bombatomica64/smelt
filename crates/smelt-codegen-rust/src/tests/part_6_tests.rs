@@ -34,6 +34,87 @@ const item = values.shift();
     assert!(source.contains(".remove(0)"));
 }
 
+/// A `.slice()` on an erased receiver (a generic / `unknown` value that may be
+/// an array, typed array, or array buffer at runtime) must runtime-dispatch on
+/// the value tag rather than ToString-coercing the value to `"[object Object]"`
+/// and char-slicing that string. An array receiver yields a fresh
+/// `SmeltUnknown::Array`; a string yields a `SmeltUnknown::String`; anything
+/// else (marker buffer objects) is forwarded unchanged.
+#[test]
+fn emits_erased_slice_as_runtime_tag_dispatch() {
+    let source = source_for(
+        r"
+export function cloneSlice(obj: unknown): unknown {
+  return (obj as any).slice(0);
+}
+",
+    );
+
+    assert!(source.contains("let smelt_slice_value ="));
+    assert!(
+        source.contains("SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id()"),
+        "array slice must materialize a fresh SmeltUnknown::Array"
+    );
+    assert!(
+        source.contains("smelt_other => smelt_other"),
+        "non-array/string receivers must be forwarded unchanged"
+    );
+    // The old bug lowered the erased `.slice` to a `StringSlice`, ToString-
+    // coercing the receiver and char-slicing it (`.chars().skip(...)` with no
+    // `smelt_slice_value` tag match). The tag-dispatch above proves that path
+    // is gone.
+    assert!(
+        source.contains("SmeltUnknown::String(value) => { let chars ="),
+        "erased slice must string-slice via the value-tag match, not a ToString coercion"
+    );
+}
+
+/// A `for (const [k, v] of map)` over an erased `__smelt_map` marker object must
+/// iterate the stored `[k, v]` pairs rather than panicking "unknown is not
+/// iterable". The erased-iteration projection gains a `__smelt_map` arm next to
+/// the existing `__smelt_set` / `__smelt_symbol_iterator` handling.
+#[test]
+fn emits_erased_map_marker_iteration() {
+    let source = source_for(
+        r"
+export function toEntries(x: unknown): unknown[] {
+  const out: unknown[] = [];
+  for (const e of (x as any)) { out.push(e); }
+  return out;
+}
+",
+    );
+
+    assert!(
+        source.contains("value.get(\"__smelt_map\")"),
+        "erased iteration must accept __smelt_map marker objects"
+    );
+    assert!(source.contains("value.get(\"__smelt_set\")"));
+}
+
+/// A `void`-returning callback erased into a callable value returns JavaScript
+/// `undefined`, not `null`. Downstream `!== undefined` guards (e.g.
+/// cloneDeepWith's customizer wrapper) rely on this to treat the result as "no
+/// value" rather than a real `null`.
+#[test]
+fn emits_void_callback_erasure_as_undefined() {
+    let source = source_for(
+        r"
+type Customizer = (value: unknown, key: unknown) => unknown;
+function runWith(fn: Customizer): unknown { return fn(1, 2); }
+export function callVoid(): unknown {
+  const noop: () => void = () => {};
+  return runWith(noop as unknown as Customizer);
+}
+",
+    );
+
+    assert!(
+        source.contains("; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }"),
+        "void callback erasure must yield SmeltUnknown::Undefined, not Null"
+    );
+}
+
 #[test]
 fn emits_array_is_array_as_static_boolean() {
     let source = source_for(
