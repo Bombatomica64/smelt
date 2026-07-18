@@ -1362,6 +1362,13 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
+        // An erased `Map` is a marker object `{ __smelt_map: [[k, v], ...] }`.
+        // Real Maps expose `.size` through `Map.prototype`, which the marker
+        // object does not store as an own field, so synthesize it from the entry
+        // count when a `.size` read reaches an erased Map. This keeps generic
+        // `unknown`-typed code that probes `value.size` (e.g. `isEmptyish`)
+        // correct without materializing the typed `SmeltJsMap`.
+        writer.line("    if field == \"size\" && let Some(SmeltUnknown::Array(pairs)) = map.get(\"__smelt_map\") { return SmeltUnknown::Number(pairs.len() as f64); }");
         writer.line("    // A missing property reads as JS `undefined`, distinct from an");
         writer.line("    // explicit `null` value (`obj.missing === undefined`, `!== null`).");
         writer.line("    match map.get(field).unwrap_or(SmeltUnknown::Undefined) {");

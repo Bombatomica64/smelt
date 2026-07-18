@@ -3389,6 +3389,30 @@ impl<'mir> FunctionEmitter<'mir> {
         self.dict_uses_js_key_map(key_ty)
     }
 
+    /// Returns whether two map/dict types lower to different backing containers.
+    ///
+    /// `Dict` and `JsMap` can share a backing (`Dict` with an object-like key and
+    /// any `JsMap` both use `SmeltJsMap`) or differ (a string-keyed `Dict` uses
+    /// `SmeltRecord`, a plain-primitive-keyed `Dict` uses `HashMap`, and a
+    /// `JsMap` always uses `SmeltJsMap`). A key/value-preserving conversion
+    /// (`Object.fromEntries(map)`, an interchangeable `Dict`/`JsMap` assignment)
+    /// still needs a real container rebuild when the backings differ, even though
+    /// the key and value component types are identical — this reports that case.
+    pub(super) fn map_backing_differs(&self, left: &Type, right: &Type) -> bool {
+        self.map_backing_tag(left) != self.map_backing_tag(right)
+    }
+
+    /// Return a discriminant for a map/dict type's backing container.
+    fn map_backing_tag(&self, ty: &Type) -> u8 {
+        match ty {
+            Type::JsMap(_, _) => 0,
+            Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => 0,
+            Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => 1,
+            Type::Dict(_, _) => 2,
+            _ => 3,
+        }
+    }
+
     /// Returns whether list membership should use JavaScript SameValueZero.
     ///
     /// `Array.prototype.includes`, `indexOf`, and `splice`-style removals do

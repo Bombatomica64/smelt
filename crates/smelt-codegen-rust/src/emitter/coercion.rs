@@ -417,12 +417,20 @@ impl FunctionEmitter<'_> {
             ));
         }
         if let (
-            Some(Type::Dict(source_key, source_value)),
-            Some(Type::Dict(target_key, target_value)),
+            Some(
+                source_map_ty @ (Type::Dict(source_key, source_value)
+                | Type::JsMap(source_key, source_value)),
+            ),
+            Some(
+                target_map_ty @ (Type::Dict(target_key, target_value)
+                | Type::JsMap(target_key, target_value)),
+            ),
         ) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
-        ) && (source_key != target_key || source_value != target_value)
+        ) && (source_key != target_key
+            || source_value != target_value
+            || self.map_backing_differs(source_map_ty, target_map_ty))
         {
             let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
                 self.property_key_to_string_text("key", *source_key)?
@@ -879,10 +887,18 @@ impl FunctionEmitter<'_> {
             ));
         }
         if let (
-            Some(Type::Dict(source_key, source_value)),
-            Some(Type::Dict(target_key, target_value)),
+            Some(
+                source_ty @ (Type::Dict(source_key, source_value)
+                | Type::JsMap(source_key, source_value)),
+            ),
+            Some(
+                target_ty @ (Type::Dict(target_key, target_value)
+                | Type::JsMap(target_key, target_value)),
+            ),
         ) = (self.mir.types.get(source), self.mir.types.get(target))
-            && (source_key != target_key || source_value != target_value)
+            && (source_key != target_key
+                || source_value != target_value
+                || self.map_backing_differs(source_ty, target_ty))
         {
             let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
                 self.property_key_to_string_text("key", *source_key)?
@@ -1986,6 +2002,18 @@ impl FunctionEmitter<'_> {
                 }
                 Ok(format!(
                     "if let SmeltUnknown::Object(values) = {text}.clone() {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ ::std::collections::HashMap::new() }}"
+                ))
+            }
+            // A source `Map` recovers through `SmeltJsMap`'s `SmeltFromUnknown`
+            // impl, which round-trips the `__smelt_map` marker: an erased Map
+            // rebuilds its entries (and stable id) from the marker payload, and a
+            // plain object falls back to string-keyed entries. This is the
+            // inverse of the `SmeltJsMap` erasure adapter, so `unknown -> Map`
+            // extraction stays lossless.
+            Some(Type::JsMap(_, _)) => {
+                let target_text = self.type_text_with_impl_trait(target, false)?;
+                Ok(format!(
+                    "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))
             }
             Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name) => {

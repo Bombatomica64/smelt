@@ -35,8 +35,12 @@ impl FunctionEmitter<'_> {
                     }
                     _ => return Ok("false".to_owned()),
                 };
+                // An erased `Map` (`{ __smelt_map: [...] }`) exposes `size`
+                // through `Map.prototype`, so `"size" in map` is true even though
+                // the marker object has no own `size` field. Mirror the virtual
+                // `.size` synthesized in `smelt_get_object_field`.
                 return Ok(format!(
-                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
+                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key) || (values.contains_key(\"__smelt_map\") && smelt_key == \"size\"), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
                 ));
             }
             return Ok("false".to_owned());
