@@ -96,6 +96,7 @@ impl ModuleBuilder<'_> {
             }
         };
         if function.r#async
+            && !function.generator
             && declared_return_ty.is_some()
             && !matches!(
                 declared_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
@@ -402,7 +403,9 @@ impl ModuleBuilder<'_> {
         let mut return_ty = declared_return_ty
             .or_else(|| self.last_return_type(&body))
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
-        if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+        if function.r#async
+            && !function.generator
+            && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
         {
             return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
         }
@@ -2410,7 +2413,7 @@ impl ModuleBuilder<'_> {
                 .transpose()?
                 .unwrap_or_else(|| {
                     let unknown = self.ctx.krate.types.intern(Type::Unknown);
-                    if method.value.r#async {
+                    if method.value.r#async && !method.value.generator {
                         self.ctx.krate.types.intern(Type::Future(unknown))
                     } else {
                         unknown
@@ -2418,6 +2421,7 @@ impl ModuleBuilder<'_> {
                 })
         };
         if method.value.r#async
+            && !method.value.generator
             && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
         {
             return Err(SmeltError::unsupported(
@@ -2430,6 +2434,7 @@ impl ModuleBuilder<'_> {
         let saved_class = self.current_class.replace(class_text.to_owned());
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
+        let saved_generator_yields = self.current_generator_yields;
         self.current_async = method.value.r#async;
         self.current_return_ty = Some(return_ty);
         let mut body = Body::new(
@@ -2551,6 +2556,11 @@ impl ModuleBuilder<'_> {
         {
             errors.push(error);
         }
+        let generator_yields = method
+            .value
+            .generator
+            .then(|| self.initialize_generator_yield_accumulator(&method.value, &mut body));
+        self.current_generator_yields = generator_yields;
         for statement in &function_body.statements {
             if self.is_super_call_statement(statement) {
                 continue;
@@ -2559,6 +2569,9 @@ impl ModuleBuilder<'_> {
                 errors.push(error);
             }
         }
+        if let Some(accumulator) = generator_yields {
+            self.push_generator_return(accumulator, &method.value, &mut body);
+        }
         if method.value.r#async {
             body.build_async_state_machine();
         }
@@ -2566,6 +2579,7 @@ impl ModuleBuilder<'_> {
         self.current_class = saved_class;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
+        self.current_generator_yields = saved_generator_yields;
         self.pop_type_parameter_scope();
         if let Some(error) = errors.into_iter().next() {
             return Err(error);

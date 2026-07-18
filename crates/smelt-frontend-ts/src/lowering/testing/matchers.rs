@@ -2949,8 +2949,13 @@ impl ModuleBuilder<'_> {
 
             let saved_return_ty = self.current_return_ty;
             let saved_async = self.current_async;
+            let saved_generator_yields = self.current_generator_yields;
             self.current_return_ty = declared_return_ty;
             self.current_async = function.r#async;
+            let generator_yields = function
+                .generator
+                .then(|| self.initialize_generator_yield_accumulator(function, &mut closure_body));
+            self.current_generator_yields = generator_yields;
             self.current_arguments_arities
                 .push(function.params.items.len());
             let mut lowering_result = Ok(());
@@ -2960,11 +2965,15 @@ impl ModuleBuilder<'_> {
                     break;
                 }
             }
+            if let Some(accumulator) = generator_yields {
+                self.push_generator_return(accumulator, function, &mut closure_body);
+            }
             if function.r#async {
                 closure_body.build_async_state_machine();
             }
             self.current_return_ty = saved_return_ty;
             self.current_async = saved_async;
+            self.current_generator_yields = saved_generator_yields;
             self.current_arguments_arities.pop();
             for (name, prior) in saved_locals.into_iter().rev() {
                 if let Some(local) = prior {

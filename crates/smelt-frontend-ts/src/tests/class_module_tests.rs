@@ -1119,6 +1119,90 @@ export class Formatter {
     Ok(())
 }
 
+/// Async generator methods use the same materialized-yield representation as
+/// free generator functions and must not require a `Promise<T>` annotation.
+#[test]
+fn lowers_async_generator_class_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export class Values {
+  async *items(): AsyncGenerator<number, void> {
+    yield 1;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 1);
+    let function = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some("items") => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing async generator class method".to_owned())?;
+    let body = function_body(&ctx, function)?;
+    ensure!(body.async_state_machine.is_some());
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. })),
+        "yield should append to the synthetic generator list"
+    );
+    ensure!(
+        body.stmts.iter().any(|stmt| matches!(
+            stmt,
+            Stmt::Return(Some(value))
+                if matches!(
+                    body.exprs.get(value.0 as usize).map(|expr| &expr.kind),
+                    Some(ExprKind::UnknownCast { .. })
+                )
+        )),
+        "generator method should return its materialized iterable value"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Nested generator declarations own their yield accumulator instead of
+/// inheriting the surrounding generator method's body-local accumulator.
+#[test]
+fn isolates_nested_generator_declaration_from_generator_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export class Values {
+  *items(): Generator<number> {
+    function* inner(): Generator<number> {
+      yield 2;
+    }
+    yield 1;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let generator_bodies = ctx
+        .krate
+        .bodies
+        .iter()
+        .filter(|body| {
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. }))
+        })
+        .count();
+    ensure_eq!(generator_bodies, 2);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 /// A class is in its own lexical scope while its method bodies are evaluated,
 /// including as the right-hand constructor of `instanceof`.
 #[test]
