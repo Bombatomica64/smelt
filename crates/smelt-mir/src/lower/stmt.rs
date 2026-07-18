@@ -529,7 +529,6 @@ impl LoweringCtx<'_> {
     ) -> Result<(), LowerError> {
         let lowered_scrutinee = self.lower_expr(scrutinee)?;
         let span = self.block()?.span;
-        let join = self.function.push_block(span);
         let mut mir_arms = Vec::new();
         let mut arm_blocks = Vec::new();
         let mut targets_by_hir_block = HashMap::new();
@@ -550,6 +549,17 @@ impl LoweringCtx<'_> {
             }
         }
 
+        // Allocate the shared join (continuation) block *after* the arm blocks so
+        // that its block id is higher than every arm *and* the default (whether a
+        // real source `default:` arm or a synthesized empty one). The Rust emitter
+        // treats a `goto` to a lower-id block as a loop back-edge (following it
+        // only when the target provably terminates, else emitting a fallthrough
+        // return). The join is a forward continuation, never a back-edge; giving
+        // it the highest id keeps every `goto join` a forward edge so the
+        // post-`switch` tail is always emitted. Allocating it first (as before)
+        // made the tail of a no-`default` switch whose arms end in a call/branch
+        // (so no join can be hoisted) look like an unterminating back-edge, and
+        // the whole post-switch tail was silently dropped.
         let default_target = if let Some(default_body) = default {
             Some(
                 *targets_by_hir_block
@@ -557,8 +567,16 @@ impl LoweringCtx<'_> {
                     .or_insert_with(|| self.function.push_block(span)),
             )
         } else {
-            // Synthesize an empty default block that jumps straight to the join.
-            let target = self.function.push_block(span);
+            // Reserve an empty default block now so it ranks below `join`; its
+            // `goto join` terminator is filled in once `join` exists.
+            Some(self.function.push_block(span))
+        };
+
+        let join = self.function.push_block(span);
+
+        if default.is_none()
+            && let Some(target) = default_target
+        {
             let target_index =
                 usize_from_u32(target.0, "synthesized MIR match default block index")?;
             let Some(block) = self.function.blocks.get_mut(target_index) else {
@@ -568,8 +586,7 @@ impl LoweringCtx<'_> {
                 ));
             };
             block.terminator = Some(Terminator::Goto(join));
-            Some(target)
-        };
+        }
         self.set_terminator(Terminator::Match {
             scrutinee: lowered_scrutinee,
             arms: mir_arms,

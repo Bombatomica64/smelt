@@ -1569,3 +1569,88 @@ async function run(): Promise<void> {
     );
 }
 
+/// Regression: a `switch` without a `default` clause whose arms all return must
+/// still emit the statements that follow the `switch` for unmatched values.
+///
+/// JavaScript falls through a default-less `switch` to the code after it when no
+/// label matches. Smelt lowers the `switch` to a `Match` with a synthesized
+/// empty default that jumps to a shared continuation ("join") block holding the
+/// post-`switch` tail. The Rust emitter treats a `goto` to a lower-id block as a
+/// loop back-edge; MIR lowering used to allocate the join block *before* the arm
+/// blocks, so when no join could be hoisted (an arm ends in a call, as `helper()`
+/// does here) the synthesized default's forward `goto join` was misread as an
+/// unterminating back-edge and the entire tail was silently dropped
+/// (`_ => { return SmeltUnknown::Null; }`). The join now outranks every arm and
+/// the default, keeping it a forward edge so the tail is emitted.
+#[test]
+fn switch_without_default_emits_tail_after_call_arm() {
+    let source = source_for(
+        r#"
+function helper(x: number): number {
+  return x + 1;
+}
+export function f(tag: string, a: number): number {
+  switch (tag) {
+    case "call": {
+      return helper(a);
+    }
+    case "lit": {
+      return 7;
+    }
+  }
+
+  let total = a;
+  for (let i = 0; i < 3; i++) {
+    total = total + i;
+  }
+  return total + 1000;
+}
+"#,
+    );
+    assert!(
+        source.contains("1000"),
+        "post-switch tail (`total + 1000`) was dropped: {source}"
+    );
+    assert!(
+        source.contains("total = a.clone()"),
+        "post-switch tail statements were dropped: {source}"
+    );
+    assert!(
+        !source.contains("_ => {\n    return SmeltUnknown::Null;"),
+        "default arm fabricated a return instead of falling through to the tail: {source}"
+    );
+}
+
+/// A `switch` *with* an exhaustive-looking `default` still lowers correctly: the
+/// default arm runs its own body and each arm's early return is preserved. This
+/// guards the join-block reordering against regressing the with-default path.
+#[test]
+fn switch_with_default_preserves_arm_returns() {
+    let source = source_for(
+        r#"
+export function classify(tag: string): number {
+  switch (tag) {
+    case "a": {
+      return 1;
+    }
+    case "b": {
+      return 2;
+    }
+    default: {
+      return -1;
+    }
+  }
+}
+"#,
+    );
+    assert!(source.contains("\"a\" => {"), "missing arm a: {source}");
+    assert!(source.contains("\"b\" => {"), "missing arm b: {source}");
+    assert!(
+        source.contains("_ => {"),
+        "missing default arm: {source}"
+    );
+    assert!(
+        source.contains("return -1_f64") || source.contains("- 1.0") || source.contains("-1.0"),
+        "default arm body was dropped: {source}"
+    );
+}

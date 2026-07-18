@@ -6,18 +6,18 @@ fn main (FuncId(0)) -> None
   bb0:
     %0 = 2.0
     %1 = ""
-    match move %0 {1.0 => bb2, 2.0 => bb3, _ => bb4}
+    match move %0 {1.0 => bb1, 2.0 => bb2, _ => bb3}
   bb1:
-    %2 = call @console_log(move %1) -> bb5
-  bb2:
     %1 = "one"
-    goto bb1
-  bb3:
+    goto bb4
+  bb2:
     %1 = "two"
-    goto bb1
-  bb4:
+    goto bb4
+  bb3:
     %1 = "other"
-    goto bb1
+    goto bb4
+  bb4:
+    %2 = call @console_log(move %1) -> bb5
   bb5:
     return none
 
