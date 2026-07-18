@@ -692,6 +692,17 @@ impl<'builder> ModuleBuilder<'builder> {
                     }
                 }
             };
+            // Adopt a rest slot from the selected overload only when it names a
+            // valid rest position within *this* resolved item's own parameters.
+            // `selected_overload` is keyed by the bare callee name, so a
+            // same-named export in another module (compat's variadic
+            // `merge(object, ...sources)`) can be picked even when the explicit
+            // relative import resolved to a different, fixed-arity function
+            // (object's `merge(target, source)`). Without this guard the
+            // compat rest leaks in and packs the trailing positional argument
+            // into a spurious array. Mirrors the `function_rests` guard above:
+            // the concretely resolved item is the source of truth for whether a
+            // parameter slot is variadic.
             if rest.is_none()
                 && let Some(signature) = &selected_overload
                 && let Some(index) = signature.rest
@@ -699,6 +710,13 @@ impl<'builder> ModuleBuilder<'builder> {
                     .params
                     .get(index)
                     .and_then(|param| self.ctx.krate.types.get(*param))
+                && index < params.len()
+                && matches!(
+                    params
+                        .get(index)
+                        .and_then(|param| self.ctx.krate.types.get(*param)),
+                    Some(Type::List(_))
+                )
             {
                 rest = Some(RestParam {
                     index,

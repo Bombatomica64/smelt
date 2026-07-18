@@ -777,3 +777,69 @@ export function useNs(value: unknown): unknown {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// An explicit relative import binds to *that* module's export, and rest-param
+/// packing follows the resolved function's own signature — never a same-named
+/// export from a different module.
+///
+/// A variadic `merge(object, ...sources)` in one module and a fixed two-param
+/// `merge(target, source)` in another collide on the bare name `merge` in the
+/// cross-module overload/rest tables (keyed by name only). A spec that imports
+/// the two-param `merge` via `./merge` must call it with two positional
+/// arguments; the compat overload's rest slot must not leak in and pack the
+/// trailing `source` into an array (`ExprKind::ListLit`). This mirrors es-toolkit
+/// `object/merge.spec.ts`, whose call previously lowered as
+/// `merge(target, [source])` and produced a result keyed by `"0"`.
+#[test]
+fn relative_import_uses_own_signature_not_same_named_variadic_rest() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    // Variadic sibling lowered first so its rest/overload signatures populate
+    // the name-keyed cross-module tables for `merge`.
+    lower_path_ok(
+        ts!(r"
+export function merge<T, U>(object: T, source: U): T & U;
+export function merge<T, U, V>(object: T, source1: U, source2: V): T & U & V;
+export function merge(object: any, ...otherArgs: any[]): any;
+export function merge(object: any, ...sources: any[]): any {
+  return object;
+}
+"),
+        "compat_merge.ts",
+        &mut ctx,
+    )?;
+    // Fixed two-parameter `merge` — the explicit import target.
+    lower_path_ok(
+        ts!(r"
+export function merge<T extends Record<PropertyKey, any>, S extends Record<PropertyKey, any>>(
+  target: T,
+  source: S,
+): T & S {
+  return target;
+}
+"),
+        "merge.ts",
+        &mut ctx,
+    )?;
+    lower_path_ok(
+        ts!(r"
+import { merge } from './merge';
+export function run(): unknown {
+  const target = { a: 1, b: 2 };
+  const source = { b: 3, c: 4 };
+  return merge(target, source);
+}
+"),
+        "merge.spec.ts",
+        &mut ctx,
+    )?;
+    // The trailing `source` argument must stay positional. Both source object
+    // literals lower to records, and neither `merge` implementation builds a
+    // list, so any `ExprKind::ListLit` in the crate is the spurious rest array
+    // packed from the compat overload — the regression this guards.
+    ensure!(
+        !crate_has(&ctx, |kind| matches!(kind, ExprKind::ListLit(_))),
+        "relative-imported two-param `merge` must not pack `source` into a rest array",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
