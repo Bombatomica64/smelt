@@ -730,6 +730,47 @@ export function tag(value: unknown): string {
 }
 
 #[test]
+fn map_carries_identity_marker_across_erasure_boundary() {
+    // A `Map` erased to `unknown` must keep its Map-ness: no concrete type,
+    // union, or scoped generic can carry the `[object Map]` identity across the
+    // dynamic boundary, so the erasure adapter stamps a `__smelt_map` marker
+    // object that the runtime tag helper and `SmeltFromUnknown` round-trip read.
+    let source = source_for(
+        r"
+export function erase(): unknown {
+  const m = new Map<string, number>([['a', 1]]);
+  return m;
+}
+",
+    );
+
+    // The Map erasure adapter stamps the marker (identity boundary).
+    assert!(
+        source.contains("IntoSmeltUnknown for SmeltJsMap")
+            && source.contains("\"__smelt_map\".to_owned()"),
+        "Map must erase to a __smelt_map marker object: {source}"
+    );
+    // The tag helper reports [object Map]/[object Set] off the markers.
+    assert!(
+        source.contains("if map.contains_key(\"__smelt_map\") { return \"[object Map]\".to_owned(); }")
+            && source.contains(
+                "if map.contains_key(\"__smelt_set\") { return \"[object Set]\".to_owned(); }"
+            ),
+        "toStringTag must have Map/Set marker arms: {source}"
+    );
+    // The un-erase adapter restores entries and identity from the marker.
+    assert!(
+        source.contains("if let Some(SmeltUnknown::Array(pairs)) = object.get(\"__smelt_map\")"),
+        "SmeltFromUnknown must round-trip the __smelt_map marker: {source}"
+    );
+    // The marker key stays hidden from for...in / Object.keys enumeration.
+    assert!(
+        source.contains("key != \"__smelt_map\" && key != \"__smelt_set\""),
+        "for-in filter must hide the Map/Set markers: {source}"
+    );
+}
+
+#[test]
 fn emits_timer_prelude_for_set_timeout_value_form() {
     let source = source_for(
         r"
