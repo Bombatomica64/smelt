@@ -1363,16 +1363,17 @@ impl ModuleBuilder<'_> {
         if member.property.name != "match" {
             return Ok(None);
         }
+        let haystack = self.expression(&member.object, body)?;
+        let haystack_ty = Self::expr_ty(body, haystack);
+        if !self.string_match_receiver_type_is_string(haystack_ty) {
+            return Ok(None);
+        }
         let [pattern_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "String.match() requires exactly one RegExp argument",
             ));
         };
-        let haystack = self.expression(&member.object, body)?;
-        if !self.is_string_compatible_type(Self::expr_ty(body, haystack)) {
-            return Ok(None);
-        }
         let pattern = self.argument(pattern_argument, body)?;
         let pattern_ty = Self::expr_ty(body, pattern);
         let pattern = if self.is_string_compatible_type(pattern_ty) {
@@ -1405,6 +1406,26 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return whether every possible receiver variant is definitely a string.
+    fn string_match_receiver_type_is_string(&self, ty: smelt_hir::TypeId) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::String) => true,
+            Some(Type::Union(items)) => {
+                !items.is_empty()
+                    && items
+                        .iter()
+                        .copied()
+                        .all(|item| self.string_match_receiver_type_is_string(item))
+            }
+            _ => false,
+        }
     }
 
     /// Extract a pattern string from a supported TypeScript RegExp-producing expression.

@@ -528,8 +528,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .body
             .iter()
             .filter_map(|statement| {
-                let Statement::ClassDeclaration(class) = statement else {
-                    return None;
+                let class = match statement {
+                    Statement::ClassDeclaration(class) => class,
+                    Statement::ExportNamedDeclaration(export) => {
+                        let Some(Declaration::ClassDeclaration(class)) = &export.declaration else {
+                            return None;
+                        };
+                        class
+                    }
+                    _ => return None,
                 };
                 class.id.as_ref().map(|id| id.name.to_string())
             })

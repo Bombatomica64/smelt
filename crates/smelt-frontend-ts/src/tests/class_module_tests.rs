@@ -1058,3 +1058,193 @@ export class Widget {
     );
     Ok(())
 }
+
+/// TypeScript class overload declarations contribute no runtime body; after
+/// TypeScript validates calls, only the concrete implementation becomes HIR.
+#[test]
+fn lowers_class_method_overloads_through_their_implementation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export class Formatter {
+  static format(value: string): string;
+  static format(value: number): string;
+  static format(value: string | number): string {
+    return String(value);
+  }
+
+  parse(value: string): string;
+  parse(value: number): string;
+  parse(value: string | number): string {
+    return String(value);
+  }
+}
+"),
+        &mut ctx,
+    )?;
+
+    let format_count = ctx
+        .krate
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                Item::Function(function)
+                    if ctx.krate.symbols.get(function.name) == Some("format")
+            )
+        })
+        .count();
+    let parse_count = ctx
+        .krate
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                Item::Function(function)
+                    if ctx.krate.symbols.get(function.name) == Some("parse")
+            )
+        })
+        .count();
+
+    ensure!(
+        format_count == 1,
+        "expected one static implementation, got {format_count}"
+    );
+    ensure!(
+        parse_count == 1,
+        "expected one instance implementation, got {parse_count}"
+    );
+    Ok(())
+}
+
+/// A class is in its own lexical scope while its method bodies are evaluated,
+/// including as the right-hand constructor of `instanceof`.
+#[test]
+fn lowers_instanceof_against_class_under_construction() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export class ResultBox {
+  isResultBox(value: unknown): boolean {
+    return value instanceof ResultBox;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::InstanceOf { .. }))),
+        "self-referential instanceof should retain a nominal class check"
+    );
+    Ok(())
+}
+
+/// Builtin method recognizers must inspect the receiver before enforcing the
+/// builtin arity; a user class may legitimately define the same method name.
+#[test]
+fn lowers_class_match_method_without_string_builtin_dispatch() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export class ResultBox {
+  match(ok: (value: number) => number, err: (value: string) => number): number {
+    return ok(1);
+  }
+}
+
+export function run(box: ResultBox): number {
+  return box.match((value: number) => value, (_error: string) => 0);
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A union of user classes remains outside String builtin dispatch even when
+/// every arm exposes a compatible `.match(...)` method.
+#[test]
+fn lowers_union_class_match_method_without_string_builtin_dispatch() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export class OkBox {
+  match(ok: (value: number) => number, _err: (value: string) => number): number {
+    return ok(1);
+  }
+}
+
+export class ErrBox {
+  match(_ok: (value: number) => number, err: (value: string) => number): number {
+    return err('bad');
+  }
+}
+
+export function run(box: OkBox | ErrBox): number {
+  return box.match((value: number) => value, (_error: string) => 0);
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Constructor, factory, field, and instance-method class receivers must all
+/// bypass String builtin dispatch regardless of their expression shape.
+#[test]
+fn lowers_expression_class_match_methods_without_string_builtin_dispatch() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export class ResultBox {
+  match(ok: (value: number) => number, _err: (value: string) => number): number {
+    return ok(1);
+  }
+}
+
+export class Holder {
+  result: ResultBox;
+  constructor(result: ResultBox) {
+    this.result = result;
+  }
+  getResult(): ResultBox {
+    return this.result;
+  }
+}
+
+export function makeResult(): ResultBox {
+  return new ResultBox();
+}
+
+export function run(holder: Holder): number {
+  const fromConstructor = new ResultBox().match(
+    (value: number) => value,
+    (_error: string) => 0,
+  );
+  const fromFactory = makeResult().match(
+    (value: number) => value + fromConstructor,
+    (_error: string) => 0,
+  );
+  const fromField = holder.result.match(
+    (value: number) => value + fromFactory,
+    (_error: string) => 0,
+  );
+  return holder.getResult().match(
+    (value: number) => value + fromField,
+    (_error: string) => 0,
+  );
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

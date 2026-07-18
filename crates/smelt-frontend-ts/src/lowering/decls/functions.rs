@@ -1178,6 +1178,15 @@ impl ModuleBuilder<'_> {
             match element {
                 ClassElement::PropertyDefinition(_) => {}
                 ClassElement::MethodDefinition(method) => {
+                    // An overload declaration has no JavaScript body. TypeScript
+                    // validates overload applicability before Smelt runs; when
+                    // the class also contains the matching concrete method, only
+                    // that runtime implementation becomes HIR.
+                    if method.value.body.is_none()
+                        && self.class_method_has_implementation(&class.body.body, method)?
+                    {
+                        continue;
+                    }
                     if !method.decorators.is_empty() && materialized.is_none() {
                         return Err(SmeltError::specialization_required(
                             self.span(method.span.start, method.span.end),
@@ -1529,6 +1538,34 @@ impl ModuleBuilder<'_> {
             methods.push(self.abstract_class_method_sig(method)?);
         }
         Ok(methods)
+    }
+
+    /// Return whether a bodyless class overload has a matching runtime method.
+    ///
+    /// Matching includes the static/instance side, method kind, and fully
+    /// resolved property-key symbol. An unmatched ambient method remains a
+    /// named blocker instead of being silently discarded.
+    fn class_method_has_implementation(
+        &mut self,
+        elements: &[ClassElement<'_>],
+        declaration: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> Result<bool, SmeltError> {
+        let declaration_name = self.property_key_symbol(&declaration.key)?;
+        for element in elements {
+            let ClassElement::MethodDefinition(candidate) = element else {
+                continue;
+            };
+            if candidate.value.body.is_none()
+                || candidate.r#static != declaration.r#static
+                || candidate.kind != declaration.kind
+            {
+                continue;
+            }
+            if self.property_key_symbol(&candidate.key)? == declaration_name {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Add callable storage slots for a class's virtual method surface.

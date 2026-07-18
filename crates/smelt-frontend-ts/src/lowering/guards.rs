@@ -144,6 +144,11 @@ impl ModuleBuilder<'_> {
         }
         if !builtin_target
             && !self.classes.contains_key(class_text)
+            // Module class names are collected before any class body is
+            // lowered. A class currently under construction is therefore a
+            // valid nominal target even though its final HIR item is inserted
+            // only after all of its methods have been emitted.
+            && !self.pending_class_names.contains(class_text)
             && !self.value_imports.contains(class_text)
         {
             // `this instanceof bound` against a *function* value (the JS
