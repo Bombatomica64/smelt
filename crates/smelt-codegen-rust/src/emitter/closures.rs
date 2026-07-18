@@ -265,7 +265,11 @@ impl FunctionEmitter<'_> {
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 let return_text =
                     if self.mir.types.get(source_closure.return_ty) == Some(&Type::None) {
-                        format!("{{ {call}; SmeltUnknown::Null }}")
+                        // A `void`-returning closure erased to a callable value
+                        // returns JavaScript `undefined`, not `null`. Yield
+                        // `SmeltUnknown::Undefined` so `!== undefined` guards on
+                        // the callback result behave as in JS.
+                        format!("{{ {call}; SmeltUnknown::Undefined }}")
                     } else {
                         self.value_at_type_text(&call, source_closure.return_ty, unknown_ty)?
                     };
