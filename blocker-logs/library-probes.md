@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-07-11 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-07-18 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,11 +12,11 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
-| [radash](https://github.com/sodiray/radash) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/async.ts` | 12 | non-working Rust (12r/0s) |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 697 / 362 | — | — | — |
+| [radash](https://github.com/sodiray/radash) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/internals/helpers.ts` | 12 | non-working Rust (12r/0s) |
-| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/storages/globalConfig/globalConfig.ts` | 20 | non-working Rust (19r/1s) |
-| [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 5 | non-working Rust (5r/0s) |
+| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/storages/globalConfig/globalConfig.ts` | 17 | non-working Rust (16r/1s) |
+| [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 4 | non-working Rust (4r/0s) |
 | [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 26 | non-working Rust (26r/0s) |
 | [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `(unknown)` | 6 | non-working Rust (6r/0s) |
 | [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 21 | non-working Rust (21r/0s) |
@@ -27,36 +27,20 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: transpiled, but pass/fail counts could not be parsed
+- Generated `cargo test`: **697 passed / 362 failed**
 
 ## radash
 
 - Source: `sodiray/radash` @ `4cab1900d08e`
-- Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/async.ts`
-- Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 19 · with blockers: 8
-
-| Occurrences | Files | Category | Blocker class |
-| ---: | ---: | --- | --- |
-| 1 | 1 | non-working Rust | call argument kind is not lowered yet: UpdateExpression(UpdateExpression { span: Span { st |
-| 1 | 1 | non-working Rust | Promise constructor lowering supports one arrow executor |
-| 1 | 1 | non-working Rust | local `X` is not callable (Some(None)) |
-| 1 | 1 | non-working Rust | parseFloat requires a string argument |
-| 1 | 1 | non-working Rust | dynamic Date constructor calls require exactly one value argument |
-| 1 | 1 | non-working Rust | callback method `X` is not lowered into closure bodies yet |
-| 1 | 1 | non-working Rust | local closure return type does not match its annotation: actual Some(List(TypeId(0))), exp |
-| 1 | 1 | non-working Rust | array sort requires at most one comparator argument |
-| 1 | 1 | non-working Rust | array reduce callback returns an unsupported type |
-| 1 | 1 | non-working Rust | local `X` is not callable (Some(Dict(TypeId(3), TypeId(0)))) |
-| 1 | 1 | non-working Rust | field access is only lowered for Record<string, T>, class, and interface values for now (r |
-| 1 | 1 | non-working Rust | namespace member `X` is not callable |
+- Transpile: **yes** — Rust crate emitted
+- Generated `cargo test`: transpiled, but pass/fail counts could not be parsed
 
 ## ts-pattern
 
 - Source: `gvergnaud/ts-pattern` @ `c92ca435c7e1`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/src/internals/helpers.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 68 · with blockers: 18
+- Files scanned: 68 · with blockers: 17
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -78,7 +62,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `fabian-hiller/valibot` @ `1f9b18338ad5`
 - Transpile: **no** — `smelt build` aborts at `home/runner/work/smelt/smelt/library/src/storages/globalConfig/globalConfig.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1083 · with blockers: 40
+- Files scanned: 1083 · with blockers: 37
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -93,9 +77,9 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 1 | 1 | non-working Rust | empty nested arrays require an explicit type annotation |
 | 1 | 1 | non-working Rust | index access is only lowered for arrays, strings, and records for now (receiver: Some(Opti |
 | 1 | 1 | non-working Rust | variable annotation `X` requires a diverging initializer |
-| 1 | 1 | non-working Rust | expect(...).toContain(...) requires a string, array, set, or tuple actual value with a mat |
 | 1 | 1 | non-working Rust | generic implements clauses are not lowered yet |
-| 1 | 1 | non-working Rust | type assertion cannot construct a never value |
+| 1 | 1 | non-working Rust | index access is only lowered for arrays, strings, and records for now (receiver: Some(Opti |
+| 1 | 1 | non-working Rust | too many generic type arguments |
 
 ## neverthrow
 
@@ -109,7 +93,6 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 3 | 2 | non-working Rust | declare methods are not lowered yet |
 | 3 | 2 | non-working Rust | String.match() requires exactly one RegExp argument |
 | 2 | 2 | non-working Rust | yield* generator delegation is not lowered yet |
-| 1 | 1 | non-working Rust | local closure return type does not match its annotation: actual Some(Never), expected Some |
 | 1 | 1 | non-working Rust | only expect(...).not matcher modifiers are supported |
 
 ## returns
@@ -244,7 +227,6 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 2 (result, returns) | 17 | unknown class field `X` |
 | 2 (more-itertools, returns) | 14 | class 'X': multiple inheritance is not supported |
 | 2 (funcy, returns) | 10 | pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals |
-| 2 (radash, valibot) | 9 | callback method `X` is not lowered into closure bodies yet |
 | 2 (funcy, returns) | 5 | attribute access is only supported on class instances |
 | 2 (ts-pattern, valibot) | 3 | too many generic type arguments |
 
