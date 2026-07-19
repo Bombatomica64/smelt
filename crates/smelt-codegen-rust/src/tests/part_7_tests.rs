@@ -8441,3 +8441,41 @@ export function once<T>(fn: () => T): () => T {
         "the `!called` condition must be evaluated before `fn()` is invoked\n{source}"
     );
 }
+
+/// An object rest pattern (`const { a, ...rest } = source`) whose source is a
+/// named object type that erases to `SmeltUnknown` (here `Handle`, an interface)
+/// must copy the source's remaining members into `rest`. Previously only a
+/// native `Dict` or a literally `Type::Unknown` source was copied, so a named
+/// object type fell through to `Default::default()` and produced an empty rest,
+/// dropping spread-out members (the `cancel`/`flush` of an `Object.assign`-
+/// wrapped funnel). The copy must route through `into_smelt_unknown()`.
+#[test]
+fn object_rest_copies_named_object_source_that_erases_to_unknown() {
+    let source = source_for(
+        r#"
+interface Handle {
+  readonly call: () => void;
+  readonly cancel: () => void;
+  readonly flush: () => void;
+}
+declare function make(): Handle;
+export function wrap(): Record<string, unknown> {
+  const { call, ...rest } = make();
+  call();
+  return rest;
+}
+"#,
+    );
+
+    // The rest copy is materialized from the erased object form, not an empty
+    // record.
+    assert!(
+        source.contains(".into_smelt_unknown() { SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter())"),
+        "object rest must copy the erased source object, not Default::default()\n{source}"
+    );
+    // The extracted key is still removed from the copied rest.
+    assert!(
+        source.contains(".remove(&\"call\".to_owned())"),
+        "the destructured `call` key must be removed from rest\n{source}"
+    );
+}
