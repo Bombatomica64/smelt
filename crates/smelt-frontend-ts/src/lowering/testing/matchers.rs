@@ -102,8 +102,12 @@ impl ModuleBuilder<'_> {
         if member.property.name == "toBeNull" {
             return self.expect_to_be_none_statement(call, member, body, "toBeNull");
         }
-        if member.property.name == "toHaveBeenCalledTimes" {
-            let (expect_call, _) = self.expect_call_from_matcher_object(&member.object)?;
+        if matches!(
+            member.property.name.as_str(),
+            "toHaveBeenCalledTimes" | "toHaveBeenCalledWith"
+        ) {
+            let matcher_name = member.property.name.as_str();
+            let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
             let Expression::Identifier(expect_ident) = &expect_call.callee else {
                 return Ok(false);
             };
@@ -112,12 +116,58 @@ impl ModuleBuilder<'_> {
             {
                 return Ok(false);
             }
-            if let Some(actual_arg) = expect_call.arguments.first() {
-                let _actual = self.argument(actual_arg, body)?;
-            }
-            if let Some(expected_arg) = call.arguments.first() {
-                let _expected = self.argument(expected_arg, body)?;
-            }
+            let actual_arg = expect_call.arguments.first().ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(expect_call.span.start, expect_call.span.end),
+                    format!("expect(...).{matcher_name}(...) requires an actual value"),
+                )
+            })?;
+            let actual = self.argument(actual_arg, body)?;
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            // Both matchers read the live mock state behind the erased actual
+            // (`__smelt_vitest_mock` marker). A non-mock actual passes
+            // vacuously: the pre-mock matcher was fully vacuous, and unmocked
+            // spy handles (`vi.spyOn`) still lower to plain placeholders, so
+            // failing them here would regress unrelated suites.
+            let matched = if matcher_name == "toHaveBeenCalledTimes" {
+                let count_arg = call.arguments.first().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "expect(...).toHaveBeenCalledTimes(...) requires an expected call count",
+                    )
+                })?;
+                let count = self.argument(count_arg, body)?;
+                body.push_expr(Expr {
+                    kind: ExprKind::VitestMockCalledTimes {
+                        mock: actual,
+                        count,
+                    },
+                    ty: bool_ty,
+                    span: self.span(call.span.start, call.span.end),
+                })
+            } else {
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                body.push_expr(Expr {
+                    kind: ExprKind::VitestMockCalledWith { mock: actual, args },
+                    ty: bool_ty,
+                    span: self.span(call.span.start, call.span.end),
+                })
+            };
+            let failed = if inverted {
+                matched
+            } else {
+                self.unary_bool_expr(UnaryOp::Not, matched, call.span, body)
+            };
+            self.push_test_failure_if(
+                failed,
+                &format!("expect(...).{matcher_name}(...) failed"),
+                call.span,
+                body,
+            );
             return Ok(true);
         }
         let Some(matcher) = TestMatcher::from_name(member.property.name.as_str()) else {

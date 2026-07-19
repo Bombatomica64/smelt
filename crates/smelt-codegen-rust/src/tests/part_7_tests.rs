@@ -8347,3 +8347,38 @@ export function double(value: number): number {
     assert!(!source.contains("SmeltVitestMockState"), "{source}");
     assert!(!source.contains("fn rejected("), "{source}");
 }
+
+#[test]
+fn vitest_called_times_and_called_with_are_real_assertions() {
+    // `toHaveBeenCalledTimes` / `toHaveBeenCalledWith` must lower to real
+    // failure paths reading the mock's recorded state — a count/argument
+    // mismatch returns a test error instead of passing vacuously.
+    let source = source_for(
+        r#"
+import { expect, it, vi } from "vitest";
+
+it("asserts calls", () => {
+  const spy = vi.fn();
+  spy(1, "a");
+  expect(spy).toHaveBeenCalledTimes(1);
+  expect(spy).toHaveBeenCalledWith(1, "a");
+});
+"#,
+    );
+    assert!(
+        source.contains("smelt_vitest_mock_called_times("),
+        "{source}"
+    );
+    assert!(
+        source.contains("smelt_vitest_mock_called_with("),
+        "{source}"
+    );
+    assert!(
+        source.contains("expect(...).toHaveBeenCalledTimes(...) failed"),
+        "count mismatch must produce a test failure\n{source}"
+    );
+    assert!(
+        source.contains("expect(...).toHaveBeenCalledWith(...) failed"),
+        "argument mismatch must produce a test failure\n{source}"
+    );
+}
