@@ -34,6 +34,87 @@ const item = values.shift();
     assert!(source.contains(".remove(0)"));
 }
 
+/// A `.slice()` on an erased receiver (a generic / `unknown` value that may be
+/// an array, typed array, or array buffer at runtime) must runtime-dispatch on
+/// the value tag rather than ToString-coercing the value to `"[object Object]"`
+/// and char-slicing that string. An array receiver yields a fresh
+/// `SmeltUnknown::Array`; a string yields a `SmeltUnknown::String`; anything
+/// else (marker buffer objects) is forwarded unchanged.
+#[test]
+fn emits_erased_slice_as_runtime_tag_dispatch() {
+    let source = source_for(
+        r"
+export function cloneSlice(obj: unknown): unknown {
+  return (obj as any).slice(0);
+}
+",
+    );
+
+    assert!(source.contains("let smelt_slice_value ="));
+    assert!(
+        source.contains("SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id()"),
+        "array slice must materialize a fresh SmeltUnknown::Array"
+    );
+    assert!(
+        source.contains("smelt_other => smelt_other"),
+        "non-array/string receivers must be forwarded unchanged"
+    );
+    // The old bug lowered the erased `.slice` to a `StringSlice`, ToString-
+    // coercing the receiver and char-slicing it (`.chars().skip(...)` with no
+    // `smelt_slice_value` tag match). The tag-dispatch above proves that path
+    // is gone.
+    assert!(
+        source.contains("SmeltUnknown::String(value) => { let chars ="),
+        "erased slice must string-slice via the value-tag match, not a ToString coercion"
+    );
+}
+
+/// A `for (const [k, v] of map)` over an erased `__smelt_map` marker object must
+/// iterate the stored `[k, v]` pairs rather than panicking "unknown is not
+/// iterable". The erased-iteration projection gains a `__smelt_map` arm next to
+/// the existing `__smelt_set` / `__smelt_symbol_iterator` handling.
+#[test]
+fn emits_erased_map_marker_iteration() {
+    let source = source_for(
+        r"
+export function toEntries(x: unknown): unknown[] {
+  const out: unknown[] = [];
+  for (const e of (x as any)) { out.push(e); }
+  return out;
+}
+",
+    );
+
+    assert!(
+        source.contains("value.get(\"__smelt_map\")"),
+        "erased iteration must accept __smelt_map marker objects"
+    );
+    assert!(source.contains("value.get(\"__smelt_set\")"));
+}
+
+/// A `void`-returning callback erased into a callable value returns JavaScript
+/// `undefined`, not `null`. Downstream `!== undefined` guards (e.g.
+/// cloneDeepWith's customizer wrapper) rely on this to treat the result as "no
+/// value" rather than a real `null`.
+#[test]
+fn emits_void_callback_erasure_as_undefined() {
+    let source = source_for(
+        r"
+type Customizer = (value: unknown, key: unknown) => unknown;
+function runWith(fn: Customizer): unknown { return fn(1, 2); }
+export function callVoid(): unknown {
+  const noop: () => void = () => {};
+  return runWith(noop as unknown as Customizer);
+}
+",
+    );
+
+    assert!(
+        source.contains("; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }"),
+        "void callback erasure must yield SmeltUnknown::Undefined, not Null"
+    );
+}
+
 #[test]
 fn emits_array_is_array_as_static_boolean() {
     let source = source_for(
@@ -1364,5 +1445,137 @@ export function run(): void {
     assert!(
         source.contains("match &mut o { SmeltUnknown::Object(map)"),
         "write through an explicit any local must go through the erased boundary: {source}"
+    );
+}
+
+/// A `const x = f() || (g() && h());` whose join continuation (the `<tail>;
+/// return true`) is non-terminating (contains a loop) previously lowered to a
+/// labeled-block short-circuit reconstruction: `'smelt_branch: { if lhs { x =
+/// true; break 'smelt_branch; } <else + tail>; return true; }`. The then-arm's
+/// `break` skipped the ENTIRE shared join tail and control fell off the label
+/// into the function epilogue (`return SmeltUnknown::Null` -> coerced false),
+/// silently deleting the join — the root cause of the es-toolkit isEqualWith /
+/// isEqual deep-object failures. The join must now be emitted once, after a
+/// plain structured `if/else`, so BOTH the then-arm and the else-arm resume at
+/// it. Assert no label/break traps the join and the tail is reachable in order.
+#[test]
+fn short_circuit_or_join_resumes_at_shared_tail() {
+    let source = source_for(
+        "function f(a: any): boolean { return (a as any).x === 1; }
+function g(a: any): boolean { return (a as any).y === 2; }
+export function deepEq(a: any, b: any): boolean {
+  const areEqual = f(a) || (g(a) && g(b));
+  if (!areEqual) {
+    return false;
+  }
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
+  for (let i = 0; i < aKeys.length; i++) {
+    const key = aKeys[i];
+    if ((a as any)[key] !== (b as any)[key]) {
+      return false;
+    }
+  }
+  return true;
+}
+const ok = deepEq({ a: 1 }, { a: 1 });
+console.log(ok);
+",
+    );
+
+    let start = source.find("fn deep_eq").expect("deep_eq present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("deep_eq closing brace");
+    let body = &after[..end];
+
+    // The join must not be trapped inside a synthetic label that the then-arm
+    // `break`s over. Correct lowering is a plain structured `if/else`.
+    assert!(
+        !body.contains("break 'smelt_branch"),
+        "the short-circuit join must not be trapped in a labeled block the \
+         then-arm breaks over:\n{body}"
+    );
+
+    // The join (`are_equal = ...`) and the whole tail must be emitted after the
+    // if/else and reachable, in source order, ending in the terminating tail.
+    let then_true = body
+        .find("= true;")
+        .expect("then-arm assigns the short-circuit result to true");
+    let join = body
+        .find("are_equal = ")
+        .expect("join assignment emitted");
+    let guard = body
+        .find("return false;")
+        .expect("`if (!areEqual) return false` guard emitted");
+    let tail = body
+        .rfind("return true;")
+        .expect("terminating `return true` tail emitted");
+    assert!(
+        then_true < join && join < guard && guard < tail,
+        "then-arm result, join, guard, and terminating tail must appear in \
+         reachable source order (then={then_true}, join={join}, guard={guard}, \
+         tail={tail}):\n{body}"
+    );
+}
+
+/// Sibling of the case documented at the labeled-block reconstruction in
+/// `control_flow.rs`: es-toolkit `some`'s non-array branch is a then-branch
+/// that always diverges (a loop that always `return`s). The short-circuit
+/// forward-join reconstruction silently discards the then-branch's own `Goto`
+/// target, which would delete that whole diverging region and let control fall
+/// through into the else continuation, reading its loop counter uninitialized
+/// (E0381). Such a diverging then-branch must be lowered as a structured `if`
+/// arm that keeps the region intact, with the array continuation emitted after.
+#[test]
+fn diverging_then_branch_keeps_its_region() {
+    let source = source_for(
+        "export function some(source: any, predicate: (v: any, k: any, s: any) => boolean): boolean {
+  if (!Array.isArray(source)) {
+    for (const key in source) {
+      if (predicate((source as any)[key], key, source)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  for (let i = 0; i < (source as any[]).length; i++) {
+    if (predicate((source as any[])[i], i, source)) {
+      return true;
+    }
+  }
+  return false;
+}
+const ok = some([1, 2, 3], (v: any) => v === 2);
+console.log(ok);
+",
+    );
+
+    let start = source.find("fn some").expect("some present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("some closing brace");
+    let body = &after[..end];
+
+    // The diverging then-branch must not be dropped, and it must not be
+    // reconstructed via a label the array continuation escapes past.
+    assert!(
+        !body.contains("break 'smelt_branch"),
+        "diverging then-branch must be a structured `if` arm, not a labeled \
+         block:\n{body}"
+    );
+    // Both the object-key walk (then-branch, the diverging region) and the
+    // array index walk (the continuation) must survive.
+    let for_in = body
+        .find("smelt_is_for_in_record_key")
+        .expect("object-key (for-in) loop of the diverging then-branch preserved");
+    let array_guard = body
+        .rfind("if !(")
+        .expect("array index loop continuation preserved");
+    assert!(
+        for_in < array_guard,
+        "the diverging then-branch region must precede the array continuation \
+         (for_in={for_in}, array_guard={array_guard}):\n{body}"
     );
 }

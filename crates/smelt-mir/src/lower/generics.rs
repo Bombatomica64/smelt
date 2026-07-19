@@ -105,6 +105,12 @@ pub(super) fn substitute_type_id(
             mir.types
                 .intern(Type::Dict(substituted_key, substituted_value))
         }
+        Some(Type::JsMap(key, value)) => {
+            let substituted_key = substitute_type_id(mir, key, substitutions);
+            let substituted_value = substitute_type_id(mir, value, substitutions);
+            mir.types
+                .intern(Type::JsMap(substituted_key, substituted_value))
+        }
         Some(Type::Tuple(items)) => {
             let substituted_items = items
                 .into_iter()

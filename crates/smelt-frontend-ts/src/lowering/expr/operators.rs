@@ -820,33 +820,35 @@ impl ModuleBuilder<'_> {
         }
         let (entries, ty) = match new_expr.arguments.as_slice() {
             [] => {
+                // `new Map()` always produces a `Type::JsMap` so erasure can
+                // stamp the `__smelt_map` marker. Explicit `new Map<K, V>()`
+                // type arguments and a `Map<K, V>` (or interchangeable `Record`)
+                // type hint only refine the key/value component types; the
+                // source-spelled Map identity is preserved regardless.
                 let ty = if let Some(type_args) = &new_expr.type_arguments
                     && let [key, value] = type_args.params.as_slice()
                 {
                     let key_ty = self.ts_type_to_hir(key)?;
                     let value_ty = self.ts_type_to_hir(value)?;
-                    self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+                    self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty))
+                } else if let Some(hint) = type_hint
+                    && let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+                        self.ctx.krate.types.get(hint)
+                {
+                    let (key_ty, value_ty) = (*key_ty, *value_ty);
+                    self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty))
                 } else {
-                    type_hint.unwrap_or_else(|| {
-                        let unknown = self.ctx.krate.types.intern(Type::Unknown);
-                        self.ctx.krate.types.intern(Type::Dict(unknown, unknown))
-                    })
-                };
-                if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
                     let unknown = self.ctx.krate.types.intern(Type::Unknown);
-                    let dict_ty = self.ctx.krate.types.intern(Type::Dict(unknown, unknown));
-                    return Ok(Some(body.push_expr(Expr {
-                        kind: ExprKind::DictLit(Vec::new()),
-                        ty: dict_ty,
-                        span: self.span(new_expr.span.start, new_expr.span.end),
-                    })));
-                }
+                    self.ctx.krate.types.intern(Type::JsMap(unknown, unknown))
+                };
                 (Vec::new(), ty)
             }
             [Argument::ArrayExpression(array)] => {
                 let entries = self.map_constructor_entries(array, body)?;
                 let ty = if let Some(hint) = type_hint {
-                    let Some(Type::Dict(key_ty, value_ty)) = self.ctx.krate.types.get(hint) else {
+                    let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+                        self.ctx.krate.types.get(hint)
+                    else {
                         return Err(SmeltError::unsupported(
                             self.span(new_expr.span.start, new_expr.span.end),
                             "new Map([...]) requires a Map<K, V> type annotation when annotated",
@@ -873,10 +875,14 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                     }
-                    hint
+                    // Preserve the source Map identity: even when the annotation
+                    // spelled a `Record` (interchangeable with `Map` internally),
+                    // a `new Map([...])` value must stamp the `__smelt_map`
+                    // marker, so re-intern the declared components as `JsMap`.
+                    self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty))
                 } else if entries.is_empty() {
                     let unknown = self.ctx.krate.types.intern(Type::Unknown);
-                    self.ctx.krate.types.intern(Type::Dict(unknown, unknown))
+                    self.ctx.krate.types.intern(Type::JsMap(unknown, unknown))
                 } else {
                     // Without an annotation, infer the key and value component
                     // types the same way an array literal infers its element
@@ -891,7 +897,7 @@ impl ModuleBuilder<'_> {
                     let values = entries.iter().map(|(_, value)| *value).collect::<Vec<_>>();
                     let key_ty = self.array_literal_item_type(&keys, body);
                     let value_ty = self.array_literal_item_type(&values, body);
-                    self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+                    self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty))
                 };
                 (entries, ty)
             }
@@ -902,7 +908,7 @@ impl ModuleBuilder<'_> {
                 let unknown = self.ctx.krate.types.intern(Type::Unknown);
                 (
                     Vec::new(),
-                    self.ctx.krate.types.intern(Type::Dict(unknown, unknown)),
+                    self.ctx.krate.types.intern(Type::JsMap(unknown, unknown)),
                 )
             }
         };

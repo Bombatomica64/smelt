@@ -1778,6 +1778,54 @@ impl FunctionEmitter<'_> {
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\"))"
             ));
         }
+        if class_name == "Map" {
+            // A concrete source `Map` (`JsMap`) is unconditionally `instanceof
+            // Map`. An erased operand recovers Map identity through the
+            // `__smelt_map` marker its erasure stamps.
+            if matches!(self.mir.types.get(value_ty), Some(Type::JsMap(_, _))) {
+                return Ok("true".to_owned());
+            }
+            if matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            ) {
+                let value_text = self.operand_text(value)?;
+                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                    return Ok(format!(
+                        "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_map\"))"
+                    ));
+                }
+                return Ok(format!(
+                    "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_map\"))"
+                ));
+            }
+            // Any other concrete operand carries no Map identity.
+            return Ok("false".to_owned());
+        }
+        if class_name == "Set" {
+            // A concrete source `Set` is unconditionally `instanceof Set`. An
+            // erased operand recovers Set identity through the `__smelt_set`
+            // marker its erasure stamps. Mirrors the `Map` arm above.
+            if matches!(self.mir.types.get(value_ty), Some(Type::Set(_))) {
+                return Ok("true".to_owned());
+            }
+            if matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            ) {
+                let value_text = self.operand_text(value)?;
+                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                    return Ok(format!(
+                        "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_set\"))"
+                    ));
+                }
+                return Ok(format!(
+                    "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_set\"))"
+                ));
+            }
+            // Any other concrete operand carries no Set identity.
+            return Ok("false".to_owned());
+        }
         if class_name == "ArrayBuffer"
             && matches!(
                 self.mir.types.get(value_ty),

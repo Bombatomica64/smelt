@@ -1672,7 +1672,7 @@ impl ModuleBuilder<'_> {
             Type::Union(items) => items
                 .iter()
                 .all(|item| self.is_json_serializable_type_inner(*item, seen)),
-            Type::Dict(key, value) => {
+            Type::Dict(key, value) | Type::JsMap(key, value) => {
                 matches!(self.ctx.krate.types.get(key), Some(Type::String))
                     && self.is_json_serializable_type_inner(value, seen)
             }
@@ -2571,18 +2571,38 @@ impl ModuleBuilder<'_> {
         let mut operand = self.expression(&member.object, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         let mut effective_operand_ty = self.type_param_constraint_or_self(operand_ty);
-        if matches!(
-            self.ctx.krate.types.get(effective_operand_ty),
-            Some(Type::Unknown | Type::TypeParam { .. })
-        ) || self.type_contains_unknown(effective_operand_ty)
-            || matches!(
+        // `slice` is defined on arrays and typed arrays / array buffers as well
+        // as strings. When the receiver is erased or otherwise not a plain
+        // string (a generic `T`, `unknown`, or a union that mixes arrays with
+        // buffers), route to a `ListSlice` whose codegen runtime-dispatches on
+        // the value tag instead of coercing the value to a string — a string
+        // coercion would ToString an array receiver to "[object Object]" and
+        // then char-slice that. `substring`/`substr` stay string-only.
+        let slice_erased_receiver = method == "slice"
+            && (matches!(
                 self.ctx.krate.types.get(effective_operand_ty),
-                Some(Type::Optional(inner)) if self.is_string_compatible_type(*inner)
-            )
-            || matches!(
+                Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. })
+            ) || self.type_contains_unknown(effective_operand_ty)
+                || matches!(
+                    self.ctx.krate.types.get(effective_operand_ty),
+                    Some(Type::Union(items)) if items.iter().any(|item| matches!(
+                        self.ctx.krate.types.get(*item),
+                        Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. })
+                    ))
+                ));
+        if !slice_erased_receiver
+            && (matches!(
                 self.ctx.krate.types.get(effective_operand_ty),
-                Some(Type::Union(items)) if items.iter().any(|item| self.is_string_compatible_type(*item))
-            )
+                Some(Type::Unknown | Type::TypeParam { .. })
+            ) || self.type_contains_unknown(effective_operand_ty)
+                || matches!(
+                    self.ctx.krate.types.get(effective_operand_ty),
+                    Some(Type::Optional(inner)) if self.is_string_compatible_type(*inner)
+                )
+                || matches!(
+                    self.ctx.krate.types.get(effective_operand_ty),
+                    Some(Type::Union(items)) if items.iter().any(|item| self.is_string_compatible_type(*item))
+                ))
         {
             let string_ty = self.ctx.krate.types.intern(Type::String);
             operand = body.push_expr(Expr {
@@ -2636,6 +2656,19 @@ impl ModuleBuilder<'_> {
                 })))
             }
             Some(Type::List(_)) if method == "slice" => Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ListSlice {
+                    list: operand,
+                    start,
+                    end,
+                },
+                ty: operand_ty,
+                span: self.span(call.span.start, call.span.end),
+            }))),
+            _ if slice_erased_receiver => Ok(Some(body.push_expr(Expr {
+                // Erased/array-ish `slice`: `ListSlice` codegen routes the
+                // erased receiver through `unknown_list_slice_text`, which
+                // dispatches on the runtime value tag (array vs string vs
+                // forwarded marker buffer).
                 kind: ExprKind::ListSlice {
                     list: operand,
                     start,

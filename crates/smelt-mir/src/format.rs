@@ -1471,6 +1471,9 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
         Type::Dict(key, value) => {
             format!("Dict<{}, {}>", type_ref(mir, *key), type_ref(mir, *value))
         }
+        Type::JsMap(key, value) => {
+            format!("Map<{}, {}>", type_ref(mir, *key), type_ref(mir, *value))
+        }
         Type::Tuple(items) => {
             let item_list = items
                 .iter()

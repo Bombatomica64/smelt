@@ -30,6 +30,20 @@ pub enum Type {
     Set(TypeId),
     /// Dictionary type.
     Dict(TypeId, TypeId),
+    /// A JavaScript `Map`, spelled `Map<K, V>` in source.
+    ///
+    /// Structurally identical to [`Type::Dict`] and lowered the same way for
+    /// every operation (get/set/has/entries/iteration): a `Map` and a plain
+    /// object/`Record` share the internal `Dict` machinery per the frontend
+    /// validation boundary. The variant exists solely to preserve the source
+    /// `Map` *spelling* through interning — `Dict(String, V)` and a
+    /// string-keyed `Map<String, V>` would otherwise intern to the same
+    /// `TypeId` and become indistinguishable. Codegen reads this variant at the
+    /// one place spelling matters: erasure to `SmeltUnknown`, where a `Map`
+    /// must emit a `__smelt_map` marker object (so `isMap`/`isEqualWith` see a
+    /// Map) while a `Record` stays an unmarked object. It also routes the
+    /// backing container to `SmeltJsMap` so the marker round-trips.
+    JsMap(TypeId, TypeId),
     /// Tuple type.
     Tuple(Vec<TypeId>),
     /// Optional type.

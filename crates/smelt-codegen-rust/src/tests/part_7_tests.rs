@@ -2358,7 +2358,15 @@ function countPresent(values: string[]): Record<string, number> {
     );
 
     assert!(source.contains("loop {"), "{source}");
-    assert!(source.contains("return out;"), "{source}");
+    // `out` is a source `Map` (`SmeltJsMap`), so `Object.fromEntries(out)` is a
+    // genuine Map->Record conversion (rebuild the entries into the declared
+    // `Record<string, number>` backing), not an identity `return out;`. A `JsMap`
+    // forces the unknown carrier on, so the string-keyed record target backs onto
+    // the identity-bearing `SmeltRecord`.
+    assert!(
+        source.contains(".collect::<SmeltRecord<String, f64>>()"),
+        "{source}"
+    );
 }
 
 #[test]

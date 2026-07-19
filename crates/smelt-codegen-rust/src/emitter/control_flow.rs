@@ -1184,6 +1184,46 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
 
+        // Short-circuit join where the else arm is itself a diamond (e.g. the
+        // `&&` in `x = f() || (g() && h())`) so its terminator is not a bare
+        // `Goto` — `branch_join_target` (which only chases `Goto`/`Call`) cannot
+        // see that the diamond ultimately rejoins `then_target`, so the
+        // structured-if case above (`branch_join_target(else_) == then_target`)
+        // does not fire. Without this branch, control falls through to the
+        // labeled-block reconstruction below, whose `self.emit_block(else_)`
+        // pulls the ENTIRE shared join continuation (the `<tail>; return true`)
+        // *inside* the synthetic label. The then-arm's `break {label}` then
+        // skips that whole tail and control falls off the label into the
+        // function epilogue (`return SmeltUnknown::Null` -> coerced false),
+        // silently deleting the join — the root cause of the es-toolkit
+        // isEqualWith / isEqual deep-object failures.
+        //
+        // When the else arm provably rejoins `then_target`, emit a plain
+        // structured `if/else` and emit the shared join `then_target` exactly
+        // ONCE after it. Both arms resume at the join: the then-arm via its
+        // implicit `Goto(then_target)` fallthrough, the else-arm via
+        // `emit_block_until_goto(else_, then_target)` stopping at the join. The
+        // label/break is unnecessary and, crucially, the join is no longer
+        // trapped inside a block the then-arm jumps over. Restricted to a
+        // forward `then_target` so backward (loop-latch) edges keep their
+        // existing handling.
+        if let Some(Terminator::Goto(then_target)) = then.terminator
+            && then_target.0 > current.0
+            && self.block_can_reach(else_.id, then_target, &mut BlockIdSet::default())
+        {
+            let branch_declared = self.declared_locals_snapshot();
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            for statement in &then.statements {
+                self.emit_statement(statement, out)?;
+            }
+            out.push_str("    } else {\n");
+            self.restore_declared_locals(branch_declared.clone());
+            self.emit_block_until_goto(else_, then_target, None, out)?;
+            out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
+            return self.emit_block(self.block(then_target)?, out);
+        }
+
         if let Some(Terminator::Goto(then_target)) = then.terminator {
             let branch_label = format!(
                 "'smelt_branch_{}_{}_{}_{}",

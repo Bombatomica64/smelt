@@ -1550,7 +1550,7 @@ return_ty: function.return_ty,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
                 self.concrete_type_requires_never_value(*item)
             }
-            Some(Type::Dict(key, value)) => {
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.concrete_type_requires_never_value(*key)
                     || self.concrete_type_requires_never_value(*value)
             }
@@ -1686,13 +1686,18 @@ return_ty: function.return_ty,
                     .intern(Type::Dict(lowered_key, lowered_value)))
             }
             ("Map" | "ReadonlyMap", [key, value]) => {
+                // A `Map<K, V>` annotation lowers to the distinct `JsMap` variant
+                // (not `Dict`) so the source Map spelling survives interning and
+                // erasure can stamp the `__smelt_map` marker. `JsMap` shares all
+                // of `Dict`'s machinery and is interchangeable with it under
+                // assignability, so this does not reject `Record`-shaped flows.
                 let lowered_key = self.ts_type_to_hir(key)?;
                 let lowered_value = self.ts_type_to_hir(value)?;
                 Ok(self
                     .ctx
                     .krate
                     .types
-                    .intern(Type::Dict(lowered_key, lowered_value)))
+                    .intern(Type::JsMap(lowered_key, lowered_value)))
             }
             ("Promise", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
@@ -3311,7 +3316,7 @@ return_ty: function.return_ty,
     pub(in crate::lowering) fn supports_stdlib_size(&self, receiver_ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Dict(_, _) | Type::Set(_) | Type::TypeParam { .. })
+            Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Set(_) | Type::TypeParam { .. })
         )
     }
 

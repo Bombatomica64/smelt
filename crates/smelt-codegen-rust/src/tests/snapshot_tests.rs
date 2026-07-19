@@ -165,6 +165,11 @@ function append(values: number[], value: number): number[] {
 }
 
 /// Snapshot map construction and lookup emission.
+///
+/// A source `Map` backs onto the `SmeltJsMap` runtime container, which forces
+/// the whole `SmeltUnknown` carrier prelude on (the marker erasure lives there),
+/// so this snapshots only the case-specific `lookup` module and elides the
+/// shared prelude — mirroring the other large-prelude collection snapshots.
 #[test]
 fn map_collection_emission() {
     assert_emitted_source_snapshot(
@@ -175,7 +180,7 @@ function lookup(): number | undefined {
   return values.get("a");
 }
 "#,
-        None,
+        Some("fn lookup()"),
     );
 }
 

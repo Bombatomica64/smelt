@@ -6,6 +6,8 @@
     { "name": "ts-pattern",     "repo": "gvergnaud/ts-pattern",            "ref": "c92ca435c7e1827e0fd55c539080ef1bfd6fe3f0", "lang": "ts", "roots": ["src", "tests"] },
     { "name": "valibot",        "repo": "fabian-hiller/valibot",           "ref": "1f9b18338ad5530f1f6c63c2cf241962bd82d6f8", "lang": "ts", "roots": ["library/src"] },
     { "name": "neverthrow",     "repo": "supermacro/neverthrow",           "ref": "5ef3a018bda74fb960e44b68fc3672635ee8037d", "lang": "ts", "roots": ["src", "tests"] },
+    { "name": "immer",          "repo": "immerjs/immer",                   "ref": "a3be9df762c1dbe9959a011ddbab0ce838cbc468", "lang": "ts", "roots": ["src", "__tests__"] },
+    { "name": "rxjs",           "repo": "ReactiveX/rxjs",                  "ref": "c15b37f81ba5f5abea8c872b0189a70b150df4cb", "lang": "ts", "roots": ["packages/rxjs/src", "packages/rxjs/spec"] },
     { "name": "returns",        "repo": "dry-python/returns",              "ref": "04e820c714615192baf815bcbe15eccbbd15541e", "lang": "py", "roots": ["returns", "tests"] },
     { "name": "result",         "repo": "rustedpy/result",                 "ref": "0b855e1e38a08d6f0a4b0138b10c127c01e54ab4", "lang": "py", "roots": ["src", "tests"] },
     { "name": "more-itertools", "repo": "more-itertools/more-itertools",   "ref": "5d946b3590bfe92f1465c1b9b9830dd434745c84", "lang": "py", "roots": ["more_itertools", "tests"] },

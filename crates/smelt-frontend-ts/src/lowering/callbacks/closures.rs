@@ -750,7 +750,10 @@ impl ModuleBuilder<'_> {
                 }))
             }
             "has" if args.len() == 1
-                && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Dict(_, _))) =>
+                && matches!(
+                    self.ctx.krate.types.get(receiver_ty),
+                    Some(Type::Dict(_, _) | Type::JsMap(_, _))
+                ) =>
             {
                 // `Map.prototype.has` inside a callback body mirrors the direct
                 // `map_has_call` lowering: a `DictContainsKey` over the Map receiver
@@ -858,6 +861,51 @@ impl ModuleBuilder<'_> {
                     ty,
                     span,
                 }))
+            }
+            "includes" if (1..=2).contains(&args.len())
+                && matches!(
+                    self.ctx.krate.types.get(receiver_ty),
+                    Some(Type::String | Type::Unknown | Type::TypeParam { .. })
+                ) =>
+            {
+                // `String.prototype.includes(needle, position?)` inside a callback
+                // body mirrors the direct `string_includes` lowering. The list
+                // receiver arm above already claimed real arrays, so a `String`,
+                // erased (`Unknown`), or type-param receiver here is unambiguously
+                // a string: coerce the receiver and needle to `String` (matching
+                // `callback_coerce_to_string`) and thread the optional numeric
+                // `position` through as `from_index`.
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let haystack = Self::callback_coerce_to_string(receiver, string_ty, body, span);
+                let needle = *args.first().ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback string includes requires a needle")
+                })?;
+                let needle = Self::callback_coerce_to_string(needle, string_ty, body, span);
+                let from_index = args.get(1).copied();
+                // `StringContains` always yields a concrete `bool`, so the node
+                // must be typed `Bool` for the emitter to produce a real boolean.
+                // If the surrounding callback body expects an erased/other type
+                // (`ty`), box it back up with a `TypeAssert`, exactly as the
+                // `push`/`slice` arms above do for their concrete results.
+                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+                let value = body.push_expr(Expr {
+                    kind: ExprKind::StringContains {
+                        haystack,
+                        needle,
+                        from_index,
+                    },
+                    ty: bool_ty,
+                    span,
+                });
+                if ty == bool_ty {
+                    Ok(value)
+                } else {
+                    Ok(body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value },
+                        ty,
+                        span,
+                    }))
+                }
             }
             "indexOf" | "index_of" | "lastIndexOf" | "last_index_of"
                 if args.len() == 1

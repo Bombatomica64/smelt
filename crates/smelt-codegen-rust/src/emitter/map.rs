@@ -22,7 +22,8 @@ impl FunctionEmitter<'_> {
         {
             return Ok(check);
         }
-        let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) = self.mir.types.get(dict_ty)
+        else {
             if self.dict_contains_key_uses_erased_object(dict_ty) {
                 let dict_text = self.operand_text(dict)?;
                 let key_text = self.operand_text(key)?;
@@ -34,19 +35,29 @@ impl FunctionEmitter<'_> {
                     }
                     _ => return Ok("false".to_owned()),
                 };
+                // An erased `Map` (`{ __smelt_map: [...] }`) or `Set`
+                // (`{ __smelt_set: [...] }`) exposes `size` through its prototype,
+                // so `"size" in value` is true even though the marker object has no
+                // own `size` field. Mirror the virtual `.size` synthesized in
+                // `smelt_get_object_field`.
                 return Ok(format!(
-                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
+                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key) || ((values.contains_key(\"__smelt_map\") || values.contains_key(\"__smelt_set\")) && smelt_key == \"size\"), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
                 ));
             }
             return Ok("false".to_owned());
         };
-        if self.operand_ty(key)? != *key_ty {
+        // A concrete key flowing into a `SmeltUnknown`-keyed Map (`key_ty`
+        // erased) must be erased to its runtime `SmeltUnknown` form here, exactly
+        // as `set`/`get` do via `dict_key_operand_text`. Comparing the concrete
+        // key type against the erased `key_ty` for exact equality would fold this
+        // to the literal `false`, silently corrupting the lookup for object keys.
+        if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok("false".to_owned());
         }
         Ok(format!(
             "{}.contains_key(&{})",
             self.operand_text(dict)?,
-            self.operand_text(key)?
+            self.dict_key_operand_text(key, *key_ty)?
         ))
     }
 
@@ -87,7 +98,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.mir.types.get(dict_ty)
+        else {
             return Err(EmitError::new("dict get receiver must be a dict"));
         };
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
@@ -106,7 +119,8 @@ impl FunctionEmitter<'_> {
                 ));
             }
             let get_text =
-                if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     format!("{}.get(&{})", self.operand_text(dict)?, key_text)
                 } else {
                     format!("{}.get(&{}).cloned()", self.operand_text(dict)?, key_text)
@@ -131,7 +145,8 @@ impl FunctionEmitter<'_> {
                 if value_inner == dest_inner =>
             {
                 let get_text =
-                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         format!("{}.get(&{})", self.operand_text(dict)?, key_text)
                     } else {
                         format!("{}.get(&{}).cloned()", self.operand_text(dict)?, key_text)
@@ -139,7 +154,8 @@ impl FunctionEmitter<'_> {
                 Ok(format!("{get_text}.flatten()"))
             }
             (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => {
-                if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!("{}.get(&{})", self.operand_text(dict)?, key_text))
                 } else {
                     Ok(format!(
@@ -173,7 +189,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.mir.types.get(dict_ty)
+        else {
             return Err(EmitError::new("dict setdefault receiver must be a dict"));
         };
         if self.operand_ty(key)? != *key_ty {
@@ -199,7 +217,8 @@ impl FunctionEmitter<'_> {
         let dict_text = self.local_mut_value_text(*local)?;
         let key_text = self.operand_text(key)?;
         let default_text = self.operand_text(default)?;
-        if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+        if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
             Ok(format!(
                 "{{ if let Some(value) = {dict_text}.get(&{key_text}) {{ value }} else {{ {dict_text}.insert({key_text}, {default_text}.clone()); {default_text} }} }}"
             ))
@@ -220,7 +239,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.mir.types.get(dict_ty)
+        else {
             return Ok("Default::default()".to_owned());
         };
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
@@ -261,10 +282,37 @@ impl FunctionEmitter<'_> {
         if operand_ty == key_ty {
             return Ok(true);
         }
+        // A `SmeltUnknown`-keyed Map (`Map<object, _>`, `Map<unknown, _>`) accepts
+        // any concrete key: the key is erased to its runtime `SmeltUnknown` form
+        // at the operation site by `dict_key_operand_text`, the same erasure the
+        // correctly-lowered `Map<unknown, _>` path already relies on. Without
+        // this, a concrete object key (`const a = { v: 1 }` used as a Map key)
+        // reads as incompatible and the whole operation is folded to a constant
+        // default — dropping inserts and returning `false`/`None` at runtime.
+        if self.key_ty_is_erased(key_ty) {
+            return Ok(true);
+        }
         Ok(matches!(
             self.mir.types.get(operand_ty),
             Some(Type::Unknown | Type::TypeParam { .. })
         ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == key_ty))
+    }
+
+    /// Return whether a dict/Map key type is erased to `SmeltUnknown` at runtime.
+    ///
+    /// When it is, a concrete key operand must be erased into it (via
+    /// [`Self::dict_key_operand_text`]) rather than matched by exact type. This
+    /// mirrors the erased-target test in [`Self::value_at_type`]: bare `unknown`,
+    /// a non-concrete union, an out-of-scope type parameter, or an erased class
+    /// (ambient interface) all lower to `SmeltUnknown`. A union with fully
+    /// concrete members is deliberately excluded so its keys keep exact typing.
+    fn key_ty_is_erased(&self, key_ty: TypeId) -> bool {
+        (matches!(
+            self.mir.types.get(key_ty),
+            Some(Type::Unknown | Type::Union(_))
+        ) && self.concrete_union_members(key_ty).is_none())
+            || matches!(self.mir.types.get(key_ty), Some(Type::TypeParam { name }) if !self.current_function_has_type_param(*name))
+            || self.is_erased_class_type(key_ty)
     }
 
     /// Render a dictionary key, unwrapping optional keys after frontend narrowing.
@@ -295,7 +343,8 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) = self.mir.types.get(dict_ty)
+        else {
             if matches!(
                 self.mir.types.get(dict_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Never | Type::Union(_))
@@ -369,7 +418,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.mir.types.get(dict_ty)
+        else {
             return Err(EmitError::new("dict pop receiver must be a dict"));
         };
         if self.operand_ty(key)? != *key_ty {
@@ -607,7 +658,7 @@ impl FunctionEmitter<'_> {
         }
         if !matches!(
             self.mir.types.get(self.operand_ty(dict)?),
-            Some(Type::Dict(_, _))
+            Some(Type::Dict(_, _) | Type::JsMap(_, _))
         ) {
             return Err(EmitError::new("dict projection receiver must be a dict"));
         }
@@ -616,7 +667,9 @@ impl FunctionEmitter<'_> {
                 Err(EmitError::new("fromEntries receiver must be erased"))
             }
             smelt_hir::DictProjectionOp::Keys => {
-                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
@@ -630,11 +683,11 @@ impl FunctionEmitter<'_> {
                     // those markers can appear — so the `SmeltJsMap` and plain
                     // dict backings keep the symbol-only filter (they never carry
                     // internal markers, and the helper would not type-check there).
-                    if self.dict_uses_smelt_record(*key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
                             "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
                         ))
-                    } else if self.dict_uses_js_key_map(*key_ty) {
+                    } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
                             "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>()"
                         ))
@@ -643,7 +696,7 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
                         ))
                     }
-                } else if self.dict_uses_js_key_map(*key_ty) {
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))
@@ -652,11 +705,14 @@ impl FunctionEmitter<'_> {
                 }
             }
             smelt_hir::DictProjectionOp::ForInKeys => {
-                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
                             "{dict_text}.keys().filter(|key| smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
                         ))
@@ -665,7 +721,7 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.keys().filter(|key| smelt_is_for_in_record_key(&{dict_text}, key)).cloned().collect::<Vec<_>>()"
                         ))
                     }
-                } else if self.dict_uses_js_key_map(*key_ty) {
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))
@@ -674,14 +730,16 @@ impl FunctionEmitter<'_> {
                 }
             }
             smelt_hir::DictProjectionOp::Symbols => {
-                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
                     Ok(format!(
                         "{dict_text}.keys().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(str::to_owned)).collect::<Vec<_>>()"
                     ))
-                } else if self.dict_uses_js_key_map(*key_ty) {
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.keys().filter_map(|key| match key {{ SmeltUnknown::Symbol(value) => Some(value), _ => None }}).collect::<Vec<_>>()"
                     ))
@@ -690,11 +748,14 @@ impl FunctionEmitter<'_> {
                 }
             }
             smelt_hir::DictProjectionOp::Values => {
-                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
                         ))
@@ -703,7 +764,7 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
                         ))
                     }
-                } else if self.dict_uses_js_key_map(*key_ty) {
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(_, value)| value).collect::<Vec<_>>()"
                     ))
@@ -712,11 +773,14 @@ impl FunctionEmitter<'_> {
                 }
             }
             smelt_hir::DictProjectionOp::Entries => {
-                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
                         ))
@@ -725,7 +789,7 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
                         ))
                     }
-                } else if self.dict_uses_js_key_map(*key_ty) {
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))
@@ -796,7 +860,7 @@ impl FunctionEmitter<'_> {
         // so deserializing directly into them fails (was E0277 in `isJSON`).
         // Parse into the erased `SmeltUnknown` (which is `Deserialize`) and then
         // run the ordinary coercion into the concrete destination.
-        if matches!(self.mir.types.get(dest_ty), Some(Type::Dict(_, _))) {
+        if matches!(self.mir.types.get(dest_ty), Some(Type::Dict(_, _) | Type::JsMap(_, _))) {
             let parsed = format!(
                 "serde_json::from_str::<SmeltUnknown>(&{}).expect(\"JSON parse failed\")",
                 self.operand_text(text)?

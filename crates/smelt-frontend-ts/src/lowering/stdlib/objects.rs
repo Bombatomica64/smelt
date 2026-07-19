@@ -801,6 +801,22 @@ return_ty,
                         span: self.span(call.span.start, call.span.end),
                     })));
                 }
+                Some(Type::JsMap(_key, value_ty)) => {
+                    // A source `Map` always backs onto `SmeltJsMap`, never a
+                    // `Record`, so `Object.fromEntries(map)` must convert its
+                    // entries into a `Record<string, V>` (stringifying keys),
+                    // even when the map is string-keyed — returning the map
+                    // as-is would leave a `SmeltJsMap` where a `SmeltRecord` is
+                    // expected. This mirrors the non-string `Dict` arm above; the
+                    // `SmeltJsMap`-backed receiver coerces the same way.
+                    let string_ty = self.ctx.krate.types.intern(Type::String);
+                    let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value },
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    })));
+                }
                 Some(Type::List(entry_ty)) => {
                     if let Some((_key_ty, value_ty)) = self.entries_tuple_item_types(entry_ty) {
                         let string_ty = self.ctx.krate.types.intern(Type::String);

@@ -316,6 +316,18 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
             .all()
             .iter()
             .any(|ty| matches!(ty, Type::Set(item) if !module_hash_set_key_safe(mir, *item)))
+        // A source `Map` (`Type::JsMap`) always lowers to the `SmeltJsMap`
+        // runtime container — even when string-keyed — because its
+        // `IntoSmeltUnknown` stamps the `__smelt_map` identity marker. That
+        // container and its `SmeltJsKeyEq`/erasure traits live in the
+        // `needs_unknown` prelude block, so any `JsMap` forces the unknown
+        // runtime on (a string-keyed `Map` would otherwise reference an
+        // unemitted `SmeltJsMap`).
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::JsMap(_, _)))
         || mir.functions.iter().any(|function| {
             function.blocks.iter().any(|block| {
                 block.statements.iter().any(|statement| {

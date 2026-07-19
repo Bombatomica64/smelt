@@ -2446,11 +2446,24 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             call
         };
-        let converted = self.value_at_type_text(
-            &call_value,
-            source_function.return_ty,
-            target_function.return_ty,
-        )?;
+        let converted = if self.mir.types.get(source_function.return_ty) == Some(&Type::None)
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+            ) {
+            // A `void`-returning source callback adapted into an erased return
+            // slot yields JavaScript `undefined`, not `null`. Invoke the
+            // callback for its side effects, then materialize
+            // `SmeltUnknown::Undefined` so downstream `!== undefined` guards
+            // treat the result as "no value".
+            format!("{{ {call_value}; SmeltUnknown::Undefined }}")
+        } else {
+            self.value_at_type_text(
+                &call_value,
+                source_function.return_ty,
+                target_function.return_ty,
+            )?
+        };
         let returned = if target_function.may_throw && !source_function.may_throw {
             format!("Ok::<_, Box<dyn std::error::Error>>({converted})")
         } else {
@@ -2986,6 +2999,18 @@ impl<'mir> FunctionEmitter<'mir> {
             // return type and calling `Option` methods on a `SmeltUnknown`.
             let unknown_ty = self.type_id(Type::Unknown)?;
             self.value_at_type_text(&call_value, unknown_ty, target_function.return_ty)?
+        } else if self.mir.types.get(source.return_ty) == Some(&Type::None)
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+            ) {
+            // A `void`-returning source callback adapted into an erased return
+            // slot produces JavaScript `undefined`, not `null`. Invoke the
+            // callback for its side effects, then materialize
+            // `SmeltUnknown::Undefined` so downstream `!== undefined` guards
+            // (e.g. cloneDeepWith's customizer wrapper) correctly treat the
+            // result as "no value" rather than a real `null` clone.
+            format!("{{ {call_value}; SmeltUnknown::Undefined }}")
         } else {
             self.value_at_type_text(&call_value, source.return_ty, target_function.return_ty)?
         };
@@ -3168,14 +3193,15 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("(smelt_callback)({args})")
         };
-        let null_text = self.null_value_text();
         let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
+            // A `void`-returning callback erased to a callable value returns
+            // JavaScript `undefined`, not `null`.
             if source.may_throw {
                 format!(
-                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
+                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
                 )
             } else {
-                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}")
+                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}")
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
@@ -3231,14 +3257,15 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("{function_text}({args})")
         };
-        let null_text = self.null_value_text();
         let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
+            // A `void`-returning callback erased to a callable value returns
+            // JavaScript `undefined`, not `null`.
             if source.may_throw {
                 format!(
-                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
+                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
                 )
             } else {
-                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}")
+                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}")
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
@@ -3313,7 +3340,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(
                 Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
             ) => self.type_contains_function(*item),
-            Some(Type::Dict(key, value)) => {
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.type_contains_function(*key) || self.type_contains_function(*value)
             }
             Some(Type::Tuple(items) | Type::Union(items)) => {
@@ -3361,7 +3388,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(
                 Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
             ) => self.type_contains_unknown(*item),
-            Some(Type::Dict(key, value)) => {
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.type_contains_unknown(*key) || self.type_contains_unknown(*value)
             }
             Some(Type::Tuple(items)) => items.iter().any(|item| self.type_contains_unknown(*item)),
@@ -3439,6 +3466,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 | Type::List(_)
                 | Type::Set(_)
                 | Type::Dict(_, _)
+                | Type::JsMap(_, _)
                 | Type::Tuple(_)
                 | Type::Function(_)
                 | Type::Generator { .. }
@@ -3459,6 +3487,59 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn dict_uses_smelt_record(&self, key_ty: TypeId) -> bool {
         crate::stdlib::needs_unknown_type(self.mir)
             && self.mir.types.get(key_ty) == Some(&Type::String)
+    }
+
+    /// Returns whether a Map/dict operation must use the `SmeltRecord` backing.
+    ///
+    /// Receiver-aware wrapper over [`Self::dict_uses_smelt_record`]. A source
+    /// `Map` (`Type::JsMap`) *always* backs onto `SmeltJsMap` — even when
+    /// string-keyed — so the `SmeltRecord`-specific emission (notably the
+    /// `smelt_is_for_in_record_key` marker filter, which only type-checks over
+    /// `SmeltRecord`) must never fire for it. Only a `Type::Dict` receiver can
+    /// use the `SmeltRecord` backing, and only under the ordinary key rule.
+    pub(super) fn map_op_uses_smelt_record(&self, receiver_ty: TypeId, key_ty: TypeId) -> bool {
+        if matches!(self.mir.types.get(receiver_ty), Some(Type::JsMap(_, _))) {
+            return false;
+        }
+        self.dict_uses_smelt_record(key_ty)
+    }
+
+    /// Returns whether a Map/dict operation uses the `SmeltJsMap` backing.
+    ///
+    /// Receiver-aware wrapper over [`Self::dict_uses_js_key_map`]. A source
+    /// `Map` (`Type::JsMap`) always backs onto `SmeltJsMap`, so its projections
+    /// take the same owned-key/value, symbol-only-filter emission as an
+    /// object-keyed dict — regardless of key type. A `Type::Dict` receiver keeps
+    /// the ordinary key-driven decision.
+    pub(super) fn map_op_uses_js_key_map(&self, receiver_ty: TypeId, key_ty: TypeId) -> bool {
+        if matches!(self.mir.types.get(receiver_ty), Some(Type::JsMap(_, _))) {
+            return true;
+        }
+        self.dict_uses_js_key_map(key_ty)
+    }
+
+    /// Returns whether two map/dict types lower to different backing containers.
+    ///
+    /// `Dict` and `JsMap` can share a backing (`Dict` with an object-like key and
+    /// any `JsMap` both use `SmeltJsMap`) or differ (a string-keyed `Dict` uses
+    /// `SmeltRecord`, a plain-primitive-keyed `Dict` uses `HashMap`, and a
+    /// `JsMap` always uses `SmeltJsMap`). A key/value-preserving conversion
+    /// (`Object.fromEntries(map)`, an interchangeable `Dict`/`JsMap` assignment)
+    /// still needs a real container rebuild when the backings differ, even though
+    /// the key and value component types are identical — this reports that case.
+    pub(super) fn map_backing_differs(&self, left: &Type, right: &Type) -> bool {
+        self.map_backing_tag(left) != self.map_backing_tag(right)
+    }
+
+    /// Return a discriminant for a map/dict type's backing container.
+    fn map_backing_tag(&self, ty: &Type) -> u8 {
+        match ty {
+            Type::JsMap(_, _) => 0,
+            Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => 0,
+            Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => 1,
+            Type::Dict(_, _) => 2,
+            _ => 3,
+        }
     }
 
     /// Returns whether list membership should use JavaScript SameValueZero.

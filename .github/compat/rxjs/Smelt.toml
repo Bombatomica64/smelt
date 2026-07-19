@@ -1,0 +1,24 @@
+[project]
+name = "rxjs"
+version = "0.0.0"
+description = "RxJS Smelt probe"
+
+[sources]
+roots = ["packages/rxjs/src", "packages/rxjs/spec"]
+test-globs = ["**/*-spec.ts"]
+entries = ["packages/rxjs/src/index.ts"]
+
+[output]
+target = "./dist-smelt"
+crate-name = "rxjs_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"

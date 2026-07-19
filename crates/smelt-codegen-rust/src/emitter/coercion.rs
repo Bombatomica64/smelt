@@ -417,12 +417,20 @@ impl FunctionEmitter<'_> {
             ));
         }
         if let (
-            Some(Type::Dict(source_key, source_value)),
-            Some(Type::Dict(target_key, target_value)),
+            Some(
+                source_map_ty @ (Type::Dict(source_key, source_value)
+                | Type::JsMap(source_key, source_value)),
+            ),
+            Some(
+                target_map_ty @ (Type::Dict(target_key, target_value)
+                | Type::JsMap(target_key, target_value)),
+            ),
         ) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
-        ) && (source_key != target_key || source_value != target_value)
+        ) && (source_key != target_key
+            || source_value != target_value
+            || self.map_backing_differs(source_map_ty, target_map_ty))
         {
             let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
                 self.property_key_to_string_text("key", *source_key)?
@@ -879,10 +887,18 @@ impl FunctionEmitter<'_> {
             ));
         }
         if let (
-            Some(Type::Dict(source_key, source_value)),
-            Some(Type::Dict(target_key, target_value)),
+            Some(
+                source_ty @ (Type::Dict(source_key, source_value)
+                | Type::JsMap(source_key, source_value)),
+            ),
+            Some(
+                target_ty @ (Type::Dict(target_key, target_value)
+                | Type::JsMap(target_key, target_value)),
+            ),
         ) = (self.mir.types.get(source), self.mir.types.get(target))
-            && (source_key != target_key || source_value != target_value)
+            && (source_key != target_key
+                || source_value != target_value
+                || self.map_backing_differs(source_ty, target_ty))
         {
             let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
                 self.property_key_to_string_text("key", *source_key)?
@@ -951,6 +967,13 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_l = {text}; SmeltUnknown::Array(SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}"
                 ))
             }
+            // A source-spelled `Map` erases through its own `SmeltJsMap`
+            // `IntoSmeltUnknown` adapter, which stamps the `__smelt_map` marker
+            // object (entries as `[k, v]` pair arrays + stable id). This is the
+            // one place `Map` spelling diverges from `Record`: a `Record` erases
+            // to a plain object, a `Map` to a marker so `isMap`/`isEqual`/
+            // `[object Map]` observe it as a Map.
+            Some(Type::JsMap(_, _)) => Ok(format!("({text}).clone().into_smelt_unknown()")),
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
@@ -998,6 +1021,17 @@ impl FunctionEmitter<'_> {
                 self.class_unknown_object_text(&text, self.operand_ty(operand)?)
             }
             Some(Type::Set(item)) => {
+                // A `SmeltJsSet`-backed Set carries JS identity: erase through the
+                // single `IntoSmeltUnknown` adapter, which stamps the `__smelt_set`
+                // marker (and preserves the set's stable object id) so
+                // `isSet`/`instanceof Set`/`Object.prototype.toString` recognize the
+                // erased value and `SmeltFromUnknown` round-trips it. Mirrors the
+                // `SmeltJsMap` erasure. A `HashSet`-backed Set (value-equality
+                // primitives) has no such adapter, so it keeps the bare-array
+                // projection below.
+                if !self.type_is_hash_set_key_safe(*item) {
+                    return Ok(format!("({text}).clone().into_smelt_unknown()"));
+                }
                 let value_wrap = self.erase_value_text("value", *item)?;
                 // A Set erases to an array; like list bindings, the SAME source
                 // Set binding erased twice must compare `===` equal (arrays
@@ -1314,6 +1348,13 @@ impl FunctionEmitter<'_> {
                     value.parenthesized_if_needed()
                 ))
             }
+            // A source-spelled `Map` erases through its `SmeltJsMap`
+            // `IntoSmeltUnknown` adapter, stamping the `__smelt_map` marker so
+            // the erased value stays observable as a Map (see the operand-based
+            // erasure above).
+            Some(Type::JsMap(_, _)) => {
+                Ok(format!("({value_text}).clone().into_smelt_unknown()"))
+            }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
@@ -1358,6 +1399,15 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { .. }) if self.is_erased_class_type(ty) => Ok(value_text.to_owned()),
             Some(Type::Class { .. }) => self.class_unknown_object_text(value_text, ty),
             Some(Type::Set(item)) => {
+                // See the sibling `Type::Set` arm above: a `SmeltJsSet`-backed Set
+                // erases through the `__smelt_set` marker adapter; only a
+                // `HashSet`-backed primitive Set falls through to a bare array.
+                if !self.type_is_hash_set_key_safe(*item) {
+                    return Ok(format!(
+                        "({}).clone().into_smelt_unknown()",
+                        value.parenthesized_if_needed()
+                    ));
+                }
                 let value_wrap = self.erase_value_text("value", *item)?;
                 Ok(format!(
                     "{{ let mut values = {}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}",
@@ -1395,13 +1445,16 @@ impl FunctionEmitter<'_> {
                 let args = self.function_args_from_smelt_args_text(function)?;
                 let call_text = format!("(smelt_function_value)({args})");
                 let return_text = if self.mir.types.get(function.return_ty) == Some(&Type::None) {
+                    // A `void`-returning callback erased to a callable value
+                    // returns JavaScript `undefined`, not `null`, so `!== undefined`
+                    // guards on the result behave as in JS.
                     if function.may_throw {
                         format!(
-                            "{{ {call_text}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null) }}"
+                            "{{ {call_text}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
                         )
                     } else {
                         format!(
-                            "{{ {call_text}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null) }}"
+                            "{{ {call_text}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
                         )
                     }
                 } else if matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_))) {
@@ -1512,17 +1565,6 @@ impl FunctionEmitter<'_> {
     /// erase paths need not spell the variant.
     pub(super) fn erase_array_text(&self, elements_text: &str) -> String {
         format!("SmeltUnknown::Array(vec![{elements_text}].into())")
-    }
-
-    /// Box an expression that already evaluates to a collection of erased
-    /// `SmeltUnknown` values into a `SmeltUnknown` array.
-    ///
-    /// `values_text` must be `Into<SmeltArray>` (e.g. a `Vec<SmeltUnknown>`); the
-    /// elements have already crossed the seam. This owns the
-    /// `SmeltUnknown::Array(.. .into())` construction so array-building paths that
-    /// already hold erased values need not spell the variant.
-    pub(super) fn erase_unknown_array_text(&self, values_text: &str) -> String {
-        format!("SmeltUnknown::Array({values_text}.into())")
     }
 
     /// Box a fixed set of already-erased `(key, value)` entry expressions into a
@@ -1946,18 +1988,18 @@ impl FunctionEmitter<'_> {
             // unaffected.
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}) }}"
+                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }} }}, _ => panic!(\"unknown is not iterable\") }}) }}"
                 ))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
                 Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }}, _ => panic!(\"unknown is not iterable\") }}) }}"
+                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return iterable\") }}, _ => panic!(\"unknown is not iterable\") }} }}, _ => panic!(\"unknown is not iterable\") }}) }}"
                 ))
             }
             Some(Type::List(item)) => {
                 let item_text = self.extract_value_text("value", *item)?;
                 Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return array\") }}, _ => panic!(\"unknown is not array\") }}, _ => panic!(\"unknown is not array\") }}) }}"
+                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec().into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec().into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => match iterator(vec![]).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), _ => panic!(\"unknown iterator did not return array\") }}, _ => panic!(\"unknown is not array\") }} }}, _ => panic!(\"unknown is not array\") }}) }}"
                 ))
             }
             Some(Type::Dict(key, item))
@@ -1984,6 +2026,18 @@ impl FunctionEmitter<'_> {
                 }
                 Ok(format!(
                     "if let SmeltUnknown::Object(values) = {text}.clone() {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ ::std::collections::HashMap::new() }}"
+                ))
+            }
+            // A source `Map` recovers through `SmeltJsMap`'s `SmeltFromUnknown`
+            // impl, which round-trips the `__smelt_map` marker: an erased Map
+            // rebuilds its entries (and stable id) from the marker payload, and a
+            // plain object falls back to string-keyed entries. This is the
+            // inverse of the `SmeltJsMap` erasure adapter, so `unknown -> Map`
+            // extraction stays lossless.
+            Some(Type::JsMap(_, _)) => {
+                let target_text = self.type_text_with_impl_trait(target, false)?;
+                Ok(format!(
+                    "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))
             }
             Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name) => {
@@ -2089,6 +2143,20 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 Ok("Default::default()".to_owned())
+            }
+            // A source `Set` recovers through `SmeltJsSet`'s `SmeltFromUnknown`
+            // impl, which round-trips the `__smelt_set` marker (rebuilding members
+            // and the stable id) and tolerantly accepts a bare array. This is the
+            // inverse of the `SmeltJsSet` erasure adapter, so an `unknown -> Set`
+            // cast (e.g. `data as unknown as Set` in a deep-equality walk) recovers
+            // the real members instead of an empty set. Only `SmeltJsSet`-backed
+            // sets have this impl; a `HashSet`-backed primitive set keeps the
+            // `Default::default()` fallback below.
+            Some(Type::Set(item)) if !self.type_is_hash_set_key_safe(*item) => {
+                let target_text = self.type_text_with_impl_trait(target, false)?;
+                Ok(format!(
+                    "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
+                ))
             }
             Some(Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
                 Ok("Default::default()".to_owned())

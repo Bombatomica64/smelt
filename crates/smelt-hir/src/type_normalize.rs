@@ -93,6 +93,11 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
             let value = normalize_type(types, value, options);
             types.intern(Type::Dict(key, value))
         }
+        Type::JsMap(key, value) => {
+            let key = normalize_type(types, key, options);
+            let value = normalize_type(types, value, options);
+            types.intern(Type::JsMap(key, value))
+        }
         Type::Tuple(items) => {
             let items = items
                 .into_iter()

@@ -719,7 +719,7 @@ fn type_erases_values(mir: &Mir, ty: TypeId) -> bool {
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
             type_erases_values(mir, *item)
         }
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_erases_values(mir, *key) || type_erases_values(mir, *value)
         }
         Some(Type::Tuple(items)) => items.iter().any(|item| type_erases_values(mir, *item)),
@@ -765,7 +765,7 @@ fn type_contains_function(mir: &Mir, ty: TypeId) -> bool {
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
             type_contains_function(mir, *item)
         }
-        Some(Type::Dict(key, value)) => {
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
             type_contains_function(mir, *key) || type_contains_function(mir, *value)
         }
         Some(Type::Tuple(items) | Type::Union(items)) => {

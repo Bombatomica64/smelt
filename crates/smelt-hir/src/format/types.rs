@@ -198,6 +198,9 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
                 type_ref(krate, *value)
             )
         }
+        Type::JsMap(key, value) => {
+            format!("Map<{}, {}>", type_ref(krate, *key), type_ref(krate, *value))
+        }
         Type::Tuple(items) => {
             let items = items
                 .iter()

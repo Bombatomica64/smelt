@@ -1291,8 +1291,8 @@ export function tags(): Map<string, string | number> {
             _ => None,
         })
         .ok_or("expected a two-entry Map DictLit")?;
-    let Some(Type::Dict(key_ty, value_ty)) = ctx.krate.types.get(dict_ty) else {
-        return Err("Map literal type must be a Dict".to_owned());
+    let Some(Type::JsMap(key_ty, value_ty)) = ctx.krate.types.get(dict_ty) else {
+        return Err("Map literal type must be a JsMap".to_owned());
     };
     ensure!(
         ctx.krate.types.get(*key_ty) == Some(&Type::String),
@@ -1329,8 +1329,8 @@ const mapping = new Map([["a", 1], ["b", "two"]]);
             _ => None,
         })
         .ok_or("expected a two-entry Map DictLit")?;
-    let Some(Type::Dict(key_ty, value_ty)) = ctx.krate.types.get(dict_ty) else {
-        return Err("Map literal type must be a Dict".to_owned());
+    let Some(Type::JsMap(key_ty, value_ty)) = ctx.krate.types.get(dict_ty) else {
+        return Err("Map literal type must be a JsMap".to_owned());
     };
     ensure!(
         ctx.krate.types.get(*key_ty) == Some(&Type::String),
@@ -1368,8 +1368,8 @@ const mapping = new Map([["a", 1], ["b", 2]]);
             _ => None,
         })
         .ok_or("expected a two-entry Map DictLit")?;
-    let Some(Type::Dict(key_ty, value_ty)) = ctx.krate.types.get(dict_ty) else {
-        return Err("Map literal type must be a Dict".to_owned());
+    let Some(Type::JsMap(key_ty, value_ty)) = ctx.krate.types.get(dict_ty) else {
+        return Err("Map literal type must be a JsMap".to_owned());
     };
     ensure!(
         ctx.krate.types.get(*key_ty) == Some(&Type::String),

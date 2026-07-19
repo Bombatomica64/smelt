@@ -753,9 +753,12 @@ for (const entry: [string, number] of mapping) {
 "#,
     );
 
+    // A source `Map` backs onto `SmeltJsMap`, whose `iter()` yields owned
+    // entries, so the entries projection collects them directly with no
+    // per-entry `.clone()`.
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
         ),
         "{source}"
     );
