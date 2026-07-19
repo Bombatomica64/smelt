@@ -211,12 +211,20 @@ fn resolve_alias(aliases: &HashMap<LocalId, LocalId>, local: LocalId) -> LocalId
 
 /// Rewrites operands in an rvalue using alias mappings. Returns true if modified.
 fn rewrite_rvalue(
-    value: &mut Rvalue,
+    rvalue: &mut Rvalue,
     aliases: &HashMap<LocalId, LocalId>,
     dest: Option<LocalId>,
 ) -> bool {
-    match value {
+    match rvalue {
         Rvalue::Use(operand) => rewrite_operand_except(operand, aliases, dest),
+        Rvalue::GeneratorYield { value } => rewrite_operand_except(value, aliases, dest),
+        Rvalue::GeneratorNext { generator } => rewrite_operand_except(generator, aliases, dest),
+        Rvalue::GeneratorDone { result } | Rvalue::GeneratorValue { result } => {
+            rewrite_operand_except(result, aliases, dest)
+        }
+        Rvalue::GeneratorDelegate { generator } => {
+            rewrite_operand_except(generator, aliases, dest)
+        }
         Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
             items.iter_mut().fold(false, |changed, item| {
                 rewrite_operand_except(item, aliases, dest) | changed
@@ -259,7 +267,8 @@ fn rewrite_rvalue(
             rewrite_operand_except(receiver, aliases, dest)
                 | rewrite_operand_except(index, aliases, dest)
         }
-        Rvalue::OptionalMethod { receiver, args, .. } => args.iter_mut().fold(
+        Rvalue::OptionalMethod { receiver, args, .. }
+        | Rvalue::UnionMethod { receiver, args, .. } => args.iter_mut().fold(
             rewrite_operand_except(receiver, aliases, dest),
             |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
         ),

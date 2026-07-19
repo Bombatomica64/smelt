@@ -1229,6 +1229,46 @@ impl LoweringCtx<'_> {
                     writeback,
                 )?
             }
+            ExprKind::GeneratorYield { value } => {
+                let operand = self.lower_expr(*value)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::GeneratorYield { value: operand },
+                )?
+            }
+            ExprKind::GeneratorNext { generator } => {
+                let operand = self.lower_expr(*generator)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::GeneratorNext { generator: operand },
+                )?
+            }
+            ExprKind::GeneratorDone { result } => {
+                let operand = self.lower_expr(*result)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::GeneratorDone { result: operand },
+                )?
+            }
+            ExprKind::GeneratorValue { result } => {
+                let operand = self.lower_expr(*result)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::GeneratorValue { result: operand },
+                )?
+            }
+            ExprKind::GeneratorDelegate { generator } => {
+                let operand = self.lower_expr(*generator)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::GeneratorDelegate { generator: operand },
+                )?
+            }
             ExprKind::ListExtend { list, other } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let other_operand = self.lower_expr(*other)?;
@@ -1920,6 +1960,21 @@ impl LoweringCtx<'_> {
             } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
                 let receiver_ty = self.hir_expr(*receiver)?.ty;
+                if matches!(self.krate.types.get(receiver_ty), Some(Type::Union(_))) {
+                    let lowered_args = args
+                        .iter()
+                        .map(|arg| self.lower_expr(*arg))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    self.assign_temp(
+                        expr.ty,
+                        expr.span,
+                        Rvalue::UnionMethod {
+                            receiver: receiver_operand,
+                            method: *method,
+                            args: lowered_args,
+                        },
+                    )?
+                } else {
                 let base = self.materialize_operand_local(
                     receiver_operand.clone(),
                     receiver_ty,
@@ -1944,6 +1999,7 @@ impl LoweringCtx<'_> {
                 })?;
                 self.current_block = target;
                 Operand::Copy(Place::Local(dest))
+                }
             }
             ExprKind::New { class, args } => {
                 let lowered_args = args

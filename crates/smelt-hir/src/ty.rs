@@ -47,6 +47,24 @@ pub enum Type {
     Function(FunctionType),
     /// Future/promise type.
     Future(TypeId),
+    /// Resumable generator with yielded, returned, and resumed values.
+    Generator {
+        /// Whether `.next()` resumes asynchronously.
+        is_async: bool,
+        /// Value produced at each suspension point.
+        yield_ty: TypeId,
+        /// Value produced when the generator completes.
+        return_ty: TypeId,
+        /// Value supplied by the caller when resuming the generator.
+        next_ty: TypeId,
+    },
+    /// Result of one synchronous generator resume operation.
+    GeneratorResult {
+        /// Value type when the generator suspended.
+        yield_ty: TypeId,
+        /// Value type when the generator completed.
+        return_ty: TypeId,
+    },
 }
 
 /// A function type signature.

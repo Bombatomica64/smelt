@@ -158,6 +158,8 @@ pub struct MirClosure {
     pub escapes: bool,
     /// Whether this closure can return through a source-language throw.
     pub can_throw: bool,
+    /// Whether invoking this closure constructs suspended generator state.
+    pub is_generator: bool,
     /// Stable per-function-item key when this closure is a bare
     /// function-item-as-value wrapper, else `None`.
     ///
@@ -282,6 +284,10 @@ pub struct MirStaticField {
 
 /// MIR representation of a function with basic blocks and locals.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "orthogonal source function flags are preserved independently through MIR"
+)]
 pub struct MirFunction {
     /// Unique identifier of this function.
     pub id: FuncId,
@@ -298,6 +304,8 @@ pub struct MirFunction {
     pub origin: HirOrigin,
     /// Whether this is an async function.
     pub is_async: bool,
+    /// Whether invoking this function constructs suspended generator state.
+    pub is_generator: bool,
     /// Whether this function should be emitted as a native Rust test.
     pub is_test: bool,
     /// Whether this function can return through an uncaught throw path.
@@ -331,6 +339,7 @@ impl MirFunction {
             type_params: Vec::new(),
             origin,
             is_async: false,
+            is_generator: false,
             is_test: false,
             can_throw: false,
             params: Vec::new(),
@@ -527,6 +536,31 @@ pub enum Constant {
 pub enum Rvalue {
     /// Use an existing operand directly.
     Use(Operand),
+    /// Suspend the current generator and expose a value to its caller.
+    GeneratorYield {
+        /// Value exposed by the suspension point.
+        value: Operand,
+    },
+    /// Resume a synchronous generator once.
+    GeneratorNext {
+        /// Generator handle to resume.
+        generator: Operand,
+    },
+    /// Test whether a generator resume result represents completion.
+    GeneratorDone {
+        /// Resume result to inspect.
+        result: Operand,
+    },
+    /// Extract the yielded or returned value from a generator resume result.
+    GeneratorValue {
+        /// Resume result whose payload is extracted.
+        result: Operand,
+    },
+    /// Resume a delegated generator and forward its yielded values.
+    GeneratorDelegate {
+        /// Generator whose suspension points are forwarded.
+        generator: Operand,
+    },
     /// Construct a list.
     List(Vec<Operand>),
     /// Construct a set.
@@ -588,6 +622,15 @@ pub enum Rvalue {
         /// Method name to call when the receiver is present.
         method: Symbol,
         /// Call arguments.
+        args: Vec<Operand>,
+    },
+    /// Call a method shared by every concrete arm of a tagged union.
+    UnionMethod {
+        /// Tagged-union receiver whose active arm selects the implementation.
+        receiver: Operand,
+        /// Shared source method name.
+        method: Symbol,
+        /// Call arguments evaluated before dispatch.
         args: Vec<Operand>,
     },
     /// Return an optional value's content or a fallback operand.

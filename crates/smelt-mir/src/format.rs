@@ -191,9 +191,16 @@ fn statement_text(statement: &Statement) -> String {
 }
 
 /// Formats an rvalue to human-readable text.
-fn rvalue_text(value: &Rvalue) -> String {
-    match value {
+fn rvalue_text(rvalue: &Rvalue) -> String {
+    match rvalue {
         Rvalue::Use(operand) => operand_text(operand),
+        Rvalue::GeneratorYield { value } => format!("yield {}", operand_text(value)),
+        Rvalue::GeneratorNext { generator } => format!("next {}", operand_text(generator)),
+        Rvalue::GeneratorDone { result } => format!("done {}", operand_text(result)),
+        Rvalue::GeneratorValue { result } => format!("value {}", operand_text(result)),
+        Rvalue::GeneratorDelegate { generator } => {
+            format!("yield* {}", operand_text(generator))
+        }
         Rvalue::List(items) => format!(
             "[{}]",
             items
@@ -301,6 +308,18 @@ fn rvalue_text(value: &Rvalue) -> String {
             let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
             format!(
                 "{}?.method{}({args_text})",
+                operand_text(receiver),
+                method.0
+            )
+        }
+        Rvalue::UnionMethod {
+            receiver,
+            method,
+            args,
+        } => {
+            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            format!(
+                "union_method {}.method{}({args_text})",
                 operand_text(receiver),
                 method.0
             )
@@ -1481,6 +1500,26 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
             )
         }
         Type::Future(item) => format!("Future<{}>", type_ref(mir, *item)),
+        Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        } => format!(
+            "{}Generator<{}, {}, {}>",
+            if *is_async { "Async" } else { "" },
+            type_ref(mir, *yield_ty),
+            type_ref(mir, *return_ty),
+            type_ref(mir, *next_ty)
+        ),
+        Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        } => format!(
+            "GeneratorResult<{}, {}>",
+            type_ref(mir, *yield_ty),
+            type_ref(mir, *return_ty)
+        ),
     }
 }
 

@@ -1107,6 +1107,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::unsupported_object_collection_call_entry,
         Self::exact_stdlib_call,
         Self::array_constructor_call,
+        Self::generator_next_call,
         Self::promise_continuation_call,
         Self::timer_call,
         Self::number_to_string_call,
@@ -1794,6 +1795,45 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower Promise/Future `.then(...)` and `.catch(...)` continuation calls.
+    pub(in crate::lowering) fn generator_next_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "next" || !call.arguments.is_empty() {
+            return Ok(None);
+        }
+        let generator = self.expression(&member.object, body)?;
+        let generator_ty = Self::expr_ty(body, generator);
+        let Some(Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            ..
+        }) = self.ctx.krate.types.get(generator_ty).cloned()
+        else {
+            return Ok(None);
+        };
+        let result_ty = self.ctx.krate.types.intern(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        });
+        let ty = if is_async {
+            self.ctx.krate.types.intern(Type::Future(result_ty))
+        } else {
+            result_ty
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::GeneratorNext { generator },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower Promise/Future `.then(...)` and `.catch(...)` continuation calls.
     pub(in crate::lowering) fn promise_continuation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1815,7 +1855,12 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(Some(receiver));
         };
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let callback_return_ty = self.ctx.krate.types.intern(Type::None);
+        // The continuation parameter type is contextual, but its return type is
+        // inferred from the callback body. `Promise.then` is generic in that
+        // return (`U | PromiseLike<U>`); forcing `void` here erased values such
+        // as a returned `Generator<Y, R, N>` before the surrounding `await` and
+        // made typed `yield* await promise.then(...)` impossible.
+        let callback_return_ty = unknown_ty;
         let callback_param_ty = if method == "catch" {
             unknown_ty
         } else {
@@ -1831,10 +1876,33 @@ impl<'builder> ModuleBuilder<'builder> {
             may_throw: false,
         }));
         let callback = self.argument_with_hint(callback_arg, body, Some(callback_ty))?;
+        let declared_callback_result = body
+            .exprs
+            .get(usize::try_from(callback.0).unwrap_or(usize::MAX))
+            .and_then(|expr| match &expr.kind {
+                ExprKind::Closure(closure) => Some(closure.return_ty),
+                _ => None,
+            })
+            .or_else(|| match self.ctx.krate.types.get(Self::expr_ty(body, callback)) {
+                Some(Type::Function(function)) => Some(function.return_ty),
+                _ => None,
+            });
+        let callback_result_ty = match declared_callback_result {
+            Some(return_ty) => match self.ctx.krate.types.get(return_ty) {
+                // Promise callbacks flatten a returned promise rather than
+                // producing `Promise<Promise<T>>`.
+                Some(Type::Future(item)) => *item,
+                _ => return_ty,
+            },
+            _ => unknown_ty,
+        };
         let (op, output_ty) = if method == "catch" {
             (AsyncOp::Catch, receiver_ty)
         } else {
-            (AsyncOp::Then, self.ctx.krate.types.intern(Type::Future(unknown_ty)))
+            (
+                AsyncOp::Then,
+                self.ctx.krate.types.intern(Type::Future(callback_result_ty)),
+            )
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::AsyncOp {
@@ -3003,6 +3071,23 @@ impl<'builder> ModuleBuilder<'builder> {
                 function.params.iter().copied().any(|param| {
                     self.overload_constraint_contains_unresolved_type_param(param)
                 }) || self.overload_constraint_contains_unresolved_type_param(function.return_ty)
+            }
+            Some(Type::Generator {
+                yield_ty,
+                return_ty,
+                next_ty,
+                ..
+            }) => {
+                self.overload_constraint_contains_unresolved_type_param(*yield_ty)
+                    || self.overload_constraint_contains_unresolved_type_param(*return_ty)
+                    || self.overload_constraint_contains_unresolved_type_param(*next_ty)
+            }
+            Some(Type::GeneratorResult {
+                yield_ty,
+                return_ty,
+            }) => {
+                self.overload_constraint_contains_unresolved_type_param(*yield_ty)
+                    || self.overload_constraint_contains_unresolved_type_param(*return_ty)
             }
             Some(
                 Type::Bool

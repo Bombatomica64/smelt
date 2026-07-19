@@ -19,6 +19,13 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::GlobalSet { item, value } => {
             format!("global_set {} = {}", item_ref(krate, *item), expr_ref(*value))
         }
+        ExprKind::GeneratorYield { value } => format!("yield {}", expr_ref(*value)),
+        ExprKind::GeneratorNext { generator } => format!("next {}", expr_ref(*generator)),
+        ExprKind::GeneratorDone { result } => format!("done {}", expr_ref(*result)),
+        ExprKind::GeneratorValue { result } => format!("value {}", expr_ref(*result)),
+        ExprKind::GeneratorDelegate { generator } => {
+            format!("yield* {}", expr_ref(*generator))
+        }
         ExprKind::Call { .. }
         | ExprKind::ClosureCall { .. }
         | ExprKind::ClosureCallSpread { .. }

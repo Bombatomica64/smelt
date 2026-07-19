@@ -427,6 +427,7 @@ impl FunctionEmitter<'_> {
                 // move`. Mark future-returning/awaiting closures async so early
                 // MIR returns produce the future's `Result<T, _>` output.
                 is_async: closure_is_async,
+                is_generator: closure.is_generator,
                 is_test: false,
                 can_throw: closure.can_throw,
                 params: closure.params.clone(),
@@ -547,13 +548,59 @@ impl FunctionEmitter<'_> {
                 emitter.mir.types.get(function.return_ty),
                 Some(Type::Future(_))
             );
+            let returns_generator = closure.is_generator;
             // Whether this closure needs the async wrapper is decided from MIR,
             // not from scanning the emitted text: a closure is async when its
             // declared return type is a future, or when its own body performs an
             // `await` (nested Promise-continuation closures are separate MIR
             // functions and are excluded by `closure_body_awaits`).
             let awaits_inside_body = emitter.closure_body_awaits();
-            if returns_future || awaits_inside_body {
+            if returns_generator {
+                // A generator function expression is still an ordinary `Fn`
+                // value when invoked: calling it constructs suspended state and
+                // must not consume its captures. Clone each owned capture into
+                // that state, then move only those clones into genawaiter's
+                // producer. Shared captures clone their `Rc<RefCell<_>>` handle
+                // so identity and mutation semantics remain unchanged.
+                let mut cloned_generator_captures = HashSet::new();
+                let capture_lines = closure
+                    .captures
+                    .iter()
+                    .filter_map(|capture| {
+                        let source_name = self.local_name(capture.source_local).ok()?.to_owned();
+                        let name = capture_aliases
+                            .get(&capture.source_local)
+                            .cloned()
+                            .unwrap_or(source_name);
+                        if self.closure_capture_needs_shared_access(closure, capture)
+                            || self.local_uses_shared_capture_storage(capture.source_local)
+                        {
+                            let cell = format!("smelt_capture_{name}");
+                            return cloned_generator_captures
+                                .insert(cell.clone())
+                                .then(|| format!("let {cell} = {cell}.clone();"));
+                        }
+                        cloned_generator_captures
+                            .insert(name.clone())
+                            .then(|| format!("let {name} = {name}.clone();"))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if function.is_async {
+                    format!(
+                        "|{params_text}| {{ {capture_lines} let smelt_generator = genawaiter::rc::Gen::new(|co| async move {{\n{body_text}    }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator::new(move || {{ let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, Box<dyn std::error::Error>>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }}) }}"
+                    )
+                } else {
+                    let completion = if closure.can_throw {
+                        "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                    } else {
+                        "value"
+                    };
+                    format!(
+                        "|{params_text}| {{ {capture_lines} let mut smelt_generator = genawaiter::rc::Gen::new(|co| async move {{\n{body_text}    }}); SmeltGenerator::new(move || match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }}) }}"
+                    )
+                }
+            } else if returns_future || awaits_inside_body {
                 let output_ty = match emitter.mir.types.get(function.return_ty) {
                     Some(Type::Future(item)) => *item,
                     _ => function.return_ty,
@@ -914,6 +961,7 @@ impl FunctionEmitter<'_> {
         );
         let return_ty = match self.mir.types.get(self.function.return_ty) {
             Some(Type::Future(item)) if !operand_is_future => *item,
+            Some(Type::Generator { return_ty, .. }) if self.function.is_generator => *return_ty,
             _ => self.function.return_ty,
         };
         let value = self.value_at_type(operand, return_ty)?;
@@ -1035,6 +1083,9 @@ impl FunctionEmitter<'_> {
                     );
                     let return_ty = match self.mir.types.get(self.function.return_ty) {
                         Some(Type::Future(item)) if !operand_is_future => *item,
+                        Some(Type::Generator { return_ty, .. }) if self.function.is_generator => {
+                            *return_ty
+                        }
                         _ => self.function.return_ty,
                     };
                     let value = self.value_at_type(operand, return_ty)?;

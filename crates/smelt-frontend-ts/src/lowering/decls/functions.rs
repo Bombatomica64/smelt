@@ -124,6 +124,7 @@ impl ModuleBuilder<'_> {
             None,
             self.span(function_body.span.start, function_body.span.end),
         );
+        body.is_generator = function.generator;
         let mut params = Vec::new();
 
         let mut destructured_params = Vec::new();
@@ -380,7 +381,7 @@ impl ModuleBuilder<'_> {
             }
         }
         if let Some(accumulator) = generator_yields {
-            self.push_generator_return(accumulator, function, &mut body);
+            Self::push_generator_return(accumulator, function, &mut body);
         }
         if function.r#async {
             body.build_async_state_machine();
@@ -400,14 +401,21 @@ impl ModuleBuilder<'_> {
             return Err(error);
         }
 
-        let mut return_ty = declared_return_ty
-            .or_else(|| self.last_return_type(&body))
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
+        let mut return_ty = if function.generator && declared_return_ty.is_none() {
+            self.inferred_generator_type(&body, function.r#async)
+        } else {
+            declared_return_ty
+                .or_else(|| self.last_return_type(&body))
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None))
+        };
         if function.r#async
             && !function.generator
             && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
         {
             return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
+        }
+        if function.generator && declared_return_ty.is_some() {
+            return_ty = self.generator_type_with_fallthrough(&body, return_ty);
         }
         let body_id = self.ctx.krate.push_body(body);
         let function_item = Function {
@@ -474,60 +482,162 @@ impl ModuleBuilder<'_> {
         Ok(item)
     }
 
-    /// Create the synthetic list that stores values yielded by a generator body.
+    /// Resolve the concrete generator signature active while lowering a body.
     pub(in crate::lowering) fn initialize_generator_yield_accumulator(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
-        body: &mut Body,
+        _body: &mut Body,
     ) -> GeneratorYieldAccumulator {
-        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-        let local = body.push_local(LocalDecl {
-            name: Some(self.intern_source_name("__smelt_yields")),
-            ty: list_ty,
-            mutable: true,
-            span: self.span(function.span.start, function.span.end),
-        });
-        let value = body.push_expr(Expr {
-            kind: ExprKind::ListLit(Vec::new()),
-            ty: list_ty,
-            span: self.span(function.span.start, function.span.end),
-        });
-        let pat = body.push_pattern(Pattern::Binding(local));
-        body.push_stmt(Stmt::Let {
-            pat,
-            ty: list_ty,
-            value: Some(value),
-        });
+        if let Some(Type::Generator {
+            is_async: _,
+            yield_ty,
+            return_ty: _,
+            next_ty: _,
+        }) = self
+            .current_return_ty
+            .and_then(|ty| self.ctx.krate.types.get(ty))
+        {
+            return GeneratorYieldAccumulator {
+                yield_ty: *yield_ty,
+                // The source syntax is authoritative when an overload supplied
+                // the contextual generator type (and may have supplied the
+                // sync overload before callback compatibility was considered).
+                is_async: function.r#async,
+            };
+        }
+        let yield_ty = self.ctx.krate.types.intern(Type::Unknown);
         GeneratorYieldAccumulator {
-            local,
-            list_ty,
-            item_ty,
+            yield_ty,
+            // An unannotated generator may not have a contextual Generator type,
+            // but its syntax still determines whether delegation may suspend.
+            is_async: function.r#async,
         }
     }
 
-    /// Return the materialized generator list through the function's erased boundary.
+    /// Leave completion to explicit `return` statements or the normal fallthrough.
     pub(in crate::lowering) fn push_generator_return(
-        &mut self,
-        accumulator: GeneratorYieldAccumulator,
-        function: &oxc::ast::ast::Function<'_>,
-        body: &mut Body,
+        _accumulator: GeneratorYieldAccumulator,
+        _function: &oxc::ast::ast::Function<'_>,
+        _body: &mut Body,
     ) {
-        let local = body.push_expr(Expr {
-            kind: ExprKind::Local(accumulator.local),
-            ty: accumulator.list_ty,
-            span: self.span(function.span.start, function.span.end),
-        });
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let value = body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: local,
-                target: unknown_ty,
-            },
-            ty: unknown_ty,
-            span: self.span(function.span.start, function.span.end),
-        });
-        body.push_stmt(Stmt::Return(Some(value)));
+    }
+
+    /// Infer the concrete generator carrier produced by an unannotated body.
+    ///
+    /// `next_ty` remains `Unknown` because arbitrary callers may pass any value
+    /// to `.next(value)` unless TypeScript supplies an explicit third generator
+    /// parameter. This is a genuine dynamic input boundary; yielded and returned
+    /// values remain concrete or union-typed and never use that runtime carrier.
+    pub(in crate::lowering) fn inferred_generator_type(
+        &mut self,
+        body: &Body,
+        is_async: bool,
+    ) -> smelt_hir::TypeId {
+        let mut yielded = Vec::new();
+        for expr in &body.exprs {
+            let item_ty = match &expr.kind {
+                ExprKind::GeneratorYield { value } => Some(Self::expr_ty(body, *value)),
+                ExprKind::GeneratorDelegate { generator } => {
+                    match self.ctx.krate.types.get(Self::expr_ty(body, *generator)) {
+                        Some(
+                            Type::Generator { yield_ty, .. }
+                            | Type::List(yield_ty)
+                            | Type::Set(yield_ty),
+                        ) => Some(*yield_ty),
+                        Some(Type::String) => Some(self.ctx.krate.types.intern(Type::String)),
+                        Some(Type::Tuple(items)) => {
+                            let items = items.clone();
+                            Some(self.reconciled_inferred_types(items))
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            if let Some(item_ty) = item_ty
+                && !yielded.contains(&item_ty)
+            {
+                yielded.push(item_ty);
+            }
+        }
+        let yield_ty = self.reconciled_inferred_types(yielded);
+
+        let mut returned = Vec::new();
+        Self::collect_return_types_from_block(body, body.root, &mut returned);
+        let root_falls_through = Self::generator_root_falls_through(body);
+        if returned.is_empty() || root_falls_through {
+            let none_ty = self.ctx.krate.types.intern(Type::None);
+            if !returned.contains(&none_ty) {
+                returned.push(none_ty);
+            }
+        }
+        let return_ty = self.reconciled_inferred_types(returned);
+        let next_ty = self.ctx.krate.types.intern(Type::Unknown);
+        self.ctx.krate.types.intern(Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        })
+    }
+
+    /// Widen an annotated generator completion when control can fall through.
+    ///
+    /// JavaScript completes such a generator with `undefined`; synthesizing a
+    /// concrete `R::default()` changes observable `.next().value` semantics.
+    pub(in crate::lowering) fn generator_type_with_fallthrough(
+        &mut self,
+        body: &Body,
+        generator_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        let Some(Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        }) = self.ctx.krate.types.get(generator_ty).cloned()
+        else {
+            return generator_ty;
+        };
+        if !Self::generator_root_falls_through(body)
+            || matches!(
+                self.ctx.krate.types.get(return_ty),
+                Some(Type::None | Type::Optional(_))
+            )
+        {
+            return generator_ty;
+        }
+        let return_ty = self.ctx.krate.types.intern(Type::Optional(return_ty));
+        self.ctx.krate.types.intern(Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        })
+    }
+
+    /// Return whether the root generator block lacks a terminal return.
+    fn generator_root_falls_through(body: &Body) -> bool {
+        body.blocks
+            .get(usize::try_from(body.root.0).unwrap_or(usize::MAX))
+            .and_then(|block| block.stmts.last())
+            .and_then(|stmt| usize::try_from(stmt.0).ok())
+            .and_then(|stmt| body.stmts.get(stmt))
+            .is_none_or(|stmt| !matches!(stmt, Stmt::Return(_)))
+    }
+
+    /// Reconcile inferred body types without erasing heterogeneous values.
+    pub(in crate::lowering) fn reconciled_inferred_types(
+        &mut self,
+        mut types: Vec<smelt_hir::TypeId>,
+    ) -> smelt_hir::TypeId {
+        types.sort_unstable_by_key(|ty| ty.0);
+        types.dedup();
+        match types.as_slice() {
+            [] => self.ctx.krate.types.intern(Type::None),
+            [single] => *single,
+            _ => self.ctx.krate.types.intern(Type::Union(types)),
+        }
     }
 
     /// Return whether a TypeScript formal parameter has a default value.
@@ -633,7 +743,7 @@ impl ModuleBuilder<'_> {
                 Some(Type::Function(function_ty)) => Some(function_ty),
                 _ => None,
             });
-        let return_ty = if let Some(return_type) = &function.return_type {
+        let mut return_ty = if let Some(return_type) = &function.return_type {
             match self.ts_type_to_hir(&return_type.type_annotation) {
                 Ok(value) => value,
                 Err(error) => {
@@ -647,7 +757,9 @@ impl ModuleBuilder<'_> {
             self.function_return_type_or_overload(function, name_text)
                 .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown))
         };
-        if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+        if function.r#async
+            && !function.generator
+            && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
         {
             self.pop_type_parameter_scope();
             return Err(SmeltError::unsupported(
@@ -660,6 +772,7 @@ impl ModuleBuilder<'_> {
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
+        let saved_generator_yields = self.current_generator_yields;
         let saved_preserve_receiver = self.preserve_specialization_receiver;
         self.current_async = function.r#async;
         self.current_return_ty = Some(return_ty);
@@ -668,6 +781,7 @@ impl ModuleBuilder<'_> {
             None,
             self.span(function_body.span.start, function_body.span.end),
         );
+        body.is_generator = function.generator;
         let mut params = Vec::new();
         let mut errors = Vec::new();
         if let Some((_, receiver_ty)) = receiver {
@@ -767,10 +881,17 @@ impl ModuleBuilder<'_> {
                 });
             }
         }
+        let generator_yields = function
+            .generator
+            .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
+        self.current_generator_yields = generator_yields;
         for statement in &function_body.statements {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
             }
+        }
+        if let Some(accumulator) = generator_yields {
+            Self::push_generator_return(accumulator, function, &mut body);
         }
         if function.r#async {
             body.build_async_state_machine();
@@ -780,10 +901,18 @@ impl ModuleBuilder<'_> {
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
+        self.current_generator_yields = saved_generator_yields;
         self.preserve_specialization_receiver = saved_preserve_receiver;
         self.pop_type_parameter_scope();
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
+        }
+
+        if function.generator && function.return_type.is_none() && hinted_function.is_none() {
+            return_ty = self.inferred_generator_type(&body, function.r#async);
+        }
+        if function.generator && (function.return_type.is_some() || hinted_function.is_some()) {
+            return_ty = self.generator_type_with_fallthrough(&body, return_ty);
         }
 
         let body_id = self.ctx.krate.push_body(body);
@@ -2441,6 +2570,7 @@ impl ModuleBuilder<'_> {
             None,
             self.span(function_body.span.start, function_body.span.end),
         );
+        body.is_generator = method.value.generator;
         let mut params = Vec::new();
         let this_symbol = self.ctx.krate.symbols.intern("this");
         let this_local = body.push_local(LocalDecl {
@@ -2570,7 +2700,7 @@ impl ModuleBuilder<'_> {
             }
         }
         if let Some(accumulator) = generator_yields {
-            self.push_generator_return(accumulator, &method.value, &mut body);
+            Self::push_generator_return(accumulator, &method.value, &mut body);
         }
         if method.value.r#async {
             body.build_async_state_machine();

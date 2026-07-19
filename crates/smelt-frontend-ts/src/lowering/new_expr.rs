@@ -2423,6 +2423,9 @@ impl ModuleBuilder<'_> {
                 Ok(value)
             }
             Expression::YieldExpression(yield_expr) => {
+                if yield_expr.delegate && self.current_generator_yields.is_some() {
+                    return self.generator_delegate_expression(yield_expr, body);
+                }
                 if let Some(argument) = &yield_expr.argument {
                     self.expression(argument, body)
                 } else {
@@ -2789,9 +2792,15 @@ impl ModuleBuilder<'_> {
             _ => None,
         };
         let inner = match (then_opt, else_opt) {
-            (Some(a), Some(b)) => self.unify_compatible_branch_inner(a, b)?,
-            (Some(a), None) => self.unify_compatible_branch_inner(a, else_ty)?,
-            (None, Some(b)) => self.unify_compatible_branch_inner(then_ty, b)?,
+            (Some(then_inner), Some(else_inner)) => {
+                self.unify_compatible_branch_inner(then_inner, else_inner)?
+            }
+            (Some(then_inner), None) => {
+                self.unify_compatible_branch_inner(then_inner, else_ty)?
+            }
+            (None, Some(else_inner)) => {
+                self.unify_compatible_branch_inner(then_ty, else_inner)?
+            }
             (None, None) => return None,
         };
         Some(self.ctx.krate.types.intern(Type::Optional(inner)))
@@ -2801,12 +2810,12 @@ impl ModuleBuilder<'_> {
     /// identical or numerically compatible, or `None` if unrelated.
     fn unify_compatible_branch_inner(
         &mut self,
-        a: smelt_hir::TypeId,
-        b: smelt_hir::TypeId,
+        left: smelt_hir::TypeId,
+        right: smelt_hir::TypeId,
     ) -> Option<smelt_hir::TypeId> {
-        if a == b {
-            Some(a)
-        } else if self.numeric_type_compatible(a, b) {
+        if left == right {
+            Some(left)
+        } else if self.numeric_type_compatible(left, right) {
             Some(self.ctx.krate.types.intern(Type::Float))
         } else {
             None

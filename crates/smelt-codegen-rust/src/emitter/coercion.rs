@@ -1075,6 +1075,12 @@ impl FunctionEmitter<'_> {
                 }
                 self.promise_future_unknown_text(&text, *item)
             }
+            Some(Type::Generator { .. }) => Err(EmitError::new(
+                "generator values require a typed iterator adapter before erasure",
+            )),
+            Some(Type::GeneratorResult { .. }) => Err(EmitError::new(
+                "generator results require typed done/value projection before erasure",
+            )),
             Some(Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
         }
     }
@@ -1434,6 +1440,12 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Union(_)) => Ok(value_text.to_owned()),
             Some(Type::Future(item)) => self.promise_future_unknown_text(value_text, *item),
+            Some(Type::Generator { .. }) => Err(EmitError::new(
+                "generator values require a typed iterator adapter before erasure",
+            )),
+            Some(Type::GeneratorResult { .. }) => Err(EmitError::new(
+                "generator results require typed done/value projection before erasure",
+            )),
         }
     }
 
@@ -2121,7 +2133,7 @@ impl FunctionEmitter<'_> {
                 let converted_return_text = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    let _ = self.type_text_with_impl_trait(*item, false)?;
+                    drop(self.type_text_with_impl_trait(*item, false)?);
                     let converted_item = self.extract_value_text("smelt_result", *item)?;
                     format!(
                         "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}))"
@@ -2147,9 +2159,9 @@ impl FunctionEmitter<'_> {
             // `SmeltFuture::resolved(<default output>)` for `Type::Future`,
             // matching the promise-value ABI used everywhere else.
             Some(Type::Future(_)) => self.default_value(target),
-            _ => Err(EmitError::new(
-                "checked extraction from unknown to this type is not implemented yet",
-            )),
+            other => Err(EmitError::new(format!(
+                "checked extraction from unknown expression `{text}` to {other:?} is not implemented yet"
+            ))),
         }
     }
 

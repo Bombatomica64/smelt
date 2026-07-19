@@ -22,7 +22,7 @@ use oxc::ast::ast::{
 };
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, ConstItem, Expr, ExprKind, FileId, Function, FunctionOwner, FunctionType, Import, Item,
+    Body, ConstItem, Expr, ExprKind, Field, FileId, Function, FunctionOwner, FunctionType, Import, Item,
     Language, Literal, Module, ModuleId, Param, SourceFile, Span, Type, Visibility,
 };
 
@@ -54,6 +54,59 @@ impl<'a> oxc::ast_visit::Visit<'a> for MutatedNameCollector {
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
+    /// Predeclare instance-method member types for classes in a manifest-wide type pass.
+    ///
+    /// The metadata is stored with structural type fields so cyclic importers
+    /// can type method calls before the class's runtime item is lowered.
+    pub(super) fn predeclare_class_method_fields(&mut self, program: &Program<'_>) {
+        for statement in &program.body {
+            let class = match statement {
+                Statement::ClassDeclaration(class) => Some(class),
+                Statement::ExportNamedDeclaration(export) => match &export.declaration {
+                    Some(Declaration::ClassDeclaration(class)) => Some(class),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(class) = class else { continue };
+            let Some(id) = &class.id else { continue };
+            let name = self.intern_type_name(id.name.as_str());
+            if self
+                .push_type_parameter_scope(class.type_parameters.as_deref())
+                .is_err()
+            {
+                continue;
+            }
+            let signatures = self.class_method_signatures(&class.body.body);
+            self.pop_type_parameter_scope();
+            let Ok(signatures) = signatures else { continue };
+            let fields = signatures
+                .into_iter()
+                .map(|method| {
+                    let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                        params: method.params.iter().map(|param| param.ty).collect(),
+                        rest: method.rest,
+                        required_params: method.required_params,
+                        mutable_params: Vec::new(),
+                        return_ty: method.return_ty,
+                        is_async: method.is_async,
+                        may_throw: false,
+                    }));
+                    Field {
+                        name: method.name,
+                        ty,
+                        visibility: Visibility::Public,
+                        optional: false,
+                        span: method.span,
+                    }
+                })
+                .collect::<Vec<_>>();
+            if !fields.is_empty() {
+                self.ctx.type_alias_fields.insert(name, fields);
+            }
+        }
+    }
+
     /// Create a new module builder.
     pub(super) fn new(
         file_id: FileId,

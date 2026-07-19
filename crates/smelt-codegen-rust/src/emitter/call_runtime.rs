@@ -165,6 +165,150 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Rvalue::Use(operand) => self.value_at_type(operand, dest_ty),
+            Rvalue::GeneratorYield { value } => {
+                Ok(format!("co.yield_({}).await", self.operand_text(value)?))
+            }
+            Rvalue::GeneratorNext { generator } => {
+                Ok(format!("{}.resume()", self.operand_text(generator)?))
+            }
+            Rvalue::GeneratorDone { result } => Ok(format!(
+                "matches!({}, SmeltGeneratorResult::Complete(_))",
+                self.operand_text(result)?
+            )),
+            Rvalue::GeneratorValue { result } => {
+                let result_ty = self.operand_ty(result)?;
+                let Some(Type::GeneratorResult {
+                    yield_ty,
+                    return_ty,
+                }) = self.mir.types.get(result_ty)
+                else {
+                    return Err(EmitError::new("generator value read has non-result operand"));
+                };
+                let yielded = self.value_at_type_text("value", *yield_ty, dest_ty)?;
+                let returned = self.value_at_type_text("value", *return_ty, dest_ty)?;
+                Ok(format!(
+                    "match {} {{ SmeltGeneratorResult::Yielded(value) => {yielded}, SmeltGeneratorResult::Complete(value) => {returned} }}",
+                    self.operand_text(result)?
+                ))
+            }
+            Rvalue::GeneratorDelegate { generator } => {
+                let generator_ty = self.operand_ty(generator)?;
+                let Some(Type::Generator {
+                    yield_ty: outer_yield_ty,
+                    ..
+                }) = self.mir.types.get(self.function.return_ty)
+                else {
+                    return Err(EmitError::new("yield* emitted outside generator body"));
+                };
+                let operand = self.operand_text(generator)?;
+                match self.mir.types.get(generator_ty) {
+                    Some(Type::Generator {
+                        is_async,
+                        yield_ty,
+                        return_ty,
+                        ..
+                    }) => {
+                        let forwarded =
+                            self.value_at_type_text("value", *yield_ty, *outer_yield_ty)?;
+                        let completed = self.value_at_type_text("value", *return_ty, dest_ty)?;
+                        let resume = if *is_async {
+                            "smelt_delegate.resume().await?"
+                        } else {
+                            "smelt_delegate.resume()"
+                        };
+                        Ok(format!(
+                            "{{ let smelt_delegate = {operand}; loop {{ match {resume} {{ SmeltGeneratorResult::Yielded(value) => {{ co.yield_({forwarded}).await; }}, SmeltGeneratorResult::Complete(value) => break {completed} }} }} }}"
+                        ))
+                    }
+                    Some(Type::List(item_ty) | Type::Set(item_ty)) => {
+                        let forwarded =
+                            self.value_at_type_text("value", *item_ty, *outer_yield_ty)?;
+                        Ok(format!(
+                            "{{ let smelt_iterable = {operand}; for value in smelt_iterable.clone().into_iter() {{ co.yield_({forwarded}).await; }} }}"
+                        ))
+                    }
+                    Some(Type::String) => {
+                        let forwarded =
+                            self.value_at_type_text("value", generator_ty, *outer_yield_ty)?;
+                        Ok(format!(
+                            "{{ let smelt_iterable = {operand}; for smelt_char in smelt_iterable.chars() {{ let value = smelt_char.to_string(); co.yield_({forwarded}).await; }} }}"
+                        ))
+                    }
+                    Some(Type::Tuple(items)) => {
+                        let mut yields = String::new();
+                        for (index, item_ty) in items.iter().copied().enumerate() {
+                            let tuple_value = format!("smelt_iterable.{index}.clone()");
+                            let forwarded =
+                                self.value_at_type_text(&tuple_value, item_ty, *outer_yield_ty)?;
+                            yields.push_str(&format!("co.yield_({forwarded}).await; "));
+                        }
+                        Ok(format!("{{ let smelt_iterable = {operand}; {yields}}}"))
+                    }
+                    Some(Type::Union(members)) => {
+                        let mut arms = Vec::with_capacity(members.len());
+                        for (index, member_ty) in members.iter().copied().enumerate() {
+                            let body = match self.mir.types.get(member_ty) {
+                                Some(Type::Generator {
+                                    is_async,
+                                    yield_ty,
+                                    return_ty,
+                                    ..
+                                }) => {
+                                    let forwarded = self.value_at_type_text(
+                                        "value",
+                                        *yield_ty,
+                                        *outer_yield_ty,
+                                    )?;
+                                    let completed = self.value_at_type_text(
+                                        "value",
+                                        *return_ty,
+                                        dest_ty,
+                                    )?;
+                                    let resume = if *is_async {
+                                        "smelt_arm.resume().await?"
+                                    } else {
+                                        "smelt_arm.resume()"
+                                    };
+                                    format!(
+                                        "loop {{ match {resume} {{ SmeltGeneratorResult::Yielded(value) => {{ co.yield_({forwarded}).await; }}, SmeltGeneratorResult::Complete(value) => break {completed} }} }}"
+                                    )
+                                }
+                                Some(Type::List(item_ty) | Type::Set(item_ty)) => {
+                                    let forwarded = self.value_at_type_text(
+                                        "value",
+                                        *item_ty,
+                                        *outer_yield_ty,
+                                    )?;
+                                    format!(
+                                        "{{ for value in smelt_arm.clone().into_iter() {{ co.yield_({forwarded}).await; }} Default::default() }}"
+                                    )
+                                }
+                                Some(Type::String) => {
+                                    let forwarded = self.value_at_type_text(
+                                        "value",
+                                        member_ty,
+                                        *outer_yield_ty,
+                                    )?;
+                                    format!(
+                                        "{{ for smelt_char in smelt_arm.chars() {{ let value = smelt_char.to_string(); co.yield_({forwarded}).await; }} Default::default() }}"
+                                    )
+                                }
+                                _ => {
+                                    return Err(EmitError::new(
+                                        "yield* union contains a non-iterable member",
+                                    ));
+                                }
+                            };
+                            arms.push(format!(
+                                "{}::M{index}(smelt_arm) => {{ {body} }}",
+                                union::union_name(generator_ty)
+                            ));
+                        }
+                        Ok(format!("match {operand} {{ {} }}", arms.join(", ")))
+                    }
+                    _ => Err(EmitError::new("yield* has non-iterable operand")),
+                }
+            }
             Rvalue::List(items) => {
                 // A contextual tuple assertion keeps the literal as a `List`
                 // rvalue while changing its destination storage to a Rust tuple.
@@ -568,6 +712,11 @@ impl FunctionEmitter<'_> {
                 method,
                 args,
             } => self.optional_method_text(receiver, *method, args, dest_ty),
+            Rvalue::UnionMethod {
+                receiver,
+                method,
+                args,
+            } => self.union_method_text(receiver, *method, args, dest_ty),
             Rvalue::OptionalCoalesce { optional, fallback } => {
                 self.optional_coalesce_text(optional, fallback, dest_ty)
             }
@@ -1914,7 +2063,7 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
         let call = format!("smelt_receiver.{method_name}({})", args.join(", "));
-        let returned = if function.can_throw {
+        let returned = if function.can_throw && !function.is_generator {
             format!("{call}?")
         } else {
             call

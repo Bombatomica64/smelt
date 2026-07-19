@@ -763,7 +763,9 @@ impl ModuleBuilder<'_> {
                 | Type::Dict(_, _)
                 | Type::Tuple(_)
                 | Type::Class { .. }
-                | Type::Optional(_),
+                | Type::Optional(_)
+                | Type::Generator { .. }
+                | Type::GeneratorResult { .. },
             ) => Some("object"),
             Some(
                 Type::Unknown

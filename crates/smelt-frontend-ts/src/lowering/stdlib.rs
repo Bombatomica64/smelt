@@ -1390,8 +1390,9 @@ impl ModuleBuilder<'_> {
         let pattern_ty = Self::expr_ty(body, pattern);
         // Erased receivers only lower to String.match for regex-shaped arguments;
         // a function-typed argument (neverthrow single-callback style) stays dynamic.
-        if !receiver_is_string
-            && !(self.regexp_receiver_type(pattern_ty) || self.type_contains_unknown(pattern_ty))
+        if !(receiver_is_string
+            || self.regexp_receiver_type(pattern_ty)
+            || self.type_contains_unknown(pattern_ty))
         {
             return Ok(None);
         }
@@ -1689,7 +1690,11 @@ impl ModuleBuilder<'_> {
                 })
             }
             Type::None => true,
-            Type::Never | Type::Function(_) | Type::Future(_) => false,
+            Type::Never
+            | Type::Function(_)
+            | Type::Future(_)
+            | Type::Generator { .. }
+            | Type::GeneratorResult { .. } => false,
         }
     }
 

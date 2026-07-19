@@ -193,6 +193,7 @@ impl<'hir> LoweringCtx<'hir> {
         };
         let mut function = MirFunction::new(function_id, name, origin, return_ty, span);
         function.is_async = is_async;
+        function.is_generator = body.is_generator;
         if let Some(hir_function) = function_item_for_body(shared.krate, body_id) {
             function.is_test = hir_function.is_test;
             function.rest = hir_function.rest;
@@ -223,6 +224,7 @@ impl<'hir> LoweringCtx<'hir> {
             return_ty,
             span,
         );
+        function.is_generator = body.is_generator;
         let locals = build_locals(&mut function, body)?;
 
         Ok(Self::from_parts(shared, body, function, locals))

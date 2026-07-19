@@ -1213,6 +1213,13 @@ impl ModuleBuilder<'_> {
                         });
                     }
                     let method = self.intern_source_name(member.property.name.as_str());
+                    let declared_method_return = self
+                        .class_field_type(receiver.ty, method)
+                        .ok()
+                        .and_then(|method_ty| match self.ctx.krate.types.get(method_ty) {
+                            Some(Type::Function(function)) => Some(function.return_ty),
+                            _ => None,
+                        });
                     let return_ty = match member.property.name.as_str() {
                         "toString" => self.ctx.krate.types.intern(Type::String),
                         "match" => self.ctx.krate.types.intern(Type::Bool),
@@ -1228,7 +1235,8 @@ impl ModuleBuilder<'_> {
                         | "getSeconds" | "getMilliseconds" | "getTime" => {
                             self.ctx.krate.types.intern(Type::Float)
                         }
-                        _ => self.ctx.krate.types.intern(Type::Unknown),
+                        _ => declared_method_return
+                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown)),
                     };
                     let mut args = Vec::new();
                     for arg in &call.arguments {

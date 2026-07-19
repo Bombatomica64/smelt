@@ -52,6 +52,19 @@ pub enum ExprKind {
         callee: ExprId,
         args: Vec<ExprId>,
     },
+    /// Suspend the current generator and expose `value` to its caller.
+    GeneratorYield {
+        /// Value exposed by the suspension point.
+        value: ExprId,
+    },
+    /// Resume a synchronous generator once.
+    GeneratorNext { generator: ExprId },
+    /// Test whether a resume result represents completion.
+    GeneratorDone { result: ExprId },
+    /// Extract the yielded or returned value from a resume result.
+    GeneratorValue { result: ExprId },
+    /// Resume a delegated generator, forwarding each suspension to the caller.
+    GeneratorDelegate { generator: ExprId },
     Closure(ClosureExpr),
     ClosureCall {
         callee: ExprId,

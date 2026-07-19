@@ -465,20 +465,17 @@ impl FunctionEmitter<'_> {
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
             _ => None,
         };
-        let (accumulator, mut steps, final_value) = match target_place {
-            Some(local) => {
-                let target_text = self.local_mut_value_text(local)?;
-                let final_value = format!("{target_text}.clone()");
-                (target_text, Vec::new(), final_value)
-            }
-            None => {
-                let target_text = self.operand_text(target)?;
-                (
-                    "assigned".to_owned(),
-                    vec![format!("let mut assigned = {target_text}.clone();")],
-                    "assigned".to_owned(),
-                )
-            }
+        let (accumulator, mut steps, final_value) = if let Some(local) = target_place {
+            let target_text = self.local_mut_value_text(local)?;
+            let final_value = format!("{target_text}.clone()");
+            (target_text, Vec::new(), final_value)
+        } else {
+            let target_text = self.operand_text(target)?;
+            (
+                "assigned".to_owned(),
+                vec![format!("let mut assigned = {target_text}.clone();")],
+                "assigned".to_owned(),
+            )
         };
         for source in sources {
             let source_ty = self.operand_ty(source)?;

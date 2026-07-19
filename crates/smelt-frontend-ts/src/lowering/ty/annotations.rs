@@ -1560,6 +1560,23 @@ return_ty: function.return_ty,
             Some(Type::Union(items)) => items
                 .iter()
                 .all(|item| self.concrete_type_requires_never_value(*item)),
+            Some(Type::Generator {
+                yield_ty,
+                return_ty,
+                next_ty,
+                ..
+            }) => {
+                self.concrete_type_requires_never_value(*yield_ty)
+                    || self.concrete_type_requires_never_value(*return_ty)
+                    || self.concrete_type_requires_never_value(*next_ty)
+            }
+            Some(Type::GeneratorResult {
+                yield_ty,
+                return_ty,
+            }) => {
+                self.concrete_type_requires_never_value(*yield_ty)
+                    || self.concrete_type_requires_never_value(*return_ty)
+            }
             Some(
                 Type::Bool
                 | Type::Int
@@ -1681,6 +1698,39 @@ return_ty: function.return_ty,
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::Future(lowered_item)))
             }
+            (kind @ ("Generator" | "AsyncGenerator"), [yielded]) => {
+                let yield_ty = self.ts_type_to_hir(yielded)?;
+                let return_ty = self.ctx.krate.types.intern(Type::None);
+                let next_ty = self.ctx.krate.types.intern(Type::Unknown);
+                Ok(self.ctx.krate.types.intern(Type::Generator {
+                    is_async: kind == "AsyncGenerator",
+                    yield_ty,
+                    return_ty,
+                    next_ty,
+                }))
+            }
+            (kind @ ("Generator" | "AsyncGenerator"), [yielded, returned]) => {
+                let yield_ty = self.ts_type_to_hir(yielded)?;
+                let return_ty = self.ts_type_to_hir(returned)?;
+                let next_ty = self.ctx.krate.types.intern(Type::Unknown);
+                Ok(self.ctx.krate.types.intern(Type::Generator {
+                    is_async: kind == "AsyncGenerator",
+                    yield_ty,
+                    return_ty,
+                    next_ty,
+                }))
+            }
+            (kind @ ("Generator" | "AsyncGenerator"), [yielded, returned, resumed]) => {
+                let yield_ty = self.ts_type_to_hir(yielded)?;
+                let return_ty = self.ts_type_to_hir(returned)?;
+                let next_ty = self.ts_type_to_hir(resumed)?;
+                Ok(self.ctx.krate.types.intern(Type::Generator {
+                    is_async: kind == "AsyncGenerator",
+                    yield_ty,
+                    return_ty,
+                    next_ty,
+                }))
+            }
             ("Parameters", [function_arg]) => {
                 let function_ty = self.ts_type_to_hir(function_arg)?;
                 if let Some(Type::Function(function_ty_data)) = self.ctx.krate.types.get(function_ty)
@@ -1765,7 +1815,9 @@ return_ty: function.return_ty,
                         .type_alias_fields
                         .get(&symbol)
                         .is_some_and(|fields| !fields.is_empty());
-                    if alias_has_fields && self.function_member_type(substituted_alias_ty).is_none()
+                    if alias_has_fields
+                        && !alias_is_union
+                        && self.function_member_type(substituted_alias_ty).is_none()
                     {
                         let instantiated_args = alias
                             .type_params
@@ -1875,6 +1927,13 @@ return_ty: function.return_ty,
 
     /// Resolve a source type reference through local import aliases to its declared symbol.
     pub(in crate::lowering) fn resolve_type_reference_symbol(&mut self, name_text: &str) -> smelt_hir::Symbol {
+        let direct_symbol = self.intern_type_name(name_text);
+        // TypeScript declaration merging permits a value namespace/class and a
+        // type alias to share a spelling. In type position the alias is
+        // authoritative; a barrel value export must not hide its union shape.
+        if self.find_type_alias(direct_symbol).is_some() {
+            return direct_symbol;
+        }
         if let Some(symbol) = self.scoped_class_type_names.get(name_text).copied() {
             return symbol;
         }
@@ -1886,7 +1945,7 @@ return_ty: function.return_ty,
                 _ => {}
             }
         }
-        self.intern_type_name(name_text)
+        direct_symbol
     }
 
     /// Lower a TypeScript `Record<K, V>` key type for Smelt's object model.
@@ -2653,6 +2712,30 @@ return_ty: function.return_ty,
         method: smelt_hir::Symbol,
         span: oxc::span::Span,
     ) -> Result<(smelt_hir::TypeId, smelt_hir::ItemId), SmeltError> {
+        if let Some(Type::Union(items)) = self.ctx.krate.types.get(receiver_ty).cloned() {
+            let mut return_types = Vec::with_capacity(items.len());
+            for item in items {
+                let field_ty = self.class_field_type(item, method)?;
+                let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(field_ty).cloned()
+                else {
+                    let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok((unknown, smelt_hir::ItemId(u32::MAX)));
+                };
+                let return_ty = function.return_ty;
+                if !return_types.contains(&return_ty) {
+                    return_types.push(return_ty);
+                }
+            }
+            let return_ty = match return_types.as_slice() {
+                [single] => *single,
+                [] => self.ctx.krate.types.intern(Type::Unknown),
+                _ => self.ctx.krate.types.intern(Type::Union(return_types)),
+            };
+            // A union call has no single static method item. MIR retains the
+            // typed call and dispatches over the concrete tagged-union arms.
+            return Ok((return_ty, smelt_hir::ItemId(u32::MAX)));
+        }
         let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
             // Non-class receiver: no concrete class method item exists. Fall to
             // the dynamic-dispatch boundary so records, interfaces, concrete

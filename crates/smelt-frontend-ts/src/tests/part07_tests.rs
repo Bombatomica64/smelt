@@ -858,11 +858,11 @@ fn typeof_of_erased_value_emits_runtime_tag_check_not_object_literal() -> Result
     // typeof and left the primitive `switch (typeof a)` arms dead.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function sameType(a: any, b: any): boolean {
   return typeof a === typeof b;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(crate_has_expr(&ctx, |kind| matches!(
@@ -911,11 +911,11 @@ fn typeof_of_concrete_string_still_folds_to_literal() -> Result<(), String> {
     // `typeof` is always `"string"`, so no runtime tag inspection is emitted.
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function tag(s: string): string {
   return typeof s;
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(!crate_has_expr(&ctx, |kind| matches!(

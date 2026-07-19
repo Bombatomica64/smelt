@@ -377,6 +377,58 @@ pub fn to_hir_with_options(
     builder.program(&parsed.program)
 }
 
+/// Predeclare TypeScript aliases and class method surfaces before manifest body lowering.
+///
+/// Dependency cycles through barrel files can otherwise cause a consumer to be
+/// lowered before the module that defines an imported alias. This declaration
+/// pass preserves the alias's concrete union/generic shape for every member of
+/// the cycle without evaluating module bodies or emitting duplicate modules.
+///
+/// # Errors
+///
+/// Returns parse diagnostics when the source is not valid TypeScript.
+pub fn predeclare_type_declarations_with_path(
+    source: &str,
+    file_id: FileId,
+    path: &str,
+    ctx: &mut HirCtx,
+) -> Result<(), Vec<SmeltError>> {
+    if is_generated_declaration_file(path, source) {
+        return Ok(());
+    }
+    let allocator = Allocator::default();
+    let source_type = if is_typescript_declaration_path(path) {
+        SourceType::d_ts()
+    } else {
+        SourceType::default().with_typescript(true)
+    };
+    let parsed = Parser::new(&allocator, source, source_type)
+        .with_options(ParseOptions::default())
+        .parse();
+    if !parsed.diagnostics.is_empty() {
+        return Err(parsed
+            .diagnostics
+            .into_iter()
+            .map(|error| {
+                SmeltError::parse(
+                    Span::new(file_id, 0, u32::try_from(source.len()).unwrap_or(u32::MAX)),
+                    error.to_string(),
+                )
+            })
+            .collect());
+    }
+    let mut builder = ModuleBuilder::new(
+        file_id,
+        path.to_owned(),
+        source.to_owned(),
+        ctx,
+        None,
+    );
+    builder.predeclare_class_method_fields(&parsed.program);
+    builder.predeclare_type_alias_items(&parsed.program);
+    Ok(())
+}
+
 /// Scan one TypeScript source for modeled host constructors it reassigns via
 /// `globalThis.<Name> = ...` (or `global.` / `self.`, static or computed).
 ///
@@ -662,15 +714,13 @@ struct CallableLocalProps {
     escaped: bool,
 }
 
-/// Synthetic list used to materialize a synchronous generator body.
+/// Concrete types active while lowering a generator body.
 #[derive(Debug, Clone, Copy)]
 struct GeneratorYieldAccumulator {
-    /// Local that stores yielded values in source order.
-    local: smelt_hir::LocalId,
-    /// HIR type of the accumulator list.
-    list_ty: smelt_hir::TypeId,
-    /// HIR type of each erased yielded value.
-    item_ty: smelt_hir::TypeId,
+    /// Type exposed by each `yield` suspension point.
+    yield_ty: smelt_hir::TypeId,
+    /// Whether delegated iterators may use the async iterator protocol.
+    is_async: bool,
 }
 
 // Lowering builder implementation split into small include files.

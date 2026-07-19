@@ -247,6 +247,26 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
             )
         }
         Type::Future(item) => format!("Future<{}>", type_ref(krate, *item)),
+        Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        } => format!(
+            "{}Generator<{}, {}, {}>",
+            if *is_async { "Async" } else { "" },
+            type_ref(krate, *yield_ty),
+            type_ref(krate, *return_ty),
+            type_ref(krate, *next_ty)
+        ),
+        Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        } => format!(
+            "GeneratorResult<{}, {}>",
+            type_ref(krate, *yield_ty),
+            type_ref(krate, *return_ty)
+        ),
     }
 }
 

@@ -183,6 +183,33 @@ impl ModuleBuilder<'_> {
                 let item = self.substitute_type_params(item, substitutions);
                 self.ctx.krate.types.intern(Type::Future(item))
             }
+            Type::Generator {
+                is_async,
+                yield_ty,
+                return_ty,
+                next_ty,
+            } => {
+                let yield_ty = self.substitute_type_params(yield_ty, substitutions);
+                let return_ty = self.substitute_type_params(return_ty, substitutions);
+                let next_ty = self.substitute_type_params(next_ty, substitutions);
+                self.ctx.krate.types.intern(Type::Generator {
+                    is_async,
+                    yield_ty,
+                    return_ty,
+                    next_ty,
+                })
+            }
+            Type::GeneratorResult {
+                yield_ty,
+                return_ty,
+            } => {
+                let yield_ty = self.substitute_type_params(yield_ty, substitutions);
+                let return_ty = self.substitute_type_params(return_ty, substitutions);
+                self.ctx.krate.types.intern(Type::GeneratorResult {
+                    yield_ty,
+                    return_ty,
+                })
+            }
             Type::Bool
             | Type::Int
             | Type::Float

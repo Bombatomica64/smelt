@@ -176,6 +176,11 @@ impl LoweringCtx<'_> {
             | ExprKind::ListFlat { .. }
             | ExprKind::ListProjection { .. }
             | ExprKind::ListPush { .. }
+            | ExprKind::GeneratorYield { .. }
+            | ExprKind::GeneratorNext { .. }
+            | ExprKind::GeneratorDone { .. }
+            | ExprKind::GeneratorValue { .. }
+            | ExprKind::GeneratorDelegate { .. }
             | ExprKind::ListExtend { .. }
             | ExprKind::ListInsert { .. }
             | ExprKind::ListUnshift { .. }

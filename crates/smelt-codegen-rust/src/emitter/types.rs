@@ -288,6 +288,8 @@ impl FunctionEmitter<'_> {
             | Some(Type::Dict(_, _))
             | Some(Type::Set(_))
             | Some(Type::Future(_)) => Ok(format!("{operand_text}.is_some()")),
+            Some(Type::Generator { .. }) => Ok(format!("{operand_text}.is_some()")),
+            Some(Type::GeneratorResult { .. }) => Ok(format!("{operand_text}.is_some()")),
             None => Err(EmitError::new("optional truthiness inner type is unknown")),
         }
     }
@@ -342,7 +344,9 @@ impl FunctionEmitter<'_> {
                 | Type::Tuple(_)
                 | Type::Dict(_, _)
                 | Type::Set(_)
-                | Type::Future(_),
+                | Type::Future(_)
+                | Type::Generator { .. }
+                | Type::GeneratorResult { .. },
             ) => Ok(format!("{{ let _ = ({value_text}); true }}")),
             None => Err(EmitError::new("predicate result type is unknown")),
         }
@@ -863,7 +867,7 @@ impl FunctionEmitter<'_> {
                 )?
             )),
             Type::Union(_) if self.concrete_union_members(ty).is_some() => {
-                Ok(union::union_name(ty))
+                self.union_type_text(ty)
             }
             Type::Union(_) => Ok("SmeltUnknown".to_owned()),
             Type::Function(function) => {
@@ -917,6 +921,25 @@ impl FunctionEmitter<'_> {
                 "SmeltFuture<{}>",
                 self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
+            Type::Generator {
+                is_async,
+                yield_ty,
+                return_ty,
+                ..
+            } => Ok(format!(
+                "Smelt{}Generator<{}, {}>",
+                if *is_async { "Async" } else { "" },
+                self.type_text_with_scoped_type_params(*yield_ty, false, scoped_type_params)?,
+                self.type_text_with_scoped_type_params(*return_ty, false, scoped_type_params)?
+            )),
+            Type::GeneratorResult {
+                yield_ty,
+                return_ty,
+            } => Ok(format!(
+                "SmeltGeneratorResult<{}, {}>",
+                self.type_text_with_scoped_type_params(*yield_ty, false, scoped_type_params)?,
+                self.type_text_with_scoped_type_params(*return_ty, false, scoped_type_params)?
+            )),
         }
     }
 
@@ -924,7 +947,9 @@ impl FunctionEmitter<'_> {
     /// Converts a function return type to Rust, including uncaught exception wrapping.
     pub(super) fn return_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
         let inner = self.type_text_with_impl_trait(ty, false)?;
-        if self.function.is_async || self.function.can_throw {
+        if (self.function.is_async || self.function.can_throw)
+            && !self.function.is_generator
+        {
             Ok(format!("Result<{inner}, Box<dyn std::error::Error>>"))
         } else {
             Ok(inner)
@@ -1055,6 +1080,21 @@ impl FunctionEmitter<'_> {
                 "SmeltFuture::resolved({})",
                 self.default_value(*item)?
             )),
+            Type::Generator { .. } => Err(EmitError::new(
+                "a generator value has no eager default",
+            )),
+            Type::GeneratorResult { return_ty, .. } => Ok(format!(
+                "SmeltGeneratorResult::Complete({})",
+                self.default_value(*return_ty)?
+            )),
+        }
+    }
+
+    /// Return the value type produced by `return` inside the current body.
+    pub(super) fn body_return_ty(&self) -> TypeId {
+        match (self.function.is_generator, self.mir.types.get(self.function.return_ty)) {
+            (true, Some(Type::Generator { return_ty, .. })) => *return_ty,
+            _ => self.function.return_ty,
         }
     }
 
@@ -1224,7 +1264,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Substitute type parameters in a type, reusing already-interned MIR types.
-    fn substitute_type_params_in_type(
+    pub(super) fn substitute_type_params_in_type(
         &self,
         ty: TypeId,
         substitutions: &HashMap<Symbol, TypeId>,

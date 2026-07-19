@@ -339,7 +339,7 @@ console.log(result);
 }
 
 #[test]
-fn lowers_generator_yields_into_materialized_unknown_array() -> Result<(), String> {
+fn lowers_generator_yields_as_resumable_suspension_points() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r"
@@ -365,22 +365,16 @@ function* values(limit: number): Generator<number> {
         })
         .ok_or_else(|| "missing generator function".to_owned())?;
     let body = function_body(&ctx, function)?;
+    ensure!(body.is_generator);
+    ensure!(matches!(
+        ctx.krate.types.get(function.return_ty),
+        Some(Type::Generator { is_async: false, .. })
+    ));
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. })),
-        "yield should append to the synthetic generator list"
-    );
-    ensure!(
-        body.stmts.iter().any(|stmt| matches!(
-            stmt,
-            Stmt::Return(Some(value))
-                if matches!(
-                    body.exprs.get(value.0 as usize).map(|expr| &expr.kind),
-                    Some(ExprKind::UnknownCast { .. })
-                )
-        )),
-        "generator should return an erased iterable value"
+            .any(|expr| matches!(expr.kind, ExprKind::GeneratorYield { .. })),
+        "yield should remain a resumable suspension point"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -412,13 +406,118 @@ async function* values(): AsyncGenerator<number, void> {
         .ok_or_else(|| "missing free async generator".to_owned())?;
     let body = function_body(&ctx, function)?;
     ensure!(body.async_state_machine.is_some());
+    ensure!(body.is_generator);
+    ensure!(matches!(
+        ctx.krate.types.get(function.return_ty),
+        Some(Type::Generator { is_async: true, .. })
+    ));
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. }))
+            .any(|expr| matches!(expr.kind, ExprKind::GeneratorYield { .. }))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
+}
+
+/// Captures referenced only through a nested function-expression generator
+/// must propagate through every enclosing closure.
+#[test]
+fn captures_local_helpers_through_nested_generator_arguments() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function consume(body: () => Generator<number, number, unknown>): Generator<number, number, unknown> {
+  return body();
+}
+
+function testCase(): Generator<number, number, unknown> {
+  const seed = 1;
+  function* good(): Generator<number, number, unknown> {
+    yield seed;
+    return seed;
+  }
+  function outer(): Generator<number, number, unknown> {
+    return consume(function* (): Generator<number, number, unknown> {
+      return yield* good();
+    });
+  }
+  return outer();
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.is_generator
+                && body.exprs
+                    .iter()
+                    .any(|expr| matches!(expr.kind, ExprKind::GeneratorDelegate { .. }))
+        }),
+        "nested generator should retain typed delegation",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Source `async function*` syntax remains authoritative when overload
+/// contextual typing initially presents the synchronous generator overload.
+#[test]
+fn async_function_expression_delegates_under_overloaded_context() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function safeTry(body: () => Generator<number, number, unknown>): number;
+function safeTry(body: () => AsyncGenerator<number, number, unknown>): Promise<number>;
+function safeTry(body: unknown): unknown { return body; }
+
+async function* values(): AsyncGenerator<number, number, unknown> {
+  yield 1;
+  return 2;
+}
+
+const result = safeTry(async function* () {
+  return yield* values();
+});
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.is_generator
+                && body.async_state_machine.is_some()
+                && body.exprs
+                    .iter()
+                    .any(|expr| matches!(expr.kind, ExprKind::GeneratorDelegate { .. }))
+        }),
+        "async function expression should delegate to the async generator",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Synchronous generators must not await or delegate an async-only carrier.
+#[test]
+fn synchronous_generator_rejects_async_delegate() {
+    let mut ctx = HirCtx::new();
+    let errors = to_hir(
+        r"
+async function* asyncValues(): AsyncGenerator<number, void, unknown> {
+  yield 1;
+}
+function* syncValues(): Generator<number, void, unknown> {
+  yield* asyncValues();
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("sync yield* must reject an async generator");
+    assert!(errors.iter().any(|error| {
+        error
+            .message
+            .contains("synchronous generator cannot delegate to an AsyncGenerator")
+    }));
 }
 
 #[test]
@@ -471,14 +570,14 @@ fn c_style_for_lowers_update_into_separate_block_not_body() -> Result<(), String
     // make it the `continue` target.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 for (let i = 0; i < 10; i++) {
   if (i === 3) {
     continue;
   }
   console.log(i);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
