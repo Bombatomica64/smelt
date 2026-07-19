@@ -378,6 +378,15 @@ impl IntoIterator for SmeltArray { type Item = SmeltUnknown; type IntoIter = ::s
 impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values) } }
 type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;
 
+fn smelt_eager_poll_waker() -> ::std::task::Waker {
+    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { raw() }
+    unsafe fn wake(_: *const ()) {}
+    unsafe fn wake_by_ref(_: *const ()) {}
+    unsafe fn drop(_: *const ()) {}
+    fn raw() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }
+    unsafe { ::std::task::Waker::from_raw(raw()) }
+}
+
 #[derive(Clone)]
 pub struct SmeltPromise {
     id: usize,
@@ -392,7 +401,10 @@ impl SmeltPromise {
     fn pending_with_id(id: usize) -> Self { Self { id, state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
     /// Create an already-fulfilled erased promise value.
     fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// Store a live future behind a cloneable erased promise handle.
+    /// Store a live future behind a cloneable erased promise handle. This
+    /// is the lazy constructor used by derived/adapter promises (await
+    /// flattening, `.then`/`.catch` chains, coercions): the future is not
+    /// driven until `smelt_await`, matching JS deferral of those.
     fn from_future(future: SmeltPromiseFuture) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(future))) } }
     /// Await the stored future once and share its settled result with clones.
     async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
@@ -426,6 +438,7 @@ async fn smelt_await_flatten(value: SmeltUnknown) -> Result<SmeltUnknown, Box<dy
 enum SmeltFutureState<T> {
     Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),
     Resolved(T),
+    Rejected(String),
     Taken,
 }
 pub struct SmeltFuture<T> {
@@ -436,8 +449,36 @@ impl<T: Default> Default for SmeltFuture<T> { fn default() -> Self { Self::resol
 impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltFuture") } }
 #[allow(dead_code)]
 impl<T> SmeltFuture<T> {
-    /// Wrap a live future behind a cloneable promise-value handle.
+    /// Wrap a live future behind a cloneable promise-value handle, lazily:
+    /// the future is not driven until `smelt_await`. Used by derived and
+    /// adapter promises (await flattening, `.then`/`.catch` chains, callback
+    /// coercions, `Promise.all` collection) whose bodies JS also defers,
+    /// so priming them would run continuations/handlers out of microtask
+    /// order — see `from_future_primed` for the eager-prefix constructor.
     fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Pending(future))) } }
+    /// Wrap an ASYNC-FUNCTION-BODY future, priming it with a single no-op-
+    /// waker poll so its synchronous prefix runs at call time (JS
+    /// eager-async-prefix semantics; see `smelt_eager_poll_waker`). Only
+    /// genuine async function / async closure / async method bodies use this,
+    /// so a call like `api.call()` registers its request synchronously before
+    /// the event loop turns — the difference that keeps
+    /// `Promise.all([call(), call(), call()])` from splitting a funnel/batch.
+    /// A prefix that completes resolves now; one that throws is captured as a
+    /// rejection surfaced only via `smelt_await` (JS: a throw before the first
+    /// await becomes a rejected promise, observable only through the
+    /// await/handler path); one that suspends keeps the advanced future for
+    /// later resume. Derived/adapter promises deliberately do NOT use this,
+    /// preserving when their continuations and rejections become observable.
+    fn from_future_primed(mut future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self {
+        let waker = smelt_eager_poll_waker();
+        let mut cx = ::std::task::Context::from_waker(&waker);
+        let state = match ::std::future::Future::poll(future.as_mut(), &mut cx) {
+            ::std::task::Poll::Ready(Ok(value)) => SmeltFutureState::Resolved(value),
+            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(error.to_string()),
+            ::std::task::Poll::Pending => SmeltFutureState::Pending(future),
+        };
+        Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)) }
+    }
     /// Build an already-resolved promise-value handle.
     fn resolved(value: T) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Resolved(value))) } }
     /// Drive the stored future once, cache its resolved value, and serve
@@ -460,6 +501,7 @@ impl<T> SmeltFuture<T> {
         let guard = self.state.borrow();
         match &*guard {
             SmeltFutureState::Resolved(value) => Ok(value.clone()),
+            SmeltFutureState::Rejected(message) => Err(std::io::Error::new(std::io::ErrorKind::Other, message.clone()).into()),
             _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "future already consumed").into()),
         }
     }
