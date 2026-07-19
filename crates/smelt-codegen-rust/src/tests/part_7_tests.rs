@@ -3733,13 +3733,17 @@ function wrap<T>(
 ",
     );
 
+    // Both fixed parameters are read out of the packed rest vector by index
+    // (`closure_arg_0.get({..index..})`). The callable-typed parameter's read
+    // is hoisted into a `let smelt_source_value = closure_arg_0.get(..)` binding
+    // by the callable-object narrowing, so assert on the shared `.get(` read.
     assert!(
-        source.contains("match closure_arg_0.get(")
+        source.contains("closure_arg_0.get(")
             && source.contains("SmeltUnknown::Array(values) => values.into_iter()"),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(
-        source.contains("match closure_arg_0.get("),
+        source.matches("closure_arg_0.get(").count() >= 2,
         "fixed callback spread calls should read the second fixed parameter from the rest vector: {source}"
     );
     assert!(
@@ -8031,9 +8035,13 @@ function adapt(
 ",
     );
 
+    // The adapted callable is materialized (called) before any identity or
+    // callable-object bookkeeping. A callable value narrowed from an object is
+    // re-erased back to that object when a registration exists; otherwise the
+    // origin is registered so the typed callback survives the erased ABI.
     assert!(
         source.contains(
-            "let smelt_function_value = (_smelt_adapted_callback)(arg0); let smelt_function_origin = smelt_function_value.clone();"
+            "let smelt_function_value = (_smelt_adapted_callback)(arg0); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone();"
         ),
         "{source}"
     );

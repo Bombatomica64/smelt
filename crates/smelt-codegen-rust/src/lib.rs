@@ -681,6 +681,39 @@ fn emit_source_with_free_function_router(
         writer.line("    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
         writer.line("}");
         writer.blank_line();
+        // A JavaScript "callable object" (a function with attached own
+        // properties, e.g. remeda's `map(cb)` carrying `.lazy`/`.lazyArgs`)
+        // erases to `SmeltUnknown::Object { __smelt_call, ...props }`. When such
+        // a value is narrowed to a CONCRETE typed callback (`Rc<dyn Fn(..)>`),
+        // the sibling properties have nowhere to live on the bare `Rc`, so a
+        // naive round-trip back to `SmeltUnknown` would forget them and yield a
+        // plain `SmeltUnknown::Function`. `SmeltErasedFunction` solves the same
+        // problem with its `object` field; typed `Rc` callbacks instead stash
+        // the originating object here, keyed by the callback allocation address
+        // (stable across `Rc::clone`). This is a genuine dynamic boundary
+        // (erased callable identity), not avoidable erasure: it PRESERVES a
+        // concrete object shape that would otherwise be lost.
+        writer.line("thread_local! {");
+        writer.line("    static SMELT_CALLABLE_OBJECTS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Stable key for a typed callback allocation (address of its `Rc`).");
+        writer.line("fn smelt_callable_object_key<F: ?Sized>(function: &::std::rc::Rc<F>) -> usize {");
+        writer.line("    ::std::rc::Rc::as_ptr(function) as *const () as usize");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Remember the callable object a typed callback was narrowed from.");
+        writer.line("fn smelt_register_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {");
+        writer.line("    if let SmeltUnknown::Object(_) = &object {");
+        writer.line("        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(smelt_callable_object_key(function), object); });");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Recover the callable object a typed callback was narrowed from.");
+        writer.line("fn smelt_lookup_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>) -> Option<SmeltUnknown> {");
+        writer.line("    SMELT_CALLABLE_OBJECTS.with(|objects| objects.borrow().get(&smelt_callable_object_key(function)).cloned())");
+        writer.line("}");
+        writer.blank_line();
         writer.line("impl<K, V> Clone for SmeltRecord<K, V> {");
         writer.line(
             "    fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), order: self.order.clone() } }",

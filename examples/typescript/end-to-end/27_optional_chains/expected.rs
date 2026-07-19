@@ -109,6 +109,27 @@ fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dy
     SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())
 }
 
+thread_local! {
+    static SMELT_CALLABLE_OBJECTS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+/// Stable key for a typed callback allocation (address of its `Rc`).
+fn smelt_callable_object_key<F: ?Sized>(function: &::std::rc::Rc<F>) -> usize {
+    ::std::rc::Rc::as_ptr(function) as *const () as usize
+}
+
+/// Remember the callable object a typed callback was narrowed from.
+fn smelt_register_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {
+    if let SmeltUnknown::Object(_) = &object {
+        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(smelt_callable_object_key(function), object); });
+    }
+}
+
+/// Recover the callable object a typed callback was narrowed from.
+fn smelt_lookup_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>) -> Option<SmeltUnknown> {
+    SMELT_CALLABLE_OBJECTS.with(|objects| objects.borrow().get(&smelt_callable_object_key(function)).cloned())
+}
+
 impl<K, V> Clone for SmeltRecord<K, V> {
     fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), order: self.order.clone() } }
 }
