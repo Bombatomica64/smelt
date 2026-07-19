@@ -345,6 +345,19 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
             .all()
             .iter()
             .any(|ty| matches!(ty, Type::JsMap(_, _)))
+        // A source `Promise<T>` (`Type::Future`) lowers to `SmeltFuture<T>`, and
+        // the whole promise/future runtime — `SmeltFuture`, `SmeltPromise`,
+        // `smelt_await_flatten`, and the eager-prefix priming waker — is emitted
+        // inside this `needs_unknown` prelude block. A fully-typed async program
+        // (no union/unknown/generic of its own) would otherwise reference
+        // `SmeltFuture` without it being defined, so any future forces the runtime
+        // on. Corpus programs never hit this because their erased values already
+        // set `needs_unknown`; it only surfaces for wholly-typed async code.
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::Future(_)))
         || mir.functions.iter().any(|function| {
             function.blocks.iter().any(|block| {
                 block.statements.iter().any(|statement| {

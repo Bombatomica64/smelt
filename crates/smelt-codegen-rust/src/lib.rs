@@ -1146,6 +1146,45 @@ fn emit_source_with_free_function_router(
         }
         writer.line("type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;");
         writer.blank_line();
+        // JS eager-async-prefix semantics. Calling an `async` function (or running
+        // a `new Promise` executor) executes SYNCHRONOUSLY up to the first `await`;
+        // only the continuation after that suspension point is deferred to a later
+        // microtask. Smelt models a promise value as a lazily-stored future that is
+        // not driven until `smelt_await`, which would instead defer the ENTIRE body
+        // (including its synchronous prefix). That breaks any code whose observable
+        // ordering depends on all prefixes running before the event loop turns —
+        // e.g. `Promise.all([api.call(), api.call(), api.call()])` where each
+        // `call` synchronously registers a request with a batch/funnel scheduler:
+        // lazily, the first `await` inside `Promise.all` drains a timer after only
+        // the first prefix ran, splitting one batch into three.
+        //
+        // `smelt_eager_poll_waker` is a no-op `Waker` used to poll a freshly
+        // constructed future exactly once at construction time, advancing it
+        // through its synchronous prefix up to (and not past) the first real
+        // suspension. The poll's result is folded into the promise's shared settle
+        // state (see `SmeltPromise::from_future` / `SmeltFuture::from_future`); a
+        // still-`Pending` future is kept and later resumed by `smelt_await` under
+        // the real executor waker. Because the no-op waker never schedules a wake,
+        // it is only ever valid for this single priming poll.
+        //
+        // Error observability contract: a synchronous prefix that throws lowers to
+        // a future that resolves `Poll::Ready(Err(_))` on its first poll. Per JS,
+        // an exception thrown before the first `await` of an `async` function
+        // becomes a REJECTED promise, not a synchronous throw, and its rejection is
+        // observable only through the normal await/handler path in microtask order.
+        // The priming poll therefore CAPTURES a `Ready(Err)` into the shared
+        // rejected settle state and NEVER propagates it out of `from_future`;
+        // `smelt_await` surfaces it exactly when a consumer awaits, preserving when
+        // rejections become observable relative to other continuations and timers.
+        writer.line("fn smelt_eager_poll_waker() -> ::std::task::Waker {");
+        writer.line("    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { raw() }");
+        writer.line("    unsafe fn wake(_: *const ()) {}");
+        writer.line("    unsafe fn wake_by_ref(_: *const ()) {}");
+        writer.line("    unsafe fn drop(_: *const ()) {}");
+        writer.line("    fn raw() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }");
+        writer.line("    unsafe { ::std::task::Waker::from_raw(raw()) }");
+        writer.line("}");
+        writer.blank_line();
         writer.line("#[derive(Clone)]");
         writer.line("pub struct SmeltPromise {");
         writer.line("    id: usize,");
@@ -1172,8 +1211,21 @@ fn emit_source_with_free_function_router(
             writer.line("    /// matching the existing string-based thrown-error ABI.");
             writer.line("    fn rejected(value: SmeltUnknown) -> Self { let message = match &value { SmeltUnknown::Object(map) => match map.get(\"message\") { Some(SmeltUnknown::String(text)) => text, _ => value.to_string() }, SmeltUnknown::String(text) => text.clone(), other => other.to_string() }; Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Err(message)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
         }
-        writer.line("    /// Store a live future behind a cloneable erased promise handle.");
-        writer.line("    fn from_future(future: SmeltPromiseFuture) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(future))) } }");
+        writer.line("    /// Store a live future behind a cloneable erased promise handle,");
+        writer.line("    /// priming it once so its synchronous prefix runs at construction");
+        writer.line("    /// (JS eager-async-prefix semantics; see `smelt_eager_poll_waker`).");
+        writer.line("    /// A prefix that completes settles the promise now; a prefix that");
+        writer.line("    /// throws is captured as a rejection surfaced only via `smelt_await`;");
+        writer.line("    /// a prefix that suspends keeps the advanced future for later resume.");
+        writer.line("    fn from_future(mut future: SmeltPromiseFuture) -> Self {");
+        writer.line("        let waker = smelt_eager_poll_waker();");
+        writer.line("        let mut cx = ::std::task::Context::from_waker(&waker);");
+        writer.line("        let (state, future) = match ::std::future::Future::poll(future.as_mut(), &mut cx) {");
+        writer.line("            ::std::task::Poll::Ready(result) => (Some(result.map_err(|error| error.to_string())), None),");
+        writer.line("            ::std::task::Poll::Pending => (None, Some(future)),");
+        writer.line("        };");
+        writer.line("        Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(future)) }");
+        writer.line("    }");
         writer
             .line("    /// Await the stored future once and share its settled result with clones.");
         writer.line(
@@ -1246,6 +1298,12 @@ fn emit_source_with_free_function_router(
         writer.line("enum SmeltFutureState<T> {");
         writer.line("    Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),");
         writer.line("    Resolved(T),");
+        // A synchronous prefix that threw during eager priming (see
+        // `smelt_eager_poll_waker`) is stored as a rejection, kept as a `String`
+        // so the state stays cloneable-in-effect: JS promises may be awaited more
+        // than once and each await re-observes the same rejection, so `smelt_await`
+        // rebuilds an error from this message on every call.
+        writer.line("    Rejected(String),");
         writer.line("    Taken,");
         writer.line("}");
         writer.line("pub struct SmeltFuture<T> {");
@@ -1256,8 +1314,22 @@ fn emit_source_with_free_function_router(
         writer.line("impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(\"SmeltFuture\") } }");
         writer.line("#[allow(dead_code)]");
         writer.line("impl<T> SmeltFuture<T> {");
-        writer.line("    /// Wrap a live future behind a cloneable promise-value handle.");
-        writer.line("    fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Pending(future))) } }");
+        writer.line("    /// Wrap a live future behind a cloneable promise-value handle, priming");
+        writer.line("    /// it once so its synchronous prefix runs at construction (JS");
+        writer.line("    /// eager-async-prefix semantics; see `smelt_eager_poll_waker`). A prefix");
+        writer.line("    /// that completes resolves now; one that throws is captured as a");
+        writer.line("    /// rejection surfaced only via `smelt_await`; one that suspends keeps the");
+        writer.line("    /// advanced future for later resume.");
+        writer.line("    fn from_future(mut future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self {");
+        writer.line("        let waker = smelt_eager_poll_waker();");
+        writer.line("        let mut cx = ::std::task::Context::from_waker(&waker);");
+        writer.line("        let state = match ::std::future::Future::poll(future.as_mut(), &mut cx) {");
+        writer.line("            ::std::task::Poll::Ready(Ok(value)) => SmeltFutureState::Resolved(value),");
+        writer.line("            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(error.to_string()),");
+        writer.line("            ::std::task::Poll::Pending => SmeltFutureState::Pending(future),");
+        writer.line("        };");
+        writer.line("        Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)) }");
+        writer.line("    }");
         writer.line("    /// Build an already-resolved promise-value handle.");
         writer.line("    fn resolved(value: T) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Resolved(value))) } }");
         writer.line("    /// Drive the stored future once, cache its resolved value, and serve");
@@ -1280,6 +1352,7 @@ fn emit_source_with_free_function_router(
         writer.line("        let guard = self.state.borrow();");
         writer.line("        match &*guard {");
         writer.line("            SmeltFutureState::Resolved(value) => Ok(value.clone()),");
+        writer.line("            SmeltFutureState::Rejected(message) => Err(std::io::Error::new(std::io::ErrorKind::Other, message.clone()).into()),");
         writer.line("            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, \"future already consumed\").into()),");
         writer.line("        }");
         writer.line("    }");
