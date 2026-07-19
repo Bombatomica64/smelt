@@ -2382,11 +2382,24 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             call
         };
-        let converted = self.value_at_type_text(
-            &call_value,
-            source_function.return_ty,
-            target_function.return_ty,
-        )?;
+        let converted = if self.mir.types.get(source_function.return_ty) == Some(&Type::None)
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+            ) {
+            // A `void`-returning source callback adapted into an erased return
+            // slot yields JavaScript `undefined`, not `null`. Invoke the
+            // callback for its side effects, then materialize
+            // `SmeltUnknown::Undefined` so downstream `!== undefined` guards
+            // treat the result as "no value".
+            format!("{{ {call_value}; SmeltUnknown::Undefined }}")
+        } else {
+            self.value_at_type_text(
+                &call_value,
+                source_function.return_ty,
+                target_function.return_ty,
+            )?
+        };
         let returned = if target_function.may_throw && !source_function.may_throw {
             format!("Ok::<_, Box<dyn std::error::Error>>({converted})")
         } else {
@@ -2922,6 +2935,18 @@ impl<'mir> FunctionEmitter<'mir> {
             // return type and calling `Option` methods on a `SmeltUnknown`.
             let unknown_ty = self.type_id(Type::Unknown)?;
             self.value_at_type_text(&call_value, unknown_ty, target_function.return_ty)?
+        } else if self.mir.types.get(source.return_ty) == Some(&Type::None)
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+            ) {
+            // A `void`-returning source callback adapted into an erased return
+            // slot produces JavaScript `undefined`, not `null`. Invoke the
+            // callback for its side effects, then materialize
+            // `SmeltUnknown::Undefined` so downstream `!== undefined` guards
+            // (e.g. cloneDeepWith's customizer wrapper) correctly treat the
+            // result as "no value" rather than a real `null` clone.
+            format!("{{ {call_value}; SmeltUnknown::Undefined }}")
         } else {
             self.value_at_type_text(&call_value, source.return_ty, target_function.return_ty)?
         };
@@ -3104,14 +3129,15 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("(smelt_callback)({args})")
         };
-        let null_text = self.null_value_text();
         let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
+            // A `void`-returning callback erased to a callable value returns
+            // JavaScript `undefined`, not `null`.
             if source.may_throw {
                 format!(
-                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
+                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
                 )
             } else {
-                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}")
+                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}")
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
@@ -3167,14 +3193,15 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("{function_text}({args})")
         };
-        let null_text = self.null_value_text();
         let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
+            // A `void`-returning callback erased to a callable value returns
+            // JavaScript `undefined`, not `null`.
             if source.may_throw {
                 format!(
-                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}"
+                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
                 )
             } else {
-                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({null_text}) }}")
+                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}")
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
