@@ -8282,6 +8282,65 @@ export function scaleAll(xs: number[]): number[] {
 }
 
 #[test]
+fn lowers_string_includes_inside_filter_callback_body() -> Result<(), String> {
+    // `s.includes(sub)` called inside a `.filter()` callback body is a
+    // statically-typed `String.prototype.includes` that the compact callback IR
+    // did not model: only the array-receiver `includes` arm existed, so a string
+    // (or erased) receiver surfaced "callback method `includes` is not lowered
+    // into closure bodies yet". The closure-body path now mirrors the direct
+    // `string_includes` lowering, emitting a `StringContains`. This is the
+    // dominant callback blocker across the quicktype/knip probes.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function withNeedle(words: string[], needle: string): string[] {
+  return words.filter((w) => w.includes(needle));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs
+                .iter()
+                .any(|expr| matches!(&expr.kind, ExprKind::StringContains { .. }))
+        }),
+        "string .includes() inside a filter callback body did not lower to StringContains"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_includes_with_position_inside_map_callback_body() -> Result<(), String> {
+    // The optional numeric `position` argument of `String.prototype.includes`
+    // must thread through the callback-body lowering as `from_index`, matching
+    // the direct lowering's second-argument handling.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function hasFromOne(words: string[]): boolean[] {
+  return words.map((w) => w.includes("a", 1));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::StringContains { from_index: Some(_), .. }
+            ))
+        }),
+        "string .includes(needle, position) inside a callback body did not carry from_index"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_callback_ternary_with_differing_list_branches() -> Result<(), String> {
     // A `.map` callback ternary whose branches are arrays of different element
     // types (`string[]` vs `number[]`) must reconcile to a single list type
