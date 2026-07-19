@@ -194,7 +194,20 @@ fn statement_text(statement: &Statement) -> String {
 fn rvalue_text(rvalue: &Rvalue) -> String {
     match rvalue {
         Rvalue::Use(operand) => operand_text(operand),
-        Rvalue::GeneratorYield { value } => format!("yield {}", operand_text(value)),
+        Rvalue::GeneratorYield {
+            value,
+            unwind,
+            cleanup,
+        } => {
+            let mut text = format!("yield {}", operand_text(value));
+            if let Some(handler) = unwind {
+                push_fmt(&mut text, format_args!(" unwind bb{}", handler.catch_block.0));
+            }
+            if let Some(cleanup) = cleanup {
+                push_fmt(&mut text, format_args!(" cleanup bb{}", cleanup.block.0));
+            }
+            text
+        }
         Rvalue::GeneratorNext {
             generator,
             value,

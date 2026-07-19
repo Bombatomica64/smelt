@@ -1167,8 +1167,13 @@ fn emit_source_with_free_function_router(
         if needs_generator {
         writer.line("#[derive(Clone, Debug)]");
         writer.line("pub enum SmeltGeneratorResult<Y, R> { Yielded(Y), Complete(R) }");
+        // JavaScript permits throwing any runtime value, independently of the
+        // generator's concrete Y/R/N parameters. This is a genuine dynamic
+        // boundary: preserving a number, object, symbol, or string for a catch
+        // binding requires the tagged runtime carrier rather than a concrete
+        // Rust generic shared with the other protocol channels.
         writer.line("#[derive(Clone, Debug)]");
-        writer.line("pub enum SmeltGeneratorCommand<N, R> { Next(N), Return(R), Throw(String) }");
+        writer.line("pub enum SmeltGeneratorCommand<N, R> { Next(N), Return(R), Throw(SmeltUnknown) }");
         writer.line("pub struct SmeltGenerator<Y, R, N> {");
         writer.line("    resume: ::std::rc::Rc<::std::cell::RefCell<Box<dyn FnMut(SmeltGeneratorCommand<N, R>) -> SmeltGeneratorResult<Y, R>>>>,");
         writer.line("    completed: ::std::rc::Rc<::std::cell::RefCell<Option<R>>>,");

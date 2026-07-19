@@ -48,6 +48,8 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) loops: Vec<LoopTargets>,
     /// Stack of lexical exception targets for throws inside try blocks.
     pub(super) exception_targets: Vec<ExceptionTarget>,
+    /// Stack of lexical finally clauses active at the current source position.
+    pub(super) generator_cleanups: Vec<crate::GeneratorCleanup>,
     /// Numeric type used for generated index-based loop counters.
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.
@@ -254,6 +256,7 @@ impl<'hir> LoweringCtx<'hir> {
             exprs: HashMap::new(),
             loops: Vec::new(),
             exception_targets: Vec::new(),
+            generator_cleanups: Vec::new(),
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
         }

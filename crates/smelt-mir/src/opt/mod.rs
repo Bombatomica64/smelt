@@ -217,7 +217,7 @@ fn rewrite_rvalue(
 ) -> bool {
     match rvalue {
         Rvalue::Use(operand) => rewrite_operand_except(operand, aliases, dest),
-        Rvalue::GeneratorYield { value } => rewrite_operand_except(value, aliases, dest),
+        Rvalue::GeneratorYield { value, .. } => rewrite_operand_except(value, aliases, dest),
         Rvalue::GeneratorNext {
             generator, value, ..
         } => {

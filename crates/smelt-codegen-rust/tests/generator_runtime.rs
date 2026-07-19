@@ -381,11 +381,24 @@ function* cleans(): Generator<string, string, unknown> {
   return "ordinary";
 }
 
+function* catchesType(): Generator<string, string, unknown> {
+  try {
+    yield "ready";
+  } catch (error) {
+    yield typeof error;
+  }
+  return "done";
+}
+
 test("abrupt commands enter suspended control flow", () => {
   const caught = catches();
   expect(caught.next().value).toBe("ready");
   expect(caught.throw("boom").value).toBe("caught:boom");
   expect(caught.next().value).toBe("caught-done");
+
+  const typed = catchesType();
+  expect(typed.next().value).toBe("ready");
+  expect(typed.throw(7).value).toBe("number");
 
   const cleaned = cleans();
   expect(cleaned.next().value).toBe("ready");
@@ -396,4 +409,119 @@ test("abrupt commands enter suspended control flow", () => {
 });
 "#;
     run_generator_fixture(source, "smelt_generator_runtime_abrupt_cleanup");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn yield_star_forwards_return_and_throw_commands() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+function* inner(): Generator<string, string, unknown> {
+  try {
+    yield "ready";
+  } catch (error) {
+    yield `caught:${error}`;
+  } finally {
+    yield "inner-finally";
+  }
+  return "inner-done";
+}
+
+function* outer(): Generator<string, string, unknown> {
+  return yield* inner();
+}
+
+test("delegated abrupt commands", () => {
+  const thrown = outer();
+  expect(thrown.next().value).toBe("ready");
+  expect(thrown.throw("boom").value).toBe("caught:boom");
+  expect(thrown.next().value).toBe("inner-finally");
+  expect(thrown.next().value).toBe("inner-done");
+
+  const returned = outer();
+  expect(returned.next().value).toBe("ready");
+  expect(returned.return("forced").value).toBe("inner-finally");
+  const complete = returned.next();
+  expect(complete.done).toBe(true);
+  expect(complete.value).toBe("forced");
+});
+"#;
+    run_generator_fixture(source, "smelt_generator_runtime_delegate_abrupt");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn async_generator_supports_sent_and_abrupt_commands() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+async function* exchange(): AsyncGenerator<string, string, number> {
+  try {
+    const received = yield "ready";
+    yield `received:${received}`;
+  } catch (error) {
+    yield `caught:${error}`;
+  } finally {
+    yield "finally";
+  }
+  return "done";
+}
+
+test("async generator commands", async () => {
+  const sent = exchange();
+  expect((await sent.next()).value).toBe("ready");
+  expect((await sent.next(8)).value).toBe("received:8");
+  expect((await sent.return("forced")).value).toBe("finally");
+  expect((await sent.next()).value).toBe("forced");
+
+  const thrown = exchange();
+  expect((await thrown.next()).value).toBe("ready");
+  expect((await thrown.throw("boom")).value).toBe("caught:boom");
+  expect((await thrown.next()).value).toBe("finally");
+  expect((await thrown.next()).value).toBe("done");
+});
+"#;
+    run_generator_fixture(source, "smelt_generator_runtime_async_commands");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn custom_symbol_iterators_delegate_at_runtime() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+class SyncValues {
+  *[Symbol.iterator](): Generator<number, string, unknown> {
+    yield 1;
+    return "sync-done";
+  }
+}
+
+class AsyncValues {
+  async *[Symbol.asyncIterator](): AsyncGenerator<string, number, unknown> {
+    yield "async";
+    return 2;
+  }
+}
+
+function* syncOuter(): Generator<number, string, unknown> {
+  return yield* new SyncValues();
+}
+
+async function* asyncOuter(): AsyncGenerator<string, number, unknown> {
+  return yield* new AsyncValues();
+}
+
+test("custom iterator symbols", async () => {
+  const sync = syncOuter();
+  expect(sync.next().value).toBe(1);
+  expect(sync.next().value).toBe("sync-done");
+
+  const asynchronous = asyncOuter();
+  expect((await asynchronous.next()).value).toBe("async");
+  expect((await asynchronous.next()).value).toBe(2);
+});
+"#;
+    run_generator_fixture(source, "smelt_generator_runtime_custom_symbols");
 }

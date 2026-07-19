@@ -16,7 +16,7 @@ impl Rvalue {
     pub fn for_each_operand(&self, mut visit: impl FnMut(&Operand)) {
         match self {
             Self::Use(operand) => visit(operand),
-            Self::GeneratorYield { value } => visit(value),
+            Self::GeneratorYield { value, .. } => visit(value),
             Self::GeneratorNext {
                 generator, value, ..
             } => {
@@ -738,7 +738,7 @@ impl Rvalue {
     pub fn for_each_operand_mut(&mut self, mut visit: impl FnMut(&mut Operand)) {
         match self {
             Self::Use(operand) => visit(operand),
-            Self::GeneratorYield { value } => visit(value),
+            Self::GeneratorYield { value, .. } => visit(value),
             Self::GeneratorNext {
                 generator, value, ..
             } => {

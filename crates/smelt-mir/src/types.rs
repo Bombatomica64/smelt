@@ -540,6 +540,10 @@ pub enum Rvalue {
     GeneratorYield {
         /// Value exposed by the suspension point.
         value: Operand,
+        /// Lexical catch continuation active at the suspension point.
+        unwind: Option<ExceptionHandler>,
+        /// Innermost finally continuation active at the suspension point.
+        cleanup: Option<GeneratorCleanup>,
     },
     /// Resume a synchronous generator once.
     GeneratorNext {
@@ -1784,12 +1788,21 @@ impl Terminator {
 }
 
 /// MIR edge for source-language exceptions from throwing calls.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExceptionHandler {
     /// Block reached when the call throws.
     pub catch_block: BlockId,
     /// Optional local receiving the thrown payload.
     pub exception_local: Option<LocalId>,
+}
+
+/// MIR edge used when an abrupt generator command must execute `finally` first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneratorCleanup {
+    /// Entry block of the active finally clause.
+    pub block: BlockId,
+    /// Block reached after the finally clause completes normally.
+    pub after: BlockId,
 }
 
 /// A single match arm.

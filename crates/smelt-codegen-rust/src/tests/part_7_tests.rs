@@ -3748,17 +3748,28 @@ const firstValue = first.value;
 "#,
     );
 
-    assert!(source.contains("SmeltGenerator<f64, String>"), "{source}");
+    assert!(
+        source.contains("SmeltGenerator<f64, String, SmeltUnknown>"),
+        "{source}"
+    );
     assert_eq!(source.matches("co.yield_").count(), 6, "{source}");
     assert!(source.contains("return \"done\".to_owned()"), "{source}");
-    assert!(source.contains("fn __smelt_symbol_iterator(&self) -> SmeltGenerator<f64, String>"), "{source}");
+    assert!(
+        source.contains(
+            "fn __smelt_symbol_iterator(&self) -> SmeltGenerator<f64, String, SmeltUnknown>"
+        ),
+        "{source}"
+    );
     assert!(source.contains("self_owned.value"), "{source}");
     assert!(source.contains("value.__smelt_symbol_iterator()"), "{source}");
     assert!(
         source.contains("value.unwrap_or_else(|error| panic!(\"{}\", error))"),
         "{source}"
     );
-    assert!(source.contains(".resume()"), "{source}");
+    assert!(
+        source.contains(".resume(SmeltGeneratorCommand::Next"),
+        "{source}"
+    );
     assert!(
         source.contains("SmeltGeneratorResult::Yielded(value) => { co.yield_"),
         "{source}"
@@ -3792,11 +3803,17 @@ async function consume(): Promise<string> {
 "#,
     );
 
-    assert!(source.contains("SmeltAsyncGenerator<f64, String>"), "{source}");
+    assert!(
+        source.contains("SmeltAsyncGenerator<f64, String, SmeltUnknown>"),
+        "{source}"
+    );
     assert!(source.contains("smelt_generator.async_resume().await"), "{source}");
     assert!(source.contains("SmeltFuture<SmeltGeneratorResult<f64, String>>"), "{source}");
     assert_eq!(source.matches("co.yield_").count(), 2, "{source}");
-    assert!(source.matches(".resume()").count() >= 3, "{source}");
+    assert!(
+        source.matches(".resume(SmeltGeneratorCommand::Next").count() >= 3,
+        "{source}"
+    );
 }
 
 /// A method shared by every arm of a concrete union must dispatch through the

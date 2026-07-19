@@ -1234,7 +1234,11 @@ impl LoweringCtx<'_> {
                 self.assign_temp(
                     expr.ty,
                     expr.span,
-                    Rvalue::GeneratorYield { value: operand },
+                    Rvalue::GeneratorYield {
+                        value: operand,
+                        unwind: self.current_exception_handler(),
+                        cleanup: self.generator_cleanups.last().copied(),
+                    },
                 )?
             }
             ExprKind::GeneratorNext {

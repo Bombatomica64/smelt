@@ -165,14 +165,70 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Rvalue::Use(operand) => self.value_at_type(operand, dest_ty),
-            Rvalue::GeneratorYield { value } => {
+            Rvalue::GeneratorYield {
+                value,
+                unwind,
+                cleanup,
+            } => {
                 let returned = if self.function.is_async || self.function.can_throw {
                     "return Ok(value)"
                 } else {
                     "return value"
                 };
+                let cleanup_text = if let Some(cleanup) = cleanup {
+                    let declared = self.declared_locals_snapshot();
+                    let mut cleanup_text = String::new();
+                    self.emit_block_until_goto(
+                        self.block(cleanup.block)?,
+                        cleanup.after,
+                        None,
+                        &mut cleanup_text,
+                    )?;
+                    self.restore_declared_locals(declared);
+                    cleanup_text
+                } else {
+                    String::new()
+                };
+                let returned = if cleanup.is_some() {
+                    let final_return = if self.function.is_async || self.function.can_throw {
+                        "return Ok(smelt_forced_return)"
+                    } else {
+                        "return smelt_forced_return"
+                    };
+                    format!(
+                        "{{ let smelt_forced_return = value; {cleanup_text} {final_return} }}"
+                    )
+                } else {
+                    returned.to_owned()
+                };
+                let thrown = if let Some(handler) = unwind {
+                    let declared = self.declared_locals_snapshot();
+                    let mut catch_text = String::new();
+                    if let Some(exception_local) = handler.exception_local {
+                        let exception_name = self.local_name(exception_local)?;
+                        let exception_decl = self.local_decl(exception_local)?;
+                        let unknown_ty = self.type_id(Type::Unknown)?;
+                        let exception_value = self.value_at_type_text(
+                            "error",
+                            unknown_ty,
+                            exception_decl.ty,
+                        )?;
+                        catch_text.push_str(&format!(
+                            "let {exception_name}: {} = {exception_value};\n",
+                            self.type_text_with_impl_trait(exception_decl.ty, false)?
+                        ));
+                        self.mark_local_declared(exception_local);
+                    }
+                    self.emit_block(self.block(handler.catch_block)?, &mut catch_text)?;
+                    self.restore_declared_locals(declared);
+                    format!("{{ {catch_text} }}")
+                } else if cleanup.is_some() {
+                    format!("{{ {cleanup_text} panic!(\"{{}}\", error) }}")
+                } else {
+                    "panic!(\"{}\", error)".to_owned()
+                };
                 Ok(format!(
-                    "{{ co.yield_({}).await; match smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())) {{ SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => {returned}, SmeltGeneratorCommand::Throw(error) => panic!(\"{{}}\", error) }} }}",
+                    "{{ co.yield_({}).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => {returned}, SmeltGeneratorCommand::Throw(error) => {thrown} }} }}",
                     self.operand_text(value)?
                 ))
             }
@@ -194,7 +250,13 @@ impl FunctionEmitter<'_> {
                         format!("SmeltGeneratorCommand::Return({raw_value})")
                     }
                     smelt_mir::GeneratorResumeKind::Throw => {
-                        format!("SmeltGeneratorCommand::Throw(format!(\"{{}}\", {raw_value}))")
+                        let thrown = if let Some(value) = value {
+                            let unknown_ty = self.type_id(Type::Unknown)?;
+                            self.value_at_type(value, unknown_ty)?
+                        } else {
+                            "SmeltUnknown::Undefined".to_owned()
+                        };
+                        format!("SmeltGeneratorCommand::Throw({thrown})")
                     }
                 };
                 Ok(format!("{}.resume({command})", self.operand_text(generator)?))
@@ -224,6 +286,7 @@ impl FunctionEmitter<'_> {
                 let Some(Type::Generator {
                     yield_ty: outer_yield_ty,
                     next_ty: outer_next_ty,
+                    return_ty: outer_return_ty,
                     ..
                 }) = self.mir.types.get(self.function.return_ty)
                 else {
@@ -235,11 +298,8 @@ impl FunctionEmitter<'_> {
                 } else {
                     "return value"
                 };
-                let outer_sent = format!(
-                    "match smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())) {{ SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => panic!(\"{{}}\", error) }}"
-                );
                 let consume_outer_sent = format!(
-                    "match smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())) {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => panic!(\"{{}}\", error) }}"
+                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => panic!(\"{{}}\", error) }} }}"
                 );
                 match self.mir.types.get(generator_ty) {
                     Some(Type::Generator {
@@ -252,17 +312,25 @@ impl FunctionEmitter<'_> {
                             self.value_at_type_text("value", *yield_ty, *outer_yield_ty)?;
                         let completed = self.value_at_type_text("value", *return_ty, dest_ty)?;
                         let sent = self.value_at_type_text(
-                            &outer_sent,
+                            "value",
                             *outer_next_ty,
                             *next_ty,
                         )?;
+                        let returned_command = self.value_at_type_text(
+                            "value",
+                            *outer_return_ty,
+                            *return_ty,
+                        )?;
+                        let delegate_command = format!(
+                            "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(value) => SmeltGeneratorCommand::Next({sent}), SmeltGeneratorCommand::Return(value) => SmeltGeneratorCommand::Return({returned_command}), SmeltGeneratorCommand::Throw(error) => SmeltGeneratorCommand::Throw(error) }} }}"
+                        );
                         let resume = if *is_async {
-                            "smelt_delegate.resume(SmeltGeneratorCommand::Next(smelt_delegate_next)).await?"
+                            "smelt_delegate.resume(smelt_delegate_command).await?"
                         } else {
-                            "smelt_delegate.resume(SmeltGeneratorCommand::Next(smelt_delegate_next))"
+                            "smelt_delegate.resume(smelt_delegate_command)"
                         };
                         Ok(format!(
-                            "{{ let smelt_delegate = {operand}; let mut smelt_delegate_next = Default::default(); loop {{ match {resume} {{ SmeltGeneratorResult::Yielded(value) => {{ co.yield_({forwarded}).await; smelt_delegate_next = {sent}; }}, SmeltGeneratorResult::Complete(value) => break {completed} }} }} }}"
+                            "{{ let smelt_delegate = {operand}; let mut smelt_delegate_command = SmeltGeneratorCommand::Next(Default::default()); loop {{ match {resume} {{ SmeltGeneratorResult::Yielded(value) => {{ co.yield_({forwarded}).await; smelt_delegate_command = {delegate_command}; }}, SmeltGeneratorResult::Complete(value) => break {completed} }} }} }}"
                         ))
                     }
                     Some(Type::List(item_ty) | Type::Set(item_ty)) => {
@@ -310,17 +378,25 @@ impl FunctionEmitter<'_> {
                                         dest_ty,
                                     )?;
                                     let sent = self.value_at_type_text(
-                                        &outer_sent,
+                                        "value",
                                         *outer_next_ty,
                                         *next_ty,
                                     )?;
+                                    let returned_command = self.value_at_type_text(
+                                        "value",
+                                        *outer_return_ty,
+                                        *return_ty,
+                                    )?;
+                                    let delegate_command = format!(
+                                        "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(value) => SmeltGeneratorCommand::Next({sent}), SmeltGeneratorCommand::Return(value) => SmeltGeneratorCommand::Return({returned_command}), SmeltGeneratorCommand::Throw(error) => SmeltGeneratorCommand::Throw(error) }} }}"
+                                    );
                                     let resume = if *is_async {
-                                        "smelt_arm.resume(SmeltGeneratorCommand::Next(smelt_delegate_next)).await?"
+                                        "smelt_arm.resume(smelt_delegate_command).await?"
                                     } else {
-                                        "smelt_arm.resume(SmeltGeneratorCommand::Next(smelt_delegate_next))"
+                                        "smelt_arm.resume(smelt_delegate_command)"
                                     };
                                     format!(
-                                        "{{ let mut smelt_delegate_next = Default::default(); loop {{ match {resume} {{ SmeltGeneratorResult::Yielded(value) => {{ co.yield_({forwarded}).await; smelt_delegate_next = {sent}; }}, SmeltGeneratorResult::Complete(value) => break {completed} }} }} }}"
+                                        "{{ let mut smelt_delegate_command = SmeltGeneratorCommand::Next(Default::default()); loop {{ match {resume} {{ SmeltGeneratorResult::Yielded(value) => {{ co.yield_({forwarded}).await; smelt_delegate_command = {delegate_command}; }}, SmeltGeneratorResult::Complete(value) => break {completed} }} }} }}"
                                     )
                                 }
                                 Some(Type::List(item_ty) | Type::Set(item_ty)) => {
