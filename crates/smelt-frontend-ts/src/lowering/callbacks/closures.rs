@@ -1176,13 +1176,22 @@ impl ModuleBuilder<'_> {
                     .or_else(|| self.ctx.krate.symbols.get(*name))
                     .and_then(|class_name| self.class_methods.get(class_name))
                     .is_some_and(|methods| methods.iter().any(|candidate| candidate.name == method));
-                let predeclared_method = self
-                    .type_alias_fields
-                    .get(name)
-                    .and_then(|fields| fields.iter().find(|field| field.name == method))
-                    .is_some_and(|field| {
-                        matches!(self.ctx.krate.types.get(field.ty), Some(Type::Function(_)))
-                    });
+                // `type_alias_fields` mixes two producers: genuine object-type
+                // aliases (structural closure fields) and class method surfaces
+                // predeclared by `predeclare_class_method_fields` for barrel
+                // cycles. Only the class-backed entries name real methods; an
+                // alias-typed receiver (e.g. remeda's `Funnel.flush`) stores a
+                // closure field with no class item behind it, so routing it to
+                // `ExprKind::Method` makes MIR method resolution fail. A lowered
+                // `Item::TypeAlias` with this symbol identifies the alias case.
+                let predeclared_method = self.find_type_alias(*name).is_none()
+                    && self
+                        .type_alias_fields
+                        .get(name)
+                        .and_then(|fields| fields.iter().find(|field| field.name == method))
+                        .is_some_and(|field| {
+                            matches!(self.ctx.krate.types.get(field.ty), Some(Type::Function(_)))
+                        });
                 item_method || sidecar_method || predeclared_method
             }
             _ => false,

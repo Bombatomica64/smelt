@@ -1246,8 +1246,37 @@ fn emit_source_with_free_function_router(
         writer.line("    fn new(resume: impl Fn(SmeltGeneratorCommand<N, R>) -> SmeltFuture<SmeltGeneratorResult<Y, R>> + 'static) -> Self { Self { resume: ::std::rc::Rc::new(resume), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
         writer.line("    fn resume(&self, command: SmeltGeneratorCommand<N, R>) -> SmeltFuture<SmeltGeneratorResult<Y, R>> { if let Some(value) = self.completed.borrow().clone() { return SmeltFuture::from_future(Box::pin(async move { Ok(SmeltGeneratorResult::Complete(value)) })); } let future = (self.resume)(command); let completed = self.completed.clone(); SmeltFuture::from_future(Box::pin(async move { let result = future.await?; if let SmeltGeneratorResult::Complete(value) = &result { *completed.borrow_mut() = Some(value.clone()); } Ok(result) })) }");
         writer.line("}");
+        // Genuine dynamic boundary: a generator crossing into source `unknown`
+        // (e.g. a `function*` value stored in an erased callable slot, or a
+        // generator object handed to an `unknown`-typed parameter) is a live
+        // resumable state machine. No concrete type, generated union, or
+        // scoped generic can represent it on the erased side — the receiver
+        // only knows the JavaScript iterator protocol. The adapter therefore
+        // reproduces exactly that protocol: an object with a callable `next`
+        // that resumes the same shared state machine and returns erased
+        // `{ value, done }` steps, plus a `__smelt_generator` marker for tag
+        // checks. Yielded/returned values erase through `IntoSmeltUnknown` at
+        // the step boundary; resume inputs are dropped because the erased
+        // protocol cannot type them (matching a bare `next()` call).
+        writer.line("impl<Y: IntoSmeltUnknown + 'static, R: IntoSmeltUnknown + Clone + 'static, N: Default + 'static> IntoSmeltUnknown for SmeltGenerator<Y, R, N> {");
+        writer.line("    fn into_smelt_unknown(self) -> SmeltUnknown { let generator = self; let mut object = ::std::collections::HashMap::new(); object.insert(\"__smelt_generator\".to_owned(), SmeltUnknown::Bool(true)); object.insert(\"next\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let mut step = ::std::collections::HashMap::new(); match generator.resume(SmeltGeneratorCommand::Next(Default::default())) { SmeltGeneratorResult::Yielded(value) => { step.insert(\"value\".to_owned(), value.into_smelt_unknown()); step.insert(\"done\".to_owned(), SmeltUnknown::Bool(false)); } SmeltGeneratorResult::Complete(value) => { step.insert(\"value\".to_owned(), value.into_smelt_unknown()); step.insert(\"done\".to_owned(), SmeltUnknown::Bool(true)); } } Ok(SmeltUnknown::Object(SmeltObject::new(step))) }))); SmeltUnknown::Object(SmeltObject::new(object)) }");
+        writer.line("}");
+        // Async flavor of the same boundary: `next` returns an erased promise
+        // that resolves to the `{ value, done }` step, mirroring the async
+        // iterator protocol an erased consumer would drive.
+        writer.line("impl<Y: IntoSmeltUnknown + Clone + 'static, R: IntoSmeltUnknown + Clone + 'static, N: Default + 'static> IntoSmeltUnknown for SmeltAsyncGenerator<Y, R, N> {");
+        writer.line("    fn into_smelt_unknown(self) -> SmeltUnknown { let generator = self; let mut object = ::std::collections::HashMap::new(); object.insert(\"__smelt_generator\".to_owned(), SmeltUnknown::Bool(true)); object.insert(\"next\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let future = generator.resume(SmeltGeneratorCommand::Next(Default::default())); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let mut step = ::std::collections::HashMap::new(); match future.await? { SmeltGeneratorResult::Yielded(value) => { step.insert(\"value\".to_owned(), value.into_smelt_unknown()); step.insert(\"done\".to_owned(), SmeltUnknown::Bool(false)); } SmeltGeneratorResult::Complete(value) => { step.insert(\"value\".to_owned(), value.into_smelt_unknown()); step.insert(\"done\".to_owned(), SmeltUnknown::Bool(true)); } } Ok(SmeltUnknown::Object(SmeltObject::new(step))) })))) }))); SmeltUnknown::Object(SmeltObject::new(object)) }");
+        writer.line("}");
         writer.blank_line();
         }
+        // `[Symbol.iterator]()` on an erased iterable may return a plain array,
+        // a string, nothing, or a live iterator object obeying the JavaScript
+        // iterator protocol (an erased generator or hand-written `{ next }`
+        // iterator). Only the protocol itself is observable across the erased
+        // boundary, so list extraction drains `next()` until `done`.
+        writer.line("/// Collect an erased `[Symbol.iterator]()` result into its item values.");
+        writer.line("fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { match source { SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(object) => { let Some(SmeltUnknown::Function(next)) = object.get(\"next\") else { panic!(\"unknown iterator did not return an iterable\") }; let mut items = Vec::new(); loop { let step = next(vec![]).unwrap_or(SmeltUnknown::Undefined); let SmeltUnknown::Object(step) = step else { break }; if matches!(step.get(\"done\"), Some(SmeltUnknown::Bool(true))) { break; } items.push(step.get(\"value\").unwrap_or(SmeltUnknown::Undefined)); } items } _ => panic!(\"unknown iterator did not return an iterable\") } }");
+        writer.blank_line();
         writer.line("/// Return an erased JavaScript `Array.prototype.sort` method bound to an erased array.");
         writer.line("fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }");
         writer.blank_line();

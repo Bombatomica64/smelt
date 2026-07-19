@@ -1101,6 +1101,87 @@ fn injects_genawaiter_dependency_for_generator_emission() {
     );
 }
 
+/// A closure field on a *type-alias* object receiver must stay a closure call
+/// even inside callback-migrated bodies. Regression for PR #178: the new
+/// `callback_receiver_declares_method` treated `type_alias_fields` entries as
+/// class methods, but that map also stores genuine alias fields (remeda's
+/// `Funnel.flush`), which have no class item — MIR method resolution then
+/// failed with "class method `flush` is not resolvable".
+#[test]
+fn alias_closure_field_call_in_callback_body_stays_closure_call() {
+    let source = source_for(
+        "type Funnel = {\n\
+           readonly call: () => void;\n\
+           readonly flush: () => void;\n\
+           readonly isIdle: boolean;\n\
+         };\n\
+         function funnel(cb: () => void): Funnel {\n\
+           let idle = true;\n\
+           return {\n\
+             call: () => { idle = false; cb(); },\n\
+             flush: () => { idle = true; cb(); },\n\
+             get isIdle() { return idle; },\n\
+           };\n\
+         }\n\
+         export function makeDebouncer(fn: () => void) {\n\
+           let cached: number | undefined;\n\
+           const debouncingFunnel = funnel(fn);\n\
+           return {\n\
+             call: () => { debouncingFunnel.call(); return cached; },\n\
+             flush: () => { debouncingFunnel.flush(); return cached; },\n\
+             get isPending() { return !debouncingFunnel.isIdle; },\n\
+           };\n\
+         }\n",
+    );
+    // Reaching here means MIR lowering resolved every call; the alias field
+    // dispatches as a stored closure, not a class method item.
+    assert!(!source.is_empty());
+}
+
+/// A `function*` expression stored in an erased slot crosses the dynamic
+/// boundary at construction and must erase through the `IntoSmeltUnknown`
+/// iterator adapter. Regression for PR #178: the generator closure returned a
+/// concrete `SmeltGenerator` where the erased signature required
+/// `SmeltUnknown` (E0271 in remeda's `length` iterable test, E0308 in
+/// es-toolkit's `isFunction` spec). The boundary is genuinely dynamic — a live
+/// resumable state machine has no concrete/union/generic representation on
+/// the erased side, only the iterator protocol the adapter reproduces.
+#[test]
+fn generator_in_erased_slot_erases_through_into_smelt_unknown() {
+    let source = source_for(
+        "function length<T>(items: Iterable<T>): number {\n\
+           return [...items].length;\n\
+         }\n\
+         export function countYields(): number {\n\
+           return length({\n\
+             *[Symbol.iterator]() {\n\
+               yield 0;\n\
+               yield 1;\n\
+               yield 2;\n\
+             },\n\
+           });\n\
+         }\n",
+    );
+    assert!(
+        source.contains("genawaiter::rc::Gen"),
+        "generator expression should emit a genawaiter state machine: {source}"
+    );
+    assert!(
+        source.contains(").into_smelt_unknown()"),
+        "erased-slot generator must erase through IntoSmeltUnknown: {source}"
+    );
+    assert!(
+        source.contains("impl<Y: IntoSmeltUnknown + 'static, R: IntoSmeltUnknown + Clone + 'static, N: Default + 'static> IntoSmeltUnknown for SmeltGenerator<Y, R, N>"),
+        "prelude must define the generator boundary adapter: {source}"
+    );
+    // Consumers of an erased iterable must drain the iterator protocol the
+    // adapter exposes, not just accept a materialized array.
+    assert!(
+        source.contains("fn smelt_unknown_iterator_items"),
+        "list extraction must drain the erased iterator protocol: {source}"
+    );
+}
+
 #[test]
 fn injects_serde_json_dependency_for_json_mapping() {
     let manifest = deps::cargo_toml(

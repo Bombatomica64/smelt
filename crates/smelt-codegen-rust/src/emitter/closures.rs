@@ -590,9 +590,36 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Vec<_>>()
                     .join(" ");
+                // When the closure's declared MIR return type is not a
+                // `Type::Generator` — a `function*` expression stored in an
+                // erased slot (`unknown` field, `Rc<dyn Fn() -> SmeltUnknown>`)
+                // — the constructed state machine crosses the dynamic boundary
+                // at construction. Erase it through the explicit
+                // `IntoSmeltUnknown` adapter so the closure's Rust return type
+                // matches its erased signature; a concrete `SmeltGenerator`
+                // cannot inhabit the erased slot (E0308/E0271 in generated
+                // remeda `length_test` and es-toolkit `isFunction_spec`).
+                // The erased construction also pins the resume-protocol type
+                // parameters: an empty generator (`function* () {}`) yields
+                // nothing, so without the turbofish `Y`/`N` stay uninferred
+                // once `.into_smelt_unknown()` consumes the concrete type
+                // (E0282 in es-toolkit's `isFunction` spec). Yield operands are
+                // erased at each suspension point (see `GeneratorYield` in
+                // `call_runtime.rs`), so `SmeltUnknown` channels are exact.
+                let (erase_suffix, generator_turbofish) = if matches!(
+                    emitter.mir.types.get(function.return_ty),
+                    Some(Type::Generator { .. })
+                ) {
+                    ("", "")
+                } else {
+                    (
+                        ".into_smelt_unknown()",
+                        "::<SmeltUnknown, SmeltUnknown, SmeltUnknown>",
+                    )
+                };
                 if function.is_async {
                     format!(
-                        "|{params_text}| {{ {capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, Box<dyn std::error::Error>>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }}) }}"
+                        "|{params_text}| {{ {capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator{generator_turbofish}::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, Box<dyn std::error::Error>>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }}){erase_suffix} }}"
                     )
                 } else {
                     let completion = if closure.can_throw {
@@ -601,7 +628,7 @@ impl FunctionEmitter<'_> {
                         "value"
                     };
                     format!(
-                        "|{params_text}| {{ {capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let mut smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }}) }}"
+                        "|{params_text}| {{ {capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let mut smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); SmeltGenerator{generator_turbofish}::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }}){erase_suffix} }}"
                     )
                 }
             } else if returns_future || awaits_inside_body {

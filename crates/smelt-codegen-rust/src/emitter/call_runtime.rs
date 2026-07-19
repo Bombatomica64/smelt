@@ -227,9 +227,21 @@ impl FunctionEmitter<'_> {
                 } else {
                     "panic!(\"{}\", error)".to_owned()
                 };
-                Ok(format!(
-                    "{{ co.yield_({}).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => {returned}, SmeltGeneratorCommand::Throw(error) => {thrown} }} }}",
+                // A generator whose declared return type is erased (`unknown`)
+                // pins every protocol channel to `SmeltUnknown` (see the
+                // erased-slot construction in `closures.rs`), so its yielded
+                // values must be erased at the suspension point too.
+                let yield_text = if matches!(
+                    self.mir.types.get(self.function.return_ty),
+                    Some(Type::Generator { .. })
+                ) {
                     self.operand_text(value)?
+                } else {
+                    let unknown_ty = self.type_id(Type::Unknown)?;
+                    self.value_at_type(value, unknown_ty)?
+                };
+                Ok(format!(
+                    "{{ co.yield_({yield_text}).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => {returned}, SmeltGeneratorCommand::Throw(error) => {thrown} }} }}"
                 ))
             }
             Rvalue::GeneratorNext {
