@@ -1,0 +1,33 @@
+[project]
+name = "immer"
+version = "0.0.0"
+description = "Immer Smelt probe"
+
+[sources]
+roots = ["src", "__tests__"]
+test-globs = [
+    "draft.ts",
+    "empty.ts",
+    "immutable.ts",
+    "not-strict-copy.ts",
+    "produce.ts",
+    "redux.ts",
+    "spec_ts.ts",
+    "type-external.ts",
+]
+entries = ["src/immer.ts"]
+
+[output]
+target = "./dist-smelt"
+crate-name = "immer_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"
