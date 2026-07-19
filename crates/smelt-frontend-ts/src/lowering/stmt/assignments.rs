@@ -472,6 +472,34 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
+        if let Some(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        }) = self.ctx.krate.types.get(receiver_ty).cloned()
+            && matches!(member.property.name.as_str(), "done" | "value")
+        {
+            let (kind, ty) = if member.property.name == "done" {
+                (
+                    ExprKind::GeneratorDone { result: receiver },
+                    self.ctx.krate.types.intern(Type::Bool),
+                )
+            } else {
+                let value_ty = if yield_ty == return_ty {
+                    yield_ty
+                } else {
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Union(vec![yield_ty, return_ty]))
+                };
+                (ExprKind::GeneratorValue { result: receiver }, value_ty)
+            };
+            return Ok(body.push_expr(Expr {
+                kind,
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
         let field_ty = match self.class_field_type(access_receiver_ty, field) {
             Ok(field_ty) => field_ty,
             // Reading an absent property yields `undefined` in JavaScript. A

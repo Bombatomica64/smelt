@@ -302,26 +302,40 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Resolve a class `implements` clause entry to an interface symbol.
+    /// Resolve a class `implements` clause entry to a local interface reference.
     ///
     /// Qualified external interface references are opaque to Smelt's local
-    /// interface validator, so they are ignored instead of blocking class
-    /// lowering. Direct identifiers are still validated against local
-    /// interfaces.
-    pub(in crate::lowering) fn implements_symbol(
+    /// interface validator, as are direct imported or ambient interfaces that
+    /// have no locally lowered structural definition. Local references retain
+    /// their type arguments so validation can instantiate generic requirements.
+    pub(in crate::lowering) fn implements_reference(
         &mut self,
         item: &oxc::ast::ast::TSClassImplements<'_>,
-    ) -> Result<Option<smelt_hir::Symbol>, SmeltError> {
-        if item.type_arguments.is_some() {
-            return Err(SmeltError::unsupported(
-                self.span(item.span.start, item.span.end),
-                "generic implements clauses are not lowered yet",
-            ));
-        }
+    ) -> Result<Option<smelt_hir::InterfaceHeritage>, SmeltError> {
         let TSTypeName::IdentifierReference(name) = &item.expression else {
             return Ok(None);
         };
-        Ok(Some(self.intern_type_name(name.name.as_str())))
+        let local_name = name.name.as_str();
+        let qualified_name = self.qualified_type_declaration_name(local_name);
+        let parent = self.intern_type_name(&qualified_name);
+        if !self.pending_interface_names.contains(local_name)
+            && !self.lowered_local_interfaces.contains(&parent)
+        {
+            return Ok(None);
+        }
+        let args = item
+            .type_arguments
+            .as_ref()
+            .map(|arguments| {
+                arguments
+                    .params
+                    .iter()
+                    .map(|argument| self.ts_type_to_hir(argument))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        Ok(Some(smelt_hir::InterfaceHeritage { parent, args }))
     }
 
     /// Convert an interface heritage clause to the referenced interface symbol and arguments.
@@ -394,44 +408,34 @@ impl ModuleBuilder<'_> {
     }
 
     /// Validate that a lowered class satisfies all declared interfaces.
-    pub(in crate::lowering) fn validate_implements(&self, class_item: smelt_hir::ItemId) -> Result<(), SmeltError> {
-        let Item::Class(class) = self.item_ref(class_item) else {
+    pub(in crate::lowering) fn validate_implements(&mut self, class_item: smelt_hir::ItemId) -> Result<(), SmeltError> {
+        let Item::Class(class) = self.item_ref(class_item).clone() else {
             return Ok(());
         };
-        for interface_name in &class.implements {
-            let interface = self
-                .ctx
-                .krate
-                .items
-                .iter()
-                .find_map(|item| {
-                    if let Item::Interface(interface) = item
-                        && interface.name == *interface_name
-                    {
-                        return Some(interface);
-                    }
-                    None
-                })
-                .ok_or_else(|| {
-                    let name = self
-                        .ctx
-                        .krate
-                        .symbols
-                        .get(*interface_name)
-                        .unwrap_or("<unknown>");
-                    SmeltError::unsupported(
-                        class.span,
-                        format!("implemented interface `{name}` is not declared"),
-                    )
-                })?;
-            for required in &interface.fields {
+        for implemented in &class.implements {
+            if !self
+                .lowered_local_interfaces
+                .contains(&implemented.parent)
+            {
+                continue;
+            }
+            let Some(interface) = self.find_interface(implemented.parent).cloned() else {
+                continue;
+            };
+            let substitutions = self.type_argument_substitution(
+                &interface.type_params,
+                &implemented.args,
+                class.span,
+            )?;
+            let required_fields = self.substituted_fields(&interface.fields, &substitutions);
+            let required_methods = self.substituted_methods(&interface.methods, &substitutions);
+            for required in &required_fields {
                 // Method signatures are also recorded as function-typed fields
                 // so interface-typed values expose callable members. A class
                 // satisfies such a requirement with a real method, which the
                 // method loop below validates, so skip the field check here to
                 // avoid demanding a matching data field the class never stores.
-                if interface
-                    .methods
+                if required_methods
                     .iter()
                     .any(|method| method.name == required.name)
                 {
@@ -469,7 +473,7 @@ impl ModuleBuilder<'_> {
                     ));
                 }
             }
-            for required in &interface.methods {
+            for required in &required_methods {
                 let Some(actual_item) = class.methods.iter().find(|method_item| {
                     matches!(self.item_ref(**method_item), Item::Function(function) if function.name == required.name)
                 }) else {
@@ -493,7 +497,15 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .map(|param| param.ty)
                     .collect::<Vec<_>>();
-                if actual_params != required_params || actual.return_ty != required.return_ty {
+                let parameters_match = actual_params.len() == required_params.len()
+                    && actual_params.iter().zip(&required_params).all(
+                        |(actual_param, required_param)| {
+                            self.type_assignable_to(*required_param, *actual_param)
+                        },
+                    );
+                let return_matches =
+                    self.type_assignable_to(actual.return_ty, required.return_ty);
+                if !parameters_match || !return_matches {
                     let name = self
                         .ctx
                         .krate

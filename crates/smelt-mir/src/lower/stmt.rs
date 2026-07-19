@@ -209,6 +209,13 @@ impl LoweringCtx<'_> {
 
         self.set_terminator(Terminator::Goto(try_block))?;
 
+        if let Some(finally_block) = finally_mir_block {
+            self.generator_cleanups.push(crate::GeneratorCleanup {
+                block: finally_block,
+                after,
+            });
+        }
+
         if let Some(catch_block) = catch_mir_block {
             let exception_local = catch_binding
                 .map(|local| {
@@ -239,6 +246,10 @@ impl LoweringCtx<'_> {
             if self.block()?.terminator.is_none() {
                 self.set_terminator(Terminator::Goto(normal_exit))?;
             }
+        }
+
+        if finally_mir_block.is_some() {
+            self.generator_cleanups.pop();
         }
 
         if let (Some(finally_hir), Some(finally_block)) = (finally_body_hir, finally_mir_block) {

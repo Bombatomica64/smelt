@@ -152,6 +152,33 @@ pub(super) fn substitute_type_id(
             let substituted_item = substitute_type_id(mir, item, substitutions);
             mir.types.intern(Type::Future(substituted_item))
         }
+        Some(Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        }) => {
+            let substituted_yield = substitute_type_id(mir, yield_ty, substitutions);
+            let substituted_return = substitute_type_id(mir, return_ty, substitutions);
+            let substituted_next = substitute_type_id(mir, next_ty, substitutions);
+            mir.types.intern(Type::Generator {
+                is_async,
+                yield_ty: substituted_yield,
+                return_ty: substituted_return,
+                next_ty: substituted_next,
+            })
+        }
+        Some(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        }) => {
+            let substituted_yield = substitute_type_id(mir, yield_ty, substitutions);
+            let substituted_return = substitute_type_id(mir, return_ty, substitutions);
+            mir.types.intern(Type::GeneratorResult {
+                yield_ty: substituted_yield,
+                return_ty: substituted_return,
+            })
+        }
         Some(
             Type::Bool
             | Type::Int

@@ -71,7 +71,8 @@ pub use error::SmeltError;
 pub use ident::camel_to_snake;
 pub use lowering::{
     ConstCollection, ConstLiteral, FrontendOptions, InterfaceHeritageRef, RestParam,
-    scan_written_host_globals, to_hir, to_hir_with_options, to_hir_with_path,
+    predeclare_type_declarations_with_path, scan_written_host_globals, to_hir, to_hir_with_options,
+    to_hir_with_path,
 };
 
 #[cfg(test)]

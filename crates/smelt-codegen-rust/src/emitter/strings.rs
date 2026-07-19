@@ -623,7 +623,10 @@ impl FunctionEmitter<'_> {
             Some(Type::Tuple(_) | Type::Optional(_) | Type::Future(_)) => {
                 Ok("String::new()".to_owned())
             }
-            Some(Type::Function(_)) | None => Ok("String::new()".to_owned()),
+            Some(Type::Function(_) | Type::Generator { .. } | Type::GeneratorResult { .. })
+            | None => {
+                Ok("String::new()".to_owned())
+            }
         }
     }
 

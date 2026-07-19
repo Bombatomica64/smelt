@@ -5,8 +5,8 @@
 //!
 //! - on success, optionally runs the generated test suite and reports how many
 //!   `cargo test` cases pass/fail;
-//! - on failure, lowers every source file in isolation and enumerates the
-//!   distinct blocker classes grouped by [`DiagnosticCategory`].
+//! - on failure, performs recoverable manifest-aware lowering and enumerates
+//!   the distinct blocker classes grouped by [`DiagnosticCategory`].
 //!
 //! Because each diagnostic now carries a category decided in the frontend, the
 //! report groups by cause (missing stdlib vs unimplemented lowering vs
@@ -134,7 +134,7 @@ fn run_probe(options: &ProbeOptions<'_>) -> CliResult<ProbeResult> {
         None
     };
 
-    // Per-file scan enumerates every distinct blocker class.
+    // Recoverable manifest lowering enumerates every distinct blocker class.
     let files = lowering::discover_source_files(options.config, manifest_dir)?;
     let ScanResult {
         occurrences,
@@ -142,7 +142,7 @@ fn run_probe(options: &ProbeOptions<'_>) -> CliResult<ProbeResult> {
         examples,
         category_counts,
         files_with_blockers,
-    } = scan_files(&files)?;
+    } = scan_files(&files, options.config, options.manifest_path)?;
 
     let mut blockers: Vec<BlockerGroup> = occurrences
         .into_iter()
@@ -235,24 +235,30 @@ struct ScanResult {
     files_with_blockers: usize,
 }
 
-/// Lower every discovered file in isolation and tally its blocker classes.
-fn scan_files(files: &[std::path::PathBuf]) -> CliResult<ScanResult> {
+/// Lower the discovered manifest with shared declaration context and tally blockers.
+///
+/// Per-file isolation misclassifies valid cyclic imports because TypeScript
+/// aliases and class method surfaces are manifest-scoped. The diagnostic
+/// collector still recovers file-by-file, but seeds the same declaration pass
+/// as a real build so probe counts describe actual compiler blockers.
+fn scan_files(
+    files: &[std::path::PathBuf],
+    config: &Config,
+    manifest_path: &Path,
+) -> CliResult<ScanResult> {
     let mut occurrences: BTreeMap<BlockerKey, usize> = BTreeMap::new();
     let mut file_sets: BTreeMap<BlockerKey, usize> = BTreeMap::new();
     let mut examples: BTreeMap<BlockerKey, BlockerExample> = BTreeMap::new();
     let mut category_counts: BTreeMap<String, usize> = BTreeMap::new();
-    let mut files_with_blockers = 0usize;
+    let mut blocked_files = std::collections::BTreeSet::new();
+    let mut seen_by_file: BTreeMap<String, std::collections::BTreeSet<BlockerKey>> =
+        BTreeMap::new();
 
-    // Files are sorted by `discover_source_files`, so the first-seen example for
-    // each class is deterministic across runs.
-    for file in files {
-        let Some(path) = file.to_str() else { continue };
-        let diagnostics = lowering::collect_file_diagnostics(path)?;
-        if !diagnostics.is_empty() {
-            files_with_blockers = files_with_blockers.saturating_add(1);
-        }
-        let mut seen_here: std::collections::BTreeSet<BlockerKey> = std::collections::BTreeSet::new();
-        for diagnostic in diagnostics {
+    let mut diagnostics = lowering::collect_manifest_diagnostics(config, manifest_path)?;
+    diagnostics.sort_by(|left, right| left.file.cmp(&right.file));
+    for diagnostic in diagnostics {
+            let path = diagnostic.file.clone();
+            blocked_files.insert(path.clone());
             let key = (
                 diagnostic.category,
                 diagnostic.code.to_owned(),
@@ -261,12 +267,13 @@ fn scan_files(files: &[std::path::PathBuf]) -> CliResult<ScanResult> {
             bump(&mut occurrences, key.clone());
             bump_str(&mut category_counts, diagnostic.category.as_str().to_owned());
             examples.entry(key.clone()).or_insert_with(|| BlockerExample {
-                file: path.to_owned(),
+                file: path.clone(),
                 message: diagnostic.message,
             });
-            seen_here.insert(key);
-        }
-        for key in seen_here {
+            seen_by_file.entry(path).or_default().insert(key);
+    }
+    for keys in seen_by_file.into_values() {
+        for key in keys {
             bump(&mut file_sets, key);
         }
     }
@@ -276,7 +283,7 @@ fn scan_files(files: &[std::path::PathBuf]) -> CliResult<ScanResult> {
         file_sets,
         examples,
         category_counts,
-        files_with_blockers,
+        files_with_blockers: blocked_files.len().min(files.len()),
     })
 }
 

@@ -4,8 +4,8 @@ use oxc::span::GetSpan;
 
 use crate::lowering::{
     BindingPattern, Body, DictProjectionOp, Expr, ExprKind, Expression, ForStatementInit,
-    ForStatementLeft, Literal, LocalDecl, ModuleBuilder, Pattern, SetProjectionOp, SmeltError, Stmt,
-    Type,
+    ForStatementLeft, Literal, LocalDecl, ModuleBuilder, Pattern, SetProjectionOp, SmeltError,
+    Statement, Stmt, Type,
 };
 
 impl ModuleBuilder<'_> {
@@ -226,6 +226,208 @@ impl ModuleBuilder<'_> {
         let pat = body.push_pattern(Pattern::Binding(local));
         let mutable = decl.kind == oxc::ast::ast::VariableDeclarationKind::Let;
         Ok(Some((pat, value, &declarator.id, Some(item_ty), mutable)))
+    }
+
+    /// Lower a `for…of` over a synchronous generator via the resume protocol.
+    ///
+    /// A generator has no indexable Rust representation, so the ordinary
+    /// index-based [`Stmt::For`] lowering cannot drive it. Instead desugar the
+    /// loop to the standard iterator protocol reusing the same
+    /// `GeneratorNext`/`GeneratorDone`/`GeneratorValue` machinery that `.next()`
+    /// lowers to: the generator handle is stored in a stable local (so it is
+    /// resumed, not re-created), one resume is primed before the loop, the
+    /// condition tests "not done", each iteration binds the yielded value, and
+    /// the latch resumes again. Wiring the resume onto the latch — which
+    /// `WhileUpdate` makes the `continue` target — keeps `continue` advancing
+    /// the generator rather than spinning on a stale step.
+    ///
+    /// Only concrete `Generator` receivers reach here; async generators keep the
+    /// existing unsupported path because their resume returns a future.
+    pub(in crate::lowering) fn lower_generator_for_of(
+        &mut self,
+        for_stmt: &oxc::ast::ast::ForOfStatement<'_>,
+        iter: smelt_hir::ExprId,
+        yield_ty: smelt_hir::TypeId,
+        return_ty: smelt_hir::TypeId,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let ForStatementLeft::VariableDeclaration(decl) = &for_stmt.left else {
+            return Err(SmeltError::unsupported(
+                self.span(for_stmt.left.span().start, for_stmt.left.span().end),
+                "for...of targets must be variable declarations for now",
+            ));
+        };
+        let [declarator] = decl.declarations.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(decl.span.start, decl.span.end),
+                "for...of currently supports exactly one loop binding",
+            ));
+        };
+        let annotated_ty = declarator
+            .type_annotation
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?;
+        let mutable = decl.kind == oxc::ast::ast::VariableDeclarationKind::Let;
+
+        let iter_span = self.expression_span(&for_stmt.right);
+        let generator_ty = Self::expr_ty(body, iter);
+        let result_ty = self.ctx.krate.types.intern(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        });
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+
+        // Store the generator handle so every resume drives the same state
+        // machine rather than re-evaluating the producing call.
+        let generator_symbol = self.intern_source_name("__smelt_generator");
+        let generator_local = body.push_local(LocalDecl {
+            name: Some(generator_symbol),
+            ty: generator_ty,
+            mutable: false,
+            span: iter_span,
+        });
+        let generator_pat = body.push_pattern(Pattern::Binding(generator_local));
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: generator_pat,
+                ty: generator_ty,
+                value: Some(iter),
+            },
+        );
+
+        // Prime the first resume before the loop so the initial condition test
+        // sees a real step.
+        let step_symbol = self.intern_source_name("__smelt_generator_step");
+        let first_resume = self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
+        let step_local = body.push_local(LocalDecl {
+            name: Some(step_symbol),
+            ty: result_ty,
+            mutable: true,
+            span: iter_span,
+        });
+        let step_pat = body.push_pattern(Pattern::Binding(step_local));
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: step_pat,
+                ty: result_ty,
+                value: Some(first_resume),
+            },
+        );
+
+        // Loop body: bind the yielded value, then run the source statements.
+        let loop_body = body.push_block(self.statement_span(&for_stmt.body));
+        let step_expr = body.push_expr(Expr {
+            kind: ExprKind::Local(step_local),
+            ty: result_ty,
+            span: iter_span,
+        });
+        let value_expr = body.push_expr(Expr {
+            kind: ExprKind::GeneratorValue { result: step_expr },
+            ty: yield_ty,
+            span: iter_span,
+        });
+        self.binding_declaration(
+            &declarator.id,
+            Some(value_expr),
+            annotated_ty,
+            mutable,
+            body,
+            loop_body,
+        )?;
+        if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
+            for nested_statement in &block_stmt.body {
+                self.statement_in_block(nested_statement, body, loop_body)?;
+            }
+        } else {
+            self.statement_in_block(&for_stmt.body, body, loop_body)?;
+        }
+
+        // Condition: continue while the primed step has not completed.
+        let done_step_expr = body.push_expr(Expr {
+            kind: ExprKind::Local(step_local),
+            ty: result_ty,
+            span: iter_span,
+        });
+        let done_expr = body.push_expr(Expr {
+            kind: ExprKind::GeneratorDone {
+                result: done_step_expr,
+            },
+            ty: bool_ty,
+            span: iter_span,
+        });
+        let cond = body.push_expr(Expr {
+            kind: ExprKind::UnaryOp {
+                op: smelt_hir::UnaryOp::Not,
+                operand: done_expr,
+            },
+            ty: bool_ty,
+            span: iter_span,
+        });
+
+        // Latch: resume the generator into the step local before re-testing.
+        let update_target = body.push_expr(Expr {
+            kind: ExprKind::Local(step_local),
+            ty: result_ty,
+            span: iter_span,
+        });
+        let update_value = self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
+
+        body.push_stmt_to_block(
+            block,
+            Stmt::WhileUpdate {
+                cond,
+                body: loop_body,
+                update_target,
+                update_value,
+            },
+        );
+        Ok(())
+    }
+
+    /// Build a `generator.next()` HIR expression resuming the stored handle.
+    ///
+    /// Shared by the primed resume before a generator `for…of` loop and the
+    /// latch resume that advances it; both read the generator local and emit a
+    /// `Next` command carrying no sent value (the loop never passes one).
+    fn generator_resume_expr(
+        &mut self,
+        generator_local: smelt_hir::LocalId,
+        generator_ty: smelt_hir::TypeId,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let result_ty = match self.ctx.krate.types.get(generator_ty) {
+            Some(Type::Generator {
+                yield_ty,
+                return_ty,
+                ..
+            }) => {
+                let (yield_ty, return_ty) = (*yield_ty, *return_ty);
+                self.ctx.krate.types.intern(Type::GeneratorResult {
+                    yield_ty,
+                    return_ty,
+                })
+            }
+            _ => self.ctx.krate.types.intern(Type::Unknown),
+        };
+        let generator_expr = body.push_expr(Expr {
+            kind: ExprKind::Local(generator_local),
+            ty: generator_ty,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::GeneratorNext {
+                generator: generator_expr,
+                value: None,
+                kind: smelt_hir::GeneratorResumeKind::Next,
+            },
+            ty: result_ty,
+            span,
+        })
     }
 
     /// Adapt TypeScript for-of iterables whose Rust representation is not indexable.

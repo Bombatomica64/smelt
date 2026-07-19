@@ -3463,13 +3463,13 @@ function makeValue(): Promise<number> {
 fn contextualizes_untyped_promise_constructor_from_async_return() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 async function makeValue(): Promise<number> {
   return new Promise((resolve) => {
     resolve(1);
   });
 }
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;

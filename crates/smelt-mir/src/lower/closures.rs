@@ -163,6 +163,7 @@ impl LoweringCtx<'_> {
             entry: function.entry,
             escapes: false,
             can_throw: function.can_throw,
+            is_generator: function.is_generator,
             function_item_key,
         });
         self.closures.extend(nested_closures);
@@ -480,7 +481,7 @@ pub(super) fn widen_throwing_closure_types(mir: &mut Mir) {
                     else {
                         continue;
                     };
-                    if !closure.can_throw {
+                    if !closure.can_throw || closure.is_generator {
                         continue;
                     }
                     updates.push((*dest, closure.return_ty));
@@ -588,7 +589,7 @@ pub(super) fn widen_throwing_closure_types(mir: &mut Mir) {
                     else {
                         continue;
                     };
-                    if nested.can_throw {
+                    if nested.can_throw && !nested.is_generator {
                         updates.push((*dest, nested.return_ty));
                     }
                 }

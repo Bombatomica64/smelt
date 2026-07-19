@@ -135,6 +135,33 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
             let item = normalize_type(types, item, options);
             types.intern(Type::Future(item))
         }
+        Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        } => {
+            let yield_ty = normalize_type(types, yield_ty, options);
+            let return_ty = normalize_type(types, return_ty, options);
+            let next_ty = normalize_type(types, next_ty, options);
+            types.intern(Type::Generator {
+                is_async,
+                yield_ty,
+                return_ty,
+                next_ty,
+            })
+        }
+        Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        } => {
+            let yield_ty = normalize_type(types, yield_ty, options);
+            let return_ty = normalize_type(types, return_ty, options);
+            types.intern(Type::GeneratorResult {
+                yield_ty,
+                return_ty,
+            })
+        }
         Type::Bool
         | Type::Int
         | Type::Float

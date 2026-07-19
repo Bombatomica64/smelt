@@ -79,7 +79,23 @@ fn class_item_text(krate: &Crate, class: &crate::item::Class) -> String {
     let implements = class
         .implements
         .iter()
-        .map(|sym| krate.symbols.get(*sym).unwrap_or("<unknown>").to_owned())
+        .map(|implemented| {
+            let name = krate
+                .symbols
+                .get(implemented.parent)
+                .unwrap_or("<unknown>");
+            if implemented.args.is_empty() {
+                name.to_owned()
+            } else {
+                let args = implemented
+                    .args
+                    .iter()
+                    .map(|arg| type_ref(krate, *arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{name}<{args}>")
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
     format!(
@@ -234,6 +250,26 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
             )
         }
         Type::Future(item) => format!("Future<{}>", type_ref(krate, *item)),
+        Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        } => format!(
+            "{}Generator<{}, {}, {}>",
+            if *is_async { "Async" } else { "" },
+            type_ref(krate, *yield_ty),
+            type_ref(krate, *return_ty),
+            type_ref(krate, *next_ty)
+        ),
+        Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        } => format!(
+            "GeneratorResult<{}, {}>",
+            type_ref(krate, *yield_ty),
+            type_ref(krate, *return_ty)
+        ),
     }
 }
 

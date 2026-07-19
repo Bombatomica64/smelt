@@ -27,6 +27,8 @@ const STDLIB_DEPENDENCIES: [BackendDependency; 8] = [
 pub(crate) enum GeneratedDep {
     /// Tokio for generated async entrypoints and timers.
     Tokio,
+    /// Genawaiter for resumable synchronous generator state machines.
+    Genawaiter,
     /// Standard-library backend crate.
     Stdlib(BackendDependency),
 }
@@ -39,6 +41,9 @@ pub(crate) fn cargo_toml(crate_name: &str, deps_needed: &[GeneratedDep]) -> Stri
         deps.push_str(
             "tokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"time\"] }\n",
         );
+    }
+    if deps_needed.contains(&GeneratedDep::Genawaiter) {
+        deps.push_str("genawaiter = \"0.99.1\"\n");
     }
     for dependency in STDLIB_DEPENDENCIES {
         if deps_needed.contains(&GeneratedDep::Stdlib(dependency)) {

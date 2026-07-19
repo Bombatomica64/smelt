@@ -48,6 +48,8 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) loops: Vec<LoopTargets>,
     /// Stack of lexical exception targets for throws inside try blocks.
     pub(super) exception_targets: Vec<ExceptionTarget>,
+    /// Stack of lexical finally clauses active at the current source position.
+    pub(super) generator_cleanups: Vec<crate::GeneratorCleanup>,
     /// Numeric type used for generated index-based loop counters.
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.
@@ -193,6 +195,7 @@ impl<'hir> LoweringCtx<'hir> {
         };
         let mut function = MirFunction::new(function_id, name, origin, return_ty, span);
         function.is_async = is_async;
+        function.is_generator = body.is_generator;
         if let Some(hir_function) = function_item_for_body(shared.krate, body_id) {
             function.is_test = hir_function.is_test;
             function.rest = hir_function.rest;
@@ -223,6 +226,7 @@ impl<'hir> LoweringCtx<'hir> {
             return_ty,
             span,
         );
+        function.is_generator = body.is_generator;
         let locals = build_locals(&mut function, body)?;
 
         Ok(Self::from_parts(shared, body, function, locals))
@@ -252,6 +256,7 @@ impl<'hir> LoweringCtx<'hir> {
             exprs: HashMap::new(),
             loops: Vec::new(),
             exception_targets: Vec::new(),
+            generator_cleanups: Vec::new(),
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
         }

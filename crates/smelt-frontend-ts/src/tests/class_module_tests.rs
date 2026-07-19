@@ -1119,8 +1119,8 @@ export class Formatter {
     Ok(())
 }
 
-/// Async generator methods use the same materialized-yield representation as
-/// free generator functions and must not require a `Promise<T>` annotation.
+/// Async generator methods retain typed suspension points and must not require
+/// a `Promise<T>` annotation.
 #[test]
 fn lowers_async_generator_class_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -1149,29 +1149,23 @@ export class Values {
         .ok_or_else(|| "missing async generator class method".to_owned())?;
     let body = function_body(&ctx, function)?;
     ensure!(body.async_state_machine.is_some());
+    ensure!(body.is_generator);
+    ensure!(matches!(
+        ctx.krate.types.get(function.return_ty),
+        Some(Type::Generator { is_async: true, .. })
+    ));
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. })),
-        "yield should append to the synthetic generator list"
-    );
-    ensure!(
-        body.stmts.iter().any(|stmt| matches!(
-            stmt,
-            Stmt::Return(Some(value))
-                if matches!(
-                    body.exprs.get(value.0 as usize).map(|expr| &expr.kind),
-                    Some(ExprKind::UnknownCast { .. })
-                )
-        )),
-        "generator method should return its materialized iterable value"
+            .any(|expr| matches!(expr.kind, ExprKind::GeneratorYield { .. })),
+        "yield should remain a resumable suspension point"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
-/// Nested generator declarations own their yield accumulator instead of
-/// inheriting the surrounding generator method's body-local accumulator.
+/// Nested generator declarations retain suspension metadata independently of
+/// the surrounding generator method.
 #[test]
 fn isolates_nested_generator_declaration_from_generator_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -1193,9 +1187,11 @@ export class Values {
         .bodies
         .iter()
         .filter(|body| {
-            body.exprs
-                .iter()
-                .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. }))
+            body.is_generator
+                && body
+                    .exprs
+                    .iter()
+                    .any(|expr| matches!(expr.kind, ExprKind::GeneratorYield { .. }))
         })
         .count();
     ensure_eq!(generator_bodies, 2);

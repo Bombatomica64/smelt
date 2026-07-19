@@ -406,6 +406,10 @@ def shout() -> str:
 }
 
 #[test]
+#[expect(
+    clippy::literal_string_with_formatting_args,
+    reason = "the literal is Python source intentionally containing an f-string"
+)]
 fn fstring_format_spec_is_rejected() -> TestResult {
     let source = py!(r#"
 def render(value: float) -> str:
@@ -440,7 +444,7 @@ def render(value: int) -> str:
 }
 
 /// Returns the body of the single function item in `source` after lowering.
-fn single_function_body<'a>(ctx: &'a HirCtx, module_id: ModuleId) -> Result<&'a Body, String> {
+fn single_function_body(ctx: &HirCtx, module_id: ModuleId) -> Result<&Body, String> {
     let module = module(ctx, module_id)?;
     let item_id = module
         .items

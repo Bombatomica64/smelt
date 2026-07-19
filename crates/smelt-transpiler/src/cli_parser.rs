@@ -139,7 +139,7 @@ pub enum Command {
 
     /// Probe how far a manifest transpiles and enumerate blockers by category
     #[command(long_about = "Attempt a whole-crate build, then lower every source \
-        file in isolation and group the remaining blockers. On success, optionally \
+        file with shared manifest declarations and group the remaining blockers. On success, optionally \
         run the generated test suite (`--run-tests`). Blocker classes are sorted \
         by occurrences (desc), then affected files, then class name; long `oxc` \
         AST dumps in messages are elided to a short class key in the table, with \

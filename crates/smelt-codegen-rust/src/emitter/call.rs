@@ -247,8 +247,27 @@ impl FunctionEmitter<'_> {
                 let (prelude, callback_expr) = self.promise_callback_hoist(callback)?;
                 let invocation =
                     self.promise_callback_invocation_with(callback, &callback_expr, "smelt_value")?;
+                let Some(Type::Future(output_ty)) = self.mir.types.get(dest_ty) else {
+                    return Err(EmitError::new("Promise.then result must be a future"));
+                };
+                let callback_return_ty = match self.mir.types.get(self.operand_ty(callback)?) {
+                    Some(Type::Function(function)) => function.return_ty,
+                    _ => self.type_id(Type::Unknown)?,
+                };
+                let (settle, settled_ty) = match self.mir.types.get(callback_return_ty) {
+                    Some(Type::Future(item)) => (
+                        format!("let smelt_callback_value = {invocation}.await?;"),
+                        *item,
+                    ),
+                    _ => (
+                        format!("let smelt_callback_value = {invocation};"),
+                        callback_return_ty,
+                    ),
+                };
+                let output =
+                    self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty)?;
                 Ok(format!(
-                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }})) }}"
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; {settle} Ok::<_, Box<dyn std::error::Error>>({output}) }})) }}"
                 ))
             }
             smelt_hir::AsyncOp::Catch => {
@@ -1255,7 +1274,7 @@ impl FunctionEmitter<'_> {
             .ok_or_else(|| EmitError::new("call references an unknown function"))?;
         // Throwing calls are emitted through a dedicated terminator path; keep
         // this adapter to the ordinary (non-throwing) statement path.
-        if function.can_throw {
+        if function.can_throw && !function.is_generator {
             return Ok(None);
         }
         if args.len() != function.params.len() {
@@ -1546,7 +1565,10 @@ impl FunctionEmitter<'_> {
             .functions
             .get(id_index(func.0, "function index does not fit usize")?)
             .ok_or_else(|| EmitError::new("call references an unknown function"))?;
-        if function.is_async && !matches!(function.origin, HirOrigin::ClassMethod { .. }) {
+        if function.is_async
+            && !function.is_generator
+            && !matches!(function.origin, HirOrigin::ClassMethod { .. })
+        {
             Ok(format!(
                 "SmeltFuture::from_future(Box::pin({call_text}))"
             ))
@@ -1600,7 +1622,7 @@ impl FunctionEmitter<'_> {
                     // passes through without a spurious `SmeltUnknown`
                     // extraction against an already-concrete value.
                     dest_ty
-                } else if function.is_async {
+                } else if function.is_async && !function.is_generator {
                     self.type_id(Type::Future(function.return_ty))?
                 } else {
                     let rust_name = self.function_rust_name(function)?;

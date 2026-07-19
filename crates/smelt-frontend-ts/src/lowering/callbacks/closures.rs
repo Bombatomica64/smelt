@@ -633,7 +633,7 @@ impl ModuleBuilder<'_> {
                 body,
                 span,
             ),
-            "apply" => self.callback_apply_method_to_body_expr(
+            "apply" => Self::callback_apply_method_to_body_expr(
                 receiver,
                 receiver_ty,
                 args,
@@ -1119,11 +1119,83 @@ impl ModuleBuilder<'_> {
                 span,
             )
             .ok()?;
+        let declared_method = self.callback_receiver_declares_method(receiver_ty, method);
+        if declared_method {
+            return Some(body.push_expr(Expr {
+                kind: ExprKind::Method {
+                    receiver,
+                    method,
+                    args,
+                },
+                ty,
+                span,
+            }));
+        }
         Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall { callee, args },
             ty,
             span,
         }))
+    }
+
+    /// Return whether every concrete receiver arm declares a source method.
+    ///
+    /// Callback migration normally treats structural callable fields as
+    /// closure calls. A class method—and a method common to every class arm of
+    /// a union—must remain `ExprKind::Method` so MIR can dispatch it through the
+    /// concrete class or tagged-union representation.
+    fn callback_receiver_declares_method(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+    ) -> bool {
+        match self.ctx.krate.types.get(receiver_ty) {
+            Some(Type::Union(items)) => {
+                !items.is_empty()
+                    && items
+                        .iter()
+                        .all(|item| self.callback_receiver_declares_method(*item, method))
+            }
+            Some(Type::Class { name, .. }) => {
+                let item_method = self.class_by_symbol(*name).is_some_and(|class| {
+                    class.methods.iter().any(|item| {
+                        self.ctx
+                            .krate
+                            .items
+                            .get(usize::try_from(item.0).unwrap_or(usize::MAX))
+                            .is_some_and(|item| {
+                                matches!(item, smelt_hir::Item::Function(function) if function.name == method)
+                            })
+                    })
+                });
+                let sidecar_method = self
+                    .ctx
+                    .krate
+                    .names
+                    .get(*name)
+                    .or_else(|| self.ctx.krate.symbols.get(*name))
+                    .and_then(|class_name| self.class_methods.get(class_name))
+                    .is_some_and(|methods| methods.iter().any(|candidate| candidate.name == method));
+                // `type_alias_fields` mixes two producers: genuine object-type
+                // aliases (structural closure fields) and class method surfaces
+                // predeclared by `predeclare_class_method_fields` for barrel
+                // cycles. Only the class-backed entries name real methods; an
+                // alias-typed receiver (e.g. remeda's `Funnel.flush`) stores a
+                // closure field with no class item behind it, so routing it to
+                // `ExprKind::Method` makes MIR method resolution fail. A lowered
+                // `Item::TypeAlias` with this symbol identifies the alias case.
+                let predeclared_method = self.find_type_alias(*name).is_none()
+                    && self
+                        .type_alias_fields
+                        .get(name)
+                        .and_then(|fields| fields.iter().find(|field| field.name == method))
+                        .is_some_and(|field| {
+                            matches!(self.ctx.krate.types.get(field.ty), Some(Type::Function(_)))
+                        });
+                item_method || sidecar_method || predeclared_method
+            }
+            _ => false,
+        }
     }
 
     /// Convert callback-body `.call(...)` forwarding into a normal closure call.
@@ -1293,7 +1365,6 @@ impl ModuleBuilder<'_> {
     /// `call` is already supported, without special-casing any particular library
     /// function.
     pub(in crate::lowering) fn callback_apply_method_to_body_expr(
-        &mut self,
         receiver: smelt_hir::ExprId,
         _receiver_ty: smelt_hir::TypeId,
         args: &[smelt_hir::ExprId],

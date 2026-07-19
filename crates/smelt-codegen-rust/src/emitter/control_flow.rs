@@ -606,6 +606,7 @@ impl FunctionEmitter<'_> {
                 default,
             } => self.emit_match(scrutinee, arms, *default, out),
             Terminator::Return(operand) => {
+                let body_return_ty = self.body_return_ty();
                 if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
                     if self.function.can_throw {
                         out.push_str(&format!(
@@ -615,7 +616,7 @@ impl FunctionEmitter<'_> {
                     } else {
                         out.push_str(&format!("    return {};\n", self.operand_text(operand)?));
                     }
-                } else if self.function.return_ty == self.none_ty {
+                } else if body_return_ty == self.none_ty {
                     // A `void`/`None` return still evaluates its operand for
                     // side effects when one is present. The Rust output type is
                     // `Result<(), _>` whenever the function is fallible *or*
@@ -627,7 +628,13 @@ impl FunctionEmitter<'_> {
                         out.push_str(&format!("    {};\n", self.operand_text(operand)?));
                     }
                     if self.function.can_throw || self.function.is_async {
-                        out.push_str("    return Ok(());\n");
+                        if self.function.is_generator {
+                            out.push_str(
+                                "    return Ok::<(), Box<dyn std::error::Error>>(());\n",
+                            );
+                        } else {
+                            out.push_str("    return Ok(());\n");
+                        }
                     } else {
                         out.push_str("    return;\n");
                     }
@@ -639,19 +646,31 @@ impl FunctionEmitter<'_> {
                     // source body never throws, so a bare `return value;` would
                     // mismatch the `Result` output (E0308).
                     if matches!(operand, Operand::Const(Constant::None))
-                        && self.has_plain_default_value(self.function.return_ty)
+                        && self.has_plain_default_value(body_return_ty)
                     {
-                        out.push_str(&format!(
-                            "    return Ok({});\n",
-                            self.default_value(self.function.return_ty)?
-                        ));
+                        let value = self.default_value(body_return_ty)?;
+                        if self.function.is_generator {
+                            let return_ty_text =
+                                self.type_text_with_impl_trait(body_return_ty, false)?;
+                            out.push_str(&format!(
+                                "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
+                            ));
+                        } else {
+                            out.push_str(&format!("    return Ok({value});\n"));
+                        }
                     } else {
-                        out.push_str(&format!(
-                            "    return Ok({});\n",
-                            self.value_at_type(operand, self.function.return_ty)?
-                        ));
+                        let value = self.value_at_type(operand, body_return_ty)?;
+                        if self.function.is_generator {
+                            let return_ty_text =
+                                self.type_text_with_impl_trait(body_return_ty, false)?;
+                            out.push_str(&format!(
+                                "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
+                            ));
+                        } else {
+                            out.push_str(&format!("    return Ok({value});\n"));
+                        }
                     }
-                } else if self.mir.types.get(self.function.return_ty) == Some(&Type::Unknown)
+                } else if self.mir.types.get(body_return_ty) == Some(&Type::Unknown)
                     && let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
                         operand
                     && let Some(source) = self.single_assignment_unknown_cast_source(*local)
@@ -659,12 +678,12 @@ impl FunctionEmitter<'_> {
                 {
                     out.push_str(&format!(
                         "    return {};\n",
-                        self.value_at_type(source, self.function.return_ty)?
+                        self.value_at_type(source, body_return_ty)?
                     ));
                 } else {
                     out.push_str(&format!(
                         "    return {};\n",
-                        self.value_at_type(operand, self.function.return_ty)?
+                        self.value_at_type(operand, body_return_ty)?
                     ));
                 }
                 set_last_emit_diverged(true);

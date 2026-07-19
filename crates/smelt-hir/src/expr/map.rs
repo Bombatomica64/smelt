@@ -74,6 +74,21 @@ impl ExprKind {
                 callee: f(callee)?,
                 args: map_vec(args, f)?,
             },
+            Self::GeneratorYield { value } => Self::GeneratorYield { value: f(value)? },
+            Self::GeneratorNext {
+                generator,
+                value,
+                kind,
+            } => Self::GeneratorNext {
+                generator: f(generator)?,
+                value: value.map(&mut *f).transpose()?,
+                kind,
+            },
+            Self::GeneratorDone { result } => Self::GeneratorDone { result: f(result)? },
+            Self::GeneratorValue { result } => Self::GeneratorValue { result: f(result)? },
+            Self::GeneratorDelegate { generator } => Self::GeneratorDelegate {
+                generator: f(generator)?,
+            },
             Self::ClosureCall { callee, args } => Self::ClosureCall {
                 callee: f(callee)?,
                 args: map_vec(args, f)?,

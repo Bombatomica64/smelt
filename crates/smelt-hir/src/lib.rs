@@ -64,7 +64,8 @@ pub use body::{
 };
 pub use expr::{
     AsyncOp, BinOp, BoolFoldOp, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode,
-    ClosureCapture, ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, ListCallbackOp,
+    ClosureCapture, ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, GeneratorResumeKind,
+    ListCallbackOp,
     ListProjectionOp, ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericPredicateOp,
     NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
