@@ -711,11 +711,16 @@ fn rewrite_rvalue(
             changed |= rewrite_operand_except(count, aliases, dest);
             changed
         }
-        Rvalue::VitestMockCalledWith { mock, args } => {
+        Rvalue::VitestMockCalledWith { mock, args, .. } => {
             let mut changed = rewrite_operand_except(mock, aliases, dest);
             for arg in args {
                 changed |= rewrite_operand_except(arg, aliases, dest);
             }
+            changed
+        }
+        Rvalue::VitestMockLastResolvedWith { mock, expected } => {
+            let mut changed = rewrite_operand_except(mock, aliases, dest);
+            changed |= rewrite_operand_except(expected, aliases, dest);
             changed
         }
         Rvalue::DateTimezoneContext { timezone } => rewrite_operand_except(timezone, aliases, dest),

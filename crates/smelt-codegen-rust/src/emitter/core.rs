@@ -4022,11 +4022,14 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         Rvalue::VitestMockCalledTimes { mock, count } => {
             operand_uses_local(mock, local) || operand_uses_local(count, local)
         }
-        Rvalue::VitestMockCalledWith { mock, args } => {
+        Rvalue::VitestMockCalledWith { mock, args, .. } => {
             operand_uses_local(mock, local)
                 || args
                     .iter()
                     .any(|operand| operand_uses_local(operand, local))
+        }
+        Rvalue::VitestMockLastResolvedWith { mock, expected } => {
+            operand_uses_local(mock, local) || operand_uses_local(expected, local)
         }
         _ => false,
     }

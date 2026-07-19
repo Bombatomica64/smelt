@@ -1185,10 +1185,16 @@ fn rvalue_text(value: &Rvalue) -> String {
             operand_text(mock),
             operand_text(count)
         ),
-        Rvalue::VitestMockCalledWith { mock, args } => format!(
-            "vitest_mock_called_with {} [{}]",
+        Rvalue::VitestMockCalledWith { mock, args, last } => format!(
+            "vitest_mock_called_with{} {} [{}]",
+            if *last { "_last" } else { "" },
             operand_text(mock),
             args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
+        ),
+        Rvalue::VitestMockLastResolvedWith { mock, expected } => format!(
+            "vitest_mock_last_resolved_with {} {}",
+            operand_text(mock),
+            operand_text(expected)
         ),
         Rvalue::DateTimezoneContext { timezone } => {
             format!("date_timezone_context {}", operand_text(timezone))

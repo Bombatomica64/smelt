@@ -611,10 +611,21 @@ pub enum ExprKind {
     },
     /// Whether a Vitest mock recorded a call whose arguments deep-equal
     /// `args` (`expect(mock).toHaveBeenCalledWith(...)`); true means the
-    /// assertion holds. Non-mock values pass vacuously (documented compat).
+    /// assertion holds. When `last` is set, only the most recent recorded
+    /// call is compared (`toHaveBeenLastCalledWith(...)`). Non-mock values
+    /// pass vacuously (documented compat).
     VitestMockCalledWith {
         mock: ExprId,
         args: Vec<ExprId>,
+        last: bool,
+    },
+    /// Whether a Vitest mock's most recent recorded result deep-equals
+    /// `expected` after flattening a resolved promise
+    /// (`expect(mock).toHaveLastResolvedWith(...)`); true means the assertion
+    /// holds. Non-mock values pass vacuously (documented compat).
+    VitestMockLastResolvedWith {
+        mock: ExprId,
+        expected: ExprId,
     },
     /// Create a date-fns-compatible date context function for an IANA time zone.
     DateTimezoneContext {

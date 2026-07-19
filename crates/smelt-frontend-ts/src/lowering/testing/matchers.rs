@@ -104,7 +104,10 @@ impl ModuleBuilder<'_> {
         }
         if matches!(
             member.property.name.as_str(),
-            "toHaveBeenCalledTimes" | "toHaveBeenCalledWith"
+            "toHaveBeenCalledTimes"
+                | "toHaveBeenCalledWith"
+                | "toHaveBeenLastCalledWith"
+                | "toHaveLastResolvedWith"
         ) {
             let matcher_name = member.property.name.as_str();
             let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
@@ -145,14 +148,35 @@ impl ModuleBuilder<'_> {
                     ty: bool_ty,
                     span: self.span(call.span.start, call.span.end),
                 })
+            } else if matcher_name == "toHaveLastResolvedWith" {
+                let expected_arg = call.arguments.first().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "expect(...).toHaveLastResolvedWith(...) requires an expected value",
+                    )
+                })?;
+                let expected = self.argument(expected_arg, body)?;
+                body.push_expr(Expr {
+                    kind: ExprKind::VitestMockLastResolvedWith {
+                        mock: actual,
+                        expected,
+                    },
+                    ty: bool_ty,
+                    span: self.span(call.span.start, call.span.end),
+                })
             } else {
+                let last = matcher_name == "toHaveBeenLastCalledWith";
                 let args = call
                     .arguments
                     .iter()
                     .map(|arg| self.argument(arg, body))
                     .collect::<Result<Vec<_>, _>>()?;
                 body.push_expr(Expr {
-                    kind: ExprKind::VitestMockCalledWith { mock: actual, args },
+                    kind: ExprKind::VitestMockCalledWith {
+                        mock: actual,
+                        args,
+                        last,
+                    },
                     ty: bool_ty,
                     span: self.span(call.span.start, call.span.end),
                 })

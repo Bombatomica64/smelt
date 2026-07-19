@@ -1793,7 +1793,7 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::VitestMockCalledWith { mock, args } => {
+            ExprKind::VitestMockCalledWith { mock, args, last } => {
                 let mock_operand = self.lower_expr(*mock)?;
                 let arg_operands = args
                     .iter()
@@ -1805,6 +1805,19 @@ impl LoweringCtx<'_> {
                     Rvalue::VitestMockCalledWith {
                         mock: mock_operand,
                         args: arg_operands,
+                        last: *last,
+                    },
+                )?
+            }
+            ExprKind::VitestMockLastResolvedWith { mock, expected } => {
+                let mock_operand = self.lower_expr(*mock)?;
+                let expected_operand = self.lower_expr(*expected)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestMockLastResolvedWith {
+                        mock: mock_operand,
+                        expected: expected_operand,
                     },
                 )?
             }

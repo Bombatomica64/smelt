@@ -608,11 +608,15 @@ impl Rvalue {
                 visit(mock);
                 visit(count);
             }
-            Self::VitestMockCalledWith { mock, args } => {
+            Self::VitestMockCalledWith { mock, args, .. } => {
                 visit(mock);
                 for arg in args {
                     visit(arg);
                 }
+            }
+            Self::VitestMockLastResolvedWith { mock, expected } => {
+                visit(mock);
+                visit(expected);
             }
             Self::DateTimezoneContext { timezone } => {
                 visit(timezone);
@@ -1338,11 +1342,15 @@ impl Rvalue {
                 visit(mock);
                 visit(count);
             }
-            Self::VitestMockCalledWith { mock, args } => {
+            Self::VitestMockCalledWith { mock, args, .. } => {
                 visit(mock);
                 for arg in args {
                     visit(arg);
                 }
+            }
+            Self::VitestMockLastResolvedWith { mock, expected } => {
+                visit(mock);
+                visit(expected);
             }
             Self::DateTimezoneContext { timezone } => {
                 visit(timezone);

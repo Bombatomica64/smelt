@@ -231,6 +231,7 @@ impl LoweringCtx<'_> {
             | ExprKind::VitestMockFn { .. }
             | ExprKind::VitestMockCalledTimes { .. }
             | ExprKind::VitestMockCalledWith { .. }
+            | ExprKind::VitestMockLastResolvedWith { .. }
             | ExprKind::DateTimezoneContext { .. }
             | ExprKind::DateToIsoString { .. }
             | ExprKind::DateToString { .. }

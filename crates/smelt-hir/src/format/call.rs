@@ -778,13 +778,19 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             expr_ref(*mock),
             expr_ref(*count)
         ),
-        ExprKind::VitestMockCalledWith { mock, args } => format!(
-            "vitest_mock_called_with {} [{}]",
+        ExprKind::VitestMockCalledWith { mock, args, last } => format!(
+            "vitest_mock_called_with{} {} [{}]",
+            if *last { "_last" } else { "" },
             expr_ref(*mock),
             args.iter()
                 .map(|arg| expr_ref(*arg))
                 .collect::<Vec<_>>()
                 .join(", ")
+        ),
+        ExprKind::VitestMockLastResolvedWith { mock, expected } => format!(
+            "vitest_mock_last_resolved_with {} {}",
+            expr_ref(*mock),
+            expr_ref(*expected)
         ),
         ExprKind::DateTimezoneContext { timezone } => {
             format!("date_timezone_context {}", expr_ref(*timezone))

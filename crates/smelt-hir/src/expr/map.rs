@@ -616,10 +616,17 @@ impl ExprKind {
                 mock: f(mock)?,
                 count: f(count)?,
             },
-            Self::VitestMockCalledWith { mock, args } => Self::VitestMockCalledWith {
+            Self::VitestMockCalledWith { mock, args, last } => Self::VitestMockCalledWith {
                 mock: f(mock)?,
                 args: map_vec(args, f)?,
+                last,
             },
+            Self::VitestMockLastResolvedWith { mock, expected } => {
+                Self::VitestMockLastResolvedWith {
+                    mock: f(mock)?,
+                    expected: f(expected)?,
+                }
+            }
             Self::DateTimezoneContext { timezone } => Self::DateTimezoneContext {
                 timezone: f(timezone)?,
             },

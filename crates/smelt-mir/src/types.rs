@@ -1527,11 +1527,22 @@ pub enum Rvalue {
         count: Operand,
     },
     /// Whether a Vitest mock recorded a call deep-equal to `args` (bool).
+    /// When `last` is set, only the most recent recorded call is compared.
     VitestMockCalledWith {
         /// The (possibly non-mock) actual value under assertion.
         mock: Operand,
         /// Expected call arguments.
         args: Vec<Operand>,
+        /// Compare only the most recent recorded call (`toHaveBeenLastCalledWith`).
+        last: bool,
+    },
+    /// Whether a Vitest mock's most recent result deep-equals `expected`
+    /// after flattening a resolved promise (bool).
+    VitestMockLastResolvedWith {
+        /// The (possibly non-mock) actual value under assertion.
+        mock: Operand,
+        /// Expected resolved value.
+        expected: Operand,
     },
     /// Create a date-fns-compatible date context function for an IANA time zone.
     DateTimezoneContext {

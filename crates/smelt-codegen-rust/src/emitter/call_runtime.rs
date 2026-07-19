@@ -1337,13 +1337,19 @@ impl FunctionEmitter<'_> {
                 self.value_at_type(mock, self.type_id(Type::Unknown)?)?,
                 self.value_at_type(count, self.type_id(Type::Float)?)?
             )),
-            Rvalue::VitestMockCalledWith { mock, args } => Ok(format!(
-                "smelt_vitest_mock_called_with(&({}), vec![{}])",
+            Rvalue::VitestMockCalledWith { mock, args, last } => Ok(format!(
+                "smelt_vitest_mock_called_with(&({}), vec![{}], {})",
                 self.value_at_type(mock, self.type_id(Type::Unknown)?)?,
                 args.iter()
                     .map(|arg| self.value_at_type(arg, self.type_id(Type::Unknown)?))
                     .collect::<Result<Vec<_>, _>>()?
-                    .join(", ")
+                    .join(", "),
+                last
+            )),
+            Rvalue::VitestMockLastResolvedWith { mock, expected } => Ok(format!(
+                "smelt_vitest_mock_last_resolved_with(&({}), {})",
+                self.value_at_type(mock, self.type_id(Type::Unknown)?)?,
+                self.value_at_type(expected, self.type_id(Type::Unknown)?)?
             )),
             Rvalue::DateTimezoneContext { timezone } => Ok(format!(
                 "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"__smelt_timezone\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone()))]))) }}) }}",

@@ -1458,6 +1458,10 @@ fn emit_source_with_free_function_router(
             writer.line("    default: Option<SmeltVitestMockOutcome>,");
             writer.line("    /// Recorded argument vectors, one entry per invocation.");
             writer.line("    calls: Vec<Vec<SmeltUnknown>>,");
+            writer.line("    /// Recorded return value, one entry per invocation. An async mock");
+            writer.line("    /// records the returned `SmeltUnknown::Promise`; the result matchers");
+            writer.line("    /// flatten it to its settled value at assertion time.");
+            writer.line("    results: Vec<SmeltUnknown>,");
             writer.line("}");
             writer.blank_line();
             writer.line("thread_local! {");
@@ -1479,12 +1483,12 @@ fn emit_source_with_free_function_router(
             writer.line("/// the same mock instance for chaining, matching Vitest.");
             writer.line("fn smelt_vitest_mock_new(implementation: Option<SmeltUnknown>) -> SmeltUnknown {");
             writer.line("    let id = smelt_next_object_id();");
-            writer.line("    let state = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltVitestMockState { once: ::std::collections::VecDeque::new(), default: implementation.as_ref().and_then(smelt_vitest_mock_callable).map(SmeltVitestMockOutcome::Implementation), calls: Vec::new() }));");
+            writer.line("    let state = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltVitestMockState { once: ::std::collections::VecDeque::new(), default: implementation.as_ref().and_then(smelt_vitest_mock_callable).map(SmeltVitestMockOutcome::Implementation), calls: Vec::new(), results: Vec::new() }));");
             writer.line("    SMELT_VITEST_MOCKS.with(|mocks| { mocks.borrow_mut().insert(id, state.clone()); });");
             writer.line("    let object = SmeltObject::new(::std::collections::HashMap::new());");
             writer.line("    object.insert(\"__smelt_vitest_mock\".to_owned(), SmeltUnknown::Number(id as f64));");
             writer.line("    let call_state = state.clone();");
-            writer.line("    object.insert(\"__smelt_call\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let outcome = { let mut state = call_state.borrow_mut(); state.calls.push(args.clone()); state.once.pop_front().or_else(|| state.default.clone()) }; match outcome { None => Ok(SmeltUnknown::Undefined), Some(SmeltVitestMockOutcome::Return(value)) => Ok(value), Some(SmeltVitestMockOutcome::Resolve(value)) => Ok(SmeltUnknown::Promise(SmeltPromise::resolved(value))), Some(SmeltVitestMockOutcome::Reject(value)) => Ok(SmeltUnknown::Promise(SmeltPromise::rejected(value))), Some(SmeltVitestMockOutcome::Implementation(callback)) => (callback)(args) } })));");
+            writer.line("    object.insert(\"__smelt_call\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let outcome = { let mut state = call_state.borrow_mut(); state.calls.push(args.clone()); state.once.pop_front().or_else(|| state.default.clone()) }; let result = match outcome { None => Ok(SmeltUnknown::Undefined), Some(SmeltVitestMockOutcome::Return(value)) => Ok(value), Some(SmeltVitestMockOutcome::Resolve(value)) => Ok(SmeltUnknown::Promise(SmeltPromise::resolved(value))), Some(SmeltVitestMockOutcome::Reject(value)) => Ok(SmeltUnknown::Promise(SmeltPromise::rejected(value))), Some(SmeltVitestMockOutcome::Implementation(callback)) => (callback)(args) }; if let Ok(value) = &result { call_state.borrow_mut().results.push(value.clone()); } result })));");
             writer.line("    for (method, once) in [(\"mockReturnValue\", false), (\"mockReturnValueOnce\", true), (\"mockResolvedValue\", false), (\"mockResolvedValueOnce\", true), (\"mockRejectedValue\", false), (\"mockRejectedValueOnce\", true), (\"mockImplementation\", false), (\"mockImplementationOnce\", true)] {");
             writer.line("        let method_state = state.clone();");
             writer.line("        let method_object = object.clone();");
@@ -1494,7 +1498,7 @@ fn emit_source_with_free_function_router(
             writer.line("        let method_state = state.clone();");
             writer.line("        let method_object = object.clone();");
             writer.line("        let reset = method != \"mockClear\";");
-            writer.line("        object.insert(method.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { { let mut state = method_state.borrow_mut(); state.calls.clear(); if reset { state.once.clear(); state.default = None; } } Ok(SmeltUnknown::Object(method_object.clone())) })));");
+            writer.line("        object.insert(method.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { { let mut state = method_state.borrow_mut(); state.calls.clear(); state.results.clear(); if reset { state.once.clear(); state.default = None; } } Ok(SmeltUnknown::Object(method_object.clone())) })));");
             writer.line("    }");
             writer.line("    SmeltUnknown::Object(object)");
             writer.line("}");
@@ -1510,8 +1514,25 @@ fn emit_source_with_free_function_router(
             writer.blank_line();
             writer.line("/// `expect(mock).toHaveBeenCalledWith(...)`: true when any recorded call's");
             writer.line("/// arguments deep-equal the expected arguments (same `toEqual` structural");
-            writer.line("/// equality). Non-mock actuals pass vacuously, mirroring `toHaveBeenCalledTimes`.");
-            writer.line("fn smelt_vitest_mock_called_with(value: &SmeltUnknown, expected: Vec<SmeltUnknown>) -> bool { match smelt_vitest_mock_state(value) { Some(state) => state.borrow().calls.iter().any(|call| call.len() == expected.len() && call.iter().zip(expected.iter()).all(|(left, right)| smelt_unknown_structural_eq(left, right, &mut ::std::collections::HashSet::new()))), None => true } }");
+            writer.line("/// equality). When `last` is set, only the most recent recorded call is");
+            writer.line("/// compared (`toHaveBeenLastCalledWith`). Non-mock actuals pass vacuously,");
+            writer.line("/// mirroring `toHaveBeenCalledTimes`.");
+            writer.line("/// Drop trailing `undefined`/`null` arguments. Generated Rust closures are");
+            writer.line("/// fixed-arity, so a source `callback()` that omits a declared parameter is");
+            writer.line("/// emitted as `callback(undefined)` and the mock records a trailing nullish");
+            writer.line("/// slot, whereas JavaScript records only `arguments.length`. Normalizing both");
+            writer.line("/// the recorded and expected argument vectors this way reconciles the two so");
+            writer.line("/// `toHaveBeenLastCalledWith()` matches an omitted-argument call.");
+            writer.line("fn smelt_vitest_mock_trim_trailing_nullish(args: &[SmeltUnknown]) -> &[SmeltUnknown] { let mut end = args.len(); while end > 0 && matches!(args[end - 1], SmeltUnknown::Undefined | SmeltUnknown::Null) { end -= 1; } &args[..end] }");
+            writer.line("fn smelt_vitest_mock_called_with(value: &SmeltUnknown, expected: Vec<SmeltUnknown>, last: bool) -> bool { let expected = smelt_vitest_mock_trim_trailing_nullish(&expected); let call_matches = |call: &Vec<SmeltUnknown>| { let call = smelt_vitest_mock_trim_trailing_nullish(call); call.len() == expected.len() && call.iter().zip(expected.iter()).all(|(left, right)| smelt_unknown_structural_eq(left, right, &mut ::std::collections::HashSet::new())) }; match smelt_vitest_mock_state(value) { Some(state) => { let state = state.borrow(); if last { state.calls.last().is_some_and(call_matches) } else { state.calls.iter().any(call_matches) } }, None => true } }");
+            writer.blank_line();
+            writer.line("/// `expect(mock).toHaveLastResolvedWith(...)`: true when the mock's most");
+            writer.line("/// recent recorded result deep-equals the expected value. An async mock");
+            writer.line("/// records a `SmeltUnknown::Promise`, so a promise result is flattened to");
+            writer.line("/// its settled `Ok` value before comparison (the caller has already awaited");
+            writer.line("/// it, so the shared state cell is populated). Non-mock actuals pass");
+            writer.line("/// vacuously, mirroring the other mock matchers.");
+            writer.line("fn smelt_vitest_mock_last_resolved_with(value: &SmeltUnknown, expected: SmeltUnknown) -> bool { match smelt_vitest_mock_state(value) { Some(state) => { let last = state.borrow().results.last().cloned(); match last { Some(result) => { let resolved = match &result { SmeltUnknown::Promise(promise) => match &*promise.state.borrow() { Some(Ok(value)) => value.clone(), _ => return false }, other => other.clone() }; smelt_unknown_structural_eq(&resolved, &expected, &mut ::std::collections::HashSet::new()) }, None => false } }, None => true } }");
         }
         writer.blank_line();
         if needs_blob_record {
@@ -1573,6 +1594,17 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
+        if needs_vitest_mock {
+            // Vitest exposes a `.mock` accessor on every mock function carrying
+            // its recorded activity (`mockFn.mock.calls`, `mockFn.mock.results`).
+            // The erased mock object only stores the `__smelt_vitest_mock` marker
+            // and its configuration methods, so synthesize the `.mock` object
+            // from the live registry state on read. `calls` is an array of the
+            // recorded argument arrays; `results` mirrors the recorded return
+            // values, so `mockFn.mock.calls.length` flows through the ordinary
+            // array-length path.
+            writer.line("    if field == \"mock\" && let Some(state) = smelt_vitest_mock_state(&SmeltUnknown::Object(map.clone())) { let state = state.borrow(); let calls = state.calls.iter().map(|call| SmeltUnknown::Array(call.clone().into())).collect::<Vec<_>>(); let results = state.results.clone(); let mock = SmeltObject::new(::std::collections::HashMap::new()); mock.insert(\"calls\".to_owned(), SmeltUnknown::Array(calls.into())); mock.insert(\"results\".to_owned(), SmeltUnknown::Array(results.into())); return SmeltUnknown::Object(mock); }");
+        }
         // An erased `Map` is a marker object `{ __smelt_map: [[k, v], ...] }`.
         // Real Maps expose `.size` through `Map.prototype`, which the marker
         // object does not store as an own field, so synthesize it from the entry
