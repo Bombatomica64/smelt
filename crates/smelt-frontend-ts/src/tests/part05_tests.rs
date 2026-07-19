@@ -380,6 +380,70 @@ function* values(limit: number): Generator<number> {
     Ok(())
 }
 
+/// A `for...of` over a synchronous generator drains it through the resume
+/// protocol rather than the index-based loop lowering, which only supports
+/// arrays, strings, and records. Regression for PR #178's generator emission:
+/// `for (const v of gen())` previously failed with "index access is only
+/// lowered for arrays, strings, and records".
+#[test]
+fn lowers_for_of_over_sync_generator_via_resume_protocol() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function* values(limit: number): Generator<number> {
+  for (let i = 0; i < limit; i += 1) {
+    yield i;
+  }
+}
+
+function total(): number {
+  let sum = 0;
+  for (const v of values(5)) {
+    sum += v;
+  }
+  return sum;
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 2);
+    let function = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some("total") => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing total function".to_owned())?;
+    let body = function_body(&ctx, function)?;
+    // The loop must not lower to an index-based `Stmt::For` over the generator;
+    // instead it resumes the generator and reads its yielded values.
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::GeneratorNext { .. })),
+        "for-of over a generator should resume it via GeneratorNext"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::GeneratorDone { .. })),
+        "for-of over a generator should test completion via GeneratorDone"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::GeneratorValue { .. })),
+        "for-of over a generator should read yielded values via GeneratorValue"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 /// Async generators carry generator return annotations rather than
 /// `Promise<T>`, while still using Smelt's async state-machine metadata.
 #[test]

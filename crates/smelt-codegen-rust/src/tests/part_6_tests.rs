@@ -1042,6 +1042,65 @@ fn injects_reqwest_dependency_for_http_mapping() {
     assert!(manifest.contains("reqwest = { version = \"0.12\""));
 }
 
+/// A generated crate that emits `genawaiter::rc::Gen` generator bodies must
+/// also declare the `genawaiter` dependency. Regression for PR #178: the
+/// dependency was gated on a `Type::Generator` in the types table, but a
+/// generator function whose generator type is erased still emits genawaiter
+/// bodies — so the es-toolkit spec compiled to code that could not build. The
+/// dependency detection now matches the emission condition (`is_generator`).
+#[test]
+fn injects_genawaiter_dependency_for_generator_emission() {
+    let mut ctx = HirCtx::new();
+    assert!(
+        to_hir(
+            "function* values(limit: number): Generator<number> {\n\
+             \x20 for (let i = 0; i < limit; i += 1) {\n\
+             \x20   yield i;\n\
+             \x20 }\n\
+             }\n\
+             function total(): number {\n\
+             \x20 let sum = 0;\n\
+             \x20 for (const v of values(5)) {\n\
+             \x20   sum += v;\n\
+             \x20 }\n\
+             \x20 return sum;\n\
+             }\n",
+            FileId(0),
+            &mut ctx,
+        )
+        .is_ok(),
+        "HIR"
+    );
+    let mut mir = match smelt_mir::lower_hir(&ctx.krate) {
+        Ok(mir) => mir,
+        Err(_) => panic!("MIR lowering failed"),
+    };
+    smelt_mir::opt::optimize(&mut mir);
+
+    let source = match emit_source(&mir) {
+        Ok(source) => source,
+        Err(err) => panic!("Rust source: {err}"),
+    };
+    assert!(
+        source.contains("genawaiter::rc::Gen"),
+        "generator function should emit a genawaiter state machine: {source}"
+    );
+    // The runtime prelude that the emitted body references must be defined in
+    // the same crate; otherwise the generated code references an undeclared
+    // `SmeltGeneratorResult` (the es-toolkit `cargo test --no-run` failure).
+    assert!(
+        source.contains("pub enum SmeltGeneratorResult"),
+        "genawaiter emission must also emit the generator runtime prelude: {source}"
+    );
+
+    let manifest =
+        deps::cargo_toml(&EmitOptions::default().crate_name, &crate::generated_deps(&mir));
+    assert!(
+        manifest.contains("genawaiter = \"0.99.1\""),
+        "a crate that emits genawaiter bodies must declare the dependency: {manifest}"
+    );
+}
+
 #[test]
 fn injects_serde_json_dependency_for_json_mapping() {
     let manifest = deps::cargo_toml(

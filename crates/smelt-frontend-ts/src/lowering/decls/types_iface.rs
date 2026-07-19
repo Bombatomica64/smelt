@@ -962,6 +962,24 @@ impl ModuleBuilder<'_> {
                         span: self.span(for_stmt.right.span().start, for_stmt.right.span().end),
                     });
                 }
+                // A synchronous generator receiver has no indexable Rust
+                // representation, so it cannot flow through the index-based
+                // `Stmt::For` lowering. Drain it through the resume protocol
+                // instead. Async generators keep the existing path (their
+                // resume returns a future).
+                if let Some(Type::Generator {
+                    is_async: false,
+                    yield_ty,
+                    return_ty,
+                    ..
+                }) = self.ctx.krate.types.get(Self::expr_ty(body, iter)).cloned()
+                {
+                    let result = self.lower_generator_for_of(
+                        for_stmt, iter, yield_ty, return_ty, body, block,
+                    );
+                    self.locals = saved_locals;
+                    return result;
+                }
                 let iter = self.for_of_iterable(iter, &for_stmt.right, body);
                 let destructured =
                     self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
