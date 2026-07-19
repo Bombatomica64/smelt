@@ -4005,6 +4005,22 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         // and presence probes take no operands. Missing this arm would let the
         // `_ => false` fallthrough elide a closure whose only use is the write.
         Rvalue::HostGlobalWrite { value: stored, .. } => operand_uses_local(stored, local),
+        // A Vitest mock construction reads its wrapped implementation (often a
+        // closure temp whose ONLY use is this rvalue — missing this arm elides
+        // that closure's declaration); the matcher queries read the mock and
+        // their expected operands.
+        Rvalue::VitestMockFn { implementation } => implementation
+            .as_ref()
+            .is_some_and(|implementation| operand_uses_local(implementation, local)),
+        Rvalue::VitestMockCalledTimes { mock, count } => {
+            operand_uses_local(mock, local) || operand_uses_local(count, local)
+        }
+        Rvalue::VitestMockCalledWith { mock, args } => {
+            operand_uses_local(mock, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
         _ => false,
     }
 }
