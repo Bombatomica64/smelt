@@ -8391,6 +8391,79 @@ it("asserts calls", () => {
     );
 }
 
+#[test]
+fn vitest_last_called_with_lowers_to_last_call_check() {
+    // `toHaveBeenLastCalledWith` compares only the most recent recorded call,
+    // so it lowers to `smelt_vitest_mock_called_with(.., last=true)`.
+    let source = source_for(
+        r#"
+import { expect, it, vi } from "vitest";
+
+it("asserts last call", () => {
+  const spy = vi.fn();
+  spy(1);
+  spy(2);
+  expect(spy).toHaveBeenLastCalledWith(2);
+});
+"#,
+    );
+    assert!(
+        source.contains("smelt_vitest_mock_called_with(") && source.contains(", true)"),
+        "last-call matcher must pass last=true\n{source}"
+    );
+    assert!(
+        source.contains("expect(...).toHaveBeenLastCalledWith(...) failed"),
+        "last-call mismatch must produce a test failure\n{source}"
+    );
+}
+
+#[test]
+fn vitest_last_resolved_with_lowers_to_result_check() {
+    // `toHaveLastResolvedWith` reads the mock's recorded return value, flattening
+    // a resolved promise before deep-equality.
+    let source = source_for(
+        r#"
+import { expect, it, vi } from "vitest";
+
+it("asserts resolved", async () => {
+  const spy = vi.fn(async () => 5);
+  await spy();
+  expect(spy).toHaveLastResolvedWith(5);
+});
+"#,
+    );
+    assert!(
+        source.contains("smelt_vitest_mock_last_resolved_with("),
+        "resolved matcher must lower to the runtime helper\n{source}"
+    );
+    assert!(
+        source.contains("expect(...).toHaveLastResolvedWith(...) failed"),
+        "resolved mismatch must produce a test failure\n{source}"
+    );
+}
+
+#[test]
+fn vitest_mock_dot_calls_synthesizes_recorded_activity() {
+    // `mockFn.mock.calls` is not an own field of the erased mock object; reading
+    // `.mock` must synthesize the recorded activity from the live registry state
+    // so `mockFn.mock.calls.length` flows through the ordinary array-length path.
+    let source = source_for(
+        r#"
+import { expect, it, vi } from "vitest";
+
+it("reads mock.calls", () => {
+  const spy = vi.fn();
+  spy();
+  expect(spy.mock.calls.length).toBe(1);
+});
+"#,
+    );
+    assert!(
+        source.contains("if field == \"mock\""),
+        "`.mock` accessor must be synthesized in smelt_get_object_field\n{source}"
+    );
+}
+
 /// A closure whose body has an `if` guard that mutates captured locals
 /// (`once`: `if (!called) { ret = fn(); called = true; }`) must keep the guard.
 /// The compact side-effect-free callback IR modeled the guarded assignment as a
