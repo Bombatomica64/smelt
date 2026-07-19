@@ -1267,9 +1267,11 @@ impl FunctionEmitter<'_> {
             Rvalue::DictAssign { target, sources } => {
                 self.dict_assign_text(target, sources, dest_ty)
             }
-            Rvalue::CallableObjectAssign { callable, props } => {
-                self.callable_object_assign_text(callable, props, dest_ty)
-            }
+            Rvalue::CallableObjectAssign {
+                callable,
+                props,
+                spreads,
+            } => self.callable_object_assign_text(callable, props, spreads, dest_ty),
             Rvalue::DictCopy { dict } => self.dict_copy_text(dict, dest_ty),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
             Rvalue::StringSplit {
@@ -1701,6 +1703,7 @@ impl FunctionEmitter<'_> {
         &self,
         callable: &Operand,
         props: &[(Symbol, Operand)],
+        spreads: &[Operand],
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         if matches!(
@@ -1719,9 +1722,28 @@ impl FunctionEmitter<'_> {
                     "smelt_object.insert({key_text:?}.to_owned(), {value_text});"
                 ));
             }
+            // Dynamic record sources (`Object.assign(fn, def)` with a variable
+            // `def`) contribute their OWN enumerable entries at runtime. Copying
+            // them AFTER the literal props preserves JS last-write-wins order,
+            // while `__smelt_call` is inserted first and never overwritten by a
+            // spread (a callable's own `__smelt_call` slot is not user data).
+            for spread in spreads {
+                let spread_text = self.erase(spread)?;
+                entries.push(format!(
+                    "if let SmeltUnknown::Object(smelt_spread) = {spread_text} {{ for (smelt_key, smelt_value) in smelt_spread.iter() {{ if smelt_key != \"__smelt_call\" {{ smelt_object.insert(smelt_key, smelt_value); }} }} }}"
+                ));
+            }
             return Ok(format!(
                 "{{ let mut smelt_object = ::std::collections::HashMap::new(); {} SmeltUnknown::Object(SmeltObject::new(smelt_object)) }}",
                 entries.join(" ")
+            ));
+        }
+        // Dynamic record spreads only have a runtime home on the erased
+        // (object) representation. A concrete callable-interface struct has
+        // fixed fields, so a variable source cannot be merged into it.
+        if !spreads.is_empty() {
+            return Err(EmitError::new(
+                "Object.assign with a dynamic record source onto a concrete callable interface is not supported",
             ));
         }
         // A concrete callable-interface destination (a struct carrying a

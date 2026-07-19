@@ -494,9 +494,16 @@ impl Rvalue {
                     visit(source);
                 }
             }
-            Self::CallableObjectAssign { callable, props } => {
+            Self::CallableObjectAssign {
+                callable,
+                props,
+                spreads,
+            } => {
                 visit(callable);
                 for (_, value) in props {
+                    visit(value);
+                }
+                for value in spreads {
                     visit(value);
                 }
             }
@@ -1217,9 +1224,16 @@ impl Rvalue {
                     visit(source);
                 }
             }
-            Self::CallableObjectAssign { callable, props } => {
+            Self::CallableObjectAssign {
+                callable,
+                props,
+                spreads,
+            } => {
                 visit(callable);
                 for (_, value) in props.iter_mut() {
+                    visit(value);
+                }
+                for value in spreads.iter_mut() {
                     visit(value);
                 }
             }

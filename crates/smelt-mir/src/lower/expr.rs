@@ -1638,11 +1638,19 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::CallableObjectAssign { callable, props } => {
+            ExprKind::CallableObjectAssign {
+                callable,
+                props,
+                spreads,
+            } => {
                 let callable_operand = self.lower_expr(*callable)?;
                 let prop_operands = props
                     .iter()
                     .map(|(name, value)| Ok((*name, self.lower_expr(*value)?)))
+                    .collect::<Result<Vec<_>, LowerError>>()?;
+                let spread_operands = spreads
+                    .iter()
+                    .map(|value| self.lower_expr(*value))
                     .collect::<Result<Vec<_>, LowerError>>()?;
                 self.assign_temp(
                     expr.ty,
@@ -1650,6 +1658,7 @@ impl LoweringCtx<'_> {
                     Rvalue::CallableObjectAssign {
                         callable: callable_operand,
                         props: prop_operands,
+                        spreads: spread_operands,
                     },
                 )?
             }

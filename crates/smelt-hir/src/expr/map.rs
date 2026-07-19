@@ -570,12 +570,17 @@ impl ExprKind {
                 target: f(target)?,
                 sources: map_vec(sources, f)?,
             },
-            Self::CallableObjectAssign { callable, props } => Self::CallableObjectAssign {
+            Self::CallableObjectAssign {
+                callable,
+                props,
+                spreads,
+            } => Self::CallableObjectAssign {
                 callable: f(callable)?,
                 props: props
                     .into_iter()
                     .map(|(name, value)| Ok((name, f(value)?)))
                     .collect::<Result<Vec<_>, E>>()?,
+                spreads: map_vec(spreads, f)?,
             },
             Self::DictCopy { dict } => Self::DictCopy { dict: f(dict)? },
             Self::DictProjection { op, dict } => Self::DictProjection { op, dict: f(dict)? },

@@ -1103,15 +1103,26 @@ fn rvalue_text(value: &Rvalue) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        Rvalue::CallableObjectAssign { callable, props } => format!(
-            "callable_object_assign {}, {{{}}}",
-            operand_text(callable),
-            props
-                .iter()
-                .map(|(name, prop_value)| format!("{name:?}: {}", operand_text(prop_value)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        Rvalue::CallableObjectAssign {
+            callable,
+            props,
+            spreads,
+        } => {
+            let mut spread_text = String::new();
+            for value in spreads {
+                let _ = write!(spread_text, ", ...{}", operand_text(value));
+            }
+            format!(
+                "callable_object_assign {}, {{{}}}{}",
+                operand_text(callable),
+                props
+                    .iter()
+                    .map(|(name, prop_value)| format!("{name:?}: {}", operand_text(prop_value)))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                spread_text
+            )
+        }
         Rvalue::DictCopy { dict } => format!("dict_copy {}", operand_text(dict)),
         Rvalue::DictProjection { op, dict } => {
             let op_text = match op {

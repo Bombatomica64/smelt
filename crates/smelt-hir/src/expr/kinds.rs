@@ -546,6 +546,10 @@ pub enum ExprKind {
     CallableObjectAssign {
         callable: ExprId,
         props: Vec<(Symbol, ExprId)>,
+        /// Record-typed source values whose own enumerable entries are copied
+        /// onto the callable object at runtime (e.g. `Object.assign(fn, def)`
+        /// where `def` is a record variable rather than an object literal).
+        spreads: Vec<ExprId>,
     },
     DictCopy {
         dict: ExprId,

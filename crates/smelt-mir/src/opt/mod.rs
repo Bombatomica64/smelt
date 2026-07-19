@@ -651,10 +651,17 @@ fn rewrite_rvalue(
             }
             changed
         }
-        Rvalue::CallableObjectAssign { callable, props } => {
+        Rvalue::CallableObjectAssign {
+            callable,
+            props,
+            spreads,
+        } => {
             let mut changed = rewrite_operand_except(callable, aliases, dest);
             for (_, prop_value) in props {
                 changed |= rewrite_operand_except(prop_value, aliases, dest);
+            }
+            for spread_value in spreads {
+                changed |= rewrite_operand_except(spread_value, aliases, dest);
             }
             changed
         }

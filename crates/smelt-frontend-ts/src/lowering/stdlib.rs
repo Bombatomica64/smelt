@@ -16,6 +16,13 @@ use smelt_stdlib::RuleId;
 
 use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
 
+/// Static properties and runtime-spread record sources produced when lowering
+/// the source arguments of an `Object.assign` onto a callable value.
+type CallableAssignSources = (
+    Vec<(smelt_hir::Symbol, smelt_hir::ExprId)>,
+    Vec<smelt_hir::ExprId>,
+);
+
 impl ModuleBuilder<'_> {
     /// Lower TypeScript `Object.assign(target, ...sources)` for homogeneous record values.
     pub(super) fn object_assign_call(
@@ -60,12 +67,13 @@ impl ModuleBuilder<'_> {
                     "Object.assign callable target must lower to a function or class value",
                 ));
             }
-            let props = self.object_assign_callable_props(source_args, body)?;
+            let (props, spreads) = self.object_assign_callable_props(source_args, body)?;
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::CallableObjectAssign {
                     callable: target,
                     props,
+                    spreads,
                 },
                 ty: unknown_ty,
                 span: self.span(call.span.start, call.span.end),
@@ -214,17 +222,27 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower static object-literal sources used to decorate callable values.
+    /// Lower the sources used to decorate a callable value.
+    ///
+    /// Object-literal sources contribute their static data properties directly
+    /// (`props`). A record-typed local identifier source (e.g. remeda's
+    /// `Object.assign(dataLast, lazyDefinition)`) has no statically-known keys
+    /// once its shape is erased to a `Dict`, so it is emitted as a runtime
+    /// `spread`: its own enumerable entries are copied onto the callable object
+    /// at construction time. Returns `(props, spreads)`.
     fn object_assign_callable_props(
         &mut self,
         source_args: &[Argument<'_>],
         body: &mut Body,
-    ) -> Result<Vec<(smelt_hir::Symbol, smelt_hir::ExprId)>, SmeltError> {
+    ) -> Result<CallableAssignSources, SmeltError> {
         let mut props = Vec::new();
+        let mut spreads = Vec::new();
         for source_arg in source_args {
             if let Argument::Identifier(ident) = source_arg
                 && self.locals.contains_key(ident.name.as_str())
             {
+                let source = self.argument(source_arg, body)?;
+                spreads.push(source);
                 continue;
             }
             let Argument::ObjectExpression(object) = source_arg else {
@@ -264,7 +282,7 @@ impl ModuleBuilder<'_> {
                 props.push((name, value));
             }
         }
-        Ok(props)
+        Ok((props, spreads))
     }
 
     /// Return whether `Object.assign` sources are static enough for callable decoration.

@@ -3983,11 +3983,18 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         Rvalue::Struct { fields, .. } => fields
             .iter()
             .any(|(_, field_value)| operand_uses_local(field_value, local)),
-        Rvalue::CallableObjectAssign { callable, props } => {
+        Rvalue::CallableObjectAssign {
+            callable,
+            props,
+            spreads,
+        } => {
             operand_uses_local(callable, local)
                 || props
                     .iter()
                     .any(|(_, field_value)| operand_uses_local(field_value, local))
+                || spreads
+                    .iter()
+                    .any(|spread_value| operand_uses_local(spread_value, local))
         }
         Rvalue::ExternalClassInstance { args, .. } => args
             .iter()

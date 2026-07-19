@@ -1,5 +1,7 @@
 //! Expression formatting helpers, including call-like nodes.
 
+use std::fmt::Write as _;
+
 use crate::expr::{AsyncOp, Expr, ExprKind};
 use crate::ids::ExprId;
 use crate::krate::Crate;
@@ -703,18 +705,29 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        ExprKind::CallableObjectAssign { callable, props } => format!(
-            "callable_object_assign {}, {{{}}}",
-            expr_ref(*callable),
-            props
-                .iter()
-                .map(|(name, value)| {
-                    let name = krate.symbols.get(*name).unwrap_or("<unknown>");
-                    format!("{name}: {}", expr_ref(*value))
-                })
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        ExprKind::CallableObjectAssign {
+            callable,
+            props,
+            spreads,
+        } => {
+            let mut spread_text = String::new();
+            for value in spreads {
+                let _ = write!(spread_text, ", ...{}", expr_ref(*value));
+            }
+            format!(
+                "callable_object_assign {}, {{{}}}{}",
+                expr_ref(*callable),
+                props
+                    .iter()
+                    .map(|(name, value)| {
+                        let name = krate.symbols.get(*name).unwrap_or("<unknown>");
+                        format!("{name}: {}", expr_ref(*value))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                spread_text
+            )
+        }
         ExprKind::DictCopy { dict } => format!("dict_copy {}", expr_ref(*dict)),
         ExprKind::DictProjection { op, dict } => {
             let op_name = match op {

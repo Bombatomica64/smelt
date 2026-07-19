@@ -1432,6 +1432,9 @@ pub enum Rvalue {
         callable: Operand,
         /// Static property values to attach.
         props: Vec<(Symbol, Operand)>,
+        /// Record values whose own enumerable entries are copied onto the
+        /// callable object at runtime (dynamic `Object.assign` sources).
+        spreads: Vec<Operand>,
     },
     /// Return a shallow copy of a dictionary.
     DictCopy {
