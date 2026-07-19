@@ -1447,3 +1447,135 @@ export function run(): void {
         "write through an explicit any local must go through the erased boundary: {source}"
     );
 }
+
+/// A `const x = f() || (g() && h());` whose join continuation (the `<tail>;
+/// return true`) is non-terminating (contains a loop) previously lowered to a
+/// labeled-block short-circuit reconstruction: `'smelt_branch: { if lhs { x =
+/// true; break 'smelt_branch; } <else + tail>; return true; }`. The then-arm's
+/// `break` skipped the ENTIRE shared join tail and control fell off the label
+/// into the function epilogue (`return SmeltUnknown::Null` -> coerced false),
+/// silently deleting the join — the root cause of the es-toolkit isEqualWith /
+/// isEqual deep-object failures. The join must now be emitted once, after a
+/// plain structured `if/else`, so BOTH the then-arm and the else-arm resume at
+/// it. Assert no label/break traps the join and the tail is reachable in order.
+#[test]
+fn short_circuit_or_join_resumes_at_shared_tail() {
+    let source = source_for(
+        "function f(a: any): boolean { return (a as any).x === 1; }
+function g(a: any): boolean { return (a as any).y === 2; }
+export function deepEq(a: any, b: any): boolean {
+  const areEqual = f(a) || (g(a) && g(b));
+  if (!areEqual) {
+    return false;
+  }
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
+  for (let i = 0; i < aKeys.length; i++) {
+    const key = aKeys[i];
+    if ((a as any)[key] !== (b as any)[key]) {
+      return false;
+    }
+  }
+  return true;
+}
+const ok = deepEq({ a: 1 }, { a: 1 });
+console.log(ok);
+",
+    );
+
+    let start = source.find("fn deep_eq").expect("deep_eq present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("deep_eq closing brace");
+    let body = &after[..end];
+
+    // The join must not be trapped inside a synthetic label that the then-arm
+    // `break`s over. Correct lowering is a plain structured `if/else`.
+    assert!(
+        !body.contains("break 'smelt_branch"),
+        "the short-circuit join must not be trapped in a labeled block the \
+         then-arm breaks over:\n{body}"
+    );
+
+    // The join (`are_equal = ...`) and the whole tail must be emitted after the
+    // if/else and reachable, in source order, ending in the terminating tail.
+    let then_true = body
+        .find("= true;")
+        .expect("then-arm assigns the short-circuit result to true");
+    let join = body
+        .find("are_equal = ")
+        .expect("join assignment emitted");
+    let guard = body
+        .find("return false;")
+        .expect("`if (!areEqual) return false` guard emitted");
+    let tail = body
+        .rfind("return true;")
+        .expect("terminating `return true` tail emitted");
+    assert!(
+        then_true < join && join < guard && guard < tail,
+        "then-arm result, join, guard, and terminating tail must appear in \
+         reachable source order (then={then_true}, join={join}, guard={guard}, \
+         tail={tail}):\n{body}"
+    );
+}
+
+/// Sibling of the case documented at the labeled-block reconstruction in
+/// `control_flow.rs`: es-toolkit `some`'s non-array branch is a then-branch
+/// that always diverges (a loop that always `return`s). The short-circuit
+/// forward-join reconstruction silently discards the then-branch's own `Goto`
+/// target, which would delete that whole diverging region and let control fall
+/// through into the else continuation, reading its loop counter uninitialized
+/// (E0381). Such a diverging then-branch must be lowered as a structured `if`
+/// arm that keeps the region intact, with the array continuation emitted after.
+#[test]
+fn diverging_then_branch_keeps_its_region() {
+    let source = source_for(
+        "export function some(source: any, predicate: (v: any, k: any, s: any) => boolean): boolean {
+  if (!Array.isArray(source)) {
+    for (const key in source) {
+      if (predicate((source as any)[key], key, source)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  for (let i = 0; i < (source as any[]).length; i++) {
+    if (predicate((source as any[])[i], i, source)) {
+      return true;
+    }
+  }
+  return false;
+}
+const ok = some([1, 2, 3], (v: any) => v === 2);
+console.log(ok);
+",
+    );
+
+    let start = source.find("fn some").expect("some present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("some closing brace");
+    let body = &after[..end];
+
+    // The diverging then-branch must not be dropped, and it must not be
+    // reconstructed via a label the array continuation escapes past.
+    assert!(
+        !body.contains("break 'smelt_branch"),
+        "diverging then-branch must be a structured `if` arm, not a labeled \
+         block:\n{body}"
+    );
+    // Both the object-key walk (then-branch, the diverging region) and the
+    // array index walk (the continuation) must survive.
+    let for_in = body
+        .find("smelt_is_for_in_record_key")
+        .expect("object-key (for-in) loop of the diverging then-branch preserved");
+    let array_guard = body
+        .rfind("if !(")
+        .expect("array index loop continuation preserved");
+    assert!(
+        for_in < array_guard,
+        "the diverging then-branch region must precede the array continuation \
+         (for_in={for_in}, array_guard={array_guard}):\n{body}"
+    );
+}

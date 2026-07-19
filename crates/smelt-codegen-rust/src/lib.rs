@@ -762,28 +762,43 @@ fn emit_source_with_free_function_router(
         // and the `isMap`/`isEqualWith` runtime probes recognize the value once it
         // is erased — a plain `SmeltUnknown::Object` (a JS object literal) cannot
         // carry that identity, which is why the marker boundary exists.
+        // A JavaScript `Map` is a REFERENCE value: every binding that names one
+        // Map object shares a single backing store, so `otherName.set(k, v)` is
+        // observable through every alias, and passing a Map into a function hands
+        // over the same object (not a copy). The backing `entries` therefore live
+        // behind a shared `Rc<RefCell<..>>`: `#[derive(Clone)]` produces an ALIAS
+        // (bumps the refcount, copies the stable `id`) rather than a deep copy, so
+        // a `.clone()` inserted by codegen when a Map flows through an expression
+        // or a recursive call still mutates the one shared store. Value-copy
+        // semantics here silently drops writes — e.g. `isEqualWith`'s cycle guard
+        // (`stack.set(a, b)` before recursing) never persists, so circular inputs
+        // recurse forever and abort. A genuinely independent Map is only produced
+        // by an explicit JS construction (`new Map(other)`), which lowers through
+        // `From`/`from_iter`/`new` and allocates a fresh store. Keys compare by
+        // SameValueZero via `SmeltJsKeyEq::same_js_key` (objects/arrays/functions
+        // by reference identity, primitives by value, `NaN` matches `NaN`).
         writer.line("#[derive(Clone, Debug)]");
         writer.line("pub struct SmeltJsMap<K, V> {");
         writer.line("    id: usize,");
-        writer.line("    entries: Vec<(K, V)>,");
+        writer.line("    entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(K, V)>>>,");
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K, V> SmeltJsMap<K, V> {");
-        writer.line("    fn new() -> Self { Self { id: smelt_next_object_id(), entries: Vec::new() } }");
+        writer.line("    fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }");
         // `clear` removes every entry without comparing keys, so it needs no
         // `SmeltJsKeyEq`/`Clone` bounds and lives on the unbounded impl block.
-        writer.line("    fn clear(&mut self) { self.entries.clear(); }");
+        writer.line("    fn clear(&mut self) { self.entries.borrow_mut().clear(); }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K: SmeltJsKeyEq + Clone, V: Clone> SmeltJsMap<K, V> {");
-        writer.line("    fn len(&self) -> usize { self.entries.len() }");
-        writer.line("    fn contains_key(&self, key: &K) -> bool { self.entries.iter().any(|(existing, _)| existing.same_js_key(key)) }");
-        writer.line("    fn get(&self, key: &K) -> Option<V> { self.entries.iter().find(|(existing, _)| existing.same_js_key(key)).map(|(_, value)| value.clone()) }");
-        writer.line("    fn insert(&mut self, key: K, value: V) -> Option<V> { if let Some((_, existing)) = self.entries.iter_mut().find(|(existing, _)| existing.same_js_key(&key)) { Some(::std::mem::replace(existing, value)) } else { self.entries.push((key, value)); None } }");
-        writer.line("    fn remove(&mut self, key: &K) -> Option<V> { if let Some(index) = self.entries.iter().position(|(existing, _)| existing.same_js_key(key)) { Some(self.entries.remove(index).1) } else { None } }");
-        writer.line("    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> { self.entries.clone().into_iter() }");
-        writer.line("    fn keys(&self) -> ::std::vec::IntoIter<K> { self.entries.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>().into_iter() }");
-        writer.line("    fn values(&self) -> ::std::vec::IntoIter<V> { self.entries.iter().map(|(_, value)| value.clone()).collect::<Vec<_>>().into_iter() }");
+        writer.line("    fn len(&self) -> usize { self.entries.borrow().len() }");
+        writer.line("    fn contains_key(&self, key: &K) -> bool { self.entries.borrow().iter().any(|(existing, _)| existing.same_js_key(key)) }");
+        writer.line("    fn get(&self, key: &K) -> Option<V> { self.entries.borrow().iter().find(|(existing, _)| existing.same_js_key(key)).map(|(_, value)| value.clone()) }");
+        writer.line("    fn insert(&mut self, key: K, value: V) -> Option<V> { let mut entries = self.entries.borrow_mut(); if let Some((_, existing)) = entries.iter_mut().find(|(existing, _)| existing.same_js_key(&key)) { Some(::std::mem::replace(existing, value)) } else { entries.push((key, value)); None } }");
+        writer.line("    fn remove(&mut self, key: &K) -> Option<V> { let mut entries = self.entries.borrow_mut(); if let Some(index) = entries.iter().position(|(existing, _)| existing.same_js_key(key)) { Some(entries.remove(index).1) } else { None } }");
+        writer.line("    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> { self.entries.borrow().clone().into_iter() }");
+        writer.line("    fn keys(&self) -> ::std::vec::IntoIter<K> { self.entries.borrow().iter().map(|(key, _)| key.clone()).collect::<Vec<_>>().into_iter() }");
+        writer.line("    fn values(&self) -> ::std::vec::IntoIter<V> { self.entries.borrow().iter().map(|(_, value)| value.clone()).collect::<Vec<_>>().into_iter() }");
         writer.line("    fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) { for (key, value) in iter { self.insert(key, value); } }");
         writer.line("}");
         writer.blank_line();
@@ -793,24 +808,24 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("impl<K, V, const N: usize> From<[(K, V); N]> for SmeltJsMap<K, V> {");
         writer.line(
-            "    fn from(entries: [(K, V); N]) -> Self { Self { id: smelt_next_object_id(), entries: Vec::from(entries) } }",
+            "    fn from(entries: [(K, V); N]) -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::from(entries))) } }",
         );
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K, V> ::std::iter::FromIterator<(K, V)> for SmeltJsMap<K, V> {");
-        writer.line("    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { Self { id: smelt_next_object_id(), entries: iter.into_iter().collect() } }");
+        writer.line("    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(iter.into_iter().collect())) } }");
         writer.line("}");
         writer.blank_line();
-        writer.line("impl<K, V> IntoIterator for SmeltJsMap<K, V> {");
+        writer.line("impl<K: Clone, V: Clone> IntoIterator for SmeltJsMap<K, V> {");
         writer.line("    type Item = (K, V);");
         writer.line("    type IntoIter = ::std::vec::IntoIter<(K, V)>;");
-        writer.line("    fn into_iter(self) -> Self::IntoIter { self.entries.into_iter() }");
+        writer.line("    fn into_iter(self) -> Self::IntoIter { ::std::rc::Rc::try_unwrap(self.entries).map(|cell| cell.into_inner()).unwrap_or_else(|shared| shared.borrow().clone()).into_iter() }");
         writer.line("}");
         writer.blank_line();
         writer.line(
             "impl<K: SmeltJsKeyEq + Clone, V: PartialEq + Clone> PartialEq for SmeltJsMap<K, V> {",
         );
-        writer.line("    fn eq(&self, other: &Self) -> bool { self.entries.len() == other.entries.len() && self.entries.iter().all(|(key, value)| other.get(key).is_some_and(|other_value| other_value == *value)) }");
+        writer.line("    fn eq(&self, other: &Self) -> bool { let entries = self.entries.borrow(); entries.len() == other.entries.borrow().len() && entries.iter().all(|(key, value)| other.get(key).is_some_and(|other_value| other_value == *value)) }");
         writer.line("}");
         writer.line("impl<K: SmeltJsKeyEq + Clone, V: Eq + Clone> Eq for SmeltJsMap<K, V> {}");
         // Erase a `Map` to a marker-bearing object: `{ __smelt_map: [[k, v], ...] }`
@@ -819,7 +834,7 @@ fn emit_source_with_free_function_router(
         // — and it preserves both the entries (as an array of `[key, value]` pairs)
         // and the object identity so `isMap`/`isEqualWith`/`Object.prototype.toString`
         // work on the erased value and `SmeltFromUnknown` can restore it losslessly.
-        writer.line("impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<K, V> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let pairs = self.entries.into_iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key.into_smelt_unknown(), value.into_smelt_unknown()]))).collect::<Vec<_>>(); let mut object = ::std::collections::HashMap::new(); object.insert(\"__smelt_map\".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs))); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }");
+        writer.line("impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<K, V> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let pairs = self.entries.borrow().clone().into_iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key.into_smelt_unknown(), value.into_smelt_unknown()]))).collect::<Vec<_>>(); let mut object = ::std::collections::HashMap::new(); object.insert(\"__smelt_map\".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs))); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }");
         writer.blank_line();
         // JS `Set` container with SameValueZero membership and insertion order.
         //
@@ -2103,7 +2118,7 @@ fn emit_source_with_free_function_router(
         // erasure round-trip preserves JS identity. A plain object (no marker) still
         // decodes as string-keyed entries — the "Map and Record share Dict
         // internally" tolerance — and any other value yields an empty map.
-        writer.line("impl<K: SmeltFromUnknown + SmeltJsKeyEq + Clone, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltJsMap<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(pairs)) = object.get(\"__smelt_map\") { let mut map = SmeltJsMap { id: object.id, entries: Vec::new() }; for pair in pairs.into_vec() { if let SmeltUnknown::Array(entry) = pair { let mut entry = entry.into_vec().into_iter(); if let (Some(key), Some(value)) = (entry.next(), entry.next()) { map.insert(K::smelt_from_unknown(key), V::smelt_from_unknown(value)); } } } map } else { object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key)), V::smelt_from_unknown(value))).collect() } }, _ => SmeltJsMap::default() } } }");
+        writer.line("impl<K: SmeltFromUnknown + SmeltJsKeyEq + Clone, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltJsMap<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(pairs)) = object.get(\"__smelt_map\") { let mut map = SmeltJsMap { id: object.id, entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) }; for pair in pairs.into_vec() { if let SmeltUnknown::Array(entry) = pair { let mut entry = entry.into_vec().into_iter(); if let (Some(key), Some(value)) = (entry.next(), entry.next()) { map.insert(K::smelt_from_unknown(key), V::smelt_from_unknown(value)); } } } map } else { object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key)), V::smelt_from_unknown(value))).collect() } }, _ => SmeltJsMap::default() } } }");
         writer.blank_line();
         // Un-erase a `Set`. A `__smelt_set` marker object restores the original
         // members (from the members array) and the source `id`, so the erasure
