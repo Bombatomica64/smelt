@@ -1,8 +1,8 @@
 {
   "files_scanned": 745,
-  "total": 77403,
+  "total": 77406,
   "category_totals": {
-    "avoidable-erasure": 35837,
+    "avoidable-erasure": 35840,
     "legitimate-boundary": 39045,
     "runtime-prelude": 2521
   },
@@ -21303,6 +21303,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = mapN.remove(&SmeltUnknown::String(\"S\".to_owned())).is_some();",
+      "occurrences": 2,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/isEqualWith_spec.rs:5111"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = match _smelt_tmp_N.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone().same_js_key(&_smelt_tmp_N);",
       "occurrences": 2,
       "files": 1,
@@ -28538,6 +28545,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/sampleSize_1.rs:50"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = { stack.insert(SmeltUnknown::Array(_smelt_tmp_N.into()), result.clone()); stack.clone() };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:187"
     },
     {
       "category": "avoidable-erasure",
