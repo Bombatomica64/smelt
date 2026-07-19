@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-07-18 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-07-19 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,11 +12,11 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 697 / 362 | — | — | — |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 749 / 310 | — | — | — |
 | [radash](https://github.com/sodiray/radash) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/internals/helpers.ts` | 12 | non-working Rust (12r/0s) |
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/storages/globalConfig/globalConfig.ts` | 17 | non-working Rust (16r/1s) |
-| [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 4 | non-working Rust (4r/0s) |
+| [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/result-async.ts` | 3 | non-working Rust (3r/0s) |
 | [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 26 | non-working Rust (26r/0s) |
 | [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `(unknown)` | 6 | non-working Rust (6r/0s) |
 | [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 21 | non-working Rust (21r/0s) |
@@ -27,7 +27,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: **697 passed / 362 failed**
+- Generated `cargo test`: **749 passed / 310 failed**
 
 ## radash
 
@@ -90,8 +90,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 3 | 2 | non-working Rust | declare methods are not lowered yet |
-| 3 | 2 | non-working Rust | String.match() requires exactly one RegExp argument |
+| 3 | 2 | non-working Rust | generic implements clauses are not lowered yet |
 | 2 | 2 | non-working Rust | yield* generator delegation is not lowered yet |
 | 1 | 1 | non-working Rust | only expect(...).not matcher modifiers are supported |
 
@@ -228,6 +227,7 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 2 (more-itertools, returns) | 14 | class 'X': multiple inheritance is not supported |
 | 2 (funcy, returns) | 10 | pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals |
 | 2 (funcy, returns) | 5 | attribute access is only supported on class instances |
+| 2 (neverthrow, valibot) | 4 | generic implements clauses are not lowered yet |
 | 2 (ts-pattern, valibot) | 3 | too many generic type arguments |
 
 ## Missing stdlib builtins observed
