@@ -57,7 +57,7 @@ impl FunctionEmitter<'_> {
             Type::Optional(item) | Type::List(item) | Type::Set(item) | Type::Future(item) => {
                 self.collect_union_type_params(*item, params)?;
             }
-            Type::Dict(key, value) => {
+            Type::Dict(key, value) | Type::JsMap(key, value) => {
                 self.collect_union_type_params(*key, params)?;
                 self.collect_union_type_params(*value, params)?;
             }
