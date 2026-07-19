@@ -8390,3 +8390,54 @@ it("asserts calls", () => {
         "argument mismatch must produce a test failure\n{source}"
     );
 }
+
+/// A closure whose body has an `if` guard that mutates captured locals
+/// (`once`: `if (!called) { ret = fn(); called = true; }`) must keep the guard.
+/// The compact side-effect-free callback IR modeled the guarded assignment as a
+/// ternary arm and hoisted the assignment out of the branch, so `fn()` ran on
+/// every call and `called` was always set. The mutation must fall back to full
+/// closure-body lowering, which emits a real `if` around the captured-state
+/// writes.
+#[test]
+fn closure_if_guard_mutating_captured_locals_keeps_the_branch() {
+    let source = source_for(
+        r#"
+export function once<T>(fn: () => T): () => T {
+  let called = false;
+  let ret: T;
+  return () => {
+    if (!called) {
+      ret = fn();
+      called = true;
+    }
+    return ret;
+  };
+}
+"#,
+    );
+
+    // The guard survives: `fn()` and the `called = true` write live inside an
+    // `if` branch, not hoisted ahead of the condition.
+    let called_write = source.find("borrow_mut()) = true").unwrap_or_else(|| {
+        panic!("expected captured `called = true` write\n{source}");
+    });
+    let guard = source.find("if ").unwrap_or_else(|| {
+        panic!("expected an `if` guard in the closure body\n{source}");
+    });
+    assert!(
+        guard < called_write,
+        "the captured-state write must sit inside the `if` guard, not be hoisted before it\n{source}"
+    );
+    // The invocation must not run unconditionally ahead of the condition: the
+    // condition (`!called`) must be computed before the call site.
+    let cond = source.find("= !").unwrap_or_else(|| {
+        panic!("expected the `!called` condition\n{source}");
+    });
+    let call = source.find(")()").unwrap_or_else(|| {
+        panic!("expected the `fn()` invocation\n{source}");
+    });
+    assert!(
+        cond < call,
+        "the `!called` condition must be evaluated before `fn()` is invoked\n{source}"
+    );
+}

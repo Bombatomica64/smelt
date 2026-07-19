@@ -513,6 +513,13 @@ impl ModuleBuilder<'_> {
             // there.
             || error.message
                 == "callback if/else blocks need direct conditional expression lowering"
+            // A callback `if` guard whose consequent assigns a captured local
+            // (`if (!called) { ret = fn(); called = true; }`) cannot be modeled
+            // by the compact side-effect-free ternary IR (the assignment would
+            // hoist out of the guard). Full closure-body lowering emits a native
+            // branch, so retry there.
+            || error.message
+                == "callback if guard mutates a captured local; needs closure-body lowering"
             || error.message == "async callbacks need closure-body lowering"
             // A method/receiver call the compact callback dispatcher does not
             // model but the full method-call lowering does (e.g. `String.repeat`,
