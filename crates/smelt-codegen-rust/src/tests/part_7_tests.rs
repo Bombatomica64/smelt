@@ -5024,18 +5024,18 @@ setTimeout(() => {}, 10);
         .nth(1)
         .expect("missing smelt_sleep_ms helper");
     let drain = sleep_body
-        .find("        smelt_drain_due_timers();")
+        .find("        smelt_drain_due_timers(id_barrier);")
         .unwrap();
     let yield_now = sleep_body
         .find("    tokio::task::yield_now().await;")
         .unwrap();
     assert!(drain < yield_now, "{source}");
     assert!(
-        source.contains("let target_ms = SMELT_TIMER_NOW_MS.with"),
+        source.contains("let target_ms = smelt_mono_ms().saturating_add(delay_ms);"),
         "{source}"
     );
     assert!(
-        source.contains("filter(|timer| timer.due_ms <= target_ms)"),
+        source.contains("filter(|timer| timer.due_ms <= target_ms && timer.id < id_barrier)"),
         "{source}"
     );
 }

@@ -406,6 +406,48 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
     }
+    if needs_timer_helpers || needs_date_now {
+        // Shared monotonic clock coupling JavaScript timers and `Date.now()`.
+        //
+        // JS code routinely measures elapsed time with `Date.now()` while
+        // scheduling work with `setTimeout`, and expects the two to agree
+        // (a debounce reads `Date.now()` to size its `maxWait` timeout, then
+        // waits for that timeout to fire). Generated Rust runs deterministically
+        // on a virtual clock — `sleep`/timer draining fast-forwards time instead
+        // of really blocking — so both readings must come from one timeline.
+        //
+        // `SMELT_VIRTUAL_MS` is the accumulated fast-forward; real wall time
+        // keeps advancing on top of it so a synchronous busy-loop such as
+        // `while (Date.now() - start < 320) { ... }` (no `await` to fast-forward)
+        // still terminates on real elapsed time rather than spinning forever.
+        writer.line("thread_local! {");
+        writer.line("    static SMELT_VIRTUAL_MS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };");
+        writer.line("    static SMELT_TIMER_EPOCH: ::std::cell::Cell<Option<::std::time::Instant>> = const { ::std::cell::Cell::new(None) };");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Monotonic virtual + wall clock (ms) shared by JS timers and `Date.now()`.");
+        writer.line("///");
+        writer.line("/// Returns real elapsed wall time since a fixed epoch plus the virtual");
+        writer.line("/// fast-forward accumulated by `sleep`/timer draining, so `setTimeout`");
+        writer.line("/// deadlines and `Date.now()` measurements share one timeline.");
+        writer.line("fn smelt_mono_ms() -> u64 {");
+        writer.line("    let epoch = SMELT_TIMER_EPOCH.with(|epoch| match epoch.get() {");
+        writer.line("        Some(instant) => instant,");
+        writer.line("        None => { let instant = ::std::time::Instant::now(); epoch.set(Some(instant)); instant }");
+        writer.line("    });");
+        writer.line("    let real_ms = ::std::time::Instant::now().saturating_duration_since(epoch).as_millis() as u64;");
+        writer.line("    real_ms.saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get))");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Fast-forward the virtual clock so `smelt_mono_ms()` reaches `target_ms`.");
+        writer.line("fn smelt_virtual_advance_to(target_ms: u64) {");
+        writer.line("    let now = smelt_mono_ms();");
+        writer.line("    if target_ms > now {");
+        writer.line("        SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(virtual_ms.get().saturating_add(target_ms - now)));");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+    }
     if needs_host_override {
         // Bounded host-global override support: a fixed override-state enum, one
         // `thread_local!` slot per host name the crate reassigns (fresh `Native`
@@ -1692,7 +1734,6 @@ fn emit_source_with_free_function_router(
             writer.blank_line();
             writer.line("thread_local! {");
             writer.line("    static SMELT_NEXT_TIMER_ID: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };");
-            writer.line("    static SMELT_TIMER_NOW_MS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };");
             writer.line("    static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };");
             writer.line("    static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };");
             writer.line("}");
@@ -1702,7 +1743,8 @@ fn emit_source_with_free_function_router(
                 reset_timers = smelt_stdlib::runtime_symbols::timers::RESET_TIMERS,
             ));
             writer.line("    SMELT_NEXT_TIMER_ID.with(|next| next.set(1));");
-            writer.line("    SMELT_TIMER_NOW_MS.with(|now| now.set(0));");
+            writer.line("    SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(0));");
+            writer.line("    SMELT_TIMER_EPOCH.with(|epoch| epoch.set(None));");
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());");
             writer.line("    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());");
             writer.line("}");
@@ -1761,7 +1803,7 @@ fn emit_source_with_free_function_router(
             ));
             writer.line("    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });");
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
-            writer.line("    let due_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));");
+            writer.line("    let due_ms = smelt_mono_ms().saturating_add(delay_ms);");
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: None }));");
             writer.line("    SmeltUnknown::Number(id as f64)");
             writer.line("}");
@@ -1774,7 +1816,7 @@ fn emit_source_with_free_function_router(
             writer.line("    // Clamp non-positive periods to 1 ms so an interval still advances virtual");
             writer.line("    // time and cannot busy-loop the drain at the current instant.");
             writer.line("    let period_ms = if period_ms.is_finite() && period_ms > 0.0 { period_ms as u64 } else { 1 };");
-            writer.line("    let due_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(period_ms));");
+            writer.line("    let due_ms = smelt_mono_ms().saturating_add(period_ms);");
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: Some(period_ms) }));");
             writer.line("    SmeltUnknown::Number(id as f64)");
             writer.line("}");
@@ -1801,18 +1843,24 @@ fn emit_source_with_free_function_router(
                 clear_timeout = smelt_stdlib::runtime_symbols::timers::CLEAR_TIMEOUT,
             ));
             writer.blank_line();
+            // `id_barrier` defers timers created *after* the current drain began:
+            // a timer whose id is at or above the barrier was (re)scheduled during
+            // this drain pass and, like a Node timer scheduled inside the timer
+            // phase, must wait for a later tick rather than firing again now. This
+            // stops a self-rearming `setTimeout(cb, 0)` (e.g. a funnel's 0 ms
+            // interval) from firing repeatedly within one `sleep`.
             writer.line(format!(
-                "fn {drain_due_timers}() {{",
+                "fn {drain_due_timers}(id_barrier: u64) {{",
                 drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
             ));
             writer.line("    loop {");
-            writer.line("        let now = SMELT_TIMER_NOW_MS.with(|now| now.get());");
+            writer.line("        let now = smelt_mono_ms();");
             writer.line("        let due = SMELT_TIMERS.with(|timers| {");
             writer.line("            let mut timers = timers.borrow_mut();");
             writer.line("            let mut due = Vec::new();");
             writer.line("            let mut pending = Vec::new();");
             writer.line("            for timer in timers.drain(..) {");
-            writer.line("                if timer.due_ms <= now { due.push(timer); } else { pending.push(timer); }");
+            writer.line("                if timer.due_ms <= now && timer.id < id_barrier { due.push(timer); } else { pending.push(timer); }");
             writer.line("            }");
             writer.line("            *timers = pending;");
             writer.line("            due");
@@ -1840,17 +1888,25 @@ fn emit_source_with_free_function_router(
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
             ));
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
-            writer.line(
-                "    let target_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));",
-            );
+            writer.line("    let target_ms = smelt_mono_ms().saturating_add(delay_ms);");
+            // For a zero-delay sleep (one event-loop tick), only timers that
+            // already exist when it begins may fire; anything (re)scheduled while
+            // draining is deferred to a later tick, exactly as Node runs a timer
+            // scheduled inside the timer phase on the next turn. A positive-delay
+            // sleep spans a real window and must fire every timer that becomes due
+            // within it, including ones scheduled mid-window (e.g. a recursive
+            // debounce re-arming itself), so it uses no barrier.
+            writer.line("    let id_barrier = if delay_ms == 0 { SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get) } else { u64::MAX };");
             // Fire every timer due within the requested window, advancing virtual
             // time to each in turn and draining the microtask queue between fires.
+            writer.line("    let mut fired_any = false;");
             writer.line("    loop {");
-            writer.line("        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms).map(|timer| timer.due_ms).min());");
+            writer.line("        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms && timer.id < id_barrier).map(|timer| timer.due_ms).min());");
             writer.line("        let Some(next_due) = next_due else { break; };");
-            writer.line("        SMELT_TIMER_NOW_MS.with(|now| if next_due > now.get() { now.set(next_due); });");
+            writer.line("        fired_any = true;");
+            writer.line("        smelt_virtual_advance_to(next_due);");
             writer.line(format!(
-                "        {drain_due_timers}();",
+                "        {drain_due_timers}(id_barrier);",
                 drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
             ));
             writer.line(format!(
@@ -1858,7 +1914,7 @@ fn emit_source_with_free_function_router(
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
             ));
             writer.line("    }");
-            writer.line("    SMELT_TIMER_NOW_MS.with(|now| if target_ms > now.get() { now.set(target_ms); });");
+            writer.line("    smelt_virtual_advance_to(target_ms);");
             // Node-style run-until-idle. A zero-delay sleep is what the generated
             // promise-executor spin loops await while waiting for a result cell to
             // be settled (e.g. by a `setTimeout(resolve, 100)` timer). With no
@@ -1875,15 +1931,23 @@ fn emit_source_with_free_function_router(
             // a real deadline: it must fire exactly the timers due within its
             // window (handled above) and must not jump the clock to a later timer,
             // or a bounded `await delay(35)` would over-fire a `setInterval`.
+            //
+            // It also applies only when the window fired nothing. If the window
+            // already ran a due timer, progress was made this tick and control
+            // must return so the caller's spin loop can re-check its awaited
+            // state; jumping ahead to fire a timer that was (re)scheduled during
+            // this drain — e.g. a `setInterval(_, 0)` re-arming itself — would
+            // over-fire it a tick early and, for a funnel, collapse the burst to
+            // idle before the next `call`.
             writer.line("    'idle: {");
-            writer.line("        if delay_ms != 0 { break 'idle; }");
+            writer.line("        if delay_ms != 0 || fired_any { break 'idle; }");
             writer.line("        let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());");
             writer.line("        if tasks_pending { break 'idle; }");
-            writer.line("        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().map(|timer| timer.due_ms).min());");
+            writer.line("        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());");
             writer.line("        let Some(earliest) = earliest else { break 'idle; };");
-            writer.line("        SMELT_TIMER_NOW_MS.with(|now| if earliest > now.get() { now.set(earliest); });");
+            writer.line("        smelt_virtual_advance_to(earliest);");
             writer.line(format!(
-                "        {drain_due_timers}();",
+                "        {drain_due_timers}(id_barrier);",
                 drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
             ));
             writer.line(format!(

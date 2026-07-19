@@ -1291,7 +1291,13 @@ impl FunctionEmitter<'_> {
                 self.global_set_text(*global, stored)
             }
             Rvalue::DateNow => {
-                let text = "SMELT_DATE_NOW.with(::std::cell::Cell::get).unwrap_or_else(|| chrono::Utc::now().timestamp_millis())";
+                // `Date.now()` shares the timer timeline: real wall time plus the
+                // virtual fast-forward accumulated by `sleep`/timer draining
+                // (`SMELT_VIRTUAL_MS`, emitted alongside the date runtime). This
+                // keeps elapsed-time measurements consistent with `setTimeout`
+                // deadlines under the deterministic virtual clock. An explicit
+                // `vi.setSystemTime(...)` override (`SMELT_DATE_NOW`) still wins.
+                let text = "SMELT_DATE_NOW.with(::std::cell::Cell::get).unwrap_or_else(|| chrono::Utc::now().timestamp_millis().saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get) as i64))";
                 self.date_timestamp_result_text(text, dest_ty)
             }
             Rvalue::DateSetNow { timestamp } => Ok(format!(
