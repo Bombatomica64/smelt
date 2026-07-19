@@ -756,6 +756,23 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("date_set_timezone_offset {}", expr_ref(*offset))
         }
         ExprKind::DateResetTimezoneOffset => "date_reset_timezone_offset".to_owned(),
+        ExprKind::VitestMockFn { implementation } => implementation.as_ref().map_or_else(
+            || "vitest_mock_fn".to_owned(),
+            |implementation| format!("vitest_mock_fn {}", expr_ref(*implementation)),
+        ),
+        ExprKind::VitestMockCalledTimes { mock, count } => format!(
+            "vitest_mock_called_times {} {}",
+            expr_ref(*mock),
+            expr_ref(*count)
+        ),
+        ExprKind::VitestMockCalledWith { mock, args } => format!(
+            "vitest_mock_called_with {} [{}]",
+            expr_ref(*mock),
+            args.iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         ExprKind::DateTimezoneContext { timezone } => {
             format!("date_timezone_context {}", expr_ref(*timezone))
         }

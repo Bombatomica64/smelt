@@ -696,6 +696,21 @@ fn rewrite_rvalue(
         Rvalue::DateSetNow { timestamp } => rewrite_operand_except(timestamp, aliases, dest),
         Rvalue::DateTimezoneOffset | Rvalue::DateResetTimezoneOffset => false,
         Rvalue::DateSetTimezoneOffset { offset } => rewrite_operand_except(offset, aliases, dest),
+        Rvalue::VitestMockFn { implementation } => implementation
+            .as_mut()
+            .is_some_and(|implementation| rewrite_operand_except(implementation, aliases, dest)),
+        Rvalue::VitestMockCalledTimes { mock, count } => {
+            let mut changed = rewrite_operand_except(mock, aliases, dest);
+            changed |= rewrite_operand_except(count, aliases, dest);
+            changed
+        }
+        Rvalue::VitestMockCalledWith { mock, args } => {
+            let mut changed = rewrite_operand_except(mock, aliases, dest);
+            for arg in args {
+                changed |= rewrite_operand_except(arg, aliases, dest);
+            }
+            changed
+        }
         Rvalue::DateTimezoneContext { timezone } => rewrite_operand_except(timezone, aliases, dest),
         Rvalue::DateToIsoString { timestamp_ms } => {
             rewrite_operand_except(timestamp_ms, aliases, dest)

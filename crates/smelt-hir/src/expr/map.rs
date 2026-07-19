@@ -604,6 +604,17 @@ impl ExprKind {
             Self::DateSetTimezoneOffset { offset } => Self::DateSetTimezoneOffset {
                 offset: f(offset)?,
             },
+            Self::VitestMockFn { implementation } => Self::VitestMockFn {
+                implementation: map_opt(implementation, f)?,
+            },
+            Self::VitestMockCalledTimes { mock, count } => Self::VitestMockCalledTimes {
+                mock: f(mock)?,
+                count: f(count)?,
+            },
+            Self::VitestMockCalledWith { mock, args } => Self::VitestMockCalledWith {
+                mock: f(mock)?,
+                args: map_vec(args, f)?,
+            },
             Self::DateTimezoneContext { timezone } => Self::DateTimezoneContext {
                 timezone: f(timezone)?,
             },

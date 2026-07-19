@@ -155,6 +155,22 @@ pub(crate) fn needs_date_timezone_offset_runtime(mir: &Mir) -> bool {
     })
 }
 
+/// Returns true when generated Rust constructs or asserts a stateful Vitest
+/// mock and therefore needs the `SmeltVitestMock*` runtime prelude (the
+/// per-mock state registry, chainable configuration methods, and the
+/// `SmeltPromise::rejected` constructor for `mockRejectedValue*`).
+#[must_use]
+pub(crate) fn needs_vitest_mock_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::VitestMockFn { .. }
+                | Rvalue::VitestMockCalledTimes { .. }
+                | Rvalue::VitestMockCalledWith { .. }
+        )
+    })
+}
+
 /// Returns true when generated Rust constructs a modeled host `Blob`/`File`
 /// record and therefore needs the `smelt_blob_record_from_parts` runtime helper.
 #[must_use]

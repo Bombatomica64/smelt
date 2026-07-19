@@ -1760,6 +1760,45 @@ impl LoweringCtx<'_> {
             ExprKind::DateResetTimezoneOffset => {
                 self.assign_temp(expr.ty, expr.span, Rvalue::DateResetTimezoneOffset)?
             }
+            ExprKind::VitestMockFn { implementation } => {
+                let implementation_operand = implementation
+                    .map(|implementation| self.lower_expr(implementation))
+                    .transpose()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestMockFn {
+                        implementation: implementation_operand,
+                    },
+                )?
+            }
+            ExprKind::VitestMockCalledTimes { mock, count } => {
+                let mock_operand = self.lower_expr(*mock)?;
+                let count_operand = self.lower_expr(*count)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestMockCalledTimes {
+                        mock: mock_operand,
+                        count: count_operand,
+                    },
+                )?
+            }
+            ExprKind::VitestMockCalledWith { mock, args } => {
+                let mock_operand = self.lower_expr(*mock)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestMockCalledWith {
+                        mock: mock_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::DateTimezoneContext { timezone } => {
                 let timezone_operand = self.lower_expr(*timezone)?;
                 self.assign_temp(

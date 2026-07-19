@@ -1511,6 +1511,25 @@ pub enum Rvalue {
     },
     /// Restore the default `Date.prototype.getTimezoneOffset` implementation.
     DateResetTimezoneOffset,
+    /// Construct a stateful Vitest `vi.fn([impl])` mock object.
+    VitestMockFn {
+        /// Optional wrapped implementation used as the default outcome.
+        implementation: Option<Operand>,
+    },
+    /// Whether a Vitest mock's recorded call count equals `count` (bool).
+    VitestMockCalledTimes {
+        /// The (possibly non-mock) actual value under assertion.
+        mock: Operand,
+        /// Expected call count.
+        count: Operand,
+    },
+    /// Whether a Vitest mock recorded a call deep-equal to `args` (bool).
+    VitestMockCalledWith {
+        /// The (possibly non-mock) actual value under assertion.
+        mock: Operand,
+        /// Expected call arguments.
+        args: Vec<Operand>,
+    },
     /// Create a date-fns-compatible date context function for an IANA time zone.
     DateTimezoneContext {
         /// IANA time zone name.

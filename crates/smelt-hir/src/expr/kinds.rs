@@ -591,6 +591,27 @@ pub enum ExprKind {
     },
     /// Restore the default `Date.prototype.getTimezoneOffset` implementation.
     DateResetTimezoneOffset,
+    /// Construct a stateful Vitest `vi.fn([impl])` mock: a callable erased
+    /// object that records calls and serves configured one-shot/default
+    /// outcomes (`mockReturnValue`, `mockResolvedValue`, `mockRejectedValueOnce`, ...).
+    VitestMockFn {
+        /// Optional wrapped implementation used as the default outcome.
+        implementation: Option<ExprId>,
+    },
+    /// Whether a Vitest mock's recorded call count equals `count`
+    /// (`expect(mock).toHaveBeenCalledTimes(count)`); true means the
+    /// assertion holds. Non-mock values pass vacuously (documented compat).
+    VitestMockCalledTimes {
+        mock: ExprId,
+        count: ExprId,
+    },
+    /// Whether a Vitest mock recorded a call whose arguments deep-equal
+    /// `args` (`expect(mock).toHaveBeenCalledWith(...)`); true means the
+    /// assertion holds. Non-mock values pass vacuously (documented compat).
+    VitestMockCalledWith {
+        mock: ExprId,
+        args: Vec<ExprId>,
+    },
     /// Create a date-fns-compatible date context function for an IANA time zone.
     DateTimezoneContext {
         timezone: ExprId,

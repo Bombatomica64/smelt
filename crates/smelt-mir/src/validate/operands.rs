@@ -592,6 +592,21 @@ impl Rvalue {
             Self::DateSetTimezoneOffset { offset } => {
                 visit(offset);
             }
+            Self::VitestMockFn { implementation } => {
+                if let Some(implementation) = implementation {
+                    visit(implementation);
+                }
+            }
+            Self::VitestMockCalledTimes { mock, count } => {
+                visit(mock);
+                visit(count);
+            }
+            Self::VitestMockCalledWith { mock, args } => {
+                visit(mock);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::DateTimezoneContext { timezone } => {
                 visit(timezone);
             }
@@ -1299,6 +1314,21 @@ impl Rvalue {
             Self::DateTimezoneOffset | Self::DateResetTimezoneOffset => {}
             Self::DateSetTimezoneOffset { offset } => {
                 visit(offset);
+            }
+            Self::VitestMockFn { implementation } => {
+                if let Some(implementation) = implementation {
+                    visit(implementation);
+                }
+            }
+            Self::VitestMockCalledTimes { mock, count } => {
+                visit(mock);
+                visit(count);
+            }
+            Self::VitestMockCalledWith { mock, args } => {
+                visit(mock);
+                for arg in args {
+                    visit(arg);
+                }
             }
             Self::DateTimezoneContext { timezone } => {
                 visit(timezone);

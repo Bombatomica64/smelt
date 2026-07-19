@@ -2190,10 +2190,23 @@ impl FunctionEmitter<'_> {
                     self.mir.types.get(function.return_ty)
                 {
                     let _ = self.type_text_with_impl_trait(*item, false)?;
-                    let converted_item = self.extract_value_text("smelt_result", *item)?;
-                    format!(
-                        "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}))"
-                    )
+                    if self.mir.types.get(*item) == Some(&Type::Unknown) {
+                        // JavaScript `await` flattens promise chains: an erased
+                        // callable adapted to a promise-returning signature may
+                        // itself return an erased promise (e.g. a Vitest
+                        // `mockResolvedValue`/`mockRejectedValue` mock, or an
+                        // erased async function), and awaiting the adapter must
+                        // resolve — or reject as `Err` — through that inner
+                        // promise instead of yielding the promise value itself.
+                        // `smelt_await_flatten` is an identity pass-through for
+                        // every non-promise value.
+                        "SmeltFuture::from_future(Box::pin(async move { smelt_await_flatten((smelt_result).into_smelt_unknown()).await }))".to_owned()
+                    } else {
+                        let converted_item = self.extract_value_text("smelt_result", *item)?;
+                        format!(
+                            "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}))"
+                        )
+                    }
                 } else if return_ty == "SmeltUnknown" {
                     "smelt_result".to_owned()
                 } else {

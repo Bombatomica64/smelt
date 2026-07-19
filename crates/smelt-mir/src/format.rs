@@ -1165,6 +1165,20 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!("date_set_timezone_offset {}", operand_text(offset))
         }
         Rvalue::DateResetTimezoneOffset => "date_reset_timezone_offset".to_owned(),
+        Rvalue::VitestMockFn { implementation } => implementation.as_ref().map_or_else(
+            || "vitest_mock_fn".to_owned(),
+            |implementation| format!("vitest_mock_fn {}", operand_text(implementation)),
+        ),
+        Rvalue::VitestMockCalledTimes { mock, count } => format!(
+            "vitest_mock_called_times {} {}",
+            operand_text(mock),
+            operand_text(count)
+        ),
+        Rvalue::VitestMockCalledWith { mock, args } => format!(
+            "vitest_mock_called_with {} [{}]",
+            operand_text(mock),
+            args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
+        ),
         Rvalue::DateTimezoneContext { timezone } => {
             format!("date_timezone_context {}", operand_text(timezone))
         }
