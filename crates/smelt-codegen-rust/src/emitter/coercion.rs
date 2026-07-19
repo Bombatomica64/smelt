@@ -2220,12 +2220,21 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_source_value = {text}.clone(); let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_callback }} else {{ {default_callback} }} }}"
                 ))
             }
-            // There is no way to recover a real future from an already-erased
-            // `SmeltUnknown`, so extract to a ready promise value at the declared
-            // `Output` type instead. `default_value` renders exactly
-            // `SmeltFuture::resolved(<default output>)` for `Type::Future`,
-            // matching the promise-value ABI used everywhere else.
-            Some(Type::Future(_)) => self.default_value(target),
+            // An already-erased `SmeltUnknown` at a `Type::Future` position is a
+            // `SmeltUnknown::Promise` (e.g. `await`ing the result of an erased
+            // vitest-mock call, or an `x as Promise<T>` cast). It CAN be recovered:
+            // wrap a fresh promise-value handle whose body awaits the erased
+            // promise through `smelt_await_flatten` and extracts its settled value
+            // to the declared `Output`. Discarding it for `SmeltFuture::resolved`
+            // of a default would drop the real resolved value and leave the shared
+            // settle state unobserved (breaking, e.g., mock result matchers and
+            // chained awaits on the recovered promise).
+            Some(Type::Future(output)) => {
+                let extracted = self.extract_value_text("smelt_awaited", *output)?;
+                Ok(format!(
+                    "SmeltFuture::from_future(Box::pin(async move {{ let smelt_awaited = smelt_await_flatten(({text}).into_smelt_unknown()).await?; Ok::<_, Box<dyn std::error::Error>>({extracted}) }}))"
+                ))
+            }
             _ => Err(EmitError::new(
                 "checked extraction from unknown to this type is not implemented yet",
             )),

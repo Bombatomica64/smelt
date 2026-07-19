@@ -1672,8 +1672,10 @@ impl<'mir> FunctionEmitter<'mir> {
         if body.contains("self_owned") {
             out.push_str("    let self_owned = self.clone();\n");
         }
+        // A genuine async-method body: prime it so its synchronous prefix runs
+        // at call time (JS eager-async-prefix semantics; see `from_future_primed`).
         out.push_str(&format!(
-            "    SmeltFuture::<{inner_ret}>::from_future(Box::pin(async move {{\n"
+            "    SmeltFuture::<{inner_ret}>::from_future_primed(Box::pin(async move {{\n"
         ));
         out.push_str(&body);
         out.push_str("    }))\n    }\n");

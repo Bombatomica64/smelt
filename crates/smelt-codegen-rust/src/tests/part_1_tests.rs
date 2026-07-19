@@ -1508,8 +1508,8 @@ async function run(): Promise<void> {
         "async method body did not clone self into an owned handle: {out}"
     );
     assert!(
-        out.contains("SmeltFuture::<()>::from_future(Box::pin(async move {"),
-        "async method body not wrapped in a moved async block: {out}"
+        out.contains("SmeltFuture::<()>::from_future_primed(Box::pin(async move {"),
+        "async method body not wrapped in a primed moved async block: {out}"
     );
     assert!(
         !out.contains("self.available") && out.contains("self_owned"),
