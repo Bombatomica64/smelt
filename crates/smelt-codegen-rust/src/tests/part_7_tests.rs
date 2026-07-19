@@ -8301,3 +8301,49 @@ export function adapt(f: (...args: unknown[]) => unknown): ErasedBinary {
         "erased-rest adapter must not spread a scalar target argument\n{source}"
     );
 }
+
+#[test]
+fn vitest_mock_chain_constructs_one_stateful_mock() {
+    // A `vi.fn().mockRejectedValueOnce(..).mockResolvedValue(..)` chain must
+    // construct exactly ONE runtime mock: the chain methods are runtime fields
+    // returning the same instance, and HIR interceptor probing's dangling
+    // duplicate exprs must never be materialized by MIR.
+    let source = source_for(
+        r#"
+import { it, vi } from "vitest";
+
+it("configures a chain", () => {
+  const func = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("failure"))
+    .mockResolvedValue("success");
+  func();
+});
+"#,
+    );
+    assert_eq!(
+        source.matches("smelt_vitest_mock_new(").count(),
+        // One construction site plus the helper's own definition in the prelude.
+        2,
+        "chain must construct exactly one mock\n{source}"
+    );
+    // The gated mock prelude and its `SmeltPromise::rejected` dependency are
+    // both emitted for mock-bearing crates.
+    assert!(source.contains("struct SmeltVitestMockState"), "{source}");
+    assert!(source.contains("fn rejected(value: SmeltUnknown)"), "{source}");
+}
+
+#[test]
+fn vitest_mock_prelude_is_pay_for_use() {
+    // A crate with no `vi.fn()` mock keeps a byte-identical prelude: no mock
+    // registry, no `SmeltPromise::rejected`.
+    let source = source_for(
+        r#"
+export function double(value: number): number {
+  return value * 2;
+}
+"#,
+    );
+    assert!(!source.contains("SmeltVitestMockState"), "{source}");
+    assert!(!source.contains("fn rejected("), "{source}");
+}

@@ -1027,6 +1027,108 @@ it("has property", () => {
 }
 
 #[test]
+fn lowers_vi_fn_to_stateful_vitest_mock() -> Result<(), String> {
+    // `vi.fn()` lowers to `ExprKind::VitestMockFn` with the erased `Unknown`
+    // type: the mock is a genuine dynamic boundary (no declared shape, behavior
+    // reconfigured imperatively at runtime through `mock*` methods), so no
+    // concrete function type or scoped generic can represent it — its outcome
+    // set (return/resolve/reject/implementation) is chosen per call at runtime.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { it, vi } from "vitest";
+
+it("creates a mock", () => {
+  const mockFn = vi.fn();
+  mockFn();
+});
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    let mock = body
+        .exprs
+        .iter()
+        .find(|expr| matches!(expr.kind, ExprKind::VitestMockFn { implementation: None }))
+        .ok_or("expected a VitestMockFn expression")?;
+    ensure!(matches!(ctx.krate.types.get(mock.ty), Some(Type::Unknown)));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_vi_fn_with_implementation_to_stateful_vitest_mock() -> Result<(), String> {
+    // `vi.fn(impl)` wraps the implementation as the mock's default outcome so
+    // calls are still recorded (unlike the old passthrough, which returned the
+    // implementation and lost call tracking).
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { it, vi } from "vitest";
+
+it("creates a wrapped mock", () => {
+  const double = vi.fn((value: number) => value * 2);
+  double(2);
+});
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::VitestMockFn {
+            implementation: Some(_)
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_mock_configuration_chain_through_dynamic_calls() -> Result<(), String> {
+    // A `vi.fn().mockRejectedValueOnce(..).mockResolvedValue(..)` chain must
+    // lower through the generic dynamic method-call path (the chain methods are
+    // runtime fields on the mock object), constructing exactly ONE mock — the
+    // old interception (`mockImplementation`/`mockReturnValue` receiver
+    // passthrough) must not swallow the configuration.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { it, vi } from "vitest";
+
+it("configures a chain", () => {
+  const func = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("failure"))
+    .mockResolvedValue("success");
+  const spy = vi.fn().mockReturnValue(3).mockImplementation(() => 4);
+  func();
+  spy();
+});
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    // Interceptor probing re-lowers receiver subexpressions and discards the
+    // results, so `body.exprs` holds dangling duplicates; only the exprs
+    // referenced by statements reach MIR (single mock construction per chain
+    // is pinned on the generated Rust by the codegen snapshot test).
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::VitestMockFn { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_mock_return_value_with_argument() -> Result<(), String> {
     // `vi.fn().mockReturnValue(x)` configures a plain mock's return value; the
     // configured value is accepted and the chainable mock handle is returned.
