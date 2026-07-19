@@ -925,12 +925,13 @@ impl FunctionEmitter<'_> {
                 is_async,
                 yield_ty,
                 return_ty,
-                ..
+                next_ty,
             } => Ok(format!(
-                "Smelt{}Generator<{}, {}>",
+                "Smelt{}Generator<{}, {}, {}>",
                 if *is_async { "Async" } else { "" },
                 self.type_text_with_scoped_type_params(*yield_ty, false, scoped_type_params)?,
-                self.type_text_with_scoped_type_params(*return_ty, false, scoped_type_params)?
+                self.type_text_with_scoped_type_params(*return_ty, false, scoped_type_params)?,
+                self.type_text_with_scoped_type_params(*next_ty, false, scoped_type_params)?
             )),
             Type::GeneratorResult {
                 yield_ty,

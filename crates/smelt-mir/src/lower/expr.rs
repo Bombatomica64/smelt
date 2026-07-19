@@ -1237,12 +1237,31 @@ impl LoweringCtx<'_> {
                     Rvalue::GeneratorYield { value: operand },
                 )?
             }
-            ExprKind::GeneratorNext { generator } => {
+            ExprKind::GeneratorNext {
+                generator,
+                value,
+                kind,
+            } => {
                 let operand = self.lower_expr(*generator)?;
+                let value = value.map(|value| self.lower_expr(value)).transpose()?;
                 self.assign_temp(
                     expr.ty,
                     expr.span,
-                    Rvalue::GeneratorNext { generator: operand },
+                    Rvalue::GeneratorNext {
+                        generator: operand,
+                        value,
+                        kind: match kind {
+                            smelt_hir::GeneratorResumeKind::Next => {
+                                crate::GeneratorResumeKind::Next
+                            }
+                            smelt_hir::GeneratorResumeKind::Return => {
+                                crate::GeneratorResumeKind::Return
+                            }
+                            smelt_hir::GeneratorResumeKind::Throw => {
+                                crate::GeneratorResumeKind::Throw
+                            }
+                        },
+                    },
                 )?
             }
             ExprKind::GeneratorDone { result } => {

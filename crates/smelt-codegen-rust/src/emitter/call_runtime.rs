@@ -166,10 +166,38 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::Use(operand) => self.value_at_type(operand, dest_ty),
             Rvalue::GeneratorYield { value } => {
-                Ok(format!("co.yield_({}).await", self.operand_text(value)?))
+                let returned = if self.function.is_async || self.function.can_throw {
+                    "return Ok(value)"
+                } else {
+                    "return value"
+                };
+                Ok(format!(
+                    "{{ co.yield_({}).await; match smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())) {{ SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => {returned}, SmeltGeneratorCommand::Throw(error) => panic!(\"{{}}\", error) }} }}",
+                    self.operand_text(value)?
+                ))
             }
-            Rvalue::GeneratorNext { generator } => {
-                Ok(format!("{}.resume()", self.operand_text(generator)?))
+            Rvalue::GeneratorNext {
+                generator,
+                value,
+                kind,
+            } => {
+                let raw_value = value
+                    .as_ref()
+                    .map(|value| self.operand_text(value))
+                    .transpose()?
+                    .unwrap_or_else(|| "Default::default()".to_owned());
+                let command = match kind {
+                    smelt_mir::GeneratorResumeKind::Next => {
+                        format!("SmeltGeneratorCommand::Next({raw_value})")
+                    }
+                    smelt_mir::GeneratorResumeKind::Return => {
+                        format!("SmeltGeneratorCommand::Return({raw_value})")
+                    }
+                    smelt_mir::GeneratorResumeKind::Throw => {
+                        format!("SmeltGeneratorCommand::Throw(format!(\"{{}}\", {raw_value}))")
+                    }
+                };
+                Ok(format!("{}.resume({command})", self.operand_text(generator)?))
             }
             Rvalue::GeneratorDone { result } => Ok(format!(
                 "matches!({}, SmeltGeneratorResult::Complete(_))",
@@ -195,43 +223,60 @@ impl FunctionEmitter<'_> {
                 let generator_ty = self.operand_ty(generator)?;
                 let Some(Type::Generator {
                     yield_ty: outer_yield_ty,
+                    next_ty: outer_next_ty,
                     ..
                 }) = self.mir.types.get(self.function.return_ty)
                 else {
                     return Err(EmitError::new("yield* emitted outside generator body"));
                 };
                 let operand = self.operand_text(generator)?;
+                let return_command = if self.function.is_async || self.function.can_throw {
+                    "return Ok(value)"
+                } else {
+                    "return value"
+                };
+                let outer_sent = format!(
+                    "match smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())) {{ SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => panic!(\"{{}}\", error) }}"
+                );
+                let consume_outer_sent = format!(
+                    "match smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())) {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => panic!(\"{{}}\", error) }}"
+                );
                 match self.mir.types.get(generator_ty) {
                     Some(Type::Generator {
                         is_async,
                         yield_ty,
                         return_ty,
-                        ..
+                        next_ty,
                     }) => {
                         let forwarded =
                             self.value_at_type_text("value", *yield_ty, *outer_yield_ty)?;
                         let completed = self.value_at_type_text("value", *return_ty, dest_ty)?;
+                        let sent = self.value_at_type_text(
+                            &outer_sent,
+                            *outer_next_ty,
+                            *next_ty,
+                        )?;
                         let resume = if *is_async {
-                            "smelt_delegate.resume().await?"
+                            "smelt_delegate.resume(SmeltGeneratorCommand::Next(smelt_delegate_next)).await?"
                         } else {
-                            "smelt_delegate.resume()"
+                            "smelt_delegate.resume(SmeltGeneratorCommand::Next(smelt_delegate_next))"
                         };
                         Ok(format!(
-                            "{{ let smelt_delegate = {operand}; loop {{ match {resume} {{ SmeltGeneratorResult::Yielded(value) => {{ co.yield_({forwarded}).await; }}, SmeltGeneratorResult::Complete(value) => break {completed} }} }} }}"
+                            "{{ let smelt_delegate = {operand}; let mut smelt_delegate_next = Default::default(); loop {{ match {resume} {{ SmeltGeneratorResult::Yielded(value) => {{ co.yield_({forwarded}).await; smelt_delegate_next = {sent}; }}, SmeltGeneratorResult::Complete(value) => break {completed} }} }} }}"
                         ))
                     }
                     Some(Type::List(item_ty) | Type::Set(item_ty)) => {
                         let forwarded =
                             self.value_at_type_text("value", *item_ty, *outer_yield_ty)?;
                         Ok(format!(
-                            "{{ let smelt_iterable = {operand}; for value in smelt_iterable.clone().into_iter() {{ co.yield_({forwarded}).await; }} }}"
+                            "{{ let smelt_iterable = {operand}; for value in smelt_iterable.clone().into_iter() {{ co.yield_({forwarded}).await; {consume_outer_sent}; }} }}"
                         ))
                     }
                     Some(Type::String) => {
                         let forwarded =
                             self.value_at_type_text("value", generator_ty, *outer_yield_ty)?;
                         Ok(format!(
-                            "{{ let smelt_iterable = {operand}; for smelt_char in smelt_iterable.chars() {{ let value = smelt_char.to_string(); co.yield_({forwarded}).await; }} }}"
+                            "{{ let smelt_iterable = {operand}; for smelt_char in smelt_iterable.chars() {{ let value = smelt_char.to_string(); co.yield_({forwarded}).await; {consume_outer_sent}; }} }}"
                         ))
                     }
                     Some(Type::Tuple(items)) => {
@@ -240,7 +285,7 @@ impl FunctionEmitter<'_> {
                             let tuple_value = format!("smelt_iterable.{index}.clone()");
                             let forwarded =
                                 self.value_at_type_text(&tuple_value, item_ty, *outer_yield_ty)?;
-                            yields.push_str(&format!("co.yield_({forwarded}).await; "));
+                            yields.push_str(&format!("co.yield_({forwarded}).await; {consume_outer_sent}; "));
                         }
                         Ok(format!("{{ let smelt_iterable = {operand}; {yields}}}"))
                     }
@@ -252,7 +297,7 @@ impl FunctionEmitter<'_> {
                                     is_async,
                                     yield_ty,
                                     return_ty,
-                                    ..
+                                    next_ty,
                                 }) => {
                                     let forwarded = self.value_at_type_text(
                                         "value",
@@ -264,13 +309,18 @@ impl FunctionEmitter<'_> {
                                         *return_ty,
                                         dest_ty,
                                     )?;
+                                    let sent = self.value_at_type_text(
+                                        &outer_sent,
+                                        *outer_next_ty,
+                                        *next_ty,
+                                    )?;
                                     let resume = if *is_async {
-                                        "smelt_arm.resume().await?"
+                                        "smelt_arm.resume(SmeltGeneratorCommand::Next(smelt_delegate_next)).await?"
                                     } else {
-                                        "smelt_arm.resume()"
+                                        "smelt_arm.resume(SmeltGeneratorCommand::Next(smelt_delegate_next))"
                                     };
                                     format!(
-                                        "loop {{ match {resume} {{ SmeltGeneratorResult::Yielded(value) => {{ co.yield_({forwarded}).await; }}, SmeltGeneratorResult::Complete(value) => break {completed} }} }}"
+                                        "{{ let mut smelt_delegate_next = Default::default(); loop {{ match {resume} {{ SmeltGeneratorResult::Yielded(value) => {{ co.yield_({forwarded}).await; smelt_delegate_next = {sent}; }}, SmeltGeneratorResult::Complete(value) => break {completed} }} }} }}"
                                     )
                                 }
                                 Some(Type::List(item_ty) | Type::Set(item_ty)) => {
@@ -280,7 +330,7 @@ impl FunctionEmitter<'_> {
                                         *outer_yield_ty,
                                     )?;
                                     format!(
-                                        "{{ for value in smelt_arm.clone().into_iter() {{ co.yield_({forwarded}).await; }} Default::default() }}"
+                                        "{{ for value in smelt_arm.clone().into_iter() {{ co.yield_({forwarded}).await; {consume_outer_sent}; }} Default::default() }}"
                                     )
                                 }
                                 Some(Type::String) => {
@@ -290,7 +340,7 @@ impl FunctionEmitter<'_> {
                                         *outer_yield_ty,
                                     )?;
                                     format!(
-                                        "{{ for smelt_char in smelt_arm.chars() {{ let value = smelt_char.to_string(); co.yield_({forwarded}).await; }} Default::default() }}"
+                                        "{{ for smelt_char in smelt_arm.chars() {{ let value = smelt_char.to_string(); co.yield_({forwarded}).await; {consume_outer_sent}; }} Default::default() }}"
                                     )
                                 }
                                 _ => {

@@ -1843,14 +1843,55 @@ impl ModuleBuilder<'_> {
         };
         let suspend = body.push_expr(Expr {
             kind: ExprKind::GeneratorYield { value: yielded },
-            // A bare `yield` statement discards the caller-provided resume
-            // value. Expression-position yields will retain `next_ty` when
-            // that lowering path is added.
-            ty: self.ctx.krate.types.intern(Type::None),
+            // The MIR temporary retains `next_ty` even when the source statement
+            // discards it, allowing every suspension in one producer to share
+            // genawaiter's single typed resume channel.
+            ty: generator.next_ty,
             span: self.span(yield_expr.span.start, yield_expr.span.end),
         });
         body.push_stmt_to_block(block, Stmt::Expr(suspend));
         Ok(true)
+    }
+
+    /// Lower a yield used as an expression, retaining the caller-provided resume type.
+    pub(in crate::lowering) fn generator_yield_expression(
+        &mut self,
+        yield_expr: &oxc::ast::ast::YieldExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let generator = self.current_generator_yields.ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(yield_expr.span.start, yield_expr.span.end),
+                "yield is only valid inside a generator",
+            )
+        })?;
+        let value = if let Some(argument) = &yield_expr.argument {
+            self.expression(argument, body)?
+        } else {
+            let none_ty = self.ctx.krate.types.intern(Type::None);
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: none_ty,
+                span: self.span(yield_expr.span.start, yield_expr.span.end),
+            })
+        };
+        let yielded = if matches!(
+            self.ctx.krate.types.get(generator.yield_ty),
+            Some(Type::Unknown)
+        ) {
+            value
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value },
+                ty: generator.yield_ty,
+                span: self.span(yield_expr.span.start, yield_expr.span.end),
+            })
+        };
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::GeneratorYield { value: yielded },
+            ty: generator.next_ty,
+            span: self.span(yield_expr.span.start, yield_expr.span.end),
+        }))
     }
 
     /// Lower expression-position `yield*` as a typed resume/forward/complete operation.

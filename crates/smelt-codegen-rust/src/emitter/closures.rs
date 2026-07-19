@@ -588,7 +588,7 @@ impl FunctionEmitter<'_> {
                     .join(" ");
                 if function.is_async {
                     format!(
-                        "|{params_text}| {{ {capture_lines} let smelt_generator = genawaiter::rc::Gen::new(|co| async move {{\n{body_text}    }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator::new(move || {{ let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, Box<dyn std::error::Error>>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }}) }}"
+                        "|{params_text}| {{ {capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, Box<dyn std::error::Error>>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }}) }}"
                     )
                 } else {
                     let completion = if closure.can_throw {
@@ -597,7 +597,7 @@ impl FunctionEmitter<'_> {
                         "value"
                     };
                     format!(
-                        "|{params_text}| {{ {capture_lines} let mut smelt_generator = genawaiter::rc::Gen::new(|co| async move {{\n{body_text}    }}); SmeltGenerator::new(move || match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }}) }}"
+                        "|{params_text}| {{ {capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let mut smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }}) }}"
                     )
                 }
             } else if returns_future || awaits_inside_body {

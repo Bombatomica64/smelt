@@ -9,8 +9,8 @@ use crate::{OverloadSignature, SmeltError, test_support};
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    AsyncOp, Body, CaptureMode, ClosureCapture, Expr, ExprKind, Field, FunctionType, Item, Literal,
-    LocalDecl, Param, Pattern, Span, Stmt, Type,
+    AsyncOp, Body, CaptureMode, ClosureCapture, Expr, ExprKind, Field, FunctionType,
+    GeneratorResumeKind, Item, Literal, LocalDecl, Param, Pattern, Span, Stmt, Type,
 };
 use smelt_stdlib::RuleId;
 use std::collections::HashMap;
@@ -1803,7 +1803,8 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if member.property.name != "next" || !call.arguments.is_empty() {
+        let method = member.property.name.as_str();
+        if !matches!(method, "next" | "return" | "throw") || call.arguments.len() > 1 {
             return Ok(None);
         }
         let generator = self.expression(&member.object, body)?;
@@ -1812,7 +1813,7 @@ impl<'builder> ModuleBuilder<'builder> {
             is_async,
             yield_ty,
             return_ty,
-            ..
+            next_ty,
         }) = self.ctx.krate.types.get(generator_ty).cloned()
         else {
             return Ok(None);
@@ -1826,8 +1827,43 @@ impl<'builder> ModuleBuilder<'builder> {
         } else {
             result_ty
         };
+        let value = call
+            .arguments
+            .first()
+            .and_then(Argument::as_expression)
+            .map(|argument| self.expression(argument, body))
+            .transpose()?;
+        let kind = match method {
+            "next" => GeneratorResumeKind::Next,
+            "return" => GeneratorResumeKind::Return,
+            "throw" => GeneratorResumeKind::Throw,
+            _ => unreachable!(),
+        };
+        let expected_ty = match kind {
+            GeneratorResumeKind::Next => Some(next_ty),
+            GeneratorResumeKind::Return => Some(return_ty),
+            GeneratorResumeKind::Throw => None,
+        };
+        if let (Some(value), Some(expected_ty)) = (value, expected_ty)
+            && !self.type_assignable_to(Self::expr_ty(body, value), expected_ty)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "generator protocol value is not assignable to its declared type",
+            ));
+        }
+        if matches!(kind, GeneratorResumeKind::Throw) && value.is_none() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "generator throw requires an error value",
+            ));
+        }
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::GeneratorNext { generator },
+            kind: ExprKind::GeneratorNext {
+                generator,
+                value,
+                kind,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

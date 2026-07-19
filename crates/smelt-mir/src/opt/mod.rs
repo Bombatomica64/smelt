@@ -218,7 +218,15 @@ fn rewrite_rvalue(
     match rvalue {
         Rvalue::Use(operand) => rewrite_operand_except(operand, aliases, dest),
         Rvalue::GeneratorYield { value } => rewrite_operand_except(value, aliases, dest),
-        Rvalue::GeneratorNext { generator } => rewrite_operand_except(generator, aliases, dest),
+        Rvalue::GeneratorNext {
+            generator, value, ..
+        } => {
+            let generator_changed = rewrite_operand_except(generator, aliases, dest);
+            let value_changed = value
+                .as_mut()
+                .is_some_and(|value| rewrite_operand_except(value, aliases, dest));
+            generator_changed || value_changed
+        }
         Rvalue::GeneratorDone { result } | Rvalue::GeneratorValue { result } => {
             rewrite_operand_except(result, aliases, dest)
         }

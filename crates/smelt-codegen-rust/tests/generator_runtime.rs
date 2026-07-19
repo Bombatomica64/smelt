@@ -279,3 +279,121 @@ test("generator fallthrough", () => {
 "#;
     run_generator_fixture(source, "smelt_generator_runtime_fallthrough");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn next_value_resumes_yield_expression_and_completion_is_stable() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+function* exchange(): Generator<number, string, number> {
+  const received = yield 1;
+  return `received:${received}`;
+}
+
+test("sent values and stable completion", () => {
+  const iterator = exchange();
+  expect(iterator.next().value).toBe(1);
+  const completed = iterator.next(42);
+  expect(completed.done).toBe(true);
+  expect(completed.value).toBe("received:42");
+  expect(iterator.next(99).done).toBe(true);
+  expect(iterator.next(100).value).toBe("received:42");
+});
+"#;
+    run_generator_fixture(source, "smelt_generator_runtime_next_value");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn yield_star_forwards_next_values_to_the_delegate() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+function* inner(): Generator<number, string, number> {
+  const received = yield 1;
+  return `inner:${received}`;
+}
+
+function* outer(): Generator<number, string, number> {
+  return yield* inner();
+}
+
+test("yield star forwards sent values", () => {
+  const iterator = outer();
+  expect(iterator.next().value).toBe(1);
+  const completed = iterator.next(73);
+  expect(completed.done).toBe(true);
+  expect(completed.value).toBe("inner:73");
+});
+"#;
+    run_generator_fixture(source, "smelt_generator_runtime_delegate_next");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn generator_return_and_throw_resume_at_the_suspension() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+function* values(): Generator<number, number, unknown> {
+  yield 1;
+  return 2;
+}
+
+test("return and throw protocol methods", () => {
+  const returned = values();
+  expect(returned.next().value).toBe(1);
+  const completion = returned.return(9);
+  expect(completion.done).toBe(true);
+  expect(completion.value).toBe(9);
+  expect(returned.next().value).toBe(9);
+
+  const thrown = values();
+  expect(thrown.next().value).toBe(1);
+  expect(() => thrown.throw("injected")).toThrow("injected");
+});
+"#;
+    run_generator_fixture(source, "smelt_generator_runtime_return_throw");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn generator_abrupt_resume_runs_catch_and_finally() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+function* catches(): Generator<string, string, unknown> {
+  try {
+    yield "ready";
+  } catch (error) {
+    yield `caught:${error}`;
+  }
+  return "caught-done";
+}
+
+function* cleans(): Generator<string, string, unknown> {
+  try {
+    yield "ready";
+  } finally {
+    yield "finally";
+  }
+  return "ordinary";
+}
+
+test("abrupt commands enter suspended control flow", () => {
+  const caught = catches();
+  expect(caught.next().value).toBe("ready");
+  expect(caught.throw("boom").value).toBe("caught:boom");
+  expect(caught.next().value).toBe("caught-done");
+
+  const cleaned = cleans();
+  expect(cleaned.next().value).toBe("ready");
+  const cleanup = cleaned.return("forced");
+  expect(cleanup.done).toBe(false);
+  expect(cleanup.value).toBe("finally");
+  expect(cleaned.next().value).toBe("forced");
+});
+"#;
+    run_generator_fixture(source, "smelt_generator_runtime_abrupt_cleanup");
+}

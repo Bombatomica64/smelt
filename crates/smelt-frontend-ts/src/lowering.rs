@@ -719,6 +719,8 @@ struct CallableLocalProps {
 struct GeneratorYieldAccumulator {
     /// Type exposed by each `yield` suspension point.
     yield_ty: smelt_hir::TypeId,
+    /// Type accepted from the caller when the suspension is resumed.
+    next_ty: smelt_hir::TypeId,
     /// Whether delegated iterators may use the async iterator protocol.
     is_async: bool,
 }

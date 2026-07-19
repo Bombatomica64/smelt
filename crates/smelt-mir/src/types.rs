@@ -545,6 +545,10 @@ pub enum Rvalue {
     GeneratorNext {
         /// Generator handle to resume.
         generator: Operand,
+        /// Optional value sent into the suspended yield expression.
+        value: Option<Operand>,
+        /// Protocol method used for this resumption.
+        kind: GeneratorResumeKind,
     },
     /// Test whether a generator resume result represents completion.
     GeneratorDone {
@@ -1659,6 +1663,17 @@ pub enum Rvalue {
         /// Operation inputs.
         args: Vec<Operand>,
     },
+}
+
+/// Protocol operation used to resume or abruptly complete a generator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GeneratorResumeKind {
+    /// Continue execution normally.
+    Next,
+    /// Complete with a caller-supplied return value.
+    Return,
+    /// Inject a caller-supplied exception.
+    Throw,
 }
 
 /// A MIR statement.

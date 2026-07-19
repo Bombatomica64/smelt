@@ -20,7 +20,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("global_set {} = {}", item_ref(krate, *item), expr_ref(*value))
         }
         ExprKind::GeneratorYield { value } => format!("yield {}", expr_ref(*value)),
-        ExprKind::GeneratorNext { generator } => format!("next {}", expr_ref(*generator)),
+        ExprKind::GeneratorNext {
+            generator,
+            value,
+            kind,
+        } => value.map_or_else(
+            || format!("{kind:?} {}", expr_ref(*generator)),
+            |value| format!("{kind:?} {} with {}", expr_ref(*generator), expr_ref(value)),
+        ),
         ExprKind::GeneratorDone { result } => format!("done {}", expr_ref(*result)),
         ExprKind::GeneratorValue { result } => format!("value {}", expr_ref(*result)),
         ExprKind::GeneratorDelegate { generator } => {

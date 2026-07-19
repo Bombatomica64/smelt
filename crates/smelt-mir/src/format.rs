@@ -195,7 +195,14 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
     match rvalue {
         Rvalue::Use(operand) => operand_text(operand),
         Rvalue::GeneratorYield { value } => format!("yield {}", operand_text(value)),
-        Rvalue::GeneratorNext { generator } => format!("next {}", operand_text(generator)),
+        Rvalue::GeneratorNext {
+            generator,
+            value,
+            kind,
+        } => value.as_ref().map_or_else(
+            || format!("{kind:?} {}", operand_text(generator)),
+            |value| format!("{kind:?} {} with {}", operand_text(generator), operand_text(value)),
+        ),
         Rvalue::GeneratorDone { result } => format!("done {}", operand_text(result)),
         Rvalue::GeneratorValue { result } => format!("value {}", operand_text(result)),
         Rvalue::GeneratorDelegate { generator } => {

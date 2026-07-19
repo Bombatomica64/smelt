@@ -17,7 +17,14 @@ impl Rvalue {
         match self {
             Self::Use(operand) => visit(operand),
             Self::GeneratorYield { value } => visit(value),
-            Self::GeneratorNext { generator } => visit(generator),
+            Self::GeneratorNext {
+                generator, value, ..
+            } => {
+                visit(generator);
+                if let Some(value) = value {
+                    visit(value);
+                }
+            }
             Self::GeneratorDone { result } | Self::GeneratorValue { result } => visit(result),
             Self::GeneratorDelegate { generator } => visit(generator),
             Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
@@ -732,7 +739,14 @@ impl Rvalue {
         match self {
             Self::Use(operand) => visit(operand),
             Self::GeneratorYield { value } => visit(value),
-            Self::GeneratorNext { generator } => visit(generator),
+            Self::GeneratorNext {
+                generator, value, ..
+            } => {
+                visit(generator);
+                if let Some(value) = value {
+                    visit(value);
+                }
+            }
             Self::GeneratorDone { result } | Self::GeneratorValue { result } => visit(result),
             Self::GeneratorDelegate { generator } => visit(generator),
             Self::List(items) | Self::Set(items) | Self::Tuple(items) => {

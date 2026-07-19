@@ -196,12 +196,14 @@ impl<'mir> FunctionEmitter<'mir> {
             self.return_type_text(self.function.return_ty)?
         ));
         if self.function.is_generator {
-            out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(|co| async move {\n");
+            out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
+            out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
+            out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
             out.push_str(&body);
-            out.push_str("    });\n");
+            out.push_str("    } });\n");
             if self.function.is_async {
                 out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
-                out.push_str("    SmeltAsyncGenerator::new(move || { let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_state = { let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }; Ok::<_, Box<dyn std::error::Error>>(match smelt_state { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }) })) })\n");
+                out.push_str("    SmeltAsyncGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_state = { let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }; Ok::<_, Box<dyn std::error::Error>>(match smelt_state { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }) })) })\n");
             } else {
                 out.push_str("    let mut smelt_generator = smelt_generator;\n");
                 let completion = if self.function.can_throw {
@@ -209,7 +211,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 } else {
                     "value"
                 };
-                out.push_str(&format!("    SmeltGenerator::new(move || match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }})\n"));
+                out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
             }
         } else {
             out.push_str(&body);
@@ -1680,12 +1682,14 @@ impl<'mir> FunctionEmitter<'mir> {
             if body.contains("self_owned") {
                 out.push_str("    let self_owned = self.clone();\n");
             }
-            out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(|co| async move {\n");
+            out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
+            out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
+            out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
             out.push_str(&body);
-            out.push_str("    });\n");
+            out.push_str("    } });\n");
             if self.function.is_async {
                 out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
-                out.push_str("    SmeltAsyncGenerator::new(move || { let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_state = { let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }; Ok::<_, Box<dyn std::error::Error>>(match smelt_state { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }) })) })\n");
+                out.push_str("    SmeltAsyncGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_state = { let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }; Ok::<_, Box<dyn std::error::Error>>(match smelt_state { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }) })) })\n");
             } else {
                 out.push_str("    let mut smelt_generator = smelt_generator;\n");
                 let completion = if self.function.can_throw {
@@ -1693,7 +1697,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 } else {
                     "value"
                 };
-                out.push_str(&format!("    SmeltGenerator::new(move || match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }})\n"));
+                out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
             }
         } else {
             if self.method_owner_is_reference_class() {

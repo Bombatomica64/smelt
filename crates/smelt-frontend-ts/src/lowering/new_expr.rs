@@ -2426,16 +2426,13 @@ impl ModuleBuilder<'_> {
                 if yield_expr.delegate && self.current_generator_yields.is_some() {
                     return self.generator_delegate_expression(yield_expr, body);
                 }
-                if let Some(argument) = &yield_expr.argument {
-                    self.expression(argument, body)
-                } else {
-                    let ty = self.ctx.krate.types.intern(Type::None);
-                    Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(yield_expr.span.start, yield_expr.span.end),
-                    }))
+                if self.current_generator_yields.is_some() {
+                    return self.generator_yield_expression(yield_expr, body);
                 }
+                Err(SmeltError::unsupported(
+                    self.span(yield_expr.span.start, yield_expr.span.end),
+                    "yield is only valid inside a generator",
+                ))
             }
             Expression::ArrowFunctionExpression(arrow) => {
                 self.arrow_function_expression_with_hint(arrow, body, type_hint)

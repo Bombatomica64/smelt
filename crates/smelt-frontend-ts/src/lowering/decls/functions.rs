@@ -492,13 +492,14 @@ impl ModuleBuilder<'_> {
             is_async: _,
             yield_ty,
             return_ty: _,
-            next_ty: _,
+            next_ty,
         }) = self
             .current_return_ty
             .and_then(|ty| self.ctx.krate.types.get(ty))
         {
             return GeneratorYieldAccumulator {
                 yield_ty: *yield_ty,
+                next_ty: *next_ty,
                 // The source syntax is authoritative when an overload supplied
                 // the contextual generator type (and may have supplied the
                 // sync overload before callback compatibility was considered).
@@ -508,6 +509,7 @@ impl ModuleBuilder<'_> {
         let yield_ty = self.ctx.krate.types.intern(Type::Unknown);
         GeneratorYieldAccumulator {
             yield_ty,
+            next_ty: self.ctx.krate.types.intern(Type::Unknown),
             // An unannotated generator may not have a contextual Generator type,
             // but its syntax still determines whether delegation may suspend.
             is_async: function.r#async,
