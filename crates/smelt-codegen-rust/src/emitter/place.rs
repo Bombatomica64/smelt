@@ -303,7 +303,19 @@ impl FunctionEmitter<'_> {
                 }
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(item_ty)) => {
-                        let base_text = self.local_mut_value_text(*base)?;
+                        // A list index READ only ever calls `.get(..).cloned()`
+                        // and `.len()` — both take `&self`, so the receiver must
+                        // borrow the backing `Vec` immutably. Using the mutable
+                        // form here (`borrow_mut()`) is not just unnecessary: when
+                        // `base` is a shared closure capture (`Rc<RefCell<Vec<_>>>`)
+                        // the `.len()` inside the normalized-index argument expands
+                        // to a SECOND `borrow_mut()` of the same cell, so the single
+                        // `arr.get({ ... arr.len() ... })` expression holds two
+                        // simultaneous mutable borrows and panics at runtime with
+                        // "already borrowed". Two simultaneous shared `borrow()`s
+                        // are allowed, matching the sibling string/optional-list
+                        // read arms below.
+                        let base_text = self.local_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_text}.len()"), index)?;
                         // JS out-of-bounds element access is `undefined`, not

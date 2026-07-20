@@ -225,6 +225,52 @@ function run(): number {
     );
 }
 
+/// A list index READ on a shared-capture array must borrow the backing `Vec`
+/// immutably. The read lowers to `arr.get({ ... arr.len() ... }).cloned()`, so
+/// if the receiver used `borrow_mut()` the `.len()` inside the normalized-index
+/// argument would take a SECOND `borrow_mut()` of the same `Rc<RefCell<Vec<_>>>`
+/// cell within one expression — two simultaneous mutable borrows that panic at
+/// runtime with "already borrowed". Two shared `borrow()`s coexist fine. Here
+/// `order` is forced into a shared capture cell because the nested `record`
+/// closure mutates it while the outer scope reads `order[0]`.
+#[test]
+fn shared_capture_list_index_read_borrows_immutably() {
+    let source = source_for(
+        r"
+function run(): number {
+  let order: number[] = [];
+  function record(): void {
+    order.push(1);
+  }
+  record();
+  return order[0];
+}
+",
+    );
+
+    // `order` is shared through an `Rc<RefCell<Vec<_>>>` capture cell.
+    assert!(
+        source
+            .contains("let smelt_capture_order = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+        "order should be a shared capture cell: {source}"
+    );
+    // The index read must not place two `borrow_mut()` of the same cell in one
+    // expression: the `.get(...)` receiver and the `.len()` argument both read,
+    // so both use `borrow()`.
+    let read_line = source
+        .lines()
+        .find(|line| line.contains(".get(") && line.contains("smelt_capture_order"))
+        .unwrap_or_else(|| panic!("no order index-read line\n{source}"));
+    assert!(
+        !read_line.contains(".borrow_mut()"),
+        "list index read must borrow immutably, not borrow_mut: {read_line}\n{source}"
+    );
+    assert!(
+        read_line.contains("(*smelt_capture_order.borrow())"),
+        "list index read should use borrow(): {read_line}\n{source}"
+    );
+}
+
 #[test]
 fn emits_function_array_some_without_cloning_callbacks() {
     let source = source_for(
