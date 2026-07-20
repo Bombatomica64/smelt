@@ -229,8 +229,18 @@ impl FunctionEmitter<'_> {
                 let resolve_input_text = self.type_text(resolve_input_ty)?;
                 let resolve_value =
                     self.value_at_type_text("value", resolve_input_ty, output_ty)?;
+                // The rejection channel stores a plain `String` message (the
+                // future settles to `Result<_, Box<dyn Error>>`, whose error only
+                // survives as its `to_string()`). `reject(new Error("late"))`
+                // erases the argument to a `SmeltUnknown::Object` Error record, so
+                // a bare `format!("{}", error)` would render Display's
+                // "[object Object]" and a downstream `catch (e) { e.message }`
+                // would observe that instead of "late". Extract the object's
+                // `message` field (present on erased `Error` values) before
+                // falling back to string coercion, mirroring how `throw`/`catch`
+                // lowering reconstructs the message field.
                 Ok(format!(
-                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", error)).into())); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
+                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ let smelt_reject_message = if let SmeltUnknown::Object(smelt_error_object) = &error {{ match smelt_error_object.get(\"message\") {{ Some(SmeltUnknown::String(smelt_message)) => smelt_message, _ => format!(\"{{}}\", error) }} }} else {{ format!(\"{{}}\", error) }}; *smelt_reject_result.borrow_mut() = Some(Err(std::io::Error::new(std::io::ErrorKind::Other, smelt_reject_message).into())); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }

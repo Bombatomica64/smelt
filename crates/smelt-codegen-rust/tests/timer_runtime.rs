@@ -193,3 +193,29 @@ test("setInterval forwards typed args and clears", async () => {{
     );
     run_timer_fixture(&source, "smelt_timer_runtime_interval");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn promise_executor_reject_preserves_error_message() {
+    // Regression: `reject(new Error("late"))` from a `new Promise` executor must
+    // surface the Error's real `message` to a downstream `catch`, not Display's
+    // "[object Object]". The rejection value erases to a `SmeltUnknown::Object`
+    // Error record; the executor reject path extracts its `message` field before
+    // storing the settled error, so `(e as Error).message` observes "late".
+    let source = r#"
+import { test, expect } from "vitest";
+test("rejected Error message survives to catch", async () => {
+  const promise = new Promise<number>((_resolve, reject) => {
+    reject(new Error("late"));
+  });
+  let message = "";
+  try {
+    await promise;
+  } catch (e: any) {
+    message = e.message;
+  }
+  expect(message).toBe("late");
+});
+"#;
+    run_timer_fixture(source, "smelt_timer_runtime_reject_error_message");
+}
