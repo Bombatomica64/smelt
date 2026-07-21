@@ -1,9 +1,9 @@
 {
   "files_scanned": 745,
-  "total": 76246,
+  "total": 76265,
   "category_totals": {
-    "avoidable-erasure": 35829,
-    "legitimate-boundary": 37804,
+    "avoidable-erasure": 35846,
+    "legitimate-boundary": 37806,
     "runtime-prelude": 2613
   },
   "shapes": [
@@ -6558,6 +6558,13 @@
       "occurrences": 14,
       "files": 2,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/has.rs:85"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = { mapN.insert(SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::Number(N.N as fN)); mapN.clone() };",
+      "occurrences": 14,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/isEqualWith_spec.rs:5089"
     },
     {
       "category": "avoidable-erasure",
@@ -20295,6 +20302,13 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "_smelt_tmp_N = { mapN.insert(SmeltUnknown::String(\"S\".to_owned()), (mapN.clone()).clone().into_smelt_unknown()); mapN.clone() };",
+      "occurrences": 2,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/isEqualWith_spec.rs:5181"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N = SmeltFuture::from_future(Box::pin(all_keyed({ let smelt_record = (_smelt_tmp_N).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, { let smelt_future = value; SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_value) }))) })).collect())) })));",
       "occurrences": 2,
       "files": 1,
@@ -21755,6 +21769,13 @@
       "occurrences": 2,
       "files": 2,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:71"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = { closure_arg_N.insert(obj.clone(), SmeltUnknown::Object(SmeltObject::from_unknown_record((result.clone()).clone()))); closure_arg_N.clone() };",
+      "occurrences": 2,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith.rs:55"
     },
     {
       "category": "avoidable-erasure",
@@ -28916,6 +28937,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/flattenArrayLike.rs:38"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = { result_N.insert(key.clone().unwrap_or(SmeltUnknown::Null), _smelt_tmp_N); result_N.clone() };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:274"
     },
     {
       "category": "avoidable-erasure",
