@@ -482,6 +482,50 @@ mapping.clear();
 }
 
 #[test]
+fn emits_statement_position_map_set_on_erased_value_slot() {
+    // Regression: a `Map<_, unknown>` (or inferred `Map<any, any>`) value slot is
+    // erased to `SmeltUnknown`. A statement-position `map.set(k, concreteValue)`
+    // whose result (the map) is unused must STILL emit the insert. The value-type
+    // guard in `dict_set_text` previously required an exact operand/slot type
+    // match and, on the concrete-vs-erased mismatch, folded the whole call to a
+    // plain receiver read — silently dropping the insert. es-toolkit's
+    // `isEqualWith` map comparisons then saw two empty maps and mis-compared.
+    let source = source_for(
+        r#"
+const mapping: Map<string, unknown> = new Map();
+mapping.set("a", 1);
+mapping.set("b", 2);
+"#,
+    );
+
+    let inserts = source.matches(".insert(").count();
+    assert!(
+        inserts >= 2,
+        "both statement-position Map.set inserts on an erased value slot must be emitted (found {inserts})\n{source}"
+    );
+}
+
+#[test]
+fn emits_statement_position_set_add_on_erased_element_slot() {
+    // Sibling of `emits_statement_position_map_set_on_erased_value_slot`: a
+    // statement-position `set.add(concreteValue)` on an erased element slot must
+    // likewise emit the insert rather than drop the observable mutation.
+    let source = source_for(
+        r#"
+const bag: Set<unknown> = new Set();
+bag.add(1);
+bag.add(2);
+"#,
+    );
+
+    let inserts = source.matches(".insert(").count();
+    assert!(
+        inserts >= 2,
+        "both statement-position Set.add inserts on an erased element slot must be emitted (found {inserts})\n{source}"
+    );
+}
+
+#[test]
 fn emits_optional_chained_map_methods_as_guarded_modeled_ops() {
     // `recv?.has/get/set/delete(...)` on an optional Map receiver desugars to the
     // same modeled dict operation the non-optional receiver produces, guarded by
