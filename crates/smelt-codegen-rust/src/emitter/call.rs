@@ -959,6 +959,16 @@ impl FunctionEmitter<'_> {
         callback_text: &str,
         arg_expr: &str,
     ) -> Result<String, EmitError> {
+        // A fully erased callback value (`Type::Unknown` — e.g. a stateful
+        // `vi.fn()` mock object passed as `then(spy)`) carries its callable
+        // behind the `__smelt_call` field, so route through the standard
+        // callable-object dispatch; a non-callable value is dropped like an
+        // absent handler (the resolved value still evaluates).
+        if self.mir.types.get(self.operand_ty(callback)?) == Some(&Type::Unknown) {
+            return Ok(format!(
+                "{{ let smelt_callable = match ({callback_text}).clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; match smelt_callable {{ Some(smelt_function) => (smelt_function)(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})]).unwrap_or_else(|error| panic!(\"{{}}\", error)), None => {{ let _ = {arg_expr}; SmeltUnknown::Undefined }} }} }}"
+            ));
+        }
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?) {
             if self.is_erased_unknown_rest_function(function) && !function.may_throw {
                 return Ok(format!(

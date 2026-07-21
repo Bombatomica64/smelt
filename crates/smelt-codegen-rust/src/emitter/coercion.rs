@@ -1489,7 +1489,7 @@ impl FunctionEmitter<'_> {
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
                 };
                 Ok(format!(
-                    "{{ let smelt_function_value = {value_text}; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}"
+                    "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }} }}"
                 ))
             }
             Some(Type::Union(_)) if self.concrete_union_members(ty).is_some() => {
@@ -2209,10 +2209,21 @@ impl FunctionEmitter<'_> {
                 let converted_return_text = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    drop(self.type_text_with_impl_trait(*item, false)?);
-                    let converted_item = self.extract_value_text("smelt_result", *item)?;
+                    let _ = self.type_text_with_impl_trait(*item, false)?;
+                    // JavaScript `await` flattens promise chains: an erased
+                    // callable adapted to a promise-returning signature may
+                    // itself return an erased promise (e.g. a Vitest
+                    // `mockResolvedValue`/`mockRejectedValue` mock, or an erased
+                    // async function), and awaiting the adapter must resolve —
+                    // or reject as `Err` — through that inner promise instead of
+                    // stringifying/extracting the promise value itself.
+                    // `smelt_await_flatten` is an identity pass-through for every
+                    // non-promise value, so already-settled plain results are
+                    // unchanged; the flattened value is then extracted to the
+                    // declared promise item type as before.
+                    let converted_item = self.extract_value_text("smelt_flattened", *item)?;
                     format!(
-                        "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}))"
+                        "SmeltFuture::from_future(Box::pin(async move {{ let smelt_flattened = smelt_await_flatten((smelt_result).into_smelt_unknown()).await?; Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}))"
                     )
                 } else if return_ty == "SmeltUnknown" {
                     "smelt_result".to_owned()
@@ -2226,15 +2237,24 @@ impl FunctionEmitter<'_> {
                 };
                 let default_callback = self.default_value(target)?;
                 Ok(format!(
-                    "{{ let smelt_function = match {text}.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ let smelt_callback: {target_text} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}); smelt_callback }} }} else {{ {default_callback} }} }}"
+                    "{{ let smelt_source_value = {text}.clone(); let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_callback }} else {{ {default_callback} }} }}"
                 ))
             }
-            // There is no way to recover a real future from an already-erased
-            // `SmeltUnknown`, so extract to a ready promise value at the declared
-            // `Output` type instead. `default_value` renders exactly
-            // `SmeltFuture::resolved(<default output>)` for `Type::Future`,
-            // matching the promise-value ABI used everywhere else.
-            Some(Type::Future(_)) => self.default_value(target),
+            // An already-erased `SmeltUnknown` at a `Type::Future` position is a
+            // `SmeltUnknown::Promise` (e.g. `await`ing the result of an erased
+            // vitest-mock call, or an `x as Promise<T>` cast). It CAN be recovered:
+            // wrap a fresh promise-value handle whose body awaits the erased
+            // promise through `smelt_await_flatten` and extracts its settled value
+            // to the declared `Output`. Discarding it for `SmeltFuture::resolved`
+            // of a default would drop the real resolved value and leave the shared
+            // settle state unobserved (breaking, e.g., mock result matchers and
+            // chained awaits on the recovered promise).
+            Some(Type::Future(output)) => {
+                let extracted = self.extract_value_text("smelt_awaited", *output)?;
+                Ok(format!(
+                    "SmeltFuture::from_future(Box::pin(async move {{ let smelt_awaited = smelt_await_flatten(({text}).into_smelt_unknown()).await?; Ok::<_, Box<dyn std::error::Error>>({extracted}) }}))"
+                ))
+            }
             other => Err(EmitError::new(format!(
                 "checked extraction from unknown expression `{text}` to {other:?} is not implemented yet"
             ))),

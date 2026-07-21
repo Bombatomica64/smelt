@@ -233,6 +233,10 @@ impl LoweringCtx<'_> {
             | ExprKind::DateTimezoneOffset
             | ExprKind::DateSetTimezoneOffset { .. }
             | ExprKind::DateResetTimezoneOffset
+            | ExprKind::VitestMockFn { .. }
+            | ExprKind::VitestMockCalledTimes { .. }
+            | ExprKind::VitestMockCalledWith { .. }
+            | ExprKind::VitestMockLastResolvedWith { .. }
             | ExprKind::DateTimezoneContext { .. }
             | ExprKind::DateToIsoString { .. }
             | ExprKind::DateToString { .. }

@@ -574,6 +574,10 @@ pub enum ExprKind {
     CallableObjectAssign {
         callable: ExprId,
         props: Vec<(Symbol, ExprId)>,
+        /// Record-typed source values whose own enumerable entries are copied
+        /// onto the callable object at runtime (e.g. `Object.assign(fn, def)`
+        /// where `def` is a record variable rather than an object literal).
+        spreads: Vec<ExprId>,
     },
     DictCopy {
         dict: ExprId,
@@ -619,6 +623,38 @@ pub enum ExprKind {
     },
     /// Restore the default `Date.prototype.getTimezoneOffset` implementation.
     DateResetTimezoneOffset,
+    /// Construct a stateful Vitest `vi.fn([impl])` mock: a callable erased
+    /// object that records calls and serves configured one-shot/default
+    /// outcomes (`mockReturnValue`, `mockResolvedValue`, `mockRejectedValueOnce`, ...).
+    VitestMockFn {
+        /// Optional wrapped implementation used as the default outcome.
+        implementation: Option<ExprId>,
+    },
+    /// Whether a Vitest mock's recorded call count equals `count`
+    /// (`expect(mock).toHaveBeenCalledTimes(count)`); true means the
+    /// assertion holds. Non-mock values pass vacuously (documented compat).
+    VitestMockCalledTimes {
+        mock: ExprId,
+        count: ExprId,
+    },
+    /// Whether a Vitest mock recorded a call whose arguments deep-equal
+    /// `args` (`expect(mock).toHaveBeenCalledWith(...)`); true means the
+    /// assertion holds. When `last` is set, only the most recent recorded
+    /// call is compared (`toHaveBeenLastCalledWith(...)`). Non-mock values
+    /// pass vacuously (documented compat).
+    VitestMockCalledWith {
+        mock: ExprId,
+        args: Vec<ExprId>,
+        last: bool,
+    },
+    /// Whether a Vitest mock's most recent recorded result deep-equals
+    /// `expected` after flattening a resolved promise
+    /// (`expect(mock).toHaveLastResolvedWith(...)`); true means the assertion
+    /// holds. Non-mock values pass vacuously (documented compat).
+    VitestMockLastResolvedWith {
+        mock: ExprId,
+        expected: ExprId,
+    },
     /// Create a date-fns-compatible date context function for an IANA time zone.
     DateTimezoneContext {
         timezone: ExprId,

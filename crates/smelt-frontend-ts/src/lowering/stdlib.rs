@@ -16,6 +16,13 @@ use smelt_stdlib::RuleId;
 
 use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
 
+/// Static properties and runtime-spread record sources produced when lowering
+/// the source arguments of an `Object.assign` onto a callable value.
+type CallableAssignSources = (
+    Vec<(smelt_hir::Symbol, smelt_hir::ExprId)>,
+    Vec<smelt_hir::ExprId>,
+);
+
 impl ModuleBuilder<'_> {
     /// Lower TypeScript `Object.assign(target, ...sources)` for homogeneous record values.
     pub(super) fn object_assign_call(
@@ -60,12 +67,13 @@ impl ModuleBuilder<'_> {
                     "Object.assign callable target must lower to a function or class value",
                 ));
             }
-            let props = self.object_assign_callable_props(source_args, body)?;
+            let (props, spreads) = self.object_assign_callable_props(source_args, body)?;
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::CallableObjectAssign {
                     callable: target,
                     props,
+                    spreads,
                 },
                 ty: unknown_ty,
                 span: self.span(call.span.start, call.span.end),
@@ -214,17 +222,27 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower static object-literal sources used to decorate callable values.
+    /// Lower the sources used to decorate a callable value.
+    ///
+    /// Object-literal sources contribute their static data properties directly
+    /// (`props`). A record-typed local identifier source (e.g. remeda's
+    /// `Object.assign(dataLast, lazyDefinition)`) has no statically-known keys
+    /// once its shape is erased to a `Dict`, so it is emitted as a runtime
+    /// `spread`: its own enumerable entries are copied onto the callable object
+    /// at construction time. Returns `(props, spreads)`.
     fn object_assign_callable_props(
         &mut self,
         source_args: &[Argument<'_>],
         body: &mut Body,
-    ) -> Result<Vec<(smelt_hir::Symbol, smelt_hir::ExprId)>, SmeltError> {
+    ) -> Result<CallableAssignSources, SmeltError> {
         let mut props = Vec::new();
+        let mut spreads = Vec::new();
         for source_arg in source_args {
             if let Argument::Identifier(ident) = source_arg
                 && self.locals.contains_key(ident.name.as_str())
             {
+                let source = self.argument(source_arg, body)?;
+                spreads.push(source);
                 continue;
             }
             let Argument::ObjectExpression(object) = source_arg else {
@@ -264,7 +282,7 @@ impl ModuleBuilder<'_> {
                 props.push((name, value));
             }
         }
-        Ok(props)
+        Ok((props, spreads))
     }
 
     /// Return whether `Object.assign` sources are static enough for callable decoration.
@@ -277,7 +295,17 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Lower Vitest `vi.fn<T>()` mock factories as callable placeholders.
+    /// Lower Vitest `vi.fn([impl])` mock factories to stateful runtime mocks.
+    ///
+    /// The mock lowers to `ExprKind::VitestMockFn`, an erased callable object
+    /// (`__smelt_call`) whose shared state records every call and serves the
+    /// outcomes configured through the chainable `mock*` methods — which are
+    /// real runtime fields on the object, so the configuration chain lowers
+    /// through the ordinary dynamic method-call path with no special casing.
+    /// A `vi.fn()` mock is a genuine dynamic boundary (no declared shape,
+    /// behavior reconfigured imperatively at runtime), so the expression type
+    /// is `Type::Unknown`; typed call sites recover a concrete callback
+    /// through the standard callable-object dispatch.
     pub(super) fn vitest_mock_function_call(
         &mut self,
         call: &CallExpression<'_>,
@@ -292,7 +320,11 @@ impl ModuleBuilder<'_> {
         if object.name != "vi" || member.property.name != "fn" {
             return Ok(None);
         }
-        let function_ty = if let Some(type_args) = &call.type_arguments {
+        if let Some(type_args) = &call.type_arguments {
+            // The annotation only constrains the mock's declared shape for
+            // type-checking (tsc's job); the runtime mock is erased either way.
+            // Keep the arity/shape validation so malformed spellings still fail
+            // loudly instead of silently dropping the annotation.
             let [target] = type_args.params.as_slice() else {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
@@ -306,92 +338,18 @@ impl ModuleBuilder<'_> {
                     "vi.fn<T>() type argument must be a function type",
                 ));
             }
-            ty
-        } else {
-            // An untyped `vi.fn()` mock has no declared implementation, so its
-            // parameter shape is genuinely dynamic: callers invoke it with any
-            // number of arguments (`spy(value)`, `spy(a, b)`, `spy()`), and the
-            // mock records whatever it receives. Modelling it as a fixed 0-arg
-            // function would reject every call site that passes arguments, so we
-            // give it the erased variadic shape `(...args: unknown[]) => unknown`
-            // (a `Type::List(Unknown)` rest parameter). This lowers to the
-            // runtime's `SmeltErasedFunction`, the documented dynamic-callable
-            // boundary that accepts an arbitrary argument vector.
-            let unknown = self.ctx.krate.types.intern(Type::Unknown);
-            let rest_ty = self.ctx.krate.types.intern(Type::List(unknown));
-            self.ctx
-                .krate
-                .types
-                .intern(Type::Function(smelt_hir::FunctionType {
-                    params: vec![rest_ty],
-                    rest: Some(0),
-                    required_params: Some(0),
-                    mutable_params: Vec::new(),
-                    return_ty: unknown,
-                    is_async: false,
-                    may_throw: false,
-                }))
-        };
-        if let Some(implementation) = call.arguments.first() {
-            let value = self.argument(implementation, body)?;
-            // A `vi.fn<(...) => void>(impl)` annotation only constrains the mock's
-            // declared shape for type-checking; at runtime JS still returns the
-            // wrapped implementation's value through callers like `map`. Asserting
-            // `impl` straight to a `=> void` (lowered to `Type::None`) function type
-            // would erase that return value at value-consuming call sites, so when
-            // the declared return is `void` we keep the declared params/arity (which
-            // drive call tracking) but recover the implementation's real return type.
-            let assert_ty = self.vitest_mock_assert_ty(function_ty, Self::expr_ty(body, value));
-            if Self::expr_ty(body, value) == assert_ty {
-                return Ok(Some(value));
-            }
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::TypeAssert { value },
-                ty: assert_ty,
-                span: self.span(implementation.span().start, implementation.span().end),
-            })));
         }
+        let implementation = call
+            .arguments
+            .first()
+            .map(|implementation| self.argument(implementation, body))
+            .transpose()?;
+        let ty = self.ctx.krate.types.intern(Type::Unknown);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
-            ty: function_ty,
+            kind: ExprKind::VitestMockFn { implementation },
+            ty,
             span: self.span(call.span.start, call.span.end),
         })))
-    }
-
-    /// Pick the function type a `vi.fn<T>(impl)` mock should assert its
-    /// implementation to.
-    ///
-    /// The declared annotation `T` fixes the mock's parameter shape (and thus its
-    /// call-tracking arity), but a `=> void` return only means "callers ignore the
-    /// result" at the type level — in JS the mock still forwards the wrapped
-    /// implementation's runtime value. When the declared return is `void`
-    /// (`Type::None`) and the implementation is itself a function with a concrete
-    /// return type, we rebuild the declared signature with the implementation's
-    /// return type so value-consuming call sites (e.g. `map`) keep that value
-    /// instead of receiving `()`. In every other case the declared type is used
-    /// unchanged.
-    fn vitest_mock_assert_ty(
-        &mut self,
-        declared_ty: smelt_hir::TypeId,
-        impl_ty: smelt_hir::TypeId,
-    ) -> smelt_hir::TypeId {
-        let Some(Type::Function(declared)) = self.ctx.krate.types.get(declared_ty) else {
-            return declared_ty;
-        };
-        let declared = declared.clone();
-        if self.ctx.krate.types.get(declared.return_ty) != Some(&Type::None) {
-            return declared_ty;
-        }
-        let Some(Type::Function(implementation)) = self.ctx.krate.types.get(impl_ty) else {
-            return declared_ty;
-        };
-        let impl_return_ty = implementation.return_ty;
-        if self.ctx.krate.types.get(impl_return_ty) == Some(&Type::None) {
-            return declared_ty;
-        }
-        let mut adjusted = declared;
-        adjusted.return_ty = impl_return_ty;
-        self.ctx.krate.types.intern(Type::Function(adjusted))
     }
 
     /// Lower Vitest `vi.spyOn(target, "method")` calls as mock handles.
@@ -447,9 +405,43 @@ impl ModuleBuilder<'_> {
         ) {
             return Ok(None);
         }
+        // A `vi.fn()` mock is a real runtime object whose chainable `mock*`
+        // configuration methods are fields on the object, so mock configuration
+        // must lower through the generic dynamic method-call path instead of
+        // this interception. Only two receiver shapes can still name the
+        // date-timezone spy this function models: a plain identifier binding and
+        // a direct `vi.spyOn(...)` chain. Every other receiver falls through
+        // immediately (before lowering, so no receiver side effects duplicate).
+        let receiver_is_spy_on_chain = matches!(
+            &member.object,
+            Expression::CallExpression(chain_call)
+                if matches!(
+                    &chain_call.callee,
+                    Expression::StaticMemberExpression(chain_member)
+                        if chain_member.property.name == "spyOn"
+                            && matches!(
+                                &chain_member.object,
+                                Expression::Identifier(chain_object) if chain_object.name == "vi"
+                            )
+                )
+        );
+        if !matches!(&member.object, Expression::Identifier(_)) && !receiver_is_spy_on_chain {
+            return Ok(None);
+        }
         let receiver = self.expression(&member.object, body)?;
-        let is_date_timezone_offset_spy =
-            self.is_vitest_date_timezone_offset_spy(Self::expr_ty(body, receiver));
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let is_date_timezone_offset_spy = self.is_vitest_date_timezone_offset_spy(receiver_ty);
+        // An erased (`Type::Unknown`) identifier receiver is a live `vi.fn()`
+        // mock (or an inert spy handle); its `mock*` methods are runtime fields,
+        // so fall through to the generic dynamic call. Re-lowering an identifier
+        // is side-effect free, and the dangling receiver expression is never
+        // referenced by a statement, so MIR never materializes it.
+        if !is_date_timezone_offset_spy
+            && !receiver_is_spy_on_chain
+            && self.ctx.krate.types.get(receiver_ty) == Some(&Type::Unknown)
+        {
+            return Ok(None);
+        }
         if is_date_timezone_offset_spy && method == "mockReturnValue" {
             let [offset] = call.arguments.as_slice() else {
                 return Err(SmeltError::unsupported(

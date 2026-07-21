@@ -783,8 +783,11 @@ impl FunctionEmitter<'_> {
                 } else {
                     format!("{} ", async_capture_lines.join(" "))
                 };
+                // This is a genuine async-closure body, so prime it: calling the
+                // closure runs its synchronous prefix at call time (JS
+                // eager-async-prefix semantics; see `from_future_primed`).
                 format!(
-                    "|{params_text}| {{ {async_capture_prelude}SmeltFuture::from_future(Box::pin(async move {{\n        let smelt_async_value{async_value_annotation_text} = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>>) }}"
+                    "|{params_text}| {{ {async_capture_prelude}SmeltFuture::from_future_primed(Box::pin(async move {{\n        let smelt_async_value{async_value_annotation_text} = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>>) }}"
                 )
             } else if function.can_throw {
                 // A fallible closure returns `Result<T, Box<dyn Error>>`. When its

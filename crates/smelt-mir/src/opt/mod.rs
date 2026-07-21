@@ -668,10 +668,17 @@ fn rewrite_rvalue(
             }
             changed
         }
-        Rvalue::CallableObjectAssign { callable, props } => {
+        Rvalue::CallableObjectAssign {
+            callable,
+            props,
+            spreads,
+        } => {
             let mut changed = rewrite_operand_except(callable, aliases, dest);
             for (_, prop_value) in props {
                 changed |= rewrite_operand_except(prop_value, aliases, dest);
+            }
+            for spread_value in spreads {
+                changed |= rewrite_operand_except(spread_value, aliases, dest);
             }
             changed
         }
@@ -713,6 +720,26 @@ fn rewrite_rvalue(
         Rvalue::DateSetNow { timestamp } => rewrite_operand_except(timestamp, aliases, dest),
         Rvalue::DateTimezoneOffset | Rvalue::DateResetTimezoneOffset => false,
         Rvalue::DateSetTimezoneOffset { offset } => rewrite_operand_except(offset, aliases, dest),
+        Rvalue::VitestMockFn { implementation } => implementation
+            .as_mut()
+            .is_some_and(|implementation| rewrite_operand_except(implementation, aliases, dest)),
+        Rvalue::VitestMockCalledTimes { mock, count } => {
+            let mut changed = rewrite_operand_except(mock, aliases, dest);
+            changed |= rewrite_operand_except(count, aliases, dest);
+            changed
+        }
+        Rvalue::VitestMockCalledWith { mock, args, .. } => {
+            let mut changed = rewrite_operand_except(mock, aliases, dest);
+            for arg in args {
+                changed |= rewrite_operand_except(arg, aliases, dest);
+            }
+            changed
+        }
+        Rvalue::VitestMockLastResolvedWith { mock, expected } => {
+            let mut changed = rewrite_operand_except(mock, aliases, dest);
+            changed |= rewrite_operand_except(expected, aliases, dest);
+            changed
+        }
         Rvalue::DateTimezoneContext { timezone } => rewrite_operand_except(timezone, aliases, dest),
         Rvalue::DateToIsoString { timestamp_ms } => {
             rewrite_operand_except(timestamp_ms, aliases, dest)

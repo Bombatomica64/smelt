@@ -1,5 +1,7 @@
 //! Expression formatting helpers, including call-like nodes.
 
+use std::fmt::Write as _;
+
 use crate::expr::{AsyncOp, Expr, ExprKind};
 use crate::ids::ExprId;
 use crate::krate::Crate;
@@ -717,18 +719,29 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        ExprKind::CallableObjectAssign { callable, props } => format!(
-            "callable_object_assign {}, {{{}}}",
-            expr_ref(*callable),
-            props
-                .iter()
-                .map(|(name, value)| {
-                    let name = krate.symbols.get(*name).unwrap_or("<unknown>");
-                    format!("{name}: {}", expr_ref(*value))
-                })
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        ExprKind::CallableObjectAssign {
+            callable,
+            props,
+            spreads,
+        } => {
+            let mut spread_text = String::new();
+            for value in spreads {
+                let _ = write!(spread_text, ", ...{}", expr_ref(*value));
+            }
+            format!(
+                "callable_object_assign {}, {{{}}}{}",
+                expr_ref(*callable),
+                props
+                    .iter()
+                    .map(|(name, value)| {
+                        let name = krate.symbols.get(*name).unwrap_or("<unknown>");
+                        format!("{name}: {}", expr_ref(*value))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                spread_text
+            )
+        }
         ExprKind::DictCopy { dict } => format!("dict_copy {}", expr_ref(*dict)),
         ExprKind::DictProjection { op, dict } => {
             let op_name = match op {
@@ -770,6 +783,29 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("date_set_timezone_offset {}", expr_ref(*offset))
         }
         ExprKind::DateResetTimezoneOffset => "date_reset_timezone_offset".to_owned(),
+        ExprKind::VitestMockFn { implementation } => implementation.as_ref().map_or_else(
+            || "vitest_mock_fn".to_owned(),
+            |implementation| format!("vitest_mock_fn {}", expr_ref(*implementation)),
+        ),
+        ExprKind::VitestMockCalledTimes { mock, count } => format!(
+            "vitest_mock_called_times {} {}",
+            expr_ref(*mock),
+            expr_ref(*count)
+        ),
+        ExprKind::VitestMockCalledWith { mock, args, last } => format!(
+            "vitest_mock_called_with{} {} [{}]",
+            if *last { "_last" } else { "" },
+            expr_ref(*mock),
+            args.iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        ExprKind::VitestMockLastResolvedWith { mock, expected } => format!(
+            "vitest_mock_last_resolved_with {} {}",
+            expr_ref(*mock),
+            expr_ref(*expected)
+        ),
         ExprKind::DateTimezoneContext { timezone } => {
             format!("date_timezone_context {}", expr_ref(*timezone))
         }

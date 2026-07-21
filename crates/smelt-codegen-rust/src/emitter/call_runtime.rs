@@ -1554,9 +1554,11 @@ impl FunctionEmitter<'_> {
             Rvalue::DictAssign { target, sources } => {
                 self.dict_assign_text(target, sources, dest_ty)
             }
-            Rvalue::CallableObjectAssign { callable, props } => {
-                self.callable_object_assign_text(callable, props, dest_ty)
-            }
+            Rvalue::CallableObjectAssign {
+                callable,
+                props,
+                spreads,
+            } => self.callable_object_assign_text(callable, props, spreads, dest_ty),
             Rvalue::DictCopy { dict } => self.dict_copy_text(dict, dest_ty),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
             Rvalue::StringSplit {
@@ -1576,7 +1578,13 @@ impl FunctionEmitter<'_> {
                 self.global_set_text(*global, stored)
             }
             Rvalue::DateNow => {
-                let text = "SMELT_DATE_NOW.with(::std::cell::Cell::get).unwrap_or_else(|| chrono::Utc::now().timestamp_millis())";
+                // `Date.now()` shares the timer timeline: real wall time plus the
+                // virtual fast-forward accumulated by `sleep`/timer draining
+                // (`SMELT_VIRTUAL_MS`, emitted alongside the date runtime). This
+                // keeps elapsed-time measurements consistent with `setTimeout`
+                // deadlines under the deterministic virtual clock. An explicit
+                // `vi.setSystemTime(...)` override (`SMELT_DATE_NOW`) still wins.
+                let text = "SMELT_DATE_NOW.with(::std::cell::Cell::get).unwrap_or_else(|| chrono::Utc::now().timestamp_millis().saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get) as i64))";
                 self.date_timestamp_result_text(text, dest_ty)
             }
             Rvalue::DateSetNow { timestamp } => Ok(format!(
@@ -1599,6 +1607,36 @@ impl FunctionEmitter<'_> {
             Rvalue::DateResetTimezoneOffset => Ok(format!(
                 "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|value| value.set(0.0)); {} }}",
                 self.default_value(dest_ty)?
+            )),
+            // Vitest mock rvalues: the mock and its recorded calls live behind
+            // the erased ABI (a genuine dynamic boundary — see the prelude
+            // comment on `smelt_vitest_mock_new`), so every operand is erased
+            // to `SmeltUnknown` before crossing into the runtime helpers.
+            Rvalue::VitestMockFn { implementation } => Ok(match implementation {
+                Some(implementation) => format!(
+                    "smelt_vitest_mock_new(Some({}))",
+                    self.value_at_type(implementation, self.type_id(Type::Unknown)?)?
+                ),
+                None => "smelt_vitest_mock_new(None)".to_owned(),
+            }),
+            Rvalue::VitestMockCalledTimes { mock, count } => Ok(format!(
+                "smelt_vitest_mock_called_times(&({}), ({}) as f64)",
+                self.value_at_type(mock, self.type_id(Type::Unknown)?)?,
+                self.value_at_type(count, self.type_id(Type::Float)?)?
+            )),
+            Rvalue::VitestMockCalledWith { mock, args, last } => Ok(format!(
+                "smelt_vitest_mock_called_with(&({}), vec![{}], {})",
+                self.value_at_type(mock, self.type_id(Type::Unknown)?)?,
+                args.iter()
+                    .map(|arg| self.value_at_type(arg, self.type_id(Type::Unknown)?))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", "),
+                last
+            )),
+            Rvalue::VitestMockLastResolvedWith { mock, expected } => Ok(format!(
+                "smelt_vitest_mock_last_resolved_with(&({}), {})",
+                self.value_at_type(mock, self.type_id(Type::Unknown)?)?,
+                self.value_at_type(expected, self.type_id(Type::Unknown)?)?
             )),
             Rvalue::DateTimezoneContext { timezone } => Ok(format!(
                 "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"__smelt_timezone\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone()))]))) }}) }}",
@@ -1964,6 +2002,7 @@ impl FunctionEmitter<'_> {
         &self,
         callable: &Operand,
         props: &[(Symbol, Operand)],
+        spreads: &[Operand],
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         if matches!(
@@ -1982,9 +2021,28 @@ impl FunctionEmitter<'_> {
                     "smelt_object.insert({key_text:?}.to_owned(), {value_text});"
                 ));
             }
+            // Dynamic record sources (`Object.assign(fn, def)` with a variable
+            // `def`) contribute their OWN enumerable entries at runtime. Copying
+            // them AFTER the literal props preserves JS last-write-wins order,
+            // while `__smelt_call` is inserted first and never overwritten by a
+            // spread (a callable's own `__smelt_call` slot is not user data).
+            for spread in spreads {
+                let spread_text = self.erase(spread)?;
+                entries.push(format!(
+                    "if let SmeltUnknown::Object(smelt_spread) = {spread_text} {{ for (smelt_key, smelt_value) in smelt_spread.iter() {{ if smelt_key != \"__smelt_call\" {{ smelt_object.insert(smelt_key, smelt_value); }} }} }}"
+                ));
+            }
             return Ok(format!(
                 "{{ let mut smelt_object = ::std::collections::HashMap::new(); {} SmeltUnknown::Object(SmeltObject::new(smelt_object)) }}",
                 entries.join(" ")
+            ));
+        }
+        // Dynamic record spreads only have a runtime home on the erased
+        // (object) representation. A concrete callable-interface struct has
+        // fixed fields, so a variable source cannot be merged into it.
+        if !spreads.is_empty() {
+            return Err(EmitError::new(
+                "Object.assign with a dynamic record source onto a concrete callable interface is not supported",
             ));
         }
         // A concrete callable-interface destination (a struct carrying a

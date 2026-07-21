@@ -30,6 +30,35 @@ export function run(): unknown {
     );
 }
 
+/// Erasing a typed promise value (`SmeltFuture<T>`) to the dynamic carrier goes
+/// through `IntoSmeltUnknown`, so the erased-callback promise adapter and the
+/// recover-erased-promise-on-await coercion both emit `.into_smelt_unknown()` on
+/// a future. The prelude must therefore always define
+/// `impl<..> IntoSmeltUnknown for SmeltFuture<T>` for any program that references
+/// the future runtime; otherwise the generated call is an E0599 (regression seen
+/// in the radash suite, where the impl was absent while the call was emitted).
+#[test]
+fn future_erasure_emits_into_smelt_unknown_impl() {
+    let source = source_for(
+        r#"
+export async function makeValue(): Promise<number> {
+  return 1
+}
+
+export async function useErased(func: (...args: unknown[]) => unknown): Promise<unknown> {
+  return func()
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T>"
+        ),
+        "future runtime must emit the SmeltFuture IntoSmeltUnknown impl: {source}"
+    );
+}
+
 /// An async closure whose loop exits only through explicit returns leaves the
 /// trailing async-value expression unreachable. Its binding still needs the
 /// resolved output type so Rust does not have to infer a value from `!`.
@@ -3880,13 +3909,17 @@ function wrap<T>(
 ",
     );
 
+    // Both fixed parameters are read out of the packed rest vector by index
+    // (`closure_arg_0.get({..index..})`). The callable-typed parameter's read
+    // is hoisted into a `let smelt_source_value = closure_arg_0.get(..)` binding
+    // by the callable-object narrowing, so assert on the shared `.get(` read.
     assert!(
-        source.contains("match closure_arg_0.get(")
+        source.contains("closure_arg_0.get(")
             && source.contains("SmeltUnknown::Array(values) => values.into_iter()"),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(
-        source.contains("match closure_arg_0.get("),
+        source.matches("closure_arg_0.get(").count() >= 2,
         "fixed callback spread calls should read the second fixed parameter from the rest vector: {source}"
     );
     assert!(
@@ -5167,18 +5200,18 @@ setTimeout(() => {}, 10);
         .nth(1)
         .expect("missing smelt_sleep_ms helper");
     let drain = sleep_body
-        .find("        smelt_drain_due_timers();")
+        .find("        smelt_drain_due_timers(id_barrier);")
         .unwrap();
     let yield_now = sleep_body
         .find("    tokio::task::yield_now().await;")
         .unwrap();
     assert!(drain < yield_now, "{source}");
     assert!(
-        source.contains("let target_ms = SMELT_TIMER_NOW_MS.with"),
+        source.contains("let target_ms = smelt_mono_ms().saturating_add(delay_ms);"),
         "{source}"
     );
     assert!(
-        source.contains("filter(|timer| timer.due_ms <= target_ms)"),
+        source.contains("filter(|timer| timer.due_ms <= target_ms && timer.id < id_barrier)"),
         "{source}"
     );
 }
@@ -8178,9 +8211,13 @@ function adapt(
 ",
     );
 
+    // The adapted callable is materialized (called) before any identity or
+    // callable-object bookkeeping. A callable value narrowed from an object is
+    // re-erased back to that object when a registration exists; otherwise the
+    // origin is registered so the typed callback survives the erased ABI.
     assert!(
         source.contains(
-            "let smelt_function_value = (_smelt_adapted_callback)(arg0); let smelt_function_origin = smelt_function_value.clone();"
+            "let smelt_function_value = (_smelt_adapted_callback)(arg0); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone();"
         ),
         "{source}"
     );
@@ -8446,5 +8483,248 @@ export function adapt(f: (...args: unknown[]) => unknown): ErasedBinary {
     assert!(
         !source.contains("panic!(\"unknown is not iterable\")"),
         "erased-rest adapter must not spread a scalar target argument\n{source}"
+    );
+}
+
+#[test]
+fn vitest_mock_chain_constructs_one_stateful_mock() {
+    // A `vi.fn().mockRejectedValueOnce(..).mockResolvedValue(..)` chain must
+    // construct exactly ONE runtime mock: the chain methods are runtime fields
+    // returning the same instance, and HIR interceptor probing's dangling
+    // duplicate exprs must never be materialized by MIR.
+    let source = source_for(
+        r#"
+import { it, vi } from "vitest";
+
+it("configures a chain", () => {
+  const func = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("failure"))
+    .mockResolvedValue("success");
+  func();
+});
+"#,
+    );
+    assert_eq!(
+        source.matches("smelt_vitest_mock_new(").count(),
+        // One construction site plus the helper's own definition in the prelude.
+        2,
+        "chain must construct exactly one mock\n{source}"
+    );
+    // The gated mock prelude and its `SmeltPromise::rejected` dependency are
+    // both emitted for mock-bearing crates.
+    assert!(source.contains("struct SmeltVitestMockState"), "{source}");
+    assert!(source.contains("fn rejected(value: SmeltUnknown)"), "{source}");
+}
+
+#[test]
+fn vitest_mock_prelude_is_pay_for_use() {
+    // A crate with no `vi.fn()` mock keeps a byte-identical prelude: no mock
+    // registry, no `SmeltPromise::rejected`.
+    let source = source_for(
+        r#"
+export function double(value: number): number {
+  return value * 2;
+}
+"#,
+    );
+    assert!(!source.contains("SmeltVitestMockState"), "{source}");
+    assert!(!source.contains("fn rejected("), "{source}");
+}
+
+#[test]
+fn vitest_called_times_and_called_with_are_real_assertions() {
+    // `toHaveBeenCalledTimes` / `toHaveBeenCalledWith` must lower to real
+    // failure paths reading the mock's recorded state — a count/argument
+    // mismatch returns a test error instead of passing vacuously.
+    let source = source_for(
+        r#"
+import { expect, it, vi } from "vitest";
+
+it("asserts calls", () => {
+  const spy = vi.fn();
+  spy(1, "a");
+  expect(spy).toHaveBeenCalledTimes(1);
+  expect(spy).toHaveBeenCalledWith(1, "a");
+});
+"#,
+    );
+    assert!(
+        source.contains("smelt_vitest_mock_called_times("),
+        "{source}"
+    );
+    assert!(
+        source.contains("smelt_vitest_mock_called_with("),
+        "{source}"
+    );
+    assert!(
+        source.contains("expect(...).toHaveBeenCalledTimes(...) failed"),
+        "count mismatch must produce a test failure\n{source}"
+    );
+    assert!(
+        source.contains("expect(...).toHaveBeenCalledWith(...) failed"),
+        "argument mismatch must produce a test failure\n{source}"
+    );
+}
+
+#[test]
+fn vitest_last_called_with_lowers_to_last_call_check() {
+    // `toHaveBeenLastCalledWith` compares only the most recent recorded call,
+    // so it lowers to `smelt_vitest_mock_called_with(.., last=true)`.
+    let source = source_for(
+        r#"
+import { expect, it, vi } from "vitest";
+
+it("asserts last call", () => {
+  const spy = vi.fn();
+  spy(1);
+  spy(2);
+  expect(spy).toHaveBeenLastCalledWith(2);
+});
+"#,
+    );
+    assert!(
+        source.contains("smelt_vitest_mock_called_with(") && source.contains(", true)"),
+        "last-call matcher must pass last=true\n{source}"
+    );
+    assert!(
+        source.contains("expect(...).toHaveBeenLastCalledWith(...) failed"),
+        "last-call mismatch must produce a test failure\n{source}"
+    );
+}
+
+#[test]
+fn vitest_last_resolved_with_lowers_to_result_check() {
+    // `toHaveLastResolvedWith` reads the mock's recorded return value, flattening
+    // a resolved promise before deep-equality.
+    let source = source_for(
+        r#"
+import { expect, it, vi } from "vitest";
+
+it("asserts resolved", async () => {
+  const spy = vi.fn(async () => 5);
+  await spy();
+  expect(spy).toHaveLastResolvedWith(5);
+});
+"#,
+    );
+    assert!(
+        source.contains("smelt_vitest_mock_last_resolved_with("),
+        "resolved matcher must lower to the runtime helper\n{source}"
+    );
+    assert!(
+        source.contains("expect(...).toHaveLastResolvedWith(...) failed"),
+        "resolved mismatch must produce a test failure\n{source}"
+    );
+}
+
+#[test]
+fn vitest_mock_dot_calls_synthesizes_recorded_activity() {
+    // `mockFn.mock.calls` is not an own field of the erased mock object; reading
+    // `.mock` must synthesize the recorded activity from the live registry state
+    // so `mockFn.mock.calls.length` flows through the ordinary array-length path.
+    let source = source_for(
+        r#"
+import { expect, it, vi } from "vitest";
+
+it("reads mock.calls", () => {
+  const spy = vi.fn();
+  spy();
+  expect(spy.mock.calls.length).toBe(1);
+});
+"#,
+    );
+    assert!(
+        source.contains("if field == \"mock\""),
+        "`.mock` accessor must be synthesized in smelt_get_object_field\n{source}"
+    );
+}
+
+/// A closure whose body has an `if` guard that mutates captured locals
+/// (`once`: `if (!called) { ret = fn(); called = true; }`) must keep the guard.
+/// The compact side-effect-free callback IR modeled the guarded assignment as a
+/// ternary arm and hoisted the assignment out of the branch, so `fn()` ran on
+/// every call and `called` was always set. The mutation must fall back to full
+/// closure-body lowering, which emits a real `if` around the captured-state
+/// writes.
+#[test]
+fn closure_if_guard_mutating_captured_locals_keeps_the_branch() {
+    let source = source_for(
+        r#"
+export function once<T>(fn: () => T): () => T {
+  let called = false;
+  let ret: T;
+  return () => {
+    if (!called) {
+      ret = fn();
+      called = true;
+    }
+    return ret;
+  };
+}
+"#,
+    );
+
+    // The guard survives: `fn()` and the `called = true` write live inside an
+    // `if` branch, not hoisted ahead of the condition.
+    let called_write = source.find("borrow_mut()) = true").unwrap_or_else(|| {
+        panic!("expected captured `called = true` write\n{source}");
+    });
+    let guard = source.find("if ").unwrap_or_else(|| {
+        panic!("expected an `if` guard in the closure body\n{source}");
+    });
+    assert!(
+        guard < called_write,
+        "the captured-state write must sit inside the `if` guard, not be hoisted before it\n{source}"
+    );
+    // The invocation must not run unconditionally ahead of the condition: the
+    // condition (`!called`) must be computed before the call site.
+    let cond = source.find("= !").unwrap_or_else(|| {
+        panic!("expected the `!called` condition\n{source}");
+    });
+    let call = source.find(")()").unwrap_or_else(|| {
+        panic!("expected the `fn()` invocation\n{source}");
+    });
+    assert!(
+        cond < call,
+        "the `!called` condition must be evaluated before `fn()` is invoked\n{source}"
+    );
+}
+
+/// An object rest pattern (`const { a, ...rest } = source`) whose source is a
+/// named object type that erases to `SmeltUnknown` (here `Handle`, an interface)
+/// must copy the source's remaining members into `rest`. Previously only a
+/// native `Dict` or a literally `Type::Unknown` source was copied, so a named
+/// object type fell through to `Default::default()` and produced an empty rest,
+/// dropping spread-out members (the `cancel`/`flush` of an `Object.assign`-
+/// wrapped funnel). The copy must route through `into_smelt_unknown()`.
+#[test]
+fn object_rest_copies_named_object_source_that_erases_to_unknown() {
+    let source = source_for(
+        r#"
+interface Handle {
+  readonly call: () => void;
+  readonly cancel: () => void;
+  readonly flush: () => void;
+}
+declare function make(): Handle;
+export function wrap(): Record<string, unknown> {
+  const { call, ...rest } = make();
+  call();
+  return rest;
+}
+"#,
+    );
+
+    // The rest copy is materialized from the erased object form, not an empty
+    // record.
+    assert!(
+        source.contains(".into_smelt_unknown() { SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter())"),
+        "object rest must copy the erased source object, not Default::default()\n{source}"
+    );
+    // The extracted key is still removed from the copied rest.
+    assert!(
+        source.contains(".remove(&\"call\".to_owned())"),
+        "the destructured `call` key must be removed from rest\n{source}"
     );
 }

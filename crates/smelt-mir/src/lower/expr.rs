@@ -1701,11 +1701,19 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::CallableObjectAssign { callable, props } => {
+            ExprKind::CallableObjectAssign {
+                callable,
+                props,
+                spreads,
+            } => {
                 let callable_operand = self.lower_expr(*callable)?;
                 let prop_operands = props
                     .iter()
                     .map(|(name, value)| Ok((*name, self.lower_expr(*value)?)))
+                    .collect::<Result<Vec<_>, LowerError>>()?;
+                let spread_operands = spreads
+                    .iter()
+                    .map(|value| self.lower_expr(*value))
                     .collect::<Result<Vec<_>, LowerError>>()?;
                 self.assign_temp(
                     expr.ty,
@@ -1713,6 +1721,7 @@ impl LoweringCtx<'_> {
                     Rvalue::CallableObjectAssign {
                         callable: callable_operand,
                         props: prop_operands,
+                        spreads: spread_operands,
                     },
                 )?
             }
@@ -1822,6 +1831,58 @@ impl LoweringCtx<'_> {
             }
             ExprKind::DateResetTimezoneOffset => {
                 self.assign_temp(expr.ty, expr.span, Rvalue::DateResetTimezoneOffset)?
+            }
+            ExprKind::VitestMockFn { implementation } => {
+                let implementation_operand = implementation
+                    .map(|implementation| self.lower_expr(implementation))
+                    .transpose()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestMockFn {
+                        implementation: implementation_operand,
+                    },
+                )?
+            }
+            ExprKind::VitestMockCalledTimes { mock, count } => {
+                let mock_operand = self.lower_expr(*mock)?;
+                let count_operand = self.lower_expr(*count)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestMockCalledTimes {
+                        mock: mock_operand,
+                        count: count_operand,
+                    },
+                )?
+            }
+            ExprKind::VitestMockCalledWith { mock, args, last } => {
+                let mock_operand = self.lower_expr(*mock)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestMockCalledWith {
+                        mock: mock_operand,
+                        args: arg_operands,
+                        last: *last,
+                    },
+                )?
+            }
+            ExprKind::VitestMockLastResolvedWith { mock, expected } => {
+                let mock_operand = self.lower_expr(*mock)?;
+                let expected_operand = self.lower_expr(*expected)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestMockLastResolvedWith {
+                        mock: mock_operand,
+                        expected: expected_operand,
+                    },
+                )?
             }
             ExprKind::DateTimezoneContext { timezone } => {
                 let timezone_operand = self.lower_expr(*timezone)?;

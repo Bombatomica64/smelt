@@ -1142,15 +1142,26 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        Rvalue::CallableObjectAssign { callable, props } => format!(
-            "callable_object_assign {}, {{{}}}",
-            operand_text(callable),
-            props
-                .iter()
-                .map(|(name, prop_value)| format!("{name:?}: {}", operand_text(prop_value)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        Rvalue::CallableObjectAssign {
+            callable,
+            props,
+            spreads,
+        } => {
+            let mut spread_text = String::new();
+            for value in spreads {
+                let _ = write!(spread_text, ", ...{}", operand_text(value));
+            }
+            format!(
+                "callable_object_assign {}, {{{}}}{}",
+                operand_text(callable),
+                props
+                    .iter()
+                    .map(|(name, prop_value)| format!("{name:?}: {}", operand_text(prop_value)))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                spread_text
+            )
+        }
         Rvalue::DictCopy { dict } => format!("dict_copy {}", operand_text(dict)),
         Rvalue::DictProjection { op, dict } => {
             let op_text = match op {
@@ -1204,6 +1215,26 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             format!("date_set_timezone_offset {}", operand_text(offset))
         }
         Rvalue::DateResetTimezoneOffset => "date_reset_timezone_offset".to_owned(),
+        Rvalue::VitestMockFn { implementation } => implementation.as_ref().map_or_else(
+            || "vitest_mock_fn".to_owned(),
+            |implementation| format!("vitest_mock_fn {}", operand_text(implementation)),
+        ),
+        Rvalue::VitestMockCalledTimes { mock, count } => format!(
+            "vitest_mock_called_times {} {}",
+            operand_text(mock),
+            operand_text(count)
+        ),
+        Rvalue::VitestMockCalledWith { mock, args, last } => format!(
+            "vitest_mock_called_with{} {} [{}]",
+            if *last { "_last" } else { "" },
+            operand_text(mock),
+            args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
+        ),
+        Rvalue::VitestMockLastResolvedWith { mock, expected } => format!(
+            "vitest_mock_last_resolved_with {} {}",
+            operand_text(mock),
+            operand_text(expected)
+        ),
         Rvalue::DateTimezoneContext { timezone } => {
             format!("date_timezone_context {}", operand_text(timezone))
         }

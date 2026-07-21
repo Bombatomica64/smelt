@@ -155,6 +155,23 @@ pub(crate) fn needs_date_timezone_offset_runtime(mir: &Mir) -> bool {
     })
 }
 
+/// Returns true when generated Rust constructs or asserts a stateful Vitest
+/// mock and therefore needs the `SmeltVitestMock*` runtime prelude (the
+/// per-mock state registry, chainable configuration methods, and the
+/// `SmeltPromise::rejected` constructor for `mockRejectedValue*`).
+#[must_use]
+pub(crate) fn needs_vitest_mock_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::VitestMockFn { .. }
+                | Rvalue::VitestMockCalledTimes { .. }
+                | Rvalue::VitestMockCalledWith { .. }
+                | Rvalue::VitestMockLastResolvedWith { .. }
+        )
+    })
+}
+
 /// Returns true when generated Rust constructs a modeled host `Blob`/`File`
 /// record and therefore needs the `smelt_blob_record_from_parts` runtime helper.
 #[must_use]
@@ -328,6 +345,19 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
             .all()
             .iter()
             .any(|ty| matches!(ty, Type::JsMap(_, _)))
+        // A source `Promise<T>` (`Type::Future`) lowers to `SmeltFuture<T>`, and
+        // the whole promise/future runtime — `SmeltFuture`, `SmeltPromise`,
+        // `smelt_await_flatten`, and the eager-prefix priming waker — is emitted
+        // inside this `needs_unknown` prelude block. A fully-typed async program
+        // (no union/unknown/generic of its own) would otherwise reference
+        // `SmeltFuture` without it being defined, so any future forces the runtime
+        // on. Corpus programs never hit this because their erased values already
+        // set `needs_unknown`; it only surfaces for wholly-typed async code.
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::Future(_)))
         || mir.functions.iter().any(|function| {
             function.blocks.iter().any(|block| {
                 block.statements.iter().any(|statement| {

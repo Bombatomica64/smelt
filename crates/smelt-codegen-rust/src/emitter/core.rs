@@ -1733,8 +1733,10 @@ impl<'mir> FunctionEmitter<'mir> {
         if body.contains("self_owned") {
             out.push_str("    let self_owned = self.clone();\n");
         }
+        // A genuine async-method body: prime it so its synchronous prefix runs
+        // at call time (JS eager-async-prefix semantics; see `from_future_primed`).
         out.push_str(&format!(
-            "    SmeltFuture::<{inner_ret}>::from_future(Box::pin(async move {{\n"
+            "    SmeltFuture::<{inner_ret}>::from_future_primed(Box::pin(async move {{\n"
         ));
         out.push_str(&body);
         out.push_str("    }))\n    }\n");
@@ -4086,11 +4088,18 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         Rvalue::Struct { fields, .. } => fields
             .iter()
             .any(|(_, field_value)| operand_uses_local(field_value, local)),
-        Rvalue::CallableObjectAssign { callable, props } => {
+        Rvalue::CallableObjectAssign {
+            callable,
+            props,
+            spreads,
+        } => {
             operand_uses_local(callable, local)
                 || props
                     .iter()
                     .any(|(_, field_value)| operand_uses_local(field_value, local))
+                || spreads
+                    .iter()
+                    .any(|spread_value| operand_uses_local(spread_value, local))
         }
         Rvalue::ExternalClassInstance { args, .. } => args
             .iter()
@@ -4108,6 +4117,25 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         // and presence probes take no operands. Missing this arm would let the
         // `_ => false` fallthrough elide a closure whose only use is the write.
         Rvalue::HostGlobalWrite { value: stored, .. } => operand_uses_local(stored, local),
+        // A Vitest mock construction reads its wrapped implementation (often a
+        // closure temp whose ONLY use is this rvalue — missing this arm elides
+        // that closure's declaration); the matcher queries read the mock and
+        // their expected operands.
+        Rvalue::VitestMockFn { implementation } => implementation
+            .as_ref()
+            .is_some_and(|implementation| operand_uses_local(implementation, local)),
+        Rvalue::VitestMockCalledTimes { mock, count } => {
+            operand_uses_local(mock, local) || operand_uses_local(count, local)
+        }
+        Rvalue::VitestMockCalledWith { mock, args, .. } => {
+            operand_uses_local(mock, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
+        Rvalue::VitestMockLastResolvedWith { mock, expected } => {
+            operand_uses_local(mock, local) || operand_uses_local(expected, local)
+        }
         _ => false,
     }
 }

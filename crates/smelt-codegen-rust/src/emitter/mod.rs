@@ -615,7 +615,11 @@ fn statement_erases_callback_param(
                     )
                 })
         }
-        Rvalue::CallableObjectAssign { callable, props } => {
+        Rvalue::CallableObjectAssign {
+            callable,
+            props,
+            spreads,
+        } => {
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
                 && (operand_local(callable) == Some(local)
                     || operand_local(callable)
@@ -639,7 +643,10 @@ fn statement_erases_callback_param(
                         })
                     || props
                         .iter()
-                        .any(|(_, prop_value)| operand_local(prop_value) == Some(local)))
+                        .any(|(_, prop_value)| operand_local(prop_value) == Some(local))
+                    || spreads
+                        .iter()
+                        .any(|spread_value| operand_local(spread_value) == Some(local)))
         }
         Rvalue::Use(operand) => {
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))

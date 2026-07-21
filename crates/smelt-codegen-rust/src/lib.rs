@@ -384,6 +384,7 @@ fn emit_source_with_free_function_router(
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
     let needs_date_timezone_offset = stdlib::needs_date_timezone_offset_runtime(mir);
     let needs_blob_record = stdlib::needs_blob_record_runtime(mir);
+    let needs_vitest_mock = stdlib::needs_vitest_mock_runtime(mir);
     let needs_host_override = stdlib::needs_host_override_runtime(mir);
     let needs_shared_captures = mir
         .closures
@@ -403,6 +404,48 @@ fn emit_source_with_free_function_router(
     if needs_date_timezone_offset {
         writer.line("thread_local! {");
         writer.line("    static SMELT_DATE_TIMEZONE_OFFSET: ::std::cell::Cell<f64> = const { ::std::cell::Cell::new(0.0) };");
+        writer.line("}");
+        writer.blank_line();
+    }
+    if needs_timer_helpers || needs_date_now {
+        // Shared monotonic clock coupling JavaScript timers and `Date.now()`.
+        //
+        // JS code routinely measures elapsed time with `Date.now()` while
+        // scheduling work with `setTimeout`, and expects the two to agree
+        // (a debounce reads `Date.now()` to size its `maxWait` timeout, then
+        // waits for that timeout to fire). Generated Rust runs deterministically
+        // on a virtual clock — `sleep`/timer draining fast-forwards time instead
+        // of really blocking — so both readings must come from one timeline.
+        //
+        // `SMELT_VIRTUAL_MS` is the accumulated fast-forward; real wall time
+        // keeps advancing on top of it so a synchronous busy-loop such as
+        // `while (Date.now() - start < 320) { ... }` (no `await` to fast-forward)
+        // still terminates on real elapsed time rather than spinning forever.
+        writer.line("thread_local! {");
+        writer.line("    static SMELT_VIRTUAL_MS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };");
+        writer.line("    static SMELT_TIMER_EPOCH: ::std::cell::Cell<Option<::std::time::Instant>> = const { ::std::cell::Cell::new(None) };");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Monotonic virtual + wall clock (ms) shared by JS timers and `Date.now()`.");
+        writer.line("///");
+        writer.line("/// Returns real elapsed wall time since a fixed epoch plus the virtual");
+        writer.line("/// fast-forward accumulated by `sleep`/timer draining, so `setTimeout`");
+        writer.line("/// deadlines and `Date.now()` measurements share one timeline.");
+        writer.line("fn smelt_mono_ms() -> u64 {");
+        writer.line("    let epoch = SMELT_TIMER_EPOCH.with(|epoch| match epoch.get() {");
+        writer.line("        Some(instant) => instant,");
+        writer.line("        None => { let instant = ::std::time::Instant::now(); epoch.set(Some(instant)); instant }");
+        writer.line("    });");
+        writer.line("    let real_ms = ::std::time::Instant::now().saturating_duration_since(epoch).as_millis() as u64;");
+        writer.line("    real_ms.saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get))");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Fast-forward the virtual clock so `smelt_mono_ms()` reaches `target_ms`.");
+        writer.line("fn smelt_virtual_advance_to(target_ms: u64) {");
+        writer.line("    let now = smelt_mono_ms();");
+        writer.line("    if target_ms > now {");
+        writer.line("        SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(virtual_ms.get().saturating_add(target_ms - now)));");
+        writer.line("    }");
         writer.line("}");
         writer.blank_line();
     }
@@ -679,6 +722,39 @@ fn emit_source_with_free_function_router(
         writer.line("/// Recover a typed callback previously passed through an erased ABI.");
         writer.line("fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {");
         writer.line("    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
+        writer.line("}");
+        writer.blank_line();
+        // A JavaScript "callable object" (a function with attached own
+        // properties, e.g. remeda's `map(cb)` carrying `.lazy`/`.lazyArgs`)
+        // erases to `SmeltUnknown::Object { __smelt_call, ...props }`. When such
+        // a value is narrowed to a CONCRETE typed callback (`Rc<dyn Fn(..)>`),
+        // the sibling properties have nowhere to live on the bare `Rc`, so a
+        // naive round-trip back to `SmeltUnknown` would forget them and yield a
+        // plain `SmeltUnknown::Function`. `SmeltErasedFunction` solves the same
+        // problem with its `object` field; typed `Rc` callbacks instead stash
+        // the originating object here, keyed by the callback allocation address
+        // (stable across `Rc::clone`). This is a genuine dynamic boundary
+        // (erased callable identity), not avoidable erasure: it PRESERVES a
+        // concrete object shape that would otherwise be lost.
+        writer.line("thread_local! {");
+        writer.line("    static SMELT_CALLABLE_OBJECTS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Stable key for a typed callback allocation (address of its `Rc`).");
+        writer.line("fn smelt_callable_object_key<F: ?Sized>(function: &::std::rc::Rc<F>) -> usize {");
+        writer.line("    ::std::rc::Rc::as_ptr(function) as *const () as usize");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Remember the callable object a typed callback was narrowed from.");
+        writer.line("fn smelt_register_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {");
+        writer.line("    if let SmeltUnknown::Object(_) = &object {");
+        writer.line("        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(smelt_callable_object_key(function), object); });");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Recover the callable object a typed callback was narrowed from.");
+        writer.line("fn smelt_lookup_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>) -> Option<SmeltUnknown> {");
+        writer.line("    SMELT_CALLABLE_OBJECTS.with(|objects| objects.borrow().get(&smelt_callable_object_key(function)).cloned())");
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K, V> Clone for SmeltRecord<K, V> {");
@@ -1071,6 +1147,45 @@ fn emit_source_with_free_function_router(
         }
         writer.line("type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;");
         writer.blank_line();
+        // JS eager-async-prefix semantics. Calling an `async` function (or running
+        // a `new Promise` executor) executes SYNCHRONOUSLY up to the first `await`;
+        // only the continuation after that suspension point is deferred to a later
+        // microtask. Smelt models a promise value as a lazily-stored future that is
+        // not driven until `smelt_await`, which would instead defer the ENTIRE body
+        // (including its synchronous prefix). That breaks any code whose observable
+        // ordering depends on all prefixes running before the event loop turns —
+        // e.g. `Promise.all([api.call(), api.call(), api.call()])` where each
+        // `call` synchronously registers a request with a batch/funnel scheduler:
+        // lazily, the first `await` inside `Promise.all` drains a timer after only
+        // the first prefix ran, splitting one batch into three.
+        //
+        // `smelt_eager_poll_waker` is a no-op `Waker` used to poll a freshly
+        // constructed future exactly once at construction time, advancing it
+        // through its synchronous prefix up to (and not past) the first real
+        // suspension. The poll's result is folded into the promise's shared settle
+        // state (see `SmeltPromise::from_future` / `SmeltFuture::from_future`); a
+        // still-`Pending` future is kept and later resumed by `smelt_await` under
+        // the real executor waker. Because the no-op waker never schedules a wake,
+        // it is only ever valid for this single priming poll.
+        //
+        // Error observability contract: a synchronous prefix that throws lowers to
+        // a future that resolves `Poll::Ready(Err(_))` on its first poll. Per JS,
+        // an exception thrown before the first `await` of an `async` function
+        // becomes a REJECTED promise, not a synchronous throw, and its rejection is
+        // observable only through the normal await/handler path in microtask order.
+        // The priming poll therefore CAPTURES a `Ready(Err)` into the shared
+        // rejected settle state and NEVER propagates it out of `from_future`;
+        // `smelt_await` surfaces it exactly when a consumer awaits, preserving when
+        // rejections become observable relative to other continuations and timers.
+        writer.line("fn smelt_eager_poll_waker() -> ::std::task::Waker {");
+        writer.line("    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { raw() }");
+        writer.line("    unsafe fn wake(_: *const ()) {}");
+        writer.line("    unsafe fn wake_by_ref(_: *const ()) {}");
+        writer.line("    unsafe fn drop(_: *const ()) {}");
+        writer.line("    fn raw() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }");
+        writer.line("    unsafe { ::std::task::Waker::from_raw(raw()) }");
+        writer.line("}");
+        writer.blank_line();
         writer.line("#[derive(Clone)]");
         writer.line("pub struct SmeltPromise {");
         writer.line("    id: usize,");
@@ -1087,7 +1202,20 @@ fn emit_source_with_free_function_router(
         writer.line("    fn pending_with_id(id: usize) -> Self { Self { id, state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
         writer.line("    /// Create an already-fulfilled erased promise value.");
         writer.line("    fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
-        writer.line("    /// Store a live future behind a cloneable erased promise handle.");
+        if needs_vitest_mock {
+            // `SmeltPromise::rejected` is only referenced by the Vitest mock
+            // runtime (`mockRejectedValue*`), so it is gated on the same flag to
+            // keep every non-mock crate's prelude byte-identical.
+            writer.line("    /// Create an already-rejected erased promise value. Awaiting it yields");
+            writer.line("    /// `Err` through the shared settle state, carrying a JS-faithful message");
+            writer.line("    /// (an Error-like object's `message` string, else the value's display),");
+            writer.line("    /// matching the existing string-based thrown-error ABI.");
+            writer.line("    fn rejected(value: SmeltUnknown) -> Self { let message = match &value { SmeltUnknown::Object(map) => match map.get(\"message\") { Some(SmeltUnknown::String(text)) => text, _ => value.to_string() }, SmeltUnknown::String(text) => text.clone(), other => other.to_string() }; Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Err(message)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
+        }
+        writer.line("    /// Store a live future behind a cloneable erased promise handle. This");
+        writer.line("    /// is the lazy constructor used by derived/adapter promises (await");
+        writer.line("    /// flattening, `.then`/`.catch` chains, coercions): the future is not");
+        writer.line("    /// driven until `smelt_await`, matching JS deferral of those.");
         writer.line("    fn from_future(future: SmeltPromiseFuture) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(future))) } }");
         writer
             .line("    /// Await the stored future once and share its settled result with clones.");
@@ -1161,6 +1289,12 @@ fn emit_source_with_free_function_router(
         writer.line("enum SmeltFutureState<T> {");
         writer.line("    Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),");
         writer.line("    Resolved(T),");
+        // A synchronous prefix that threw during eager priming (see
+        // `smelt_eager_poll_waker`) is stored as a rejection, kept as a `String`
+        // so the state stays cloneable-in-effect: JS promises may be awaited more
+        // than once and each await re-observes the same rejection, so `smelt_await`
+        // rebuilds an error from this message on every call.
+        writer.line("    Rejected(String),");
         writer.line("    Taken,");
         writer.line("}");
         writer.line("pub struct SmeltFuture<T> {");
@@ -1171,8 +1305,36 @@ fn emit_source_with_free_function_router(
         writer.line("impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(\"SmeltFuture\") } }");
         writer.line("#[allow(dead_code)]");
         writer.line("impl<T> SmeltFuture<T> {");
-        writer.line("    /// Wrap a live future behind a cloneable promise-value handle.");
+        writer.line("    /// Wrap a live future behind a cloneable promise-value handle, lazily:");
+        writer.line("    /// the future is not driven until `smelt_await`. Used by derived and");
+        writer.line("    /// adapter promises (await flattening, `.then`/`.catch` chains, callback");
+        writer.line("    /// coercions, `Promise.all` collection) whose bodies JS also defers,");
+        writer.line("    /// so priming them would run continuations/handlers out of microtask");
+        writer.line("    /// order — see `from_future_primed` for the eager-prefix constructor.");
         writer.line("    fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Pending(future))) } }");
+        writer.line("    /// Wrap an ASYNC-FUNCTION-BODY future, priming it with a single no-op-");
+        writer.line("    /// waker poll so its synchronous prefix runs at call time (JS");
+        writer.line("    /// eager-async-prefix semantics; see `smelt_eager_poll_waker`). Only");
+        writer.line("    /// genuine async function / async closure / async method bodies use this,");
+        writer.line("    /// so a call like `api.call()` registers its request synchronously before");
+        writer.line("    /// the event loop turns — the difference that keeps");
+        writer.line("    /// `Promise.all([call(), call(), call()])` from splitting a funnel/batch.");
+        writer.line("    /// A prefix that completes resolves now; one that throws is captured as a");
+        writer.line("    /// rejection surfaced only via `smelt_await` (JS: a throw before the first");
+        writer.line("    /// await becomes a rejected promise, observable only through the");
+        writer.line("    /// await/handler path); one that suspends keeps the advanced future for");
+        writer.line("    /// later resume. Derived/adapter promises deliberately do NOT use this,");
+        writer.line("    /// preserving when their continuations and rejections become observable.");
+        writer.line("    fn from_future_primed(mut future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self {");
+        writer.line("        let waker = smelt_eager_poll_waker();");
+        writer.line("        let mut cx = ::std::task::Context::from_waker(&waker);");
+        writer.line("        let state = match ::std::future::Future::poll(future.as_mut(), &mut cx) {");
+        writer.line("            ::std::task::Poll::Ready(Ok(value)) => SmeltFutureState::Resolved(value),");
+        writer.line("            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(error.to_string()),");
+        writer.line("            ::std::task::Poll::Pending => SmeltFutureState::Pending(future),");
+        writer.line("        };");
+        writer.line("        Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)) }");
+        writer.line("    }");
         writer.line("    /// Build an already-resolved promise-value handle.");
         writer.line("    fn resolved(value: T) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Resolved(value))) } }");
         writer.line("    /// Drive the stored future once, cache its resolved value, and serve");
@@ -1195,6 +1357,7 @@ fn emit_source_with_free_function_router(
         writer.line("        let guard = self.state.borrow();");
         writer.line("        match &*guard {");
         writer.line("            SmeltFutureState::Resolved(value) => Ok(value.clone()),");
+        writer.line("            SmeltFutureState::Rejected(message) => Err(std::io::Error::new(std::io::ErrorKind::Other, message.clone()).into()),");
         writer.line("            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, \"future already consumed\").into()),");
         writer.line("        }");
         writer.line("    }");
@@ -1208,6 +1371,22 @@ fn emit_source_with_free_function_router(
         writer.line("    type Output = Result<T, Box<dyn std::error::Error>>;");
         writer.line("    type IntoFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>;");
         writer.line("    fn into_future(self) -> Self::IntoFuture { Box::pin(async move { self.smelt_await().await }) }");
+        writer.line("}");
+        // Erasing a typed promise value (`SmeltFuture<T>`) to the dynamic carrier
+        // yields a `SmeltUnknown::Promise`: a JS `Promise<T>` flowing into an
+        // `unknown`/erased position is still a promise object, not its resolved
+        // value. This is a genuine dynamic boundary — the erased consumer only
+        // knows the promise/thenable protocol, so no concrete `T` survives. The
+        // adapter defers exactly like JS: it wraps a fresh `SmeltPromise` whose
+        // body awaits this future and erases the settled value through
+        // `IntoSmeltUnknown`, matching the `SmeltUnknown::Promise(SmeltPromise::
+        // from_future(..))` shape the future-recovery coercion emits. This impl
+        // must exist whenever generated code can call `.into_smelt_unknown()` on a
+        // future — e.g. the erased-callback promise adapter and the recover-erased-
+        // promise-on-await coercion both do — and it lives in this same
+        // `SmeltUnknown`/`SmeltPromise` prelude region so the gate is shared.
+        writer.line("impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T> {");
+        writer.line("    fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let smelt_resolved = self.smelt_await().await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_resolved.into_smelt_unknown()) }))) }");
         writer.line("}");
         writer.blank_line();
         // Synchronous TypeScript generators are true resumable computations.
@@ -1407,6 +1586,115 @@ fn emit_source_with_free_function_router(
             writer.line("    static SMELT_ERASED_FUNCTION_VALUES: ::std::cell::RefCell<::std::collections::HashMap<usize, ::std::rc::Weak<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
             writer.line("}");
         }
+        if needs_vitest_mock {
+            writer.blank_line();
+            // Stateful Vitest `vi.fn()` mock runtime. A mock is a genuine dynamic
+            // boundary: the source spells no parameter or return shape at all, and
+            // its behavior is reconfigured imperatively at runtime through the
+            // chainable `mock*` methods, so the callable and its recorded calls
+            // live behind `SmeltUnknown` by design (see `SmeltUnknown boundaries`
+            // in CLAUDE.md). The mock erases to a callable object (`__smelt_call`)
+            // that flows through every existing erased-call path; its shared state
+            // is reachable from the erased object through the `__smelt_vitest_mock`
+            // marker field (a registry id), so matchers can read call counts and
+            // recorded arguments without a parallel value channel.
+            writer.line("/// One configured outcome served by a Vitest mock invocation.");
+            writer.line("#[derive(Clone)]");
+            writer.line("enum SmeltVitestMockOutcome {");
+            writer.line("    /// `mockReturnValue(Once)`: return the value directly.");
+            writer.line("    Return(SmeltUnknown),");
+            writer.line("    /// `mockResolvedValue(Once)`: return a resolved promise of the value.");
+            writer.line("    Resolve(SmeltUnknown),");
+            writer.line("    /// `mockRejectedValue(Once)`: return a rejected promise of the value.");
+            writer.line("    Reject(SmeltUnknown),");
+            writer.line("    /// `vi.fn(impl)` / `mockImplementation(Once)`: delegate to the callback.");
+            writer.line("    Implementation(::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>),");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Shared mutable state behind one `vi.fn()` mock instance.");
+            writer.line("struct SmeltVitestMockState {");
+            writer.line("    /// FIFO of one-shot outcomes (`mock*Once`), consumed before `default`.");
+            writer.line("    once: ::std::collections::VecDeque<SmeltVitestMockOutcome>,");
+            writer.line("    /// Sticky outcome served when `once` is empty; `None` yields `undefined`.");
+            writer.line("    default: Option<SmeltVitestMockOutcome>,");
+            writer.line("    /// Recorded argument vectors, one entry per invocation.");
+            writer.line("    calls: Vec<Vec<SmeltUnknown>>,");
+            writer.line("    /// Recorded return value, one entry per invocation. An async mock");
+            writer.line("    /// records the returned `SmeltUnknown::Promise`; the result matchers");
+            writer.line("    /// flatten it to its settled value at assertion time.");
+            writer.line("    results: Vec<SmeltUnknown>,");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("thread_local! {");
+            writer.line("    /// Registry mapping the `__smelt_vitest_mock` marker id stored on each");
+            writer.line("    /// erased mock object to its shared state handle.");
+            writer.line("    static SMELT_VITEST_MOCKS: ::std::cell::RefCell<::std::collections::HashMap<usize, ::std::rc::Rc<::std::cell::RefCell<SmeltVitestMockState>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Resolve an erased value to a plain callable (function or callable object).");
+            writer.line("fn smelt_vitest_mock_callable(value: &SmeltUnknown) -> Option<::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>> { match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None } }");
+            writer.blank_line();
+            writer.line("/// Build a stateful Vitest `vi.fn([impl])` mock as an erased callable object.");
+            writer.line("///");
+            writer.line("/// Invoking the object's `__smelt_call` records the argument vector, then");
+            writer.line("/// serves the next one-shot outcome (FIFO) or the sticky default; with no");
+            writer.line("/// configuration it returns `undefined` (or delegates to `impl` when given).");
+            writer.line("/// The chainable `mock*` configuration methods are real fields on the object,");
+            writer.line("/// so they flow through the ordinary erased method-call path and each returns");
+            writer.line("/// the same mock instance for chaining, matching Vitest.");
+            writer.line("fn smelt_vitest_mock_new(implementation: Option<SmeltUnknown>) -> SmeltUnknown {");
+            writer.line("    let id = smelt_next_object_id();");
+            writer.line("    let state = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltVitestMockState { once: ::std::collections::VecDeque::new(), default: implementation.as_ref().and_then(smelt_vitest_mock_callable).map(SmeltVitestMockOutcome::Implementation), calls: Vec::new(), results: Vec::new() }));");
+            writer.line("    SMELT_VITEST_MOCKS.with(|mocks| { mocks.borrow_mut().insert(id, state.clone()); });");
+            writer.line("    let object = SmeltObject::new(::std::collections::HashMap::new());");
+            writer.line("    object.insert(\"__smelt_vitest_mock\".to_owned(), SmeltUnknown::Number(id as f64));");
+            writer.line("    let call_state = state.clone();");
+            writer.line("    object.insert(\"__smelt_call\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let outcome = { let mut state = call_state.borrow_mut(); state.calls.push(args.clone()); state.once.pop_front().or_else(|| state.default.clone()) }; let result = match outcome { None => Ok(SmeltUnknown::Undefined), Some(SmeltVitestMockOutcome::Return(value)) => Ok(value), Some(SmeltVitestMockOutcome::Resolve(value)) => Ok(SmeltUnknown::Promise(SmeltPromise::resolved(value))), Some(SmeltVitestMockOutcome::Reject(value)) => Ok(SmeltUnknown::Promise(SmeltPromise::rejected(value))), Some(SmeltVitestMockOutcome::Implementation(callback)) => (callback)(args) }; if let Ok(value) = &result { call_state.borrow_mut().results.push(value.clone()); } result })));");
+            writer.line("    for (method, once) in [(\"mockReturnValue\", false), (\"mockReturnValueOnce\", true), (\"mockResolvedValue\", false), (\"mockResolvedValueOnce\", true), (\"mockRejectedValue\", false), (\"mockRejectedValueOnce\", true), (\"mockImplementation\", false), (\"mockImplementationOnce\", true)] {");
+            writer.line("        let method_state = state.clone();");
+            writer.line("        let method_object = object.clone();");
+            writer.line("        object.insert(method.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let value = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); let outcome = match method { \"mockReturnValue\" | \"mockReturnValueOnce\" => Some(SmeltVitestMockOutcome::Return(value)), \"mockResolvedValue\" | \"mockResolvedValueOnce\" => Some(SmeltVitestMockOutcome::Resolve(value)), \"mockRejectedValue\" | \"mockRejectedValueOnce\" => Some(SmeltVitestMockOutcome::Reject(value)), _ => smelt_vitest_mock_callable(&value).map(SmeltVitestMockOutcome::Implementation) }; if let Some(outcome) = outcome { let mut state = method_state.borrow_mut(); if once { state.once.push_back(outcome); } else { state.default = Some(outcome); } } Ok(SmeltUnknown::Object(method_object.clone())) })));");
+            writer.line("    }");
+            writer.line("    for method in [\"mockClear\", \"mockReset\", \"mockRestore\"] {");
+            writer.line("        let method_state = state.clone();");
+            writer.line("        let method_object = object.clone();");
+            writer.line("        let reset = method != \"mockClear\";");
+            writer.line("        object.insert(method.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { { let mut state = method_state.borrow_mut(); state.calls.clear(); state.results.clear(); if reset { state.once.clear(); state.default = None; } } Ok(SmeltUnknown::Object(method_object.clone())) })));");
+            writer.line("    }");
+            writer.line("    SmeltUnknown::Object(object)");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Resolve the shared mock state behind an erased value, if it is a mock.");
+            writer.line("fn smelt_vitest_mock_state(value: &SmeltUnknown) -> Option<::std::rc::Rc<::std::cell::RefCell<SmeltVitestMockState>>> { let SmeltUnknown::Object(object) = value else { return None }; match object.get(\"__smelt_vitest_mock\") { Some(SmeltUnknown::Number(id)) => SMELT_VITEST_MOCKS.with(|mocks| mocks.borrow().get(&(id as usize)).cloned()), _ => None } }");
+            writer.blank_line();
+            writer.line("/// `expect(mock).toHaveBeenCalledTimes(expected)`: true when the assertion");
+            writer.line("/// holds. Non-mock actuals pass vacuously — the pre-mock matcher was fully");
+            writer.line("/// vacuous, and unmocked spy handles (`vi.spyOn`) still lower to plain");
+            writer.line("/// placeholders, so failing them here would regress unrelated suites.");
+            writer.line("fn smelt_vitest_mock_called_times(value: &SmeltUnknown, expected: f64) -> bool { match smelt_vitest_mock_state(value) { Some(state) => state.borrow().calls.len() as f64 == expected, None => true } }");
+            writer.blank_line();
+            writer.line("/// `expect(mock).toHaveBeenCalledWith(...)`: true when any recorded call's");
+            writer.line("/// arguments deep-equal the expected arguments (same `toEqual` structural");
+            writer.line("/// equality). When `last` is set, only the most recent recorded call is");
+            writer.line("/// compared (`toHaveBeenLastCalledWith`). Non-mock actuals pass vacuously,");
+            writer.line("/// mirroring `toHaveBeenCalledTimes`.");
+            writer.line("/// Drop trailing `undefined`/`null` arguments. Generated Rust closures are");
+            writer.line("/// fixed-arity, so a source `callback()` that omits a declared parameter is");
+            writer.line("/// emitted as `callback(undefined)` and the mock records a trailing nullish");
+            writer.line("/// slot, whereas JavaScript records only `arguments.length`. Normalizing both");
+            writer.line("/// the recorded and expected argument vectors this way reconciles the two so");
+            writer.line("/// `toHaveBeenLastCalledWith()` matches an omitted-argument call.");
+            writer.line("fn smelt_vitest_mock_trim_trailing_nullish(args: &[SmeltUnknown]) -> &[SmeltUnknown] { let mut end = args.len(); while end > 0 && matches!(args[end - 1], SmeltUnknown::Undefined | SmeltUnknown::Null) { end -= 1; } &args[..end] }");
+            writer.line("fn smelt_vitest_mock_called_with(value: &SmeltUnknown, expected: Vec<SmeltUnknown>, last: bool) -> bool { let expected = smelt_vitest_mock_trim_trailing_nullish(&expected); let call_matches = |call: &Vec<SmeltUnknown>| { let call = smelt_vitest_mock_trim_trailing_nullish(call); call.len() == expected.len() && call.iter().zip(expected.iter()).all(|(left, right)| smelt_unknown_structural_eq(left, right, &mut ::std::collections::HashSet::new())) }; match smelt_vitest_mock_state(value) { Some(state) => { let state = state.borrow(); if last { state.calls.last().is_some_and(call_matches) } else { state.calls.iter().any(call_matches) } }, None => true } }");
+            writer.blank_line();
+            writer.line("/// `expect(mock).toHaveLastResolvedWith(...)`: true when the mock's most");
+            writer.line("/// recent recorded result deep-equals the expected value. An async mock");
+            writer.line("/// records a `SmeltUnknown::Promise`, so a promise result is flattened to");
+            writer.line("/// its settled `Ok` value before comparison (the caller has already awaited");
+            writer.line("/// it, so the shared state cell is populated). Non-mock actuals pass");
+            writer.line("/// vacuously, mirroring the other mock matchers.");
+            writer.line("fn smelt_vitest_mock_last_resolved_with(value: &SmeltUnknown, expected: SmeltUnknown) -> bool { match smelt_vitest_mock_state(value) { Some(state) => { let last = state.borrow().results.last().cloned(); match last { Some(result) => { let resolved = match &result { SmeltUnknown::Promise(promise) => match &*promise.state.borrow() { Some(Ok(value)) => value.clone(), _ => return false }, other => other.clone() }; smelt_unknown_structural_eq(&resolved, &expected, &mut ::std::collections::HashSet::new()) }, None => false } }, None => true } }");
+        }
         writer.blank_line();
         if needs_blob_record {
             writer.line("/// Build the modeled host `Blob`/`File` record for `new Blob(...)` / `new File(...)`.");
@@ -1467,6 +1755,17 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
+        if needs_vitest_mock {
+            // Vitest exposes a `.mock` accessor on every mock function carrying
+            // its recorded activity (`mockFn.mock.calls`, `mockFn.mock.results`).
+            // The erased mock object only stores the `__smelt_vitest_mock` marker
+            // and its configuration methods, so synthesize the `.mock` object
+            // from the live registry state on read. `calls` is an array of the
+            // recorded argument arrays; `results` mirrors the recorded return
+            // values, so `mockFn.mock.calls.length` flows through the ordinary
+            // array-length path.
+            writer.line("    if field == \"mock\" && let Some(state) = smelt_vitest_mock_state(&SmeltUnknown::Object(map.clone())) { let state = state.borrow(); let calls = state.calls.iter().map(|call| SmeltUnknown::Array(call.clone().into())).collect::<Vec<_>>(); let results = state.results.clone(); let mock = SmeltObject::new(::std::collections::HashMap::new()); mock.insert(\"calls\".to_owned(), SmeltUnknown::Array(calls.into())); mock.insert(\"results\".to_owned(), SmeltUnknown::Array(results.into())); return SmeltUnknown::Object(mock); }");
+        }
         // An erased `Map` is a marker object `{ __smelt_map: [[k, v], ...] }`.
         // Real Maps expose `.size` through `Map.prototype`, which the marker
         // object does not store as an own field, so synthesize it from the entry
@@ -1628,7 +1927,6 @@ fn emit_source_with_free_function_router(
             writer.blank_line();
             writer.line("thread_local! {");
             writer.line("    static SMELT_NEXT_TIMER_ID: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };");
-            writer.line("    static SMELT_TIMER_NOW_MS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };");
             writer.line("    static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };");
             writer.line("    static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };");
             writer.line("}");
@@ -1638,7 +1936,8 @@ fn emit_source_with_free_function_router(
                 reset_timers = smelt_stdlib::runtime_symbols::timers::RESET_TIMERS,
             ));
             writer.line("    SMELT_NEXT_TIMER_ID.with(|next| next.set(1));");
-            writer.line("    SMELT_TIMER_NOW_MS.with(|now| now.set(0));");
+            writer.line("    SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(0));");
+            writer.line("    SMELT_TIMER_EPOCH.with(|epoch| epoch.set(None));");
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());");
             writer.line("    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());");
             writer.line("}");
@@ -1697,7 +1996,7 @@ fn emit_source_with_free_function_router(
             ));
             writer.line("    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });");
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
-            writer.line("    let due_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));");
+            writer.line("    let due_ms = smelt_mono_ms().saturating_add(delay_ms);");
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: None }));");
             writer.line("    SmeltUnknown::Number(id as f64)");
             writer.line("}");
@@ -1710,7 +2009,7 @@ fn emit_source_with_free_function_router(
             writer.line("    // Clamp non-positive periods to 1 ms so an interval still advances virtual");
             writer.line("    // time and cannot busy-loop the drain at the current instant.");
             writer.line("    let period_ms = if period_ms.is_finite() && period_ms > 0.0 { period_ms as u64 } else { 1 };");
-            writer.line("    let due_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(period_ms));");
+            writer.line("    let due_ms = smelt_mono_ms().saturating_add(period_ms);");
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: Some(period_ms) }));");
             writer.line("    SmeltUnknown::Number(id as f64)");
             writer.line("}");
@@ -1737,18 +2036,24 @@ fn emit_source_with_free_function_router(
                 clear_timeout = smelt_stdlib::runtime_symbols::timers::CLEAR_TIMEOUT,
             ));
             writer.blank_line();
+            // `id_barrier` defers timers created *after* the current drain began:
+            // a timer whose id is at or above the barrier was (re)scheduled during
+            // this drain pass and, like a Node timer scheduled inside the timer
+            // phase, must wait for a later tick rather than firing again now. This
+            // stops a self-rearming `setTimeout(cb, 0)` (e.g. a funnel's 0 ms
+            // interval) from firing repeatedly within one `sleep`.
             writer.line(format!(
-                "fn {drain_due_timers}() {{",
+                "fn {drain_due_timers}(id_barrier: u64) {{",
                 drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
             ));
             writer.line("    loop {");
-            writer.line("        let now = SMELT_TIMER_NOW_MS.with(|now| now.get());");
+            writer.line("        let now = smelt_mono_ms();");
             writer.line("        let due = SMELT_TIMERS.with(|timers| {");
             writer.line("            let mut timers = timers.borrow_mut();");
             writer.line("            let mut due = Vec::new();");
             writer.line("            let mut pending = Vec::new();");
             writer.line("            for timer in timers.drain(..) {");
-            writer.line("                if timer.due_ms <= now { due.push(timer); } else { pending.push(timer); }");
+            writer.line("                if timer.due_ms <= now && timer.id < id_barrier { due.push(timer); } else { pending.push(timer); }");
             writer.line("            }");
             writer.line("            *timers = pending;");
             writer.line("            due");
@@ -1776,17 +2081,25 @@ fn emit_source_with_free_function_router(
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
             ));
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
-            writer.line(
-                "    let target_ms = SMELT_TIMER_NOW_MS.with(|now| now.get().saturating_add(delay_ms));",
-            );
+            writer.line("    let target_ms = smelt_mono_ms().saturating_add(delay_ms);");
+            // For a zero-delay sleep (one event-loop tick), only timers that
+            // already exist when it begins may fire; anything (re)scheduled while
+            // draining is deferred to a later tick, exactly as Node runs a timer
+            // scheduled inside the timer phase on the next turn. A positive-delay
+            // sleep spans a real window and must fire every timer that becomes due
+            // within it, including ones scheduled mid-window (e.g. a recursive
+            // debounce re-arming itself), so it uses no barrier.
+            writer.line("    let id_barrier = if delay_ms == 0 { SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get) } else { u64::MAX };");
             // Fire every timer due within the requested window, advancing virtual
             // time to each in turn and draining the microtask queue between fires.
+            writer.line("    let mut fired_any = false;");
             writer.line("    loop {");
-            writer.line("        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms).map(|timer| timer.due_ms).min());");
+            writer.line("        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms && timer.id < id_barrier).map(|timer| timer.due_ms).min());");
             writer.line("        let Some(next_due) = next_due else { break; };");
-            writer.line("        SMELT_TIMER_NOW_MS.with(|now| if next_due > now.get() { now.set(next_due); });");
+            writer.line("        fired_any = true;");
+            writer.line("        smelt_virtual_advance_to(next_due);");
             writer.line(format!(
-                "        {drain_due_timers}();",
+                "        {drain_due_timers}(id_barrier);",
                 drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
             ));
             writer.line(format!(
@@ -1794,7 +2107,7 @@ fn emit_source_with_free_function_router(
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
             ));
             writer.line("    }");
-            writer.line("    SMELT_TIMER_NOW_MS.with(|now| if target_ms > now.get() { now.set(target_ms); });");
+            writer.line("    smelt_virtual_advance_to(target_ms);");
             // Node-style run-until-idle. A zero-delay sleep is what the generated
             // promise-executor spin loops await while waiting for a result cell to
             // be settled (e.g. by a `setTimeout(resolve, 100)` timer). With no
@@ -1811,15 +2124,23 @@ fn emit_source_with_free_function_router(
             // a real deadline: it must fire exactly the timers due within its
             // window (handled above) and must not jump the clock to a later timer,
             // or a bounded `await delay(35)` would over-fire a `setInterval`.
+            //
+            // It also applies only when the window fired nothing. If the window
+            // already ran a due timer, progress was made this tick and control
+            // must return so the caller's spin loop can re-check its awaited
+            // state; jumping ahead to fire a timer that was (re)scheduled during
+            // this drain — e.g. a `setInterval(_, 0)` re-arming itself — would
+            // over-fire it a tick early and, for a funnel, collapse the burst to
+            // idle before the next `call`.
             writer.line("    'idle: {");
-            writer.line("        if delay_ms != 0 { break 'idle; }");
+            writer.line("        if delay_ms != 0 || fired_any { break 'idle; }");
             writer.line("        let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());");
             writer.line("        if tasks_pending { break 'idle; }");
-            writer.line("        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().map(|timer| timer.due_ms).min());");
+            writer.line("        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());");
             writer.line("        let Some(earliest) = earliest else { break 'idle; };");
-            writer.line("        SMELT_TIMER_NOW_MS.with(|now| if earliest > now.get() { now.set(earliest); });");
+            writer.line("        smelt_virtual_advance_to(earliest);");
             writer.line(format!(
-                "        {drain_due_timers}();",
+                "        {drain_due_timers}(id_barrier);",
                 drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
             ));
             writer.line(format!(

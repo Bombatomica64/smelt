@@ -585,12 +585,17 @@ impl ExprKind {
                 target: f(target)?,
                 sources: map_vec(sources, f)?,
             },
-            Self::CallableObjectAssign { callable, props } => Self::CallableObjectAssign {
+            Self::CallableObjectAssign {
+                callable,
+                props,
+                spreads,
+            } => Self::CallableObjectAssign {
                 callable: f(callable)?,
                 props: props
                     .into_iter()
                     .map(|(name, value)| Ok((name, f(value)?)))
                     .collect::<Result<Vec<_>, E>>()?,
+                spreads: map_vec(spreads, f)?,
             },
             Self::DictCopy { dict } => Self::DictCopy { dict: f(dict)? },
             Self::DictProjection { op, dict } => Self::DictProjection { op, dict: f(dict)? },
@@ -619,6 +624,24 @@ impl ExprKind {
             Self::DateSetTimezoneOffset { offset } => Self::DateSetTimezoneOffset {
                 offset: f(offset)?,
             },
+            Self::VitestMockFn { implementation } => Self::VitestMockFn {
+                implementation: map_opt(implementation, f)?,
+            },
+            Self::VitestMockCalledTimes { mock, count } => Self::VitestMockCalledTimes {
+                mock: f(mock)?,
+                count: f(count)?,
+            },
+            Self::VitestMockCalledWith { mock, args, last } => Self::VitestMockCalledWith {
+                mock: f(mock)?,
+                args: map_vec(args, f)?,
+                last,
+            },
+            Self::VitestMockLastResolvedWith { mock, expected } => {
+                Self::VitestMockLastResolvedWith {
+                    mock: f(mock)?,
+                    expected: f(expected)?,
+                }
+            }
             Self::DateTimezoneContext { timezone } => Self::DateTimezoneContext {
                 timezone: f(timezone)?,
             },

@@ -2088,6 +2088,7 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::CallableObjectAssign {
                 callable,
                 props: state.props,
+                spreads: Vec::new(),
             },
             ty: hint,
             span: self.span(start, end),

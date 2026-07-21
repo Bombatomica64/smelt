@@ -599,18 +599,27 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         if !matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _))) {
-            if matches!(
-                self.mir.types.get(dict_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) && matches!(
-                self.mir.types.get(dest_ty),
-                Some(Type::Dict(key_ty, value_ty))
-                    if self.mir.types.get(*key_ty) == Some(&Type::String)
-                        && self.mir.types.get(*value_ty) == Some(&Type::Unknown)
-            ) {
+            // An object rest pattern (`const { a, ...rest } = source`) lowers the
+            // `...rest` copy to `DictCopy` of the source. When the source is not a
+            // native `Dict` but an object-like value that erases to `SmeltUnknown`
+            // — a bare `unknown`, a type parameter, a union, or a named object
+            // type / interface / type alias such as a library's `Funnel<Args>` —
+            // route the copy through its erased `SmeltUnknown::Object` form so the
+            // remaining fields survive. Otherwise the rest object would be empty
+            // and any spread-out members (e.g. `cancel`/`flush`) would be lost.
+            let source_is_unknown_like =
+                self.type_text_with_impl_trait(dict_ty, false)? == "SmeltUnknown";
+            if source_is_unknown_like
+                && matches!(
+                    self.mir.types.get(dest_ty),
+                    Some(Type::Dict(key_ty, value_ty))
+                        if self.mir.types.get(*key_ty) == Some(&Type::String)
+                            && self.mir.types.get(*value_ty) == Some(&Type::Unknown)
+                )
+            {
                 let dict_text = self.operand_text(dict)?;
                 return Ok(format!(
-                    "match {dict_text}.clone() {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter()), _ => Default::default() }}"
+                    "match ({dict_text}.clone()).into_smelt_unknown() {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter()), _ => Default::default() }}"
                 ));
             }
             return Ok("Default::default()".to_owned());

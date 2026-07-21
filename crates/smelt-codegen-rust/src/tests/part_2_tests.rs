@@ -113,8 +113,12 @@ function dispatch(...args: readonly unknown[]): unknown {
 ",
     );
 
+    // The narrowed callable's source value is hoisted into a
+    // `let smelt_source_value = ..` binding (so a callable object can be
+    // recovered on re-erasure) before the callable is matched and reborrowed.
     assert!(
-        source.contains("&*({ let smelt_function = match"),
+        source.contains("&*({ let smelt_source_value =")
+            && source.contains("let smelt_function = match smelt_source_value"),
         "expected borrowed predicate argument to reborrow an extracted callable: {source}"
     );
     assert!(

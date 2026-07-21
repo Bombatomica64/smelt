@@ -150,6 +150,23 @@ impl ModuleBuilder<'_> {
                                 params,
                                 body,
                             )?;
+                            // The guarded side effect is modeled as a ternary
+                            // (`cond ? side_effect : none`), and the compact IR
+                            // lowers each ternary arm as a pure sub-expression.
+                            // An arm that assigns a captured local
+                            // (`if (!called) { ret = fn(); called = true; }`)
+                            // cannot live inside a ternary: `AssignCapture` emits
+                            // its assignment as a statement, which would hoist out
+                            // of the guard and run unconditionally. Surface the
+                            // fallback-eligible error so the whole arrow retries
+                            // through full closure-body lowering, which lowers the
+                            // `if` natively with a real branch.
+                            if Self::callback_expr_contains_capture_assignment(&side_effect) {
+                                return Err(SmeltError::unsupported(
+                                    self.span(if_stmt.span.start, if_stmt.span.end),
+                                    "callback if guard mutates a captured local; needs closure-body lowering",
+                                ));
+                            }
                             let none_ty = self.ctx.krate.types.intern(Type::None);
                             let none_expr = CallbackExpr {
                                 kind: CallbackExprKind::Literal(Literal::None),
@@ -291,6 +308,87 @@ impl ModuleBuilder<'_> {
                 ),
                 "callback side-effect statement kind is not supported yet",
             )),
+        }
+    }
+
+    /// Report whether a compact callback expression tree assigns a captured
+    /// local anywhere (`AssignCapture`). Such assignments cannot survive inside
+    /// a ternary arm of the compact IR — they are emitted as statements and
+    /// would hoist out of their guard — so a guarded side effect containing one
+    /// must fall back to full closure-body lowering.
+    pub(in crate::lowering) fn callback_expr_contains_capture_assignment(
+        callback: &CallbackExpr,
+    ) -> bool {
+        match &callback.kind {
+            CallbackExprKind::AssignCapture { .. } => true,
+            CallbackExprKind::Sequence { effects, result } => {
+                effects
+                    .iter()
+                    .any(Self::callback_expr_contains_capture_assignment)
+                    || Self::callback_expr_contains_capture_assignment(result)
+            }
+            CallbackExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                Self::callback_expr_contains_capture_assignment(cond)
+                    || Self::callback_expr_contains_capture_assignment(then_expr)
+                    || Self::callback_expr_contains_capture_assignment(else_expr)
+            }
+            CallbackExprKind::ListLit(items) => items
+                .iter()
+                .any(Self::callback_expr_contains_capture_assignment),
+            CallbackExprKind::DictLit(entries) => entries
+                .iter()
+                .any(|(_, value)| Self::callback_expr_contains_capture_assignment(value)),
+            CallbackExprKind::Throw { message } => message
+                .as_ref()
+                .is_some_and(|message| Self::callback_expr_contains_capture_assignment(message)),
+            CallbackExprKind::Index { receiver, .. }
+            | CallbackExprKind::Field { receiver, .. }
+            | CallbackExprKind::HasField { receiver, .. }
+            | CallbackExprKind::FieldTruthy { receiver, .. }
+            | CallbackExprKind::UnknownIs {
+                value: receiver, ..
+            }
+            | CallbackExprKind::TypeofValue { value: receiver } => {
+                Self::callback_expr_contains_capture_assignment(receiver)
+            }
+            CallbackExprKind::DynamicIndex { receiver, index } => {
+                Self::callback_expr_contains_capture_assignment(receiver)
+                    || Self::callback_expr_contains_capture_assignment(index)
+            }
+            CallbackExprKind::HasDynamicField { receiver, field } => {
+                Self::callback_expr_contains_capture_assignment(receiver)
+                    || Self::callback_expr_contains_capture_assignment(field)
+            }
+            CallbackExprKind::Unary { operand, .. } => {
+                Self::callback_expr_contains_capture_assignment(operand)
+            }
+            CallbackExprKind::Binary { lhs, rhs, .. } => {
+                Self::callback_expr_contains_capture_assignment(lhs)
+                    || Self::callback_expr_contains_capture_assignment(rhs)
+            }
+            CallbackExprKind::Call { callee, args } => {
+                Self::callback_expr_contains_capture_assignment(callee)
+                    || args
+                        .iter()
+                        .any(|arg| Self::callback_expr_contains_capture_assignment(&arg.expr))
+            }
+            CallbackExprKind::MethodCall { receiver, args, .. } => {
+                Self::callback_expr_contains_capture_assignment(receiver)
+                    || args
+                        .iter()
+                        .any(|arg| Self::callback_expr_contains_capture_assignment(&arg.expr))
+            }
+            CallbackExprKind::FunctionTableLookup { key, .. } => {
+                Self::callback_expr_contains_capture_assignment(key)
+            }
+            CallbackExprKind::Capture(_)
+            | CallbackExprKind::Param(_)
+            | CallbackExprKind::Function(_)
+            | CallbackExprKind::Literal(_) => false,
         }
     }
 

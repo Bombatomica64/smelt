@@ -1483,6 +1483,9 @@ pub enum Rvalue {
         callable: Operand,
         /// Static property values to attach.
         props: Vec<(Symbol, Operand)>,
+        /// Record values whose own enumerable entries are copied onto the
+        /// callable object at runtime (dynamic `Object.assign` sources).
+        spreads: Vec<Operand>,
     },
     /// Return a shallow copy of a dictionary.
     DictCopy {
@@ -1562,6 +1565,36 @@ pub enum Rvalue {
     },
     /// Restore the default `Date.prototype.getTimezoneOffset` implementation.
     DateResetTimezoneOffset,
+    /// Construct a stateful Vitest `vi.fn([impl])` mock object.
+    VitestMockFn {
+        /// Optional wrapped implementation used as the default outcome.
+        implementation: Option<Operand>,
+    },
+    /// Whether a Vitest mock's recorded call count equals `count` (bool).
+    VitestMockCalledTimes {
+        /// The (possibly non-mock) actual value under assertion.
+        mock: Operand,
+        /// Expected call count.
+        count: Operand,
+    },
+    /// Whether a Vitest mock recorded a call deep-equal to `args` (bool).
+    /// When `last` is set, only the most recent recorded call is compared.
+    VitestMockCalledWith {
+        /// The (possibly non-mock) actual value under assertion.
+        mock: Operand,
+        /// Expected call arguments.
+        args: Vec<Operand>,
+        /// Compare only the most recent recorded call (`toHaveBeenLastCalledWith`).
+        last: bool,
+    },
+    /// Whether a Vitest mock's most recent result deep-equals `expected`
+    /// after flattening a resolved promise (bool).
+    VitestMockLastResolvedWith {
+        /// The (possibly non-mock) actual value under assertion.
+        mock: Operand,
+        /// Expected resolved value.
+        expected: Operand,
+    },
     /// Create a date-fns-compatible date context function for an IANA time zone.
     DateTimezoneContext {
         /// IANA time zone name.
