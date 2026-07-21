@@ -1372,6 +1372,22 @@ fn emit_source_with_free_function_router(
         writer.line("    type IntoFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>;");
         writer.line("    fn into_future(self) -> Self::IntoFuture { Box::pin(async move { self.smelt_await().await }) }");
         writer.line("}");
+        // Erasing a typed promise value (`SmeltFuture<T>`) to the dynamic carrier
+        // yields a `SmeltUnknown::Promise`: a JS `Promise<T>` flowing into an
+        // `unknown`/erased position is still a promise object, not its resolved
+        // value. This is a genuine dynamic boundary — the erased consumer only
+        // knows the promise/thenable protocol, so no concrete `T` survives. The
+        // adapter defers exactly like JS: it wraps a fresh `SmeltPromise` whose
+        // body awaits this future and erases the settled value through
+        // `IntoSmeltUnknown`, matching the `SmeltUnknown::Promise(SmeltPromise::
+        // from_future(..))` shape the future-recovery coercion emits. This impl
+        // must exist whenever generated code can call `.into_smelt_unknown()` on a
+        // future — e.g. the erased-callback promise adapter and the recover-erased-
+        // promise-on-await coercion both do — and it lives in this same
+        // `SmeltUnknown`/`SmeltPromise` prelude region so the gate is shared.
+        writer.line("impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T> {");
+        writer.line("    fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let smelt_resolved = self.smelt_await().await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_resolved.into_smelt_unknown()) }))) }");
+        writer.line("}");
         writer.blank_line();
         // Synchronous TypeScript generators are true resumable computations.
         // The producer future itself has an anonymous type, so the public ABI

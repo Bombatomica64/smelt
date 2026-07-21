@@ -511,6 +511,9 @@ impl<T: Clone + 'static> ::std::future::IntoFuture for SmeltFuture<T> {
     type IntoFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>;
     fn into_future(self) -> Self::IntoFuture { Box::pin(async move { self.smelt_await().await }) }
 }
+impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T> {
+    fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let smelt_resolved = self.smelt_await().await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_resolved.into_smelt_unknown()) }))) }
+}
 
 /// Collect an erased `[Symbol.iterator]()` result into its item values.
 fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { match source { SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(object) => { let Some(SmeltUnknown::Function(next)) = object.get("next") else { panic!("unknown iterator did not return an iterable") }; let mut items = Vec::new(); loop { let step = next(vec![]).unwrap_or(SmeltUnknown::Undefined); let SmeltUnknown::Object(step) = step else { break }; if matches!(step.get("done"), Some(SmeltUnknown::Bool(true))) { break; } items.push(step.get("value").unwrap_or(SmeltUnknown::Undefined)); } items } _ => panic!("unknown iterator did not return an iterable") } }

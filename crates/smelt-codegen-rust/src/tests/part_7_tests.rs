@@ -30,6 +30,35 @@ export function run(): unknown {
     );
 }
 
+/// Erasing a typed promise value (`SmeltFuture<T>`) to the dynamic carrier goes
+/// through `IntoSmeltUnknown`, so the erased-callback promise adapter and the
+/// recover-erased-promise-on-await coercion both emit `.into_smelt_unknown()` on
+/// a future. The prelude must therefore always define
+/// `impl<..> IntoSmeltUnknown for SmeltFuture<T>` for any program that references
+/// the future runtime; otherwise the generated call is an E0599 (regression seen
+/// in the radash suite, where the impl was absent while the call was emitted).
+#[test]
+fn future_erasure_emits_into_smelt_unknown_impl() {
+    let source = source_for(
+        r#"
+export async function makeValue(): Promise<number> {
+  return 1
+}
+
+export async function useErased(func: (...args: unknown[]) => unknown): Promise<unknown> {
+  return func()
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T>"
+        ),
+        "future runtime must emit the SmeltFuture IntoSmeltUnknown impl: {source}"
+    );
+}
+
 /// An async closure whose loop exits only through explicit returns leaves the
 /// trailing async-value expression unreachable. Its binding still needs the
 /// resolved output type so Rust does not have to infer a value from `!`.
