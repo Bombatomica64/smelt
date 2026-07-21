@@ -849,6 +849,7 @@ fn rewrite_rvalue(
         | Rvalue::StringNormalize { operand, .. }
         | Rvalue::UriEncode { operand }
         | Rvalue::ObjectToStringTag { operand }
+        | Rvalue::StructuredClone { operand }
         | Rvalue::StringTrim { operand, .. }
         | Rvalue::StringPredicate { operand, .. }
         | Rvalue::Await(operand) => rewrite_operand_except(operand, aliases, dest),

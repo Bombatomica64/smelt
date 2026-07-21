@@ -567,6 +567,16 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::StructuredClone { operand } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StructuredClone {
+                        operand: lowered_operand,
+                    },
+                )?
+            }
             ExprKind::StringTrim { side, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 self.assign_temp(

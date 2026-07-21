@@ -1285,7 +1285,26 @@ impl<'builder> ModuleBuilder<'builder> {
                 "structuredClone requires exactly one value",
             ));
         };
-        self.argument(value, body).map(Some)
+        let operand = self.argument(value, body)?;
+        // Typed values are immutable in HIR, so a pass-through copy is faithful and
+        // keeps their concrete type. Erased (`unknown`) values may be mutable host
+        // objects (Date/Map/Set/Error) whose graph must be deep-copied with fresh
+        // identities to honor `structuredClone`'s reference semantics; route those
+        // through the `smelt_structured_clone` runtime helper.
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let operand_ty = body
+            .exprs
+            .get(usize::try_from(operand.0).unwrap_or(usize::MAX))
+            .map(|expr| expr.ty);
+        if operand_ty != Some(unknown_ty) {
+            return Ok(Some(operand));
+        }
+        let span = self.span(call.span.start, call.span.end);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StructuredClone { operand },
+            ty: unknown_ty,
+            span,
+        })))
     }
 
     /// Lower `Object.prototype.toString.call(value)` to the `"[object Tag]"` probe.

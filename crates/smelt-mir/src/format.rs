@@ -519,6 +519,9 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         Rvalue::ObjectToStringTag { operand } => {
             format!("object_to_string_tag {}", operand_text(operand))
         }
+        Rvalue::StructuredClone { operand } => {
+            format!("structured_clone {}", operand_text(operand))
+        }
         Rvalue::StringTrim { side, operand } => {
             let side_text = match side {
                 smelt_hir::StringTrimSide::Both => "both",

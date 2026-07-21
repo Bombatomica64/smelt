@@ -129,6 +129,7 @@ impl LoweringCtx<'_> {
             | ExprKind::StringNormalize { .. }
             | ExprKind::UriEncode { .. }
             | ExprKind::ObjectToStringTag { .. }
+            | ExprKind::StructuredClone { .. }
             | ExprKind::StringTrim { .. }
             | ExprKind::StringAffix { .. }
             | ExprKind::StringSearch { .. }

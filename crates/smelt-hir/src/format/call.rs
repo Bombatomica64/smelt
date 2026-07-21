@@ -189,6 +189,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ObjectToStringTag { operand } => {
             format!("object_to_string_tag {}", expr_ref(*operand))
         }
+        ExprKind::StructuredClone { operand } => {
+            format!("structured_clone {}", expr_ref(*operand))
+        }
         ExprKind::StringTrim { side, operand } => {
             let side_name = match side {
                 crate::expr::StringTrimSide::Both => "both",

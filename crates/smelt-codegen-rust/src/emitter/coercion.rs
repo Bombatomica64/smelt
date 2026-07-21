@@ -1854,6 +1854,18 @@ impl FunctionEmitter<'_> {
         Ok(format!("smelt_object_to_string_tag(&({text}))"))
     }
 
+    /// Emits `structuredClone(x)` as a fresh-identity deep copy.
+    ///
+    /// Defers to the `smelt_structured_clone` runtime helper, which rebuilds the
+    /// object graph with new identities while preserving host markers. Only
+    /// lowered for erased (`unknown`) values, so the operand and result flow
+    /// through the erased-`unknown` coercion seam.
+    pub(super) fn structured_clone_text(&self, value: &Operand) -> Result<String, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let text = self.value_at_type(value, unknown_ty)?;
+        Ok(format!("smelt_structured_clone({text})"))
+    }
+
     /// Emits a runtime tag check for already-rendered `SmeltUnknown` text.
     pub(super) fn tag_check_raw(
         &self,

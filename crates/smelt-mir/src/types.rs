@@ -833,6 +833,12 @@ pub enum Rvalue {
         /// Erased value operand to probe.
         operand: Operand,
     },
+    /// Deep-copy an erased value graph with fresh identities, preserving host
+    /// markers (`structuredClone(x)`; see the runtime `smelt_structured_clone`).
+    StructuredClone {
+        /// Erased value operand to deep-clone.
+        operand: Operand,
+    },
     /// Trim whitespace from a string value.
     StringTrim {
         /// Which side of the string to trim.

@@ -205,6 +205,9 @@ impl ExprKind {
             Self::ObjectToStringTag { operand } => Self::ObjectToStringTag {
                 operand: f(operand)?,
             },
+            Self::StructuredClone { operand } => Self::StructuredClone {
+                operand: f(operand)?,
+            },
             Self::StringTrim { side, operand } => Self::StringTrim {
                 side,
                 operand: f(operand)?,
