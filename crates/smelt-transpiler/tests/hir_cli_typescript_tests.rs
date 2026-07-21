@@ -1328,6 +1328,76 @@ clone-strategy = "aggressive"
 }
 
 #[test]
+fn build_predeclares_union_generator_methods_across_barrel_cycle() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-barrel-cycle-generator-types"
+version = "0.1.0"
+
+[sources]
+entries = ["src/index.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_barrel_cycle_generator_types"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/result.ts"),
+        r#"import type { ResultAsync } from "./index";
+
+export class Ok<T> {
+  constructor(readonly value: T) {}
+  safeUnwrap(): Generator<number, T, unknown> {
+    const value = this.value;
+    return (function* (): Generator<number, T, unknown> { return value; })();
+  }
+}
+
+export class Err<T> {
+  constructor(readonly value: T) {}
+  safeUnwrap(): Generator<number, T, unknown> {
+    const value = this.value;
+    return (function* (): Generator<number, T, unknown> { return value; })();
+  }
+}
+
+export type Result<T> = Ok<T> | Err<T>;
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/result-async.ts"),
+        r#"import type { Result } from "./index";
+
+export class ResultAsync<T> {
+  constructor(readonly promise: Promise<Result<T>>) {}
+
+  async *safeUnwrap(): AsyncGenerator<number, T, unknown> {
+    return yield* await this.promise.then((result) => result.safeUnwrap());
+  }
+}
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/index.ts"),
+        "export { Ok, Err } from './result';\nexport type { Result } from './result';\nexport { ResultAsync } from './result-async';\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    Ok(())
+}
+
+#[test]
 fn build_runs_construct_signature_slot_construction() -> TestResult {
     // A constructor-only interface (`interface CounterConstructor { new ():
     // Counter }`) is a typed constructor slot. A class value passed where the

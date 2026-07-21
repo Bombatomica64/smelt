@@ -382,6 +382,26 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
             format!("({params}) => {}", ts_type(krate, function.return_ty))
         }
         Some(Type::Future(item)) => format!("Promise<{}>", ts_type(krate, *item)),
+        Some(Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        }) => format!(
+            "{}Generator<{}, {}, {}>",
+            if *is_async { "Async" } else { "" },
+            ts_type(krate, *yield_ty),
+            ts_type(krate, *return_ty),
+            ts_type(krate, *next_ty)
+        ),
+        Some(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        }) => format!(
+            "IteratorResult<{}, {}>",
+            ts_type(krate, *yield_ty),
+            ts_type(krate, *return_ty)
+        ),
     }
 }
 
@@ -427,5 +447,25 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
             .join(" | "),
         Some(Type::Function(_)) => "typing.Callable".to_owned(),
         Some(Type::Future(item)) => format!("typing.Awaitable[{}]", py_type(krate, *item)),
+        Some(Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        }) => format!(
+            "typing.{}Generator[{}, {}, {}]",
+            if *is_async { "Async" } else { "" },
+            py_type(krate, *yield_ty),
+            py_type(krate, *next_ty),
+            py_type(krate, *return_ty)
+        ),
+        Some(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        }) => format!(
+            "typing.Union[{}, {}]",
+            py_type(krate, *yield_ty),
+            py_type(krate, *return_ty)
+        ),
     }
 }

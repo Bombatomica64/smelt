@@ -297,6 +297,7 @@ fn ordered_dependency_paths(target: PathBuf) -> Option<Vec<PathBuf>> {
 /// reporting can group diagnostics without depending on either frontend's
 /// concrete error type.
 #[derive(Debug, Clone)]
+#[expect(dead_code, reason = "retained for focused single-file diagnostics outside manifest probes")]
 pub(crate) struct FileDiagnostic {
     /// Coarse classification used for grouping.
     pub(crate) category: DiagnosticCategory,
@@ -312,6 +313,7 @@ pub(crate) struct FileDiagnostic {
 /// references to other project modules surface here; probe reporting accounts
 /// for that by reading each diagnostic's [`DiagnosticCategory`]. Returns an
 /// empty vector when the file lowers cleanly.
+#[expect(dead_code, reason = "retained for focused single-file diagnostics outside manifest probes")]
 pub(crate) fn collect_file_diagnostics(
     file: &str,
 ) -> Result<Vec<FileDiagnostic>, Box<dyn std::error::Error>> {
@@ -666,6 +668,78 @@ fn seed_written_host_globals(sources: &[&ManifestSource], state: &mut FrontendLo
     }
 }
 
+/// Predeclare type aliases and class method surfaces across the TypeScript manifest.
+///
+/// This gives strongly connected import components the same declaration
+/// visibility as TypeScript: a barrel cycle may affect runtime initialization
+/// order, but it does not hide a type alias declared by another module.
+fn predeclare_manifest_type_declarations(
+    mut krate: smelt_hir::Crate,
+    mut state: FrontendLoweringState,
+    sources: &[&ManifestSource],
+) -> Result<(smelt_hir::Crate, FrontendLoweringState), Box<dyn std::error::Error>> {
+    let mut ctx = smelt_frontend_ts::HirCtx {
+        krate,
+        export_aliases: state.ts_export_aliases,
+        module_exports: state.ts_module_exports,
+        object_namespaces: state.ts_object_namespaces,
+        object_consts: state.ts_object_consts,
+        object_value_collections: state.ts_object_value_collections,
+        const_collections: state.ts_const_collections,
+        enum_members: state.ts_enum_members,
+        overloads: state.ts_overloads,
+        function_rests: state.ts_function_rests,
+        date_returning_functions: state.ts_date_returning_functions,
+        type_alias_fields: state.ts_type_alias_fields,
+        interface_extends: state.ts_interface_extends,
+        interface_index_values: state.ts_interface_index_values,
+        class_index_values: state.ts_class_index_values,
+        interface_call_signatures: state.ts_interface_call_signatures,
+        interface_construct_signatures: state.ts_interface_construct_signatures,
+        callable_fields: state.ts_callable_fields,
+        callable_object_aliases: state.ts_callable_object_aliases,
+        written_host_globals: state.ts_written_host_globals,
+    };
+    for (idx, source) in sources.iter().enumerate() {
+        let path = source.path.display().to_string();
+        if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
+            smelt_frontend_ts::predeclare_type_declarations_with_path(
+                &source.source,
+                FileId(u32::try_from(idx).unwrap_or(u32::MAX)),
+                &path,
+                &mut ctx,
+            )
+            .map_err(|errors| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{}:\n{errors:#?}", source.path.display()),
+                )
+            })?;
+        }
+    }
+    krate = ctx.krate;
+    state.ts_export_aliases = ctx.export_aliases;
+    state.ts_module_exports = ctx.module_exports;
+    state.ts_object_namespaces = ctx.object_namespaces;
+    state.ts_object_consts = ctx.object_consts;
+    state.ts_object_value_collections = ctx.object_value_collections;
+    state.ts_const_collections = ctx.const_collections;
+    state.ts_enum_members = ctx.enum_members;
+    state.ts_overloads = ctx.overloads;
+    state.ts_function_rests = ctx.function_rests;
+    state.ts_date_returning_functions = ctx.date_returning_functions;
+    state.ts_type_alias_fields = ctx.type_alias_fields;
+    state.ts_interface_extends = ctx.interface_extends;
+    state.ts_interface_index_values = ctx.interface_index_values;
+    state.ts_class_index_values = ctx.class_index_values;
+    state.ts_interface_call_signatures = ctx.interface_call_signatures;
+    state.ts_interface_construct_signatures = ctx.interface_construct_signatures;
+    state.ts_callable_fields = ctx.callable_fields;
+    state.ts_callable_object_aliases = ctx.callable_object_aliases;
+    state.ts_written_host_globals = ctx.written_host_globals;
+    Ok((krate, state))
+}
+
 /// Lowers the manifest sources, in manifest order, into one HIR crate, seeding
 /// host-global write scanning and applying prepared specialization results.
 fn lower_ordered_manifest_sources(
@@ -675,6 +749,7 @@ fn lower_ordered_manifest_sources(
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
     seed_written_host_globals(sources, &mut state);
+    (krate, state) = predeclare_manifest_type_declarations(krate, state, sources)?;
     let mut modules = Vec::new();
     let module_names = manifest_module_names(sources);
 
@@ -733,6 +808,7 @@ pub(crate) fn collect_manifest_diagnostics(
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
     seed_written_host_globals(&ordered_sources, &mut state);
+    (krate, state) = predeclare_manifest_type_declarations(krate, state, &ordered_sources)?;
     let mut diagnostics = Vec::new();
     for (idx, source) in ordered_sources.iter().enumerate() {
         let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

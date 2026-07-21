@@ -3713,6 +3713,153 @@ const result = count({
     );
 }
 
+/// Synchronous generators must preserve their suspension points instead of
+/// eagerly collecting every yielded value before the caller can resume them.
+#[test]
+fn emits_resumable_synchronous_generator() {
+    let source = source_for(
+        r#"
+function* sequence(): Generator<number, string, unknown> {
+  yield 1;
+  yield 2;
+  return "done";
+}
+
+function* delegated(): Generator<number, string, unknown> {
+  return yield* sequence();
+}
+
+class IterableValue {
+  value = 3;
+
+  *[Symbol.iterator](): Generator<number, string, unknown> {
+    yield this.value;
+    return "iterable done";
+  }
+}
+
+function* delegatedIterable(value: IterableValue): Generator<number, string, unknown> {
+  return yield* value;
+}
+
+function delayedThrow(message: string): Generator<number, string, unknown> {
+  return (function* (): Generator<number, string, unknown> {
+    yield 4;
+    throw new Error(message);
+  })();
+}
+
+const iterator = sequence();
+const first = iterator.next();
+const firstDone = first.done;
+const firstValue = first.value;
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltGenerator<f64, String, SmeltUnknown>"),
+        "{source}"
+    );
+    assert_eq!(source.matches("co.yield_").count(), 6, "{source}");
+    assert!(source.contains("return \"done\".to_owned()"), "{source}");
+    assert!(
+        source.contains(
+            "fn __smelt_symbol_iterator(&self) -> SmeltGenerator<f64, String, SmeltUnknown>"
+        ),
+        "{source}"
+    );
+    assert!(source.contains("self_owned.value"), "{source}");
+    assert!(source.contains("value.__smelt_symbol_iterator()"), "{source}");
+    assert!(
+        source.contains("value.unwrap_or_else(|error| panic!(\"{}\", error))"),
+        "{source}"
+    );
+    assert!(
+        source.contains(".resume(SmeltGeneratorCommand::Next"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltGeneratorResult::Yielded(value) => { co.yield_"),
+        "{source}"
+    );
+    assert!(
+        source.contains("matches!(first.clone(), SmeltGeneratorResult::Complete(_))"),
+        "{source}"
+    );
+}
+
+/// Async generators expose promise-valued resumes while retaining the same
+/// typed yield/completion carrier as synchronous generators.
+#[test]
+fn emits_resumable_async_generator() {
+    let source = source_for(
+        r#"
+async function* sequence(): AsyncGenerator<number, string, unknown> {
+  yield 1;
+  await Promise.resolve(2);
+  yield 2;
+  return "done";
+}
+
+async function consume(): Promise<string> {
+  const iterator = sequence();
+  const first = await iterator.next();
+  const second = await iterator.next();
+  const completed = await iterator.next();
+  return completed.value as string;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltAsyncGenerator<f64, String, SmeltUnknown>"),
+        "{source}"
+    );
+    assert!(source.contains("smelt_generator.async_resume().await"), "{source}");
+    assert!(source.contains("SmeltFuture<SmeltGeneratorResult<f64, String>>"), "{source}");
+    assert_eq!(source.matches("co.yield_").count(), 2, "{source}");
+    assert!(
+        source.matches(".resume(SmeltGeneratorCommand::Next").count() >= 3,
+        "{source}"
+    );
+}
+
+/// A method shared by every arm of a concrete union must dispatch through the
+/// generated tagged enum while preserving a generator-valued generic return.
+#[test]
+fn emits_union_method_returning_generator_for_async_delegation() {
+    let source = source_for(
+        r#"
+class Ok<T> {
+  constructor(readonly value: T) {}
+  safeUnwrap(): Generator<number, T, unknown> {
+    const value = this.value;
+    return (function* (): Generator<number, T, unknown> { return value; })();
+  }
+}
+
+class Err<T> {
+  constructor(readonly value: T) {}
+  safeUnwrap(): Generator<number, T, unknown> {
+    const value = this.value;
+    return (function* (): Generator<number, T, unknown> { return value; })();
+  }
+}
+
+type Result<T> = Ok<T> | Err<T>;
+
+async function* unwrap<T>(promise: Promise<Result<T>>): AsyncGenerator<number, T, unknown> {
+  return yield* await promise.then((result) => result.safeUnwrap());
+}
+"#,
+    );
+
+    assert!(source.contains("match closure_arg_0"), "{source}");
+    assert!(source.contains("::M0(value) => value.safe_unwrap()"), "{source}");
+    assert!(source.contains("::M1(value) => value.safe_unwrap()"), "{source}");
+    assert!(source.contains("let smelt_delegate"), "{source}");
+}
+
 #[test]
 fn adapts_rest_callback_without_flattening_list_arguments() {
     let source = source_for(

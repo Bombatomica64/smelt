@@ -633,7 +633,7 @@ impl ModuleBuilder<'_> {
                 body,
                 span,
             ),
-            "apply" => self.callback_apply_method_to_body_expr(
+            "apply" => Self::callback_apply_method_to_body_expr(
                 receiver,
                 receiver_ty,
                 args,
@@ -862,6 +862,51 @@ impl ModuleBuilder<'_> {
                     span,
                 }))
             }
+            "includes" if (1..=2).contains(&args.len())
+                && matches!(
+                    self.ctx.krate.types.get(receiver_ty),
+                    Some(Type::String | Type::Unknown | Type::TypeParam { .. })
+                ) =>
+            {
+                // `String.prototype.includes(needle, position?)` inside a callback
+                // body mirrors the direct `string_includes` lowering. The list
+                // receiver arm above already claimed real arrays, so a `String`,
+                // erased (`Unknown`), or type-param receiver here is unambiguously
+                // a string: coerce the receiver and needle to `String` (matching
+                // `callback_coerce_to_string`) and thread the optional numeric
+                // `position` through as `from_index`.
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let haystack = Self::callback_coerce_to_string(receiver, string_ty, body, span);
+                let needle = *args.first().ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback string includes requires a needle")
+                })?;
+                let needle = Self::callback_coerce_to_string(needle, string_ty, body, span);
+                let from_index = args.get(1).copied();
+                // `StringContains` always yields a concrete `bool`, so the node
+                // must be typed `Bool` for the emitter to produce a real boolean.
+                // If the surrounding callback body expects an erased/other type
+                // (`ty`), box it back up with a `TypeAssert`, exactly as the
+                // `push`/`slice` arms above do for their concrete results.
+                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+                let value = body.push_expr(Expr {
+                    kind: ExprKind::StringContains {
+                        haystack,
+                        needle,
+                        from_index,
+                    },
+                    ty: bool_ty,
+                    span,
+                });
+                if ty == bool_ty {
+                    Ok(value)
+                } else {
+                    Ok(body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value },
+                        ty,
+                        span,
+                    }))
+                }
+            }
             "indexOf" | "index_of" | "lastIndexOf" | "last_index_of"
                 if args.len() == 1
                     && self.callback_method_receiver_is_list_like(receiver_ty) =>
@@ -1074,11 +1119,83 @@ impl ModuleBuilder<'_> {
                 span,
             )
             .ok()?;
+        let declared_method = self.callback_receiver_declares_method(receiver_ty, method);
+        if declared_method {
+            return Some(body.push_expr(Expr {
+                kind: ExprKind::Method {
+                    receiver,
+                    method,
+                    args,
+                },
+                ty,
+                span,
+            }));
+        }
         Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall { callee, args },
             ty,
             span,
         }))
+    }
+
+    /// Return whether every concrete receiver arm declares a source method.
+    ///
+    /// Callback migration normally treats structural callable fields as
+    /// closure calls. A class method—and a method common to every class arm of
+    /// a union—must remain `ExprKind::Method` so MIR can dispatch it through the
+    /// concrete class or tagged-union representation.
+    fn callback_receiver_declares_method(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+    ) -> bool {
+        match self.ctx.krate.types.get(receiver_ty) {
+            Some(Type::Union(items)) => {
+                !items.is_empty()
+                    && items
+                        .iter()
+                        .all(|item| self.callback_receiver_declares_method(*item, method))
+            }
+            Some(Type::Class { name, .. }) => {
+                let item_method = self.class_by_symbol(*name).is_some_and(|class| {
+                    class.methods.iter().any(|item| {
+                        self.ctx
+                            .krate
+                            .items
+                            .get(usize::try_from(item.0).unwrap_or(usize::MAX))
+                            .is_some_and(|item| {
+                                matches!(item, smelt_hir::Item::Function(function) if function.name == method)
+                            })
+                    })
+                });
+                let sidecar_method = self
+                    .ctx
+                    .krate
+                    .names
+                    .get(*name)
+                    .or_else(|| self.ctx.krate.symbols.get(*name))
+                    .and_then(|class_name| self.class_methods.get(class_name))
+                    .is_some_and(|methods| methods.iter().any(|candidate| candidate.name == method));
+                // `type_alias_fields` mixes two producers: genuine object-type
+                // aliases (structural closure fields) and class method surfaces
+                // predeclared by `predeclare_class_method_fields` for barrel
+                // cycles. Only the class-backed entries name real methods; an
+                // alias-typed receiver (e.g. remeda's `Funnel.flush`) stores a
+                // closure field with no class item behind it, so routing it to
+                // `ExprKind::Method` makes MIR method resolution fail. A lowered
+                // `Item::TypeAlias` with this symbol identifies the alias case.
+                let predeclared_method = self.find_type_alias(*name).is_none()
+                    && self
+                        .type_alias_fields
+                        .get(name)
+                        .and_then(|fields| fields.iter().find(|field| field.name == method))
+                        .is_some_and(|field| {
+                            matches!(self.ctx.krate.types.get(field.ty), Some(Type::Function(_)))
+                        });
+                item_method || sidecar_method || predeclared_method
+            }
+            _ => false,
+        }
     }
 
     /// Convert callback-body `.call(...)` forwarding into a normal closure call.
@@ -1248,7 +1365,6 @@ impl ModuleBuilder<'_> {
     /// `call` is already supported, without special-casing any particular library
     /// function.
     pub(in crate::lowering) fn callback_apply_method_to_body_expr(
-        &mut self,
         receiver: smelt_hir::ExprId,
         _receiver_ty: smelt_hir::TypeId,
         args: &[smelt_hir::ExprId],

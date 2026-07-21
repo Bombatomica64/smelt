@@ -9,6 +9,17 @@ use super::{
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use serde::{Deserialize, Serialize};
 
+/// Protocol operation used to resume or abruptly complete a generator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GeneratorResumeKind {
+    /// Continue execution and make the supplied value the result of `yield`.
+    Next,
+    /// Complete the generator with the supplied return value.
+    Return,
+    /// Inject an exception at the suspended `yield` expression.
+    Throw,
+}
+
 /// A replacement argument passed to array splice-style operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListSpliceItem {
@@ -52,6 +63,23 @@ pub enum ExprKind {
         callee: ExprId,
         args: Vec<ExprId>,
     },
+    /// Suspend the current generator and expose `value` to its caller.
+    GeneratorYield {
+        /// Value exposed by the suspension point.
+        value: ExprId,
+    },
+    /// Resume a generator once, optionally sending a value into its suspended yield.
+    GeneratorNext {
+        generator: ExprId,
+        value: Option<ExprId>,
+        kind: GeneratorResumeKind,
+    },
+    /// Test whether a resume result represents completion.
+    GeneratorDone { result: ExprId },
+    /// Extract the yielded or returned value from a resume result.
+    GeneratorValue { result: ExprId },
+    /// Resume a delegated generator, forwarding each suspension to the caller.
+    GeneratorDelegate { generator: ExprId },
     Closure(ClosureExpr),
     ClosureCall {
         callee: ExprId,

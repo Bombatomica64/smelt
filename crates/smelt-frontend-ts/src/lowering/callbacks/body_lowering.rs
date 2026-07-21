@@ -1747,43 +1747,13 @@ impl ModuleBuilder<'_> {
             Expression::CallExpression(call) => {
                 self.collect_expression_capture_names(&call.callee, param_names, captures);
                 for arg in &call.arguments {
-                    match arg {
-                        Argument::SpreadElement(spread) => self.collect_expression_capture_names(
-                            &spread.argument,
-                            param_names,
-                            captures,
-                        ),
-                        other => {
-                            if let Some(arg_expression) = other.as_expression() {
-                                self.collect_expression_capture_names(
-                                    arg_expression,
-                                    param_names,
-                                    captures,
-                                );
-                            }
-                        }
-                    }
+                    self.collect_argument_capture_names(arg, param_names, captures);
                 }
             }
             Expression::NewExpression(new_expr) => {
                 self.collect_expression_capture_names(&new_expr.callee, param_names, captures);
                 for arg in &new_expr.arguments {
-                    match arg {
-                        Argument::SpreadElement(spread) => self.collect_expression_capture_names(
-                            &spread.argument,
-                            param_names,
-                            captures,
-                        ),
-                        other => {
-                            if let Some(arg_expression) = other.as_expression() {
-                                self.collect_expression_capture_names(
-                                    arg_expression,
-                                    param_names,
-                                    captures,
-                                );
-                            }
-                        }
-                    }
+                    self.collect_argument_capture_names(arg, param_names, captures);
                 }
             }
             Expression::ParenthesizedExpression(parenthesized) => self
@@ -1801,6 +1771,11 @@ impl ModuleBuilder<'_> {
             }
             Expression::AwaitExpression(await_expr) => {
                 self.collect_expression_capture_names(&await_expr.argument, param_names, captures);
+            }
+            Expression::YieldExpression(yield_expr) => {
+                if let Some(argument) = &yield_expr.argument {
+                    self.collect_expression_capture_names(argument, param_names, captures);
+                }
             }
             Expression::AssignmentExpression(assignment) => {
                 self.collect_assignment_target_capture_names(
@@ -1886,6 +1861,24 @@ impl ModuleBuilder<'_> {
                     self.collect_statement_capture_names(statement, &nested_params, captures);
                 }
             }
+            Expression::FunctionExpression(function) => {
+                let mut nested_params = param_names.clone();
+                for param in &function.params.items {
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        nested_params.insert(binding.name.as_str().to_owned());
+                    }
+                }
+                if let Some(rest) = &function.params.rest
+                    && let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument
+                {
+                    nested_params.insert(binding.name.as_str().to_owned());
+                }
+                if let Some(body) = &function.body {
+                    for statement in &body.statements {
+                        self.collect_statement_capture_names(statement, &nested_params, captures);
+                    }
+                }
+            }
             Expression::TSAsExpression(as_expr) => {
                 self.collect_expression_capture_names(&as_expr.expression, param_names, captures);
             }
@@ -1902,23 +1895,7 @@ impl ModuleBuilder<'_> {
                 ChainElement::CallExpression(call) => {
                     self.collect_expression_capture_names(&call.callee, param_names, captures);
                     for arg in &call.arguments {
-                        match arg {
-                            Argument::SpreadElement(spread) => self
-                                .collect_expression_capture_names(
-                                    &spread.argument,
-                                    param_names,
-                                    captures,
-                                ),
-                            other => {
-                                if let Some(arg_expression) = other.as_expression() {
-                                    self.collect_expression_capture_names(
-                                        arg_expression,
-                                        param_names,
-                                        captures,
-                                    );
-                                }
-                            }
-                        }
+                        self.collect_argument_capture_names(arg, param_names, captures);
                     }
                 }
                 ChainElement::StaticMemberExpression(member) => {
@@ -1954,6 +1931,60 @@ impl ModuleBuilder<'_> {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Collect captures referenced by a call/new argument, including function literals.
+    fn collect_argument_capture_names(
+        &self,
+        argument: &Argument<'_>,
+        param_names: &HashSet<String>,
+        captures: &mut Vec<String>,
+    ) {
+        match argument {
+            Argument::SpreadElement(spread) => self.collect_expression_capture_names(
+                &spread.argument,
+                param_names,
+                captures,
+            ),
+            Argument::ArrowFunctionExpression(arrow) => {
+                let mut nested_params = param_names.clone();
+                for param in &arrow.params.items {
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        nested_params.insert(binding.name.as_str().to_owned());
+                    }
+                }
+                for statement in &arrow.body.statements {
+                    self.collect_statement_capture_names(statement, &nested_params, captures);
+                }
+            }
+            Argument::FunctionExpression(function) => {
+                let mut nested_params = param_names.clone();
+                for param in &function.params.items {
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        nested_params.insert(binding.name.as_str().to_owned());
+                    }
+                }
+                if let Some(rest) = &function.params.rest
+                    && let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument
+                {
+                    nested_params.insert(binding.name.as_str().to_owned());
+                }
+                if let Some(body) = &function.body {
+                    for statement in &body.statements {
+                        self.collect_statement_capture_names(
+                            statement,
+                            &nested_params,
+                            captures,
+                        );
+                    }
+                }
+            }
+            other => {
+                if let Some(expression) = other.as_expression() {
+                    self.collect_expression_capture_names(expression, param_names, captures);
+                }
+            }
         }
     }
 

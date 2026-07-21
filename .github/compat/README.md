@@ -27,11 +27,18 @@ deliberately to re-baseline a probe against a newer library version.
 | `ts-pattern` | `gvergnaud/ts-pattern` | TS |
 | `valibot` | `fabian-hiller/valibot` | TS |
 | `neverthrow` | `supermacro/neverthrow` | TS |
+| `immer` | `immerjs/immer` | TS |
+| `rxjs` | `ReactiveX/rxjs` | TS |
 | `returns` | `dry-python/returns` | Py |
 | `result` | `rustedpy/result` | Py |
 | `more-itertools` | `more-itertools/more-itertools` | Py |
 | `funcy` | `Suor/funcy` | Py |
 | `toolz` | `pytoolz/toolz` | Py |
+
+Immer's upstream performance suite uses `.mjs`, and RxJS's benchmark helper
+uses `.js`. The TypeScript probe scanner intentionally excludes both until it
+supports JavaScript-family inputs; their TypeScript source and test suites are
+still included in full.
 
 ## Reproducing a probe
 

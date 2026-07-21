@@ -1274,7 +1274,7 @@ impl ModuleBuilder<'_> {
             return expr;
         };
         let inner = *value;
-        let span = *span;
+        let cast_span = *span;
         // The narrowing cast rewraps a `Local` read at the narrowed type; recover
         // the local and re-read it at its erased base type so the comparison sees
         // the untouched original `SmeltUnknown`.
@@ -1286,16 +1286,16 @@ impl ModuleBuilder<'_> {
         else {
             return expr;
         };
-        let local = *local;
-        let base_ty = Self::local_ty(body, local);
+        let source_local = *local;
+        let base_ty = Self::local_ty(body, source_local);
         if matches!(
             self.ctx.krate.types.get(base_ty),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
         ) {
             return body.push_expr(Expr {
-                kind: ExprKind::Local(local),
+                kind: ExprKind::Local(source_local),
                 ty: base_ty,
-                span,
+                span: cast_span,
             });
         }
         expr
@@ -3269,6 +3269,7 @@ impl ModuleBuilder<'_> {
             None,
             self.span(function_body.span.start, function_body.span.end),
         );
+        body.is_generator = function.generator;
         let mut params = Vec::new();
         let mut param_names = HashSet::new();
         let mut errors = Vec::new();
@@ -3439,7 +3440,7 @@ impl ModuleBuilder<'_> {
             }
         }
         if let Some(accumulator) = generator_yields {
-            self.push_generator_return(accumulator, function, &mut body);
+            Self::push_generator_return(accumulator, function, &mut body);
         }
         if function.r#async {
             body.build_async_state_machine();

@@ -34,6 +34,10 @@ items: list[tuple[str, int]] = mapping.items()
 }
 
 #[test]
+#[expect(
+    clippy::float_cmp,
+    reason = "lowered math constants must preserve their exact literal values"
+)]
 fn math_numeric_functions_lower() -> TestResult {
     let source = py!(r#"
 import math

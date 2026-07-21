@@ -46,13 +46,18 @@ impl FunctionEmitter<'_> {
             }
             return Ok("false".to_owned());
         };
-        if self.operand_ty(key)? != *key_ty {
+        // A concrete key flowing into a `SmeltUnknown`-keyed Map (`key_ty`
+        // erased) must be erased to its runtime `SmeltUnknown` form here, exactly
+        // as `set`/`get` do via `dict_key_operand_text`. Comparing the concrete
+        // key type against the erased `key_ty` for exact equality would fold this
+        // to the literal `false`, silently corrupting the lookup for object keys.
+        if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok("false".to_owned());
         }
         Ok(format!(
             "{}.contains_key(&{})",
             self.operand_text(dict)?,
-            self.operand_text(key)?
+            self.dict_key_operand_text(key, *key_ty)?
         ))
     }
 
@@ -277,10 +282,37 @@ impl FunctionEmitter<'_> {
         if operand_ty == key_ty {
             return Ok(true);
         }
+        // A `SmeltUnknown`-keyed Map (`Map<object, _>`, `Map<unknown, _>`) accepts
+        // any concrete key: the key is erased to its runtime `SmeltUnknown` form
+        // at the operation site by `dict_key_operand_text`, the same erasure the
+        // correctly-lowered `Map<unknown, _>` path already relies on. Without
+        // this, a concrete object key (`const a = { v: 1 }` used as a Map key)
+        // reads as incompatible and the whole operation is folded to a constant
+        // default — dropping inserts and returning `false`/`None` at runtime.
+        if self.key_ty_is_erased(key_ty) {
+            return Ok(true);
+        }
         Ok(matches!(
             self.mir.types.get(operand_ty),
             Some(Type::Unknown | Type::TypeParam { .. })
         ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == key_ty))
+    }
+
+    /// Return whether a dict/Map key type is erased to `SmeltUnknown` at runtime.
+    ///
+    /// When it is, a concrete key operand must be erased into it (via
+    /// [`Self::dict_key_operand_text`]) rather than matched by exact type. This
+    /// mirrors the erased-target test in [`Self::value_at_type`]: bare `unknown`,
+    /// a non-concrete union, an out-of-scope type parameter, or an erased class
+    /// (ambient interface) all lower to `SmeltUnknown`. A union with fully
+    /// concrete members is deliberately excluded so its keys keep exact typing.
+    fn key_ty_is_erased(&self, key_ty: TypeId) -> bool {
+        (matches!(
+            self.mir.types.get(key_ty),
+            Some(Type::Unknown | Type::Union(_))
+        ) && self.concrete_union_members(key_ty).is_none())
+            || matches!(self.mir.types.get(key_ty), Some(Type::TypeParam { name }) if !self.current_function_has_type_param(*name))
+            || self.is_erased_class_type(key_ty)
     }
 
     /// Render a dictionary key, unwrapping optional keys after frontend narrowing.
@@ -484,20 +516,17 @@ impl FunctionEmitter<'_> {
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
             _ => None,
         };
-        let (accumulator, mut steps, final_value) = match target_place {
-            Some(local) => {
-                let target_text = self.local_mut_value_text(local)?;
-                let final_value = format!("{target_text}.clone()");
-                (target_text, Vec::new(), final_value)
-            }
-            None => {
-                let target_text = self.operand_text(target)?;
-                (
-                    "assigned".to_owned(),
-                    vec![format!("let mut assigned = {target_text}.clone();")],
-                    "assigned".to_owned(),
-                )
-            }
+        let (accumulator, mut steps, final_value) = if let Some(local) = target_place {
+            let target_text = self.local_mut_value_text(local)?;
+            let final_value = format!("{target_text}.clone()");
+            (target_text, Vec::new(), final_value)
+        } else {
+            let target_text = self.operand_text(target)?;
+            (
+                "assigned".to_owned(),
+                vec![format!("let mut assigned = {target_text}.clone();")],
+                "assigned".to_owned(),
+            )
         };
         for source in sources {
             let source_ty = self.operand_ty(source)?;

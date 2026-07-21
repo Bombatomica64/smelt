@@ -16,6 +16,17 @@ impl Rvalue {
     pub fn for_each_operand(&self, mut visit: impl FnMut(&Operand)) {
         match self {
             Self::Use(operand) => visit(operand),
+            Self::GeneratorYield { value, .. } => visit(value),
+            Self::GeneratorNext {
+                generator, value, ..
+            } => {
+                visit(generator);
+                if let Some(value) = value {
+                    visit(value);
+                }
+            }
+            Self::GeneratorDone { result } | Self::GeneratorValue { result } => visit(result),
+            Self::GeneratorDelegate { generator } => visit(generator),
             Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
                 for item in items {
                     visit(item);
@@ -68,7 +79,8 @@ impl Rvalue {
                 visit(receiver);
                 visit(index);
             }
-            Self::OptionalMethod { receiver, args, .. } => {
+            Self::OptionalMethod { receiver, args, .. }
+            | Self::UnionMethod { receiver, args, .. } => {
                 visit(receiver);
                 for arg in args {
                     visit(arg);
@@ -752,6 +764,17 @@ impl Rvalue {
     pub fn for_each_operand_mut(&mut self, mut visit: impl FnMut(&mut Operand)) {
         match self {
             Self::Use(operand) => visit(operand),
+            Self::GeneratorYield { value, .. } => visit(value),
+            Self::GeneratorNext {
+                generator, value, ..
+            } => {
+                visit(generator);
+                if let Some(value) = value {
+                    visit(value);
+                }
+            }
+            Self::GeneratorDone { result } | Self::GeneratorValue { result } => visit(result),
+            Self::GeneratorDelegate { generator } => visit(generator),
             Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
                 for item in items.iter_mut() {
                     visit(item);
@@ -804,7 +827,8 @@ impl Rvalue {
                 visit(receiver);
                 visit(index);
             }
-            Self::OptionalMethod { receiver, args, .. } => {
+            Self::OptionalMethod { receiver, args, .. }
+            | Self::UnionMethod { receiver, args, .. } => {
                 visit(receiver);
                 for arg in args.iter_mut() {
                     visit(arg);

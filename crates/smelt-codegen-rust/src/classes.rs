@@ -152,6 +152,23 @@ fn type_param_in_dict_key(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
                 .any(|param| type_param_in_dict_key(mir, *param, name))
                 || type_param_in_dict_key(mir, function.return_ty, name)
         }
+        Some(Type::Generator {
+            yield_ty,
+            return_ty,
+            next_ty,
+            ..
+        }) => {
+            type_param_in_dict_key(mir, *yield_ty, name)
+                || type_param_in_dict_key(mir, *return_ty, name)
+                || type_param_in_dict_key(mir, *next_ty, name)
+        }
+        Some(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        }) => {
+            type_param_in_dict_key(mir, *yield_ty, name)
+                || type_param_in_dict_key(mir, *return_ty, name)
+        }
         Some(
             Type::TypeParam { .. }
             | Type::Bool
@@ -392,6 +409,23 @@ fn type_param_directly_inferable(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
         Some(Type::Class { args, .. }) => args
             .iter()
             .any(|arg| type_param_directly_inferable(mir, *arg, name)),
+        Some(Type::Generator {
+            yield_ty,
+            return_ty,
+            next_ty,
+            ..
+        }) => {
+            type_param_directly_inferable(mir, *yield_ty, name)
+                || type_param_directly_inferable(mir, *return_ty, name)
+                || type_param_directly_inferable(mir, *next_ty, name)
+        }
+        Some(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        }) => {
+            type_param_directly_inferable(mir, *yield_ty, name)
+                || type_param_directly_inferable(mir, *return_ty, name)
+        }
         // Unions erase to `SmeltUnknown` and functions are a callback boundary,
         // so neither preserves the type parameter in a directly-inferable value
         // position.
@@ -440,6 +474,23 @@ fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
         Some(Type::Class { args, .. }) => args
             .iter()
             .any(|arg| type_param_in_callback(mir, *arg, name)),
+        Some(Type::Generator {
+            yield_ty,
+            return_ty,
+            next_ty,
+            ..
+        }) => {
+            type_param_in_callback(mir, *yield_ty, name)
+                || type_param_in_callback(mir, *return_ty, name)
+                || type_param_in_callback(mir, *next_ty, name)
+        }
+        Some(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        }) => {
+            type_param_in_callback(mir, *yield_ty, name)
+                || type_param_in_callback(mir, *return_ty, name)
+        }
         Some(
             Type::TypeParam { .. }
             | Type::Bool
@@ -478,6 +529,23 @@ fn type_param_occurs(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
         }
         Some(Type::Class { args, .. }) => {
             args.iter().any(|arg| type_param_occurs(mir, *arg, name))
+        }
+        Some(Type::Generator {
+            yield_ty,
+            return_ty,
+            next_ty,
+            ..
+        }) => {
+            type_param_occurs(mir, *yield_ty, name)
+                || type_param_occurs(mir, *return_ty, name)
+                || type_param_occurs(mir, *next_ty, name)
+        }
+        Some(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        }) => {
+            type_param_occurs(mir, *yield_ty, name)
+                || type_param_occurs(mir, *return_ty, name)
         }
         Some(
             Type::Bool

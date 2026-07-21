@@ -13,12 +13,12 @@ use super::operand_local;
 /// Marks functions that can reach an uncaught throw directly or through calls.
 pub(in crate::lower) fn propagate_throwing_functions(mir: &mut Mir) {
     loop {
+        let types = mir.types.clone();
         let throwing = mir
             .functions
             .iter()
-            .map(|function| function.can_throw)
+            .map(|function| function.can_throw && !function.is_generator)
             .collect::<Vec<_>>();
-        let types = mir.types.clone();
         let mut changed = false;
 
         for function in &mut mir.functions {

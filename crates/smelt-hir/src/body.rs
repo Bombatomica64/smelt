@@ -28,6 +28,8 @@ pub struct Body {
     pub patterns: Vec<Pattern>,
     /// Explicit async state-machine shape for async bodies.
     pub async_state_machine: Option<AsyncStateMachine>,
+    /// Whether this body belongs to a source generator function.
+    pub is_generator: bool,
     /// ID of the root block.
     pub root: BlockId,
 }
@@ -50,6 +52,7 @@ impl Body {
             }],
             patterns: Vec::new(),
             async_state_machine: None,
+            is_generator: false,
             root: BlockId(0),
         }
     }

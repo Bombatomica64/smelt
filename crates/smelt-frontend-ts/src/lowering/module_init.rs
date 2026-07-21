@@ -22,7 +22,7 @@ use oxc::ast::ast::{
 };
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, ConstItem, Expr, ExprKind, FileId, Function, FunctionOwner, FunctionType, Import, Item,
+    Body, ConstItem, Expr, ExprKind, Field, FileId, Function, FunctionOwner, FunctionType, Import, Item,
     Language, Literal, Module, ModuleId, Param, SourceFile, Span, Type, Visibility,
 };
 
@@ -54,6 +54,59 @@ impl<'a> oxc::ast_visit::Visit<'a> for MutatedNameCollector {
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
+    /// Predeclare instance-method member types for classes in a manifest-wide type pass.
+    ///
+    /// The metadata is stored with structural type fields so cyclic importers
+    /// can type method calls before the class's runtime item is lowered.
+    pub(super) fn predeclare_class_method_fields(&mut self, program: &Program<'_>) {
+        for statement in &program.body {
+            let class = match statement {
+                Statement::ClassDeclaration(class) => Some(class),
+                Statement::ExportNamedDeclaration(export) => match &export.declaration {
+                    Some(Declaration::ClassDeclaration(class)) => Some(class),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(class) = class else { continue };
+            let Some(id) = &class.id else { continue };
+            let name = self.intern_type_name(id.name.as_str());
+            if self
+                .push_type_parameter_scope(class.type_parameters.as_deref())
+                .is_err()
+            {
+                continue;
+            }
+            let signatures = self.class_method_signatures(&class.body.body);
+            self.pop_type_parameter_scope();
+            let Ok(signatures) = signatures else { continue };
+            let fields = signatures
+                .into_iter()
+                .map(|method| {
+                    let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                        params: method.params.iter().map(|param| param.ty).collect(),
+                        rest: method.rest,
+                        required_params: method.required_params,
+                        mutable_params: Vec::new(),
+                        return_ty: method.return_ty,
+                        is_async: method.is_async,
+                        may_throw: false,
+                    }));
+                    Field {
+                        name: method.name,
+                        ty,
+                        visibility: Visibility::Public,
+                        optional: false,
+                        span: method.span,
+                    }
+                })
+                .collect::<Vec<_>>();
+            if !fields.is_empty() {
+                self.ctx.type_alias_fields.insert(name, fields);
+            }
+        }
+    }
+
     /// Create a new module builder.
     pub(super) fn new(
         file_id: FileId,
@@ -94,6 +147,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             classes,
             scoped_class_type_names: HashMap::new(),
             pending_class_names: HashSet::new(),
+            pending_interface_names: HashSet::new(),
+            lowered_local_interfaces: HashSet::new(),
             interfaces,
             class_fields: HashMap::new(),
             class_methods: HashMap::new(),
@@ -253,6 +308,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_module_globals(program);
         self.collect_mutable_globals(program, &mut module, &mut errors);
         self.pending_class_names = Self::program_class_names(program);
+        self.pending_interface_names = Self::program_interface_names(program);
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
@@ -466,6 +522,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
         }
 
+        // TypeScript declarations are visible throughout their module. A class
+        // may therefore implement an interface declared later in the file. Its
+        // eager validation skips that not-yet-lowered shape; validate every
+        // emitted module class once more after declaration lowering completes.
+        for item_id in module.items.clone() {
+            if matches!(self.item_ref(item_id), Item::Class(_))
+                && let Err(error) = self.validate_implements(item_id)
+            {
+                errors.push(error);
+            }
+        }
+
         if !errors.is_empty() {
             return Err(errors);
         }
@@ -539,6 +607,33 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     _ => return None,
                 };
                 class.id.as_ref().map(|id| id.name.to_string())
+            })
+            .collect()
+    }
+
+    /// Collect interface names declared in the current module before lowering.
+    ///
+    /// This distinguishes lexically local interfaces, including forward
+    /// declarations, from imported or ambient names that happen to share a
+    /// symbol with an interface lowered from another source file.
+    pub(super) fn program_interface_names(program: &Program<'_>) -> HashSet<String> {
+        program
+            .body
+            .iter()
+            .filter_map(|statement| {
+                let interface = match statement {
+                    Statement::TSInterfaceDeclaration(interface) => interface,
+                    Statement::ExportNamedDeclaration(export) => {
+                        let Some(Declaration::TSInterfaceDeclaration(interface)) =
+                            &export.declaration
+                        else {
+                            return None;
+                        };
+                        interface
+                    }
+                    _ => return None,
+                };
+                Some(interface.id.name.to_string())
             })
             .collect()
     }

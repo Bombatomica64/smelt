@@ -2859,6 +2859,7 @@ impl ModuleBuilder<'_> {
                 None,
                 self.span(function_body.span.start, function_body.span.end),
             );
+            closure_body.is_generator = function.generator;
             let mut closure_params = Vec::new();
             let mut param_names = HashSet::new();
             let mut saved_locals = Vec::new();
@@ -3040,7 +3041,7 @@ impl ModuleBuilder<'_> {
                 }
             }
             if let Some(accumulator) = generator_yields {
-                self.push_generator_return(accumulator, function, &mut closure_body);
+                Self::push_generator_return(accumulator, function, &mut closure_body);
             }
             if function.r#async {
                 closure_body.build_async_state_machine();
@@ -3058,9 +3059,16 @@ impl ModuleBuilder<'_> {
             }
             lowering_result?;
 
-            let return_ty = declared_return_ty
-                .or_else(|| self.last_return_type(&closure_body))
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
+            let mut return_ty = if function.generator && declared_return_ty.is_none() {
+                self.inferred_generator_type(&closure_body, function.r#async)
+            } else {
+                declared_return_ty
+                    .or_else(|| self.last_return_type(&closure_body))
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None))
+            };
+            if function.generator && declared_return_ty.is_some() {
+                return_ty = self.generator_type_with_fallthrough(&closure_body, return_ty);
+            }
             let body_id = self.ctx.krate.push_body(closure_body);
             let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys,

@@ -5,6 +5,7 @@
 //! parameters, or erased host shapes) continue to use `SmeltUnknown`.
 
 use super::*;
+use crate::rust::RustIdent;
 
 /// Return the stable generated Rust name for an interned union type.
 pub(crate) fn union_name(ty: TypeId) -> String {
@@ -12,6 +13,156 @@ pub(crate) fn union_name(ty: TypeId) -> String {
 }
 
 impl FunctionEmitter<'_> {
+    /// Render a concrete union storage type including its scoped generic arguments.
+    pub(super) fn union_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+        let params = self.union_type_params(ty)?;
+        if params.is_empty() {
+            return Ok(union_name(ty));
+        }
+        let args = params
+            .iter()
+            .map(|param| self.union_type_param_name(*param))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        Ok(format!("{}<{args}>", union_name(ty)))
+    }
+
+    /// Collect free type parameters retained by a concrete union's members.
+    fn union_type_params(&self, ty: TypeId) -> Result<Vec<Symbol>, EmitError> {
+        let Some(members) = self.concrete_union_members(ty) else {
+            return Ok(Vec::new());
+        };
+        let mut params = Vec::new();
+        for member in members {
+            self.collect_union_type_params(*member, &mut params)?;
+        }
+        Ok(params)
+    }
+
+    /// Walk one union member type and retain each free parameter once.
+    fn collect_union_type_params(
+        &self,
+        ty: TypeId,
+        params: &mut Vec<Symbol>,
+    ) -> Result<(), EmitError> {
+        let Some(kind) = self.mir.types.get(ty) else {
+            return Err(EmitError::new("union member references an unknown type"));
+        };
+        match kind {
+            Type::TypeParam { name } => {
+                if !params.contains(name) {
+                    params.push(*name);
+                }
+            }
+            Type::Optional(item) | Type::List(item) | Type::Set(item) | Type::Future(item) => {
+                self.collect_union_type_params(*item, params)?;
+            }
+            Type::Dict(key, value) | Type::JsMap(key, value) => {
+                self.collect_union_type_params(*key, params)?;
+                self.collect_union_type_params(*value, params)?;
+            }
+            Type::Tuple(items) | Type::Union(items) => {
+                for item in items {
+                    self.collect_union_type_params(*item, params)?;
+                }
+            }
+            Type::Class { args, .. } => {
+                for arg in args {
+                    self.collect_union_type_params(*arg, params)?;
+                }
+            }
+            Type::Function(function) => {
+                for param in &function.params {
+                    self.collect_union_type_params(*param, params)?;
+                }
+                self.collect_union_type_params(function.return_ty, params)?;
+            }
+            Type::Generator { yield_ty, return_ty, next_ty, .. } => {
+                self.collect_union_type_params(*yield_ty, params)?;
+                self.collect_union_type_params(*return_ty, params)?;
+                self.collect_union_type_params(*next_ty, params)?;
+            }
+            Type::GeneratorResult { yield_ty, return_ty } => {
+                self.collect_union_type_params(*yield_ty, params)?;
+                self.collect_union_type_params(*return_ty, params)?;
+            }
+            Type::Unknown | Type::Never | Type::None | Type::Bool | Type::Int | Type::Float | Type::String => {}
+        }
+        Ok(())
+    }
+
+    /// Render one union type parameter as a Rust identifier.
+    fn union_type_param_name(&self, param: Symbol) -> Result<String, EmitError> {
+        Ok(RustIdent::new(self.symbol_name(param)?).into_string())
+    }
+
+    /// Emit a statically typed method call shared by every concrete union arm.
+    ///
+    /// TypeScript permits a union method call when every member exposes that
+    /// method. Concrete unions are represented as generated tagged enums, so
+    /// dispatch must project the active payload before invoking the Rust
+    /// method; erasing the receiver would lose useful generic return shape.
+    pub(super) fn union_method_text(
+        &self,
+        receiver: &Operand,
+        method: Symbol,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let receiver_ty = self.operand_ty(receiver)?;
+        let Some(members) = self.concrete_union_members(receiver_ty) else {
+            return Err(EmitError::new(
+                "union method call requires a concrete tagged union receiver",
+            ));
+        };
+        let receiver_text = self.operand_text(receiver)?;
+        let method_name = sanitize_ident(self.symbol_name(method)?);
+        let args_text = args
+            .iter()
+            .map(|arg| self.operand_text(arg))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        let union = union_name(receiver_ty);
+        let mut arms = Vec::with_capacity(members.len());
+        for (index, member) in members.iter().copied().enumerate() {
+            let return_ty = self.union_member_method_return_type(member, method)?;
+            let call = format!("value.{method_name}({args_text})");
+            let converted = self.value_at_type_text(&call, return_ty, dest_ty)?;
+            arms.push(format!("{union}::M{index}(value) => {converted}"));
+        }
+        Ok(format!("match {receiver_text} {{ {} }}", arms.join(", ")))
+    }
+
+    /// Resolve and instantiate one union member's declared method return type.
+    fn union_member_method_return_type(
+        &self,
+        member_ty: TypeId,
+        method: Symbol,
+    ) -> Result<TypeId, EmitError> {
+        let Some(Type::Class { name, args }) = self.mir.types.get(member_ty) else {
+            return Err(EmitError::new("union method member must be a class value"));
+        };
+        let class = self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == *name)
+            .ok_or_else(|| EmitError::new("union method class is not materialized"))?;
+        let function = class
+            .methods
+            .iter()
+            .filter_map(|id| self.mir.functions.get(id.0 as usize))
+            .find(|function| function.name == method)
+            .ok_or_else(|| EmitError::new("union member does not implement method"))?;
+        let substitutions = class
+            .type_params
+            .iter()
+            .zip(args.iter().copied())
+            .map(|(param, arg)| (param.name, arg))
+            .collect::<HashMap<_, _>>();
+        Ok(self.substitute_type_params_in_type(function.return_ty, &substitutions))
+    }
+
     /// Return canonical members when a union has fully concrete Rust storage.
     pub(super) fn concrete_union_members(&self, ty: TypeId) -> Option<&[TypeId]> {
         let Type::Union(items) = self.mir.types.get(ty)? else {
@@ -46,6 +197,24 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .all(|param| self.union_member_is_concrete(*param))
                     && self.union_member_is_concrete(function.return_ty)
+            }
+            Some(Type::Generator {
+                yield_ty,
+                return_ty,
+                ..
+            }) => {
+                self.union_member_is_concrete(*yield_ty)
+                    && self.union_member_is_concrete(*return_ty)
+                // The caller-provided `.next(value)` type is not stored in the
+                // generated wrapper, so a dynamic next-input boundary does not
+                // make the generator value itself an erased runtime object.
+            }
+            Some(Type::GeneratorResult {
+                yield_ty,
+                return_ty,
+            }) => {
+                self.union_member_is_concrete(*yield_ty)
+                    && self.union_member_is_concrete(*return_ty)
             }
             Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
             // Nullish unions remain `Option`/erased-boundary work. Keeping them
@@ -400,14 +569,75 @@ pub(crate) fn emit_union_definitions(
             continue;
         };
         let name = union_name(type_id);
+        let params = emitter.union_type_params(type_id)?;
+        let declaration_generics = if params.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<{}>",
+                params
+                    .iter()
+                    .map(|param| emitter.union_type_param_name(*param))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ")
+            )
+        };
+        let impl_generics = if params.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<{}>",
+                params
+                    .iter()
+                    .map(|param| {
+                        Ok(format!(
+                            "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
+                            emitter.union_type_param_name(*param)?
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ")
+            )
+        };
+        let default_generics = if params.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<{}>",
+                params
+                    .iter()
+                    .map(|param| Ok(format!("{}: Default", emitter.union_type_param_name(*param)?)))
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ")
+            )
+        };
+        let target = emitter.union_type_text(type_id)?;
         output.push_str("#[derive(Clone)]\n");
-        output.push_str(&format!("pub enum {name} {{\n"));
+        output.push_str(&format!("pub enum {name}{declaration_generics} {{\n"));
         for (member_index, member) in members.iter().enumerate() {
             let member_text = emitter.type_text_with_impl_trait(*member, false)?;
             output.push_str(&format!("    M{member_index}({member_text}),\n"));
         }
         output.push_str("}\n");
-        output.push_str(&format!("impl IntoSmeltUnknown for {name} {{\n"));
+        if members
+            .iter()
+            .any(|member| matches!(mir.types.get(*member), Some(Type::Generator { .. })))
+        {
+            // Generator carriers deliberately cannot cross into
+            // `SmeltUnknown`: doing so would erase suspension and the selected
+            // sync/async resume protocol. Generator unions therefore remain a
+            // typed tagged enum consumed by `yield*` arm dispatch and omit the
+            // generic erased conversion/equality implementations below.
+            output.push_str(&format!(
+                "impl{default_generics} ::std::fmt::Debug for {target} {{\n"
+            ));
+            output.push_str(
+                "    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(\"SmeltGeneratorUnion\") }\n",
+            );
+            output.push_str("}\n\n");
+            continue;
+        }
+        output.push_str(&format!("impl{impl_generics} IntoSmeltUnknown for {target} {{\n"));
         output.push_str("    fn into_smelt_unknown(self) -> SmeltUnknown {\n");
         output.push_str("        match self {\n");
         for (member_index, member) in members.iter().enumerate() {
@@ -417,11 +647,11 @@ pub(crate) fn emit_union_definitions(
             ));
         }
         output.push_str("        }\n    }\n}\n");
-        output.push_str(&format!("impl {name} {{\n"));
+        output.push_str(&format!("impl{impl_generics} {target} {{\n"));
         output.push_str("    fn from_smelt_unknown(value: SmeltUnknown) -> Self {\n");
         output.push_str(&emitter.union_from_smelt_unknown_body(members)?);
         output.push_str("    }\n}\n");
-        output.push_str(&format!("impl PartialEq for {name} {{\n"));
+        output.push_str(&format!("impl{impl_generics} PartialEq for {target} {{\n"));
         output.push_str("    fn eq(&self, other: &Self) -> bool {\n");
         output.push_str(
             "        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()\n",
@@ -435,7 +665,7 @@ pub(crate) fn emit_union_definitions(
         // view (always present, since the union already emits `IntoSmeltUnknown`)
         // exactly like the `PartialEq` impl above, and `Default` selects the
         // first arm, matching how `default_value` builds a concrete-union default.
-        output.push_str(&format!("impl ::std::fmt::Debug for {name} {{\n"));
+        output.push_str(&format!("impl{impl_generics} ::std::fmt::Debug for {target} {{\n"));
         output.push_str(
             "    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {\n",
         );
@@ -447,7 +677,7 @@ pub(crate) fn emit_union_definitions(
             .first()
             .ok_or_else(|| EmitError::new("concrete union has no members"))?;
         let first_default = emitter.default_value(first_member)?;
-        output.push_str(&format!("impl Default for {name} {{\n"));
+        output.push_str(&format!("impl{default_generics} Default for {target} {{\n"));
         output.push_str("    fn default() -> Self {\n");
         output.push_str(&format!("        Self::M0({first_default})\n"));
         output.push_str("    }\n}\n\n");

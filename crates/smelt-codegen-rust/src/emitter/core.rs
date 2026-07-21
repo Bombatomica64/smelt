@@ -75,7 +75,8 @@ impl<'mir> FunctionEmitter<'mir> {
                         // cannot borrow `&self`, so the receiver is cloned once
                         // into an owned `self_owned` handle and every body
                         // reference renders through that name instead of `self`.
-                        if function.is_async {
+                        if function.is_async || function.is_generator
+                        {
                             "self_owned".to_owned()
                         } else {
                             "self".to_owned()
@@ -186,11 +187,35 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         out.push_str(&format!(
             "{}fn {}{generics}({fn_params}) -> {} {{\n",
-            if self.function.is_async { "async " } else { "" },
+            if self.function.is_async && !self.function.is_generator {
+                "async "
+            } else {
+                ""
+            },
             self.function_rust_name(self.function)?,
             self.return_type_text(self.function.return_ty)?
         ));
-        out.push_str(&body);
+        if self.function.is_generator {
+            out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
+            out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
+            out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
+            out.push_str(&body);
+            out.push_str("    } });\n");
+            if self.function.is_async {
+                out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
+                out.push_str("    SmeltAsyncGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_state = { let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }; Ok::<_, Box<dyn std::error::Error>>(match smelt_state { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }) })) })\n");
+            } else {
+                out.push_str("    let mut smelt_generator = smelt_generator;\n");
+                let completion = if self.function.can_throw {
+                "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                } else {
+                    "value"
+                };
+                out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
+            }
+        } else {
+            out.push_str(&body);
+        }
         out.push_str("}\n");
         Ok(())
     }
@@ -301,17 +326,18 @@ impl<'mir> FunctionEmitter<'mir> {
         // A fallthrough return diverges (or, for `void`, needs no continuation),
         // so the structural tail is terminated either way.
         control_flow::set_last_emit_diverged(true);
+        let return_ty = self.body_return_ty();
         if self.function.can_throw {
             out.push_str(&format!(
                 "    return Ok({});\n",
-                self.default_value(self.function.return_ty)?
+                self.default_value(return_ty)?
             ));
-        } else if self.function.return_ty == self.none_ty {
+        } else if return_ty == self.none_ty {
             return Ok(());
         } else {
             out.push_str(&format!(
                 "    return {};\n",
-                self.default_value(self.function.return_ty)?
+                self.default_value(return_ty)?
             ));
         }
         Ok(())
@@ -1131,7 +1157,9 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("smelt_method_receiver.{method_name}({args})")
         };
-        let source_can_throw = !dispatches_to_source_field && source_function.can_throw;
+        let source_can_throw = !dispatches_to_source_field
+            && source_function.can_throw
+            && !source_function.is_generator;
         let source_return_ty = if dispatches_to_source_field {
             function_ty.return_ty
         } else {
@@ -1585,7 +1613,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 } else {
                     format!("{receiver_text}, {method_params}")
                 };
-                if self.function.is_async {
+                if self.function.is_async && !self.function.is_generator {
                     // Async-method owned-self transform: emit an ordinary
                     // `fn(&self, ..) -> SmeltFuture<T>` that clones `self` into an
                     // owned handle and runs the awaited body inside a moved
@@ -1630,7 +1658,11 @@ impl<'mir> FunctionEmitter<'mir> {
                     .join(", ");
                 out.push_str(&format!(
                     "    {}fn {name}({method_params}) -> {} {{\n",
-                    if self.function.is_async { "async " } else { "" },
+                    if self.function.is_async && !self.function.is_generator {
+                        "async "
+                    } else {
+                        ""
+                    },
                     self.return_type_text(self.function.return_ty)?
                 ));
             }
@@ -1640,10 +1672,39 @@ impl<'mir> FunctionEmitter<'mir> {
         // that receiver must be bound once as a cloned handle before the body.
         // Value-class methods emit no prelude here, keeping their output
         // byte-identical to the pre-reference-class emitter.
-        if self.method_owner_is_reference_class() {
-            self.emit_shared_parameter_preludes(out)?;
+        let is_generator = self.function.is_generator;
+        if is_generator {
+            let mut body = String::new();
+            if self.method_owner_is_reference_class() {
+                self.emit_shared_parameter_preludes(&mut body)?;
+            }
+            self.emit_block(self.entry_block()?, &mut body)?;
+            if body.contains("self_owned") {
+                out.push_str("    let self_owned = self.clone();\n");
+            }
+            out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
+            out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
+            out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
+            out.push_str(&body);
+            out.push_str("    } });\n");
+            if self.function.is_async {
+                out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
+                out.push_str("    SmeltAsyncGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_state = { let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }; Ok::<_, Box<dyn std::error::Error>>(match smelt_state { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }) })) })\n");
+            } else {
+                out.push_str("    let mut smelt_generator = smelt_generator;\n");
+                let completion = if self.function.can_throw {
+                    "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                } else {
+                    "value"
+                };
+                out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
+            }
+        } else {
+            if self.method_owner_is_reference_class() {
+                self.emit_shared_parameter_preludes(out)?;
+            }
+            self.emit_block(self.entry_block()?, out)?;
         }
-        self.emit_block(self.entry_block()?, out)?;
         out.push_str("    }\n");
         Ok(())
     }
@@ -1855,7 +1916,10 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Emits a basic block's statements and terminator.
     /// Returns the Rust suffix needed when calling a throwing function.
     pub(super) fn throwing_call_suffix(&self, callee: &MirFunction) -> &'static str {
-        if callee.can_throw && !callee.is_async {
+        if callee.can_throw
+            && !callee.is_async
+            && !callee.is_generator
+        {
             "?"
         } else {
             ""
@@ -3258,6 +3322,23 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn type_contains_function(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Function(_)) => true,
+            Some(Type::Generator {
+                yield_ty,
+                return_ty,
+                next_ty,
+                ..
+            }) => {
+                self.type_contains_function(*yield_ty)
+                    || self.type_contains_function(*return_ty)
+                    || self.type_contains_function(*next_ty)
+            }
+            Some(Type::GeneratorResult {
+                yield_ty,
+                return_ty,
+            }) => {
+                self.type_contains_function(*yield_ty)
+                    || self.type_contains_function(*return_ty)
+            }
             Some(
                 Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
             ) => self.type_contains_function(*item),
@@ -3287,6 +3368,8 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn type_contains_noncloneable(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Future(_)) => true,
+            Some(Type::Generator { .. }) => false,
+            Some(Type::GeneratorResult { .. }) => false,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
                 self.type_contains_noncloneable(*item)
             }
@@ -3311,6 +3394,23 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.type_contains_unknown(*key) || self.type_contains_unknown(*value)
             }
             Some(Type::Tuple(items)) => items.iter().any(|item| self.type_contains_unknown(*item)),
+            Some(Type::Generator {
+                yield_ty,
+                return_ty,
+                next_ty,
+                ..
+            }) => {
+                self.type_contains_unknown(*yield_ty)
+                    || self.type_contains_unknown(*return_ty)
+                    || self.type_contains_unknown(*next_ty)
+            }
+            Some(Type::GeneratorResult {
+                yield_ty,
+                return_ty,
+            }) => {
+                self.type_contains_unknown(*yield_ty)
+                    || self.type_contains_unknown(*return_ty)
+            }
             Some(
                 Type::None
                 | Type::Bool
@@ -3371,6 +3471,8 @@ impl<'mir> FunctionEmitter<'mir> {
                 | Type::JsMap(_, _)
                 | Type::Tuple(_)
                 | Type::Function(_)
+                | Type::Generator { .. }
+                | Type::GeneratorResult { .. }
                 | Type::Class { .. },
             )
             | None => true,
@@ -3973,7 +4075,8 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         Rvalue::OptionalIndex { receiver, index } => {
             operand_uses_local(receiver, local) || operand_uses_local(index, local)
         }
-        Rvalue::OptionalMethod { receiver, args, .. } => {
+        Rvalue::OptionalMethod { receiver, args, .. }
+        | Rvalue::UnionMethod { receiver, args, .. } => {
             operand_uses_local(receiver, local)
                 || args
                     .iter()

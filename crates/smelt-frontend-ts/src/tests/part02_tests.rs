@@ -864,11 +864,11 @@ fn postfix_update_in_index_assignment_snapshots_old_value() -> Result<(), String
     // synthetic `__smelt_update_tmp` local instead.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 const arr = [0, 0, 0];
 let k = 0;
 arr[k++] = 42;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -889,11 +889,11 @@ fn postfix_update_value_binding_snapshots_old_value() -> Result<(), String> {
     // Regression: `y = x++` binds `y` to the pre-increment value of `x`.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 let x = 0;
 let y = 0;
 y = x++;
-"#),
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;

@@ -134,6 +134,54 @@ test("primitive keys compare by value", () => {
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn map_concrete_object_keys_erase_instead_of_folding() {
+    // Regression: keys are *concrete* object literals (`const a = { v: 1 }`),
+    // not `unknown`, flowing into a `Map<object, string>` whose runtime key type
+    // is the erased `SmeltJsMap<SmeltUnknown, String>`. The concrete `SmeltRecord`
+    // key must be erased to `SmeltUnknown::Object(..)` at each Map operation.
+    // Before the fix, codegen compared the concrete key type against the erased
+    // key type for exact equality, found them unequal, and folded every call to a
+    // constant: `set` dropped the insert (kept a bare `m.clone()`), `has`
+    // emitted the literal `false`, and `get` emitted `Default::default()` (None).
+    // A green run proves the erasure adapter fires so the Map behaves like JS.
+    let source = r#"
+import { test, expect } from "vitest";
+test("concrete object keys held separately by identity", () => {
+  const a = { v: 1 };
+  const b = { v: 1 };
+  const m = new Map<object, string>();
+  m.set(a, "a");
+  m.set(b, "b");
+  expect(m.size).toBe(2);
+});
+test("same concrete object key found again", () => {
+  const a = { v: 1 };
+  const m = new Map<object, string>();
+  m.set(a, "a");
+  expect(m.has(a)).toBe(true);
+  expect(m.get(a)).toBe("a");
+});
+test("fresh concrete look-alike object key not found", () => {
+  const a = { v: 1 };
+  const m = new Map<object, string>();
+  m.set(a, "a");
+  expect(m.has({ v: 1 })).toBe(false);
+  expect(m.get({ v: 1 })).toBe(undefined);
+});
+test("re-setting the same concrete object key overwrites", () => {
+  const a = { v: 1 };
+  const m = new Map<object, string>();
+  m.set(a, "a");
+  m.set(a, "z");
+  expect(m.size).toBe(1);
+  expect(m.get(a)).toBe("z");
+});
+"#;
+    run_map_fixture(source, "smelt_map_concrete_object_keys");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn map_mutation_is_visible_through_aliases() {
     // A `Map` is a reference: a helper that receives it and mutates it changes
     // the caller's Map. This is the exact shape `isEqualWith` relies on when it
