@@ -650,10 +650,20 @@ impl FunctionEmitter<'_> {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(_)) => {
-                        let base_text = self.local_mut_value_text(*base)?;
+                        // The indexed lvalue is written through `IndexMut`, which
+                        // needs a mutable borrow, but the length used to normalize
+                        // the index only needs `&self`. Reading the length through
+                        // the mutable form put two `borrow_mut()` of the same
+                        // shared-capture `RefCell` in one expression. The primary
+                        // list-index write (`emit_assign_place_statement`) never
+                        // reaches this arm — it binds the index to a temp first;
+                        // this lvalue is only consumed directly by block-wrapped
+                        // callers such as `collection_clear_text`.
+                        let base_mut = self.local_mut_value_text(*base)?;
+                        let base_read = self.local_value_text(*base)?;
                         let index_text =
-                            self.normalized_index_text(&format!("{base_text}.len()"), index)?;
-                        Ok(format!("{base_text}[{index_text}]"))
+                            self.normalized_index_text(&format!("{base_read}.len()"), index)?;
+                        Ok(format!("{base_mut}[{index_text}]"))
                     }
                     Some(Type::Dict(key_ty, _)) => {
                         let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {

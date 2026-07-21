@@ -271,6 +271,60 @@ function run(): number {
     );
 }
 
+/// The write-path twin of [`shared_capture_list_index_read_borrows_immutably`].
+///
+/// `order[i] = v` on a shared-capture array grows and writes the backing `Vec`
+/// through `resize`/`IndexMut` (which need `borrow_mut()`), but the length
+/// reads that normalize and bounds-check the index need only `&self`. The index
+/// is bound to `smelt_assign_index` in its own statement BEFORE the mutable
+/// borrow, and the length reads borrow immutably, so the receiver's
+/// `borrow_mut()` never coexists with a second borrow of the same `RefCell` in
+/// one statement. The regressed form
+/// `(*cap.borrow_mut())[{ ... (*cap.borrow_mut()).len() ... }]` — an inline
+/// index that reborrows the receiver — panics at runtime with "already
+/// borrowed". Here `order` is a shared capture because the nested `put` closure
+/// writes it by index.
+#[test]
+fn shared_capture_list_index_write_precomputes_index_before_borrow_mut() {
+    let source = source_for(
+        r"
+function run(k: number, v: number): number[] {
+  const order: number[] = [0, 0, 0];
+  function put(i: number, value: number): void {
+    order[i] = value;
+  }
+  put(k, v);
+  return order;
+}
+",
+    );
+
+    // `order` is shared through an `Rc<RefCell<Vec<_>>>` capture cell.
+    assert!(
+        source
+            .contains("let smelt_capture_order = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+        "order should be a shared capture cell: {source}"
+    );
+    // The index is precomputed into a temp, so the indexed write borrows the
+    // receiver mutably exactly once with a plain temp subscript.
+    assert!(
+        source.contains("(*smelt_capture_order.borrow_mut())[smelt_assign_index] ="),
+        "list index write must subscript with a precomputed index temp: {source}"
+    );
+    // The length reads that normalize/bounds-check the index borrow immutably.
+    assert!(
+        source.contains("(*smelt_capture_order.borrow()).len()"),
+        "index-length reads must borrow the shared capture immutably: {source}"
+    );
+    // The regressed double-`borrow_mut` signature is an inline index block right
+    // after a mutable borrow: `borrow_mut())[{`. It must not appear anywhere.
+    assert!(
+        !source.contains("borrow_mut())[{"),
+        "list index write must not inline a reborrowing index into the mutable \
+         receiver (two simultaneous borrow_mut of one cell): {source}"
+    );
+}
+
 #[test]
 fn emits_function_array_some_without_cloning_callbacks() {
     let source = source_for(

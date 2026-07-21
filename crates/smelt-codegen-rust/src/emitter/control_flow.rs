@@ -408,12 +408,25 @@ impl FunctionEmitter<'_> {
                     }
                     Some(Type::List(item)) => {
                         let rendered_value = self.rvalue_text_for_dest(value, *item)?;
-                        let base_text = self.local_mut_value_text(*base)?;
+                        // The receiver is grown and written through `resize` /
+                        // `IndexMut`, which need a mutable borrow, but the two
+                        // length reads (normalizing the index and bounds-checking
+                        // the resize) only need `&self`. Rendering the length
+                        // through the mutable form put two `borrow_mut()` of the
+                        // same shared-capture `RefCell` on the resize line. The
+                        // index is bound to `smelt_assign_index` first, so each
+                        // read borrow drops at its statement boundary before the
+                        // mutable write; splitting the read borrow keeps every
+                        // emitted statement to at most one `borrow_mut()` of the
+                        // cell, avoiding the "already borrowed" panic. Write-path
+                        // twin of the list index READ arm in `place.rs`.
+                        let base_mut = self.local_mut_value_text(*base)?;
+                        let base_read = self.local_value_text(*base)?;
                         let index_text =
-                            self.normalized_index_text(&format!("{base_text}.len()"), index)?;
+                            self.normalized_index_text(&format!("{base_read}.len()"), index)?;
                         let default_value = self.default_value(*item)?;
                         out.push_str(&format!(
-                            "    {{ let smelt_assign_index = {index_text}; if smelt_assign_index >= {base_text}.len() {{ {base_text}.resize(smelt_assign_index.saturating_add(1), {default_value}); }} {base_text}[smelt_assign_index] = {rendered_value}; }}\n"
+                            "    {{ let smelt_assign_index = {index_text}; if smelt_assign_index >= {base_read}.len() {{ {base_mut}.resize(smelt_assign_index.saturating_add(1), {default_value}); }} {base_mut}[smelt_assign_index] = {rendered_value}; }}\n"
                         ));
                         return Ok(());
                     }
