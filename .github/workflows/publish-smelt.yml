@@ -1,0 +1,94 @@
+name: Publish smelt-nightly binary
+
+# Build a release `smelt` binary and publish it to the rolling "smelt-nightly"
+# prerelease. The slower `compat` and `library-probes` workflows download this
+# asset instead of compiling smelt from source. Interim measure until smelt is
+# consumable from crates.io.
+#
+# Dispatch-only on purpose. This used to run on every push to main, which cost
+# ~5.5 min of runner time per push (measured: 4 min 06 s release build + 59 s
+# cache save) to serve one daily cron and one manual workflow. Publish it when
+# you actually want the consumers to skip their from-source build.
+#
+# PROVENANCE CONTRACT (do not break): every upload writes a `smelt.sha` sidecar
+# asset holding the exact commit the binary was built from. Consumers compare it
+# against their own checked-out commit and build from source on any mismatch, so
+# a stale asset degrades to "slower", never to "wrong". If you change the
+# mechanism here, update every consumer:
+#   - .github/workflows/library-probes.yml
+#   - .github/workflows/compat.yml
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-smelt
+  cancel-in-progress: false
+
+jobs:
+  publish-smelt:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Publishing from a feature branch would put a non-main binary behind a
+      # tag named "nightly (main)". The consumers' SHA check would reject it
+      # anyway, but fail loudly here rather than leaving a confusing asset.
+      - name: Refuse to publish from anywhere but main
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::smelt-nightly may only be published from main (got ${{ github.ref }})."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Own lane: a release build must not share the debug-profile target
+          # cache used by the corpus/compat/probes "build" lane.
+          shared-key: release-bin
+
+      - name: Build release smelt
+        run: cargo build --release --bin smelt
+
+      - name: Publish to rolling smelt-nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create the rolling prerelease once; ignore the error if it exists.
+          gh release create smelt-nightly \
+            --prerelease \
+            --title "smelt nightly (main)" \
+            --notes "Rolling build of the smelt CLI. Published on demand from main. The smelt.sha asset holds the source commit; consumers that cannot match it build from source instead." \
+            2>/dev/null || true
+
+          printf '%s\n' "$GITHUB_SHA" > smelt.sha
+
+          # Order matters. Upload the binary FIRST and the sidecar SECOND, so a
+          # consumer that races an in-flight publish sees a sha that is OLDER
+          # than the binary -> mismatch -> from-source fallback. The reverse
+          # order could hand out a new sha attached to the previous binary.
+          gh release upload smelt-nightly target/release/smelt --clobber
+          gh release upload smelt-nightly smelt.sha --clobber
+
+          # Keep the human-readable provenance in the release notes too.
+          gh release edit smelt-nightly \
+            --notes "Rolling build of the smelt CLI, published on demand from main.
+
+          Source commit: \`$GITHUB_SHA\`
+          Published by: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          Consumers (\`library-probes\`, \`compat\`) compare the \`smelt.sha\` asset
+          against their own checked-out commit and build smelt from source on any
+          mismatch, so this asset is a same-commit cache — never a silent
+          substitute for the code under test."
+
+          echo "::notice::Published smelt-nightly from $GITHUB_SHA"

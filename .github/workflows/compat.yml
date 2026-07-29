@@ -15,6 +15,13 @@ on:
           - "false"
           - "true"
 
+# Serialize: `update-compat` pushes COMPAT.md to main, so two overlapping
+# dispatches would race on `git push`. Never cancel in progress — a cancelled
+# matrix leg would make `update-compat` publish a partial report.
+concurrency:
+  group: compat
+  cancel-in-progress: false
+
 jobs:
   compat:
     if: ${{ github.event.inputs.run_compat == 'true' }}
@@ -45,20 +52,31 @@ jobs:
         with:
           shared-key: build
 
-      - name: Get smelt binary (prebuilt from main, else build from source)
+      - name: Get smelt binary (prebuilt only if it matches this commit)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Prefer the rolling release built by the last push to main; only fall
-          # back to a from-source build if that asset isn't available (e.g. before
-          # the first main publish).
+          # The smelt-nightly asset is published on demand (see
+          # .github/workflows/publish-smelt.yml), so it can be arbitrarily older
+          # than the commit checked out here. This workflow commits COMPAT.md, so
+          # a stale binary would publish compatibility numbers that describe some
+          # other commit. The asset is therefore only usable when its `smelt.sha`
+          # sidecar matches $GITHUB_SHA exactly; stale asset, missing sidecar, or
+          # download failure all fall back to a from-source build.
           mkdir -p .smelt-bin
-          if gh release download smelt-nightly --pattern smelt --dir .smelt-bin --clobber 2>/dev/null; then
+          asset_sha=""
+          if gh release download smelt-nightly \
+               --pattern smelt --pattern smelt.sha \
+               --dir .smelt-bin --clobber 2>/dev/null; then
+            asset_sha="$(tr -d '[:space:]' < .smelt-bin/smelt.sha 2>/dev/null || true)"
+          fi
+
+          if [ -n "$asset_sha" ] && [ "$asset_sha" = "$GITHUB_SHA" ]; then
             chmod +x .smelt-bin/smelt
             echo "SMELT_BIN=$PWD/.smelt-bin/smelt" >> "$GITHUB_ENV"
-            echo "Using prebuilt smelt from the smelt-nightly release."
+            echo "::notice::Using PREBUILT smelt from smelt-nightly (asset commit $asset_sha matches this commit)."
           else
-            echo "No smelt-nightly release asset found; building smelt from source."
+            echo "::notice::Building smelt FROM SOURCE: smelt-nightly asset commit '${asset_sha:-<none>}' does not match this commit $GITHUB_SHA."
             cargo build --release --bin smelt
             echo "SMELT_BIN=$PWD/target/release/smelt" >> "$GITHUB_ENV"
           fi

@@ -6,16 +6,100 @@ permissions:
 on:
   push:
     branches: [ main ]
+    # Documentation-only changes cannot affect any gate in this workflow, so
+    # skip the whole Rust matrix (~20 min of runner time) for them. Everything
+    # a gate reads is deliberately absent from this list: crates/**,
+    # Cargo.{toml,lock}, .github/**, scripts/**, third_party/**, and the
+    # blocker-logs/*.json baselines (es-toolkit ratchet + SmeltUnknown).
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE*'
+      - '.gitignore'
+      - '*.svg'
+      - 'coverage-summary.json'
+      - 'lcov.info'
   pull_request:
     branches: [ main ]
+    # `labeled` is required so that applying the `run-regressions` label starts a
+    # run; `synchronize` keeps the regression jobs re-running on every later push
+    # while the label is still applied. Naming `types` at all means the three
+    # defaults must be respelled — omitting the key implies
+    # [opened, synchronize, reopened].
+    types: [ opened, synchronize, reopened, labeled ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE*'
+      - '.gitignore'
+      - '*.svg'
+      - 'coverage-summary.json'
+      - 'lcov.info'
+
+# Supersede in-flight runs for the same branch. Restricted to pull requests on
+# purpose: cancelling a `main` push run would skip the es-toolkit regression
+# gate and the coverage-report commit for that commit, so main pushes always
+# run to completion even when several land back to back.
+#
+# `labeled` events are excluded from cancellation. Without that exclusion,
+# applying ANY label to a PR would land in this group and cancel a legitimate
+# in-flight run for the same ref — and because the label run deliberately skips
+# coverage/corpus/clippy (see their `if:`), the PR would be left with no result
+# for those checks at all until the next push. A label event may therefore never
+# cancel anything; a subsequent push still cancels the label run, which is
+# correct because that run tested older code.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' }}
 
 jobs:
+  # Lint gate. The lint policy itself lives in the repo, not here:
+  # `[workspace.lints.rust]` / `[workspace.lints.clippy]` in Cargo.toml already
+  # set clippy::{all,pedantic,nursery} to "deny" plus a large hand-picked
+  # restriction set, and clippy.toml tightens the thresholds. This job just runs
+  # that policy over every target (`--all-targets`, i.e. including the inline
+  # test modules that `--lib` skips) and escalates the remaining "warn"-level
+  # lints with `-D warnings`.
+  #
+  # Cache: restores the plain "build" lane but never saves it (`save-if: false`).
+  # `cargo clippy` compiles *dependencies* with real rustc — only workspace
+  # crates go through clippy-driver — so restoring the lane gives this job warm
+  # third-party artifacts for free. Saving would be actively harmful: whichever
+  # job wins the race writes the shared lane, and a clippy-driver-fingerprinted
+  # target dir would force the corpus/regression jobs to recompile.
+  clippy:
+    # Skip on `labeled`: that event exists only to let a maintainer opt a PR into
+    # the regression jobs below, and re-running this 1-2 min lint (plus coverage
+    # and corpus) for every unrelated label added to any PR is pure waste. On
+    # `push` there is no `action`, so the expression is true and the job runs.
+    if: ${{ github.event.action != 'labeled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+          save-if: false
+
+      - name: Clippy (all targets, warnings are errors)
+        run: cargo clippy --all-targets -- -D warnings
+
   # Slow tier: compile the emitted-Rust corpus. This is a plain (non-instrumented)
   # build on stable, so it runs as its own job in parallel with coverage and shares
   # the "build" cache lane with the other plain-build workflows. It does not need the
   # nightly toolchain, cargo-llvm-cov, or the GUI native libs (it only builds
   # smelt-codegen-rust and its dependencies, not smelt-gui).
   corpus:
+    # See the note on `clippy`: never re-run just because a label was added.
+    if: ${{ github.event.action != 'labeled' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -34,6 +118,10 @@ jobs:
           cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored
 
   coverage:
+    # See the note on `clippy`. This one matters most: coverage is the critical
+    # path at 6 min 18 s, so without this guard every label added to any PR would
+    # burn a full 6-minute run for nothing.
+    if: ${{ github.event.action != 'labeled' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -49,19 +137,30 @@ jobs:
         with:
           components: llvm-tools-preview
 
-      - name: Install native GUI libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
+      # No native GUI libraries are installed here on purpose: smelt-gui is
+      # excluded from the workspace (see `exclude` in the root Cargo.toml), so
+      # `--workspace` can never reach gpui and the xcb/xkbcommon dev packages
+      # are never linked. Re-add them only if smelt-gui rejoins the workspace.
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Distinct cache lane: this job builds with coverage instrumentation,
-          # so its artifacts must not be shared with the plain-build workflows.
-          shared-key: coverage
-          # Cache cargo-installed binaries (cargo-llvm-cov) too.
-          cache-bin: true
+      # DELIBERATELY NO `Swatinem/rust-cache` STEP HERE. Please do not re-add one.
+      #
+      # This job builds through `cargo +nightly`, and `dtolnay/rust-toolchain@nightly`
+      # above is unpinned, so it resolves a new nightly roughly every day.
+      # rust-cache hashes the resolved rustc version into its cache key, so the
+      # key rotated daily while the cached artifacts were also invalidated daily
+      # by the very same rustc change. The lane could therefore never hit.
+      #
+      # Measured on run 30451649094 (and confirmed identical on the PR run
+      # 30451166101): the restore reported success, then cargo recompiled all
+      # 324 units from `unicode-ident` upward — a fully cold instrumented build
+      # in both cases. The lane cost ~10 s to restore + ~11-13 s to save and
+      # returned nothing, while occupying ~664 MB of the repo cache budget per
+      # ref. `cache-bin: true` was inert too: `taiki-e/install-action` fetches a
+      # prebuilt cargo-llvm-cov musl binary in ~0.4 s.
+      #
+      # Re-adding a cache here only pays off together with a *pinned* nightly
+      # (e.g. `nightly-YYYY-MM-DD`), which was considered and rejected to avoid
+      # the recurring manual toolchain bump. See blocker-logs/ci-optimization.md.
 
       - name: Install coverage tool
         uses: taiki-e/install-action@v2
@@ -110,52 +209,41 @@ jobs:
             coverage-regions.svg
             coverage-branches.svg
 
-  # Build a release `smelt` binary on every push to main and publish it to a
-  # rolling "smelt-nightly" prerelease. The slower compat/library-probes
-  # workflows download this instead of compiling smelt from source, saving the
-  # ~1-2 min smelt build each run. Interim measure until smelt is on crates.io.
-  # Runs in its own parallel job, so it adds no wall-clock to coverage/corpus.
-  publish-smelt:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Own lane: a release build must not share the debug-profile target
-          # cache used by the corpus/compat/probes "build" lane.
-          shared-key: release-bin
-
-      - name: Build release smelt
-        run: cargo build --release --bin smelt
-
-      - name: Publish to rolling smelt-nightly release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Create the rolling prerelease once; ignore the error if it exists.
-          gh release create smelt-nightly \
-            --prerelease \
-            --title "smelt nightly (main)" \
-            --notes "Rolling build of the smelt CLI from the latest main commit. Auto-updated by CI." \
-            2>/dev/null || true
-          # --clobber overwrites the asset so the tag always holds the newest binary.
-          gh release upload smelt-nightly target/release/smelt --clobber
+  # NOTE: the `publish-smelt` job that used to live here has moved to its own
+  # dispatch-only workflow, .github/workflows/publish-smelt.yml. It cost ~5.5 min
+  # of runner time on every push to main while its only consumers are a daily
+  # cron (library-probes) and a manual dispatch (compat), so it is now published
+  # on demand. Consumers verify the asset's source commit and fall back to a
+  # from-source build on mismatch, so an out-of-date asset can never be used
+  # silently.
 
   # Regression gate: transpile the Remeda library at a pinned ref with the smelt
   # built from THIS commit, then compile and run its generated Rust test suite.
   # The whole corpus currently passes (1789 tests); this job fails if a codegen,
   # frontend, or MIR change regresses any of them. Builds smelt from source (not
   # the smelt-nightly asset) so pull requests are gated against their own code.
+  # ==========================================================================
+  # OPT-IN ON PULL REQUESTS — READ THIS BEFORE MERGING A CODEGEN CHANGE
+  #
+  # The three library regression gates below (remeda / radash / es-toolkit) do
+  # NOT run on a pull request unless the PR carries the `run-regressions` label.
+  # They DO run unconditionally on every push to main.
+  #
+  # If your PR touches the frontend, HIR, MIR, specializer, or the Rust emitter,
+  # add the `run-regressions` label and wait for them. A green PR without that
+  # label has NOT been checked against Remeda (1789 tests), Radash (84 tests) or
+  # the es-toolkit ratchet, and main is not branch-protected, so nothing else
+  # will stop a regression from landing.
+  #
+  # Once applied, the label sticks: every later push to the PR re-runs them.
+  # Rationale: ~7 min of runner time per PR run for three jobs that sit well
+  # inside the coverage critical path, so skipping them saves runner minutes on
+  # docs/CI-only PRs without making anyone wait longer.
+  # ==========================================================================
   remeda-regression:
+    if: >-
+      ${{ github.event_name == 'push'
+          || contains(github.event.pull_request.labels.*.name, 'run-regressions') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -208,6 +296,11 @@ jobs:
   # importing them; the explicit Vitest import added to the disposable clone
   # lets Smelt discover the same 84 tests without changing upstream sources.
   radash-regression:
+    # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
+    # See the banner above `remeda-regression`.
+    if: >-
+      ${{ github.event_name == 'push'
+          || contains(github.event.pull_request.labels.*.name, 'run-regressions') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -262,6 +355,11 @@ jobs:
   # RUSTFLAGS=-Awarnings keeps the ~950 residual warnings from drowning the log
   # or gating; the warning count is tracked in the baseline as advisory only.
   es-toolkit-regression:
+    # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
+    # See the banner above `remeda-regression`.
+    if: >-
+      ${{ github.event_name == 'push'
+          || contains(github.event.pull_request.labels.*.name, 'run-regressions') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
