@@ -734,6 +734,61 @@ export function tag(value: unknown): string {
 }
 
 #[test]
+fn emits_structured_clone_deep_copy_for_erased_value() {
+    let source = source_for(
+        r"
+export function copy(value: unknown): unknown {
+  return structuredClone(value);
+}
+",
+    );
+
+    // `structuredClone` on an erased value routes through the runtime deep-clone
+    // helper (fresh identities, markers preserved), not an identity pass-through.
+    assert!(source.contains("fn smelt_structured_clone("), "{source}");
+    assert!(source.contains("smelt_structured_clone("), "{source}");
+}
+
+#[test]
+fn structured_clone_of_concrete_value_stays_pass_through() {
+    let source = source_for(
+        r"
+interface Point { x: number; y: number; }
+export function copy(value: Point): Point {
+  return structuredClone(value);
+}
+",
+    );
+
+    // A concretely typed argument keeps its static shape: HIR values are
+    // immutable, so no runtime deep-clone helper call is emitted for it (the
+    // erased deep-clone helper is reserved for genuinely dynamic `unknown`
+    // values, per the SmeltUnknown boundary rules).
+    assert!(
+        !source.contains("smelt_structured_clone("),
+        "concretely typed structuredClone must not route through the erased deep-clone helper: {source}"
+    );
+}
+
+#[test]
+fn emits_reflected_constructor_prototype_for_host_markers() {
+    let source = source_for(
+        r"
+export function proto(value: unknown): unknown {
+  return Object.getPrototypeOf(value);
+}
+",
+    );
+
+    // Host-marker objects (Date/Map/Set/RegExp/Error/...) expose a cached
+    // per-kind prototype whose `constructor` slot is a real callable, so
+    // es-toolkit `clone`'s `new Constructor(obj)` rebuilds the value.
+    assert!(source.contains("fn smelt_reflected_prototype("), "{source}");
+    assert!(source.contains("fn smelt_reflected_construct("), "{source}");
+    assert!(source.contains("fn smelt_reflected_marker_kind("), "{source}");
+}
+
+#[test]
 fn map_carries_identity_marker_across_erasure_boundary() {
     // A `Map` erased to `unknown` must keep its Map-ness: no concrete type,
     // union, or scoped generic can carry the `[object Map]` identity across the

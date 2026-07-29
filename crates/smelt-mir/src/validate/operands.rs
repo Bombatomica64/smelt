@@ -744,6 +744,7 @@ impl Rvalue {
             | Self::StringNormalize { operand, .. }
             | Self::UriEncode { operand }
             | Self::ObjectToStringTag { operand }
+            | Self::StructuredClone { operand }
             | Self::StringTrim { operand, .. }
             | Self::StringPredicate { operand, .. }
             | Self::Await(operand) => visit(operand),
@@ -1490,6 +1491,7 @@ impl Rvalue {
             | Self::StringNormalize { operand, .. }
             | Self::UriEncode { operand }
             | Self::ObjectToStringTag { operand }
+            | Self::StructuredClone { operand }
             | Self::StringTrim { operand, .. }
             | Self::StringPredicate { operand, .. }
             | Self::Await(operand) => visit(operand),

@@ -247,7 +247,7 @@ impl FunctionEmitter<'_> {
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok(self.operand_text(dict)?);
         }
-        if self.operand_ty(value)? != *value_ty {
+        if !self.dict_value_operand_is_compatible(value, *value_ty)? {
             return Ok(self.operand_text(dict)?);
         }
         if dest_ty != dict_ty {
@@ -296,6 +296,44 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(operand_ty),
             Some(Type::Unknown | Type::TypeParam { .. })
         ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == key_ty))
+    }
+
+    /// Return whether a value operand can be stored into a dict/Map value slot.
+    ///
+    /// Mirrors [`Self::dict_key_operand_is_compatible`] for the value position.
+    /// Crucially, this must not silently reject a storable value: a rejection
+    /// here folds the whole `map.set(k, v)` to a plain read of the receiver
+    /// (`dict_set_text`'s bail arm), which drops the insert — an observable
+    /// side effect — from the generated code even though `map.set` was written
+    /// in statement position. An erased value slot (`Map<_, any>`,
+    /// `Map<_, unknown>`, erased union/class) accepts any concrete value because
+    /// [`Self::value_at_type`] erases it into `SmeltUnknown` at the store site;
+    /// without this a `Map<any, any>` insert of a concrete number/string is
+    /// dropped and both maps compare empty at runtime (es-toolkit `isEqualWith`
+    /// map comparisons). Coercible operand shapes (`Unknown`/`TypeParam`
+    /// sources, an optional wrapping the exact slot type, a concrete-membered
+    /// union target) are likewise accepted since `value_at_type` materializes
+    /// them. A genuinely irreconcilable concrete-to-concrete mismatch still
+    /// bails to keep the generated Rust well-typed.
+    fn dict_value_operand_is_compatible(
+        &self,
+        value: &Operand,
+        value_ty: TypeId,
+    ) -> Result<bool, EmitError> {
+        let operand_ty = self.operand_ty(value)?;
+        if operand_ty == value_ty {
+            return Ok(true);
+        }
+        if self.key_ty_is_erased(value_ty) {
+            return Ok(true);
+        }
+        if self.concrete_union_members(value_ty).is_some() {
+            return Ok(true);
+        }
+        Ok(matches!(
+            self.mir.types.get(operand_ty),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == value_ty))
     }
 
     /// Return whether a dict/Map key type is erased to `SmeltUnknown` at runtime.

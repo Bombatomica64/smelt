@@ -986,6 +986,7 @@ impl FunctionEmitter<'_> {
             Rvalue::StringNormalize { form, operand } => self.string_normalize_text(*form, operand),
             Rvalue::UriEncode { operand } => self.uri_encode_text(operand),
             Rvalue::ObjectToStringTag { operand } => self.object_to_string_tag_text(operand),
+            Rvalue::StructuredClone { operand } => self.structured_clone_text(operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_text(*side, operand),
             Rvalue::StringAffix {
                 op,

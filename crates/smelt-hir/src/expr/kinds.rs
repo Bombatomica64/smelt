@@ -207,6 +207,11 @@ pub enum ExprKind {
     ObjectToStringTag {
         operand: ExprId,
     },
+    /// Deep-copy an erased value graph with fresh identities, preserving host
+    /// markers (`structuredClone(x)`; see the runtime `smelt_structured_clone`).
+    StructuredClone {
+        operand: ExprId,
+    },
     StringTrim {
         side: StringTrimSide,
         operand: ExprId,
