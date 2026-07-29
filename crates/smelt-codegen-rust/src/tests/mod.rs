@@ -67,6 +67,7 @@ mod module_globals_tests;
 mod snapshot_tests;
 mod snapshot_tests_part_2;
 mod host_override_tests;
+mod thrown_tests;
 mod tail_r3_tests;
 mod tail_r7_tests;
 mod tail_r8_tests;

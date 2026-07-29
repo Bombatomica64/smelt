@@ -609,7 +609,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
     if trimmed.starts_with("let __smelt_update_tmp") && trimmed.contains(": SmeltUnknown =") {
         return true;
     }
-    const BOUNDARY_MARKERS: [&str; 9] = [
+    const BOUNDARY_MARKERS: [&str; 11] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         "IntoSmeltUnknown",
@@ -618,6 +618,21 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         "js_typeof",
         "tag_check",
         "smelt_unknown_is_",
+        // The exception-payload ABI (`crates/smelt-codegen-rust/src/thrown.rs`).
+        // `throw` accepts any JavaScript value, a `catch` binding has no static
+        // type, and every fallible generated function shares one error channel
+        // (`Result<T, Box<dyn Error>>`) — including erased callbacks, whose
+        // signature is fixed crate-wide and so cannot mention a caller-specific
+        // error type. `smelt_throw`/`smelt_thrown_value` are therefore explicit
+        // boundary adapters entering and leaving that channel, exactly the
+        // "erased interop" case, not avoidable program-storage erasure. Proven in
+        // `crates/smelt-codegen-rust/src/tests/thrown_tests.rs`
+        // (`one_channel_carries_structurally_unrelated_payloads`), which sends a
+        // field-bearing record and a bare string through one function's channel on
+        // a run-time branch and recovers both at a single `catch`: no concrete
+        // type, generated union arm, or scoped generic can express that.
+        "smelt_throw(",
+        "smelt_thrown_value(",
         // `.slice()` on an erased receiver (a generic `T` / `unknown` value that
         // may be an array, string, or a typed-array/array-buffer marker at
         // runtime) emits a `smelt_slice_value` tag match that dispatches on the

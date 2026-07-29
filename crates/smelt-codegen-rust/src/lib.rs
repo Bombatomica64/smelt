@@ -85,6 +85,7 @@ pub(crate) mod classify;
 pub(crate) mod deps;
 pub mod rust;
 pub(crate) mod stdlib;
+pub(crate) mod thrown;
 
 use deps::GeneratedDep;
 mod emitter;
@@ -2290,6 +2291,10 @@ fn emit_source_with_free_function_router(
                 },
             );
         });
+        // The exception-payload ABI sits right after `Display for SmeltUnknown`
+        // because `SmeltThrown`'s own `Display` falls back to it for non-error
+        // payloads.
+        thrown::emit_thrown_payload_support(&mut writer);
         writer.blank_line();
         writer.line("impl Eq for SmeltUnknown {}");
         writer.blank_line();

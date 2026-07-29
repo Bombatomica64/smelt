@@ -1255,13 +1255,8 @@ impl FunctionEmitter<'_> {
                 default,
             } => self.emit_closure_match(scrutinee, arms, *default, out, active, stop, in_loop),
             Terminator::Throw(operand) => {
-                // Same rationale as the function-level throw terminator: pin the
-                // `Result` error type to `Box<dyn std::error::Error>` at the `Err`
-                // construction so a throwing closure never leaves `E` ambiguous.
-                out.push_str(&format!(
-                    "    return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
-                    self.operand_text(operand)?
-                ));
+                // Same helper as the function-level throw terminator.
+                out.push_str(&self.throw_terminator_text(operand)?);
                 Ok(())
             }
             Terminator::Unreachable => {

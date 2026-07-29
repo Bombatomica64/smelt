@@ -911,7 +911,12 @@ console.log(result);
     // as each arm's own tail rather than one hoisted join.
     assert!(source.contains("=> {"), "{source}");
     assert!(source.contains("while"), "{source}");
-    assert!(source.contains("return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new("), "{source}");
+    // The conditional throw still diverges through the error channel, now via the
+    // payload-preserving adapter (see `crate::thrown`).
+    assert!(
+        source.contains("return Err::<_, Box<dyn std::error::Error>>(smelt_throw("),
+        "{source}"
+    );
 }
 
 #[test]
