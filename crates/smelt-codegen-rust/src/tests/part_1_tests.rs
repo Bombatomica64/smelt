@@ -225,6 +225,52 @@ function run(): number {
     );
 }
 
+/// A string literal that happens to spell a shared-captured variable's name must
+/// be emitted verbatim.
+///
+/// Shared-capture uses inside an escaping closure are substituted textually over
+/// the already-rendered closure body (`replace_shared_capture_uses`). That scan
+/// must skip Rust literals: in es-toolkit's `flatten` a closure named `recursive`
+/// rewrote the emitter's own `panic!("recursive closure control flow …")` message
+/// into `panic!("(*smelt_capture_recursive.borrow_mut()) closure …")`, and the
+/// same corruption silently rewrites user program string data.
+#[test]
+fn preserves_string_literal_naming_a_shared_capture() {
+    let source = source_for(
+        r#"
+function apply(fn: (x: number) => string): string {
+  return fn(1);
+}
+function label(): number {
+  let current = 0;
+  const bump = (x: number): string => {
+    current = current + x;
+    return "current went up";
+  };
+  apply(bump);
+  return current;
+}
+"#,
+    );
+
+    // `current` is shared through a capture cell, so the textual rewrite ran.
+    assert!(
+        source
+            .contains("let smelt_capture_current = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+        "{source}"
+    );
+    assert!(
+        source.contains("let smelt_capture_current = smelt_capture_current.clone();"),
+        "{source}"
+    );
+    // The literal is data: it keeps the source spelling of `current`.
+    assert!(source.contains(r#""current went up""#), "{source}");
+    assert!(
+        !source.contains("smelt_capture_current.borrow_mut()) went up"),
+        "string literal was rewritten\n{source}"
+    );
+}
+
 /// A list index READ on a shared-capture array must borrow the backing `Vec`
 /// immutably. The read lowers to `arr.get({ ... arr.len() ... }).cloned()`, so
 /// if the receiver used `borrow_mut()` the `.len()` inside the normalized-index
