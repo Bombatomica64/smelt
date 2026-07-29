@@ -227,6 +227,10 @@ clone-strategy = "aggressive"
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end CLI fixture: the inline project sources and the assertions over the\n             generated output belong to one scenario, and splitting them into helpers would\n             hide what this test actually builds"
+)]
 fn build_python_rich_like_null_file_package_fixture() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();
@@ -594,10 +598,10 @@ clone-strategy = "aggressive"
     )?;
     fs::write(
         project_path.join("src/types.ts"),
-        r#"export interface ContextOptions<DateType extends Date = Date> {
+        r"export interface ContextOptions<DateType extends Date = Date> {
   in?: DateType;
 }
-"#,
+",
     )?;
     fs::write(
         project_path.join("src/index.ts"),

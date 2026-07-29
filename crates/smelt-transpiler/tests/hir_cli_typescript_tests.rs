@@ -10,6 +10,10 @@ use common::{
 };
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end CLI fixture: the inline project sources and the assertions over the\n             generated output belong to one scenario, and splitting them into helpers would\n             hide what this test actually builds"
+)]
 fn build_specializes_decorators_and_reuses_packaged_manifest() -> TestResult {
     if !std::path::Path::new("/usr/bin/bwrap").is_file()
         || std::process::Command::new("node")
@@ -248,7 +252,7 @@ clone-strategy = "aggressive"
     )?;
     fs::write(
         project_path.join("src/main.ts"),
-        r#"class Point {
+        r"class Point {
   x: number;
   y?: number;
   constructor(x: number, y?: number) {
@@ -266,7 +270,7 @@ console.log(present.x);
 console.log(present.readY());
 console.log(absent.x);
 console.log(absent.readY());
-"#,
+",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
@@ -438,6 +442,10 @@ console.log(allocated.byteLength);
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end CLI fixture: the inline project sources and the assertions over the\n             generated output belong to one scenario, and splitting them into helpers would\n             hide what this test actually builds"
+)]
 fn build_runs_date_fns_quarters_to_months_tests() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();
@@ -1181,6 +1189,10 @@ export function read(options?: Options): number {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end CLI fixture: the inline project sources and the assertions over the\n             generated output belong to one scenario, and splitting them into helpers would\n             hide what this test actually builds"
+)]
 fn build_resolves_cyclic_type_import_inherited_option_fields() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();
@@ -1427,7 +1439,7 @@ clone-strategy = "aggressive"
     )?;
     fs::write(
         project_path.join("src/main.ts"),
-        r#"class Counter {
+        r"class Counter {
   value: number = 7;
 }
 
@@ -1441,7 +1453,7 @@ function make(ctor: CounterConstructor): Counter {
 
 const counter = make(Counter);
 console.log(counter.value);
-"#,
+",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
@@ -1468,13 +1480,13 @@ fn dump_hir_folds_imported_const_switch_labels_from_sibling_module() -> TestResu
     fs::create_dir_all(project_path.join("src"))?;
     fs::write(
         project_path.join("src/tags.ts"),
-        r#"export const arrayTag = '[object Array]';
+        r"export const arrayTag = '[object Array]';
 export const objectTag = '[object Object]';
-"#,
+",
     )?;
     fs::write(
         project_path.join("src/classify.ts"),
-        r#"import { arrayTag, objectTag } from './tags';
+        r"import { arrayTag, objectTag } from './tags';
 
 export function isContainerTag(tag: string): boolean {
   switch (tag) {
@@ -1485,7 +1497,7 @@ export function isContainerTag(tag: string): boolean {
       return false;
   }
 }
-"#,
+",
     )?;
 
     let importer_arg = utf8_path(&project_path.join("src/classify.ts"))?;

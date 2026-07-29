@@ -901,11 +901,11 @@ const values = [" a ", " "].filter(value => !!value.trim());
 #[test]
 fn emits_erased_string_coercion_before_callback_trim() {
     let source = source_for(
-        r#"
+        r"
 function clean(value: any): any[] {
   return [value].filter(item => !!item.trim());
 }
-"#,
+",
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
@@ -1130,14 +1130,14 @@ const asBool = Boolean("");
 #[test]
 fn emits_tonumber_coercion_for_mixed_string_number_relational() {
     let source = source_for(
-        r#"
+        r"
 export function mixedRelational(key: string, len: number): boolean {
   return key >= 0 && key < len;
 }
 export function lexicalRelational(a: string, b: string): boolean {
   return a < b;
 }
-"#,
+",
     );
 
     // The string side of a string-vs-number comparison is ToNumber-coerced.
@@ -1492,7 +1492,7 @@ export function measure(str: string, chars?: string | string[]): number {
 #[test]
 fn async_shared_capture_prelude_clones_handle() {
     let out = source_for(
-        r#"
+        r"
 async function delayMs(ms: number): Promise<void> {}
 async function run(arr: number[]): Promise<void> {
   let running = 0;
@@ -1508,7 +1508,7 @@ async function run(arr: number[]): Promise<void> {
   };
   await Promise.all(arr.map(fn));
 }
-"#,
+",
     );
     assert!(
         !out.contains("let (*smelt_capture"),
@@ -1553,13 +1553,13 @@ function f(): Record<string, unknown> {
 #[test]
 fn array_fill_length_cast_parenthesized_before_comparison() {
     let out = source_for(
-        r#"
+        r"
 function f(): number[] {
   const a: number[] = [1, 2, 3];
   a.fill(0);
   return a;
 }
-"#,
+",
     );
     assert!(
         !out.contains("fill_len as f64 <"),
@@ -1580,7 +1580,7 @@ function f(): number[] {
 #[test]
 fn async_method_emits_owned_self_smelt_future() {
     let out = source_for(
-        r#"
+        r"
 class Semaphore {
   private available: number = 1;
   async acquire(): Promise<void> {
@@ -1593,7 +1593,7 @@ async function run(): Promise<void> {
   const sema = new Semaphore();
   sema.acquire();
 }
-"#,
+",
     );
     assert!(
         out.contains("fn acquire(&self) -> SmeltFuture<()> {"),
@@ -1624,14 +1624,14 @@ async function run(): Promise<void> {
 #[test]
 fn async_method_owned_self_applies_to_value_class() {
     let out = source_for(
-        r#"
+        r"
 class Latch {
   done: boolean = false;
   async wait(): Promise<boolean> {
     return this.done;
   }
 }
-"#,
+",
     );
     assert!(
         out.contains("fn wait(&self) -> SmeltFuture<bool> {"),
@@ -1652,7 +1652,7 @@ class Latch {
 #[test]
 fn throwing_await_discards_value_in_void_context() {
     let out = source_for(
-        r#"
+        r"
 async function makeValue(): Promise<number> {
   return 1;
 }
@@ -1661,7 +1661,7 @@ async function run(): Promise<void> {
     await makeValue();
   } catch (e) {}
 }
-"#,
+",
     );
     assert!(
         !out.contains(": () = __smelt_value;"),

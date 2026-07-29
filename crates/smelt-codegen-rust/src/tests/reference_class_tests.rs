@@ -12,7 +12,7 @@ fn reference_class_names(ts: &str) -> Vec<String> {
     assert!(to_hir(ts, FileId(0), &mut ctx).is_ok(), "HIR");
     let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
     smelt_mir::opt::optimize(&mut mir);
-    let mut names: Vec<String> = crate::classify::reference_classes(&mir)
+    let mut names: Vec<String> = classify::reference_classes(&mir)
         .into_iter()
         .map(|symbol| mir.symbols.get(symbol).unwrap_or("?").to_owned())
         .collect();

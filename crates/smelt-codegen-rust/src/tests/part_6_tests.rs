@@ -464,7 +464,7 @@ export function make(): () => Promise<number> {
 #[test]
 fn async_instance_method_call_is_not_double_wrapped() {
     let source = source_for(
-        r#"
+        r"
 class Semaphore {
   private available: number = 1;
   async acquire(): Promise<number> {
@@ -475,7 +475,7 @@ async function run(): Promise<number> {
   const sema = new Semaphore();
   return await sema.acquire();
 }
-"#,
+",
     );
 
     assert!(
@@ -1099,7 +1099,7 @@ fn injects_genawaiter_dependency_for_generator_emission() {
     );
 
     let manifest =
-        deps::cargo_toml(&EmitOptions::default().crate_name, &crate::generated_deps(&mir));
+        deps::cargo_toml(&EmitOptions::default().crate_name, &generated_deps(&mir));
     assert!(
         manifest.contains("genawaiter = \"0.99.1\""),
         "a crate that emits genawaiter bodies must declare the dependency: {manifest}"
@@ -1322,7 +1322,7 @@ export function nextHour(): number {
 #[test]
 fn error_subclass_declares_inherited_marker_fields() {
     let source = source_for(
-        r#"
+        r"
 class HttpError extends Error {
   code: number;
   constructor(message: string, code: number) {
@@ -1332,7 +1332,7 @@ class HttpError extends Error {
   }
 }
 export function make(): HttpError { return new HttpError('x', 400); }
-"#,
+",
     );
 
     assert!(source.contains("name:"), "missing name field: {source}");
@@ -1351,13 +1351,13 @@ export function make(): HttpError { return new HttpError('x', 400); }
 #[test]
 fn empty_map_field_initializer_adopts_declared_types() {
     let source = source_for(
-        r#"
+        r"
 class Cache<T> {
   private data: Map<T, string> = new Map();
   size(): number { return this.data.size; }
 }
 export function make(): Cache<string> { return new Cache<string>(); }
-"#,
+",
     );
 
     assert!(
@@ -1373,11 +1373,11 @@ export function make(): Cache<string> { return new Cache<string>(); }
 #[test]
 fn console_log_of_non_display_value_erases_to_unknown() {
     let source = source_for(
-        r#"
+        r"
 export function show<A>(value: A): void {
   console.log(value);
 }
-"#,
+",
     );
 
     assert!(
@@ -1417,11 +1417,11 @@ export function outer(cb: (x: number) => number): number { return inner(cb); }
 #[test]
 fn throw_only_closure_annotates_result_return_type() {
     let source = source_for(
-        r#"
+        r"
 export function makeThrower(): () => number {
   return () => { throw new Error('nope'); };
 }
-"#,
+",
     );
 
     assert!(
@@ -1575,13 +1575,13 @@ console.log(r);
 #[test]
 fn explicit_any_local_not_narrowed_by_assignment() {
     let source = source_for(
-        r#"
+        r"
 export function run(): void {
   let o: any = { a: true };
   o = { a: 1, b: 2, c: 3 };
   o.b = o;
 }
-"#,
+",
     );
     assert!(
         source.contains("let mut o: SmeltUnknown"),

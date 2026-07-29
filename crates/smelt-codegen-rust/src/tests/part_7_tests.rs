@@ -40,7 +40,7 @@ export function run(): unknown {
 #[test]
 fn future_erasure_emits_into_smelt_unknown_impl() {
     let source = source_for(
-        r#"
+        r"
 export async function makeValue(): Promise<number> {
   return 1
 }
@@ -48,7 +48,7 @@ export async function makeValue(): Promise<number> {
 export async function useErased(func: (...args: unknown[]) => unknown): Promise<unknown> {
   return func()
 }
-"#,
+",
     );
 
     assert!(
@@ -65,7 +65,7 @@ export async function useErased(func: (...args: unknown[]) => unknown): Promise<
 #[test]
 fn async_closure_with_returning_loop_annotates_unreachable_tail() {
     let source = source_for(
-        r#"
+        r"
 export function worker(done: (values: unknown[]) => void): () => Promise<void> {
   return async () => {
     const values: unknown[] = []
@@ -74,7 +74,7 @@ export function worker(done: (values: unknown[]) => void): () => Promise<void> {
     }
   }
 }
-"#,
+",
     );
 
     assert!(
@@ -90,14 +90,14 @@ export function worker(done: (values: unknown[]) => void): () => Promise<void> {
 #[test]
 fn dotted_write_to_unknown_key_record_inserts_string_key() {
     let source = source_for(
-        r#"
+        r"
 export function cycle(): unknown {
   const symbolKey = Symbol('key')
   const complex = { loop: null, [symbolKey]: 'symbol' }
   complex.loop = complex
   return complex
 }
-"#,
+",
     );
 
     assert!(
@@ -116,7 +116,7 @@ export function cycle(): unknown {
 #[test]
 fn async_return_of_tuple_literal_lowers_to_value_not_promise_wrapper() {
     let source = source_for(
-        r#"
+        r"
 export async function attemptAsync<T, E>(func: () => Promise<T>): Promise<[null, T] | [E, null]> {
   try {
     const result = await func();
@@ -125,7 +125,7 @@ export async function attemptAsync<T, E>(func: () => Promise<T>): Promise<[null,
     return [error as E, null];
   }
 }
-"#,
+",
     );
 
     // The success return lowers to an erased array value, not a future wrapper.
@@ -153,7 +153,7 @@ export async function attemptAsync<T, E>(func: () => Promise<T>): Promise<[null,
 #[test]
 fn async_non_throwing_return_is_ok_wrapped() {
     let source = source_for(
-        r#"
+        r"
 export async function firstEven(values: number[]): Promise<number> {
   for (const value of values) {
     if (value % 2 === 0) {
@@ -162,7 +162,7 @@ export async function firstEven(values: number[]): Promise<number> {
   }
   return -1;
 }
-"#,
+",
     );
 
     assert!(source.contains("async fn first_even"), "{source}");
@@ -2179,14 +2179,14 @@ function isArray(value: unknown): boolean {
 #[test]
 fn preserves_runtime_value_through_never_assertion() {
     let source = source_for(
-        r#"
+        r"
 function consume(value: unknown): boolean {
   return value === null;
 }
 const result = consume(null as unknown as never);
 const tuple = [1] as unknown as [never];
 const record = {} as Record<string, never>;
-"#,
+",
     );
 
     assert!(
@@ -3858,7 +3858,7 @@ async function consume(): Promise<string> {
 #[test]
 fn emits_union_method_returning_generator_for_async_delegation() {
     let source = source_for(
-        r#"
+        r"
 class Ok<T> {
   constructor(readonly value: T) {}
   safeUnwrap(): Generator<number, T, unknown> {
@@ -3880,7 +3880,7 @@ type Result<T> = Ok<T> | Err<T>;
 async function* unwrap<T>(promise: Promise<Result<T>>): AsyncGenerator<number, T, unknown> {
   return yield* await promise.then((result) => result.safeUnwrap());
 }
-"#,
+",
     );
 
     assert!(source.contains("match closure_arg_0"), "{source}");
@@ -4357,12 +4357,12 @@ fn regexp_metadata_fields_resolve_to_concrete_types() {
     // `new RegExp(...)`'s `String` parameters emits a stringify-of-
     // `SmeltUnknown` match against an already-`String` scrutinee (E0308).
     let source = source_for(
-        r#"
+        r"
 export function cloneRe(obj: unknown): RegExp {
   const regExp = obj as unknown as RegExp;
   return new RegExp(regExp.source, regExp.flags);
 }
-"#,
+",
     );
 
     assert!(
@@ -7100,13 +7100,13 @@ export function describeViews(): string {
 #[test]
 fn inlined_method_chain_const_emits_concat_and_slice() {
     let source = source_for(
-        r#"
+        r"
 const smallNumbers = [0, 1].concat([2, 3, 4].slice(1));
 export function numberCount(): number {
   const values = smallNumbers;
   return values.length;
 }
-"#,
+",
     );
     assert!(source.contains("fn number_count()"), "{source}");
     assert!(
@@ -7125,14 +7125,14 @@ export function numberCount(): number {
 #[test]
 fn zero_parameter_named_map_callback_calls_with_no_arguments() {
     let source = source_for(
-        r#"
+        r"
 function stubTrue(): boolean {
   return true;
 }
 export function run(values: number[]): boolean[] {
   return values.map(stubTrue);
 }
-"#,
+",
     );
     assert!(source.contains("(smelt_callback)()"), "{source}");
     assert!(source.contains("fn run("), "{source}");
@@ -7143,14 +7143,14 @@ export function run(values: number[]): boolean[] {
 #[test]
 fn zero_parameter_named_filter_callback_emits_real_iteration() {
     let source = source_for(
-        r#"
+        r"
 function stubFalse(): boolean {
   return false;
 }
 export function run(values: number[]): number[] {
   return values.filter(stubFalse);
 }
-"#,
+",
     );
     assert!(source.contains("stub_false()"), "{source}");
     assert!(source.contains(".iter().enumerate().filter_map("), "{source}");
@@ -7162,14 +7162,14 @@ export function run(values: number[]): number[] {
 #[test]
 fn over_arity_named_map_callback_pads_optional_tail_with_none() {
     let source = source_for(
-        r#"
+        r"
 function withTail(value: number, index?: number, list?: number[], guard?: number): number {
   return value + (guard ?? 0);
 }
 export function run(values: number[]): number[] {
   return values.map(withTail);
 }
-"#,
+",
     );
     assert!(
         source.contains("with_tail(closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2.clone(), None::<f64>)"),
@@ -7185,11 +7185,11 @@ fn emits_string_coercion_default_sort_for_union_elements() {
     // concrete union projects through `into_smelt_unknown` before the coercion
     // match, and the sort itself is a stable `sort_by` over the coerced keys.
     let source = source_for(
-        r#"
+        r"
 function sortMixed(values: Array<string | number>): Array<string | number> {
   return values.sort();
 }
-"#,
+",
     );
 
     assert!(
@@ -7210,14 +7210,14 @@ fn emits_member_store_for_compound_callback_assignment() {
     // instead of silently dropping the mutation (or rejecting the file with
     // "callback assignment targets must be captured locals").
     let source = source_for(
-        r#"
+        r"
 function tag(rows: string[][], suffix: string): string[][] {
   return rows.map(row => {
     row[0] += suffix;
     return row;
   });
 }
-"#,
+",
     );
 
     assert!(
@@ -7238,14 +7238,14 @@ fn optional_unknown_truthiness_covers_undefined() {
     // arm produced a non-exhaustive match (E0004) because `SmeltUnknown` has a
     // dedicated `Undefined` variant.
     let source = source_for(
-        r#"
+        r"
 export function firstTruthy(guard?: unknown): boolean {
   if (guard) {
     return true;
   }
   return false;
 }
-"#,
+",
     );
 
     assert!(
@@ -7262,14 +7262,14 @@ fn callback_parameter_adapter_reborrows_immutably() {
     // reborrow through that shared reference fails to compile (E0596), so the
     // adapter must reborrow immutably with `&*`.
     let source = source_for(
-        r#"
+        r"
 function uniqBy<T>(arr: T[], mapper: (item: T, index: number, arr: T[]) => unknown): T[] {
   return arr;
 }
 export function unionBy<T>(arr1: T[], arr2: T[], mapper: (item: T) => unknown): T[] {
   return uniqBy([...arr1, ...arr2], mapper);
 }
-"#,
+",
     );
 
     assert!(
@@ -7290,7 +7290,7 @@ fn erased_rest_callback_maps_through_erased_call_abi() {
     // lowering must route it through the erased callable ABI (`.call(..)`) rather
     // than emitting `(smelt_callback)(..)`, which fails to compile (E0618).
     let source = source_for(
-        r#"
+        r"
 function makeCapped(): (...args: unknown[]) => unknown {
   return (...args: unknown[]) => args[0];
 }
@@ -7298,7 +7298,7 @@ export function run(items: string[]): unknown[] {
   const capped = makeCapped();
   return items.map(capped);
 }
-"#,
+",
     );
 
     assert!(
@@ -7319,7 +7319,7 @@ fn borrowed_rest_adapter_binds_owned_callback() {
     // function parameter), the adapter must introduce that binding inside the
     // borrowed temporary, otherwise `smelt_callback` is unresolved (E0425).
     let source = source_for(
-        r#"
+        r"
 function unzipWith(arrays: number[][], iteratee: (...values: unknown[]) => unknown): unknown[] {
   const result: unknown[] = [];
   for (const group of arrays) {
@@ -7330,7 +7330,7 @@ function unzipWith(arrays: number[][], iteratee: (...values: unknown[]) => unkno
 export function run(zipped: number[][]): unknown[] {
   return unzipWith(zipped, (item: number, item2: number, item3: number) => item + item2 + item3);
 }
-"#,
+",
     );
 
     assert!(
@@ -7345,11 +7345,11 @@ fn tuple_length_emits_constant_arity() {
     // `.length` is a compile-time constant, so the length rvalue must emit the
     // arity literal rather than a method call on the tuple.
     let source = source_for(
-        r#"
+        r"
 export function pairLength(pair: [string, number]): number {
   return pair.length;
 }
-"#,
+",
     );
 
     assert!(
@@ -7426,12 +7426,12 @@ fn optional_chain_named_group_read_uses_named_group_owned() {
     // (`_smelt_value.result`), which does not exist on `SmeltMatch` (E0609). The
     // optional field read must keep the typed match accessor.
     let source = source_for(
-        r#"
+        r"
 export function firstGroup(input: string): string | undefined {
   const m = /(?<result>\w+)/.exec(input);
   return m?.groups.result;
 }
-"#,
+",
     );
     assert!(
         source.contains(".named_group_owned(\"result\")"),
@@ -7741,7 +7741,7 @@ fn wraps_erased_rest_call_result_in_option_for_optional_return() {
     // raw `SmeltUnknown` stored into an `Option<SmeltUnknown>` place is a
     // type error (E0308). This mirrors es-toolkit's `after`/`before`.
     let source = source_for(
-        r#"
+        r"
 type AnyFn = (...args: unknown[]) => unknown;
 
 function after(n: number, func: AnyFn): (...args: unknown[]) => unknown | undefined {
@@ -7760,7 +7760,7 @@ export function run(): unknown | undefined {
   const result = gated();
   return result;
 }
-"#,
+",
     );
 
     assert!(
@@ -7781,13 +7781,13 @@ export function run(): unknown | undefined {
 #[test]
 fn regexp_last_index_write_targets_borrow_mut() {
     let source = source_for(
-        r#"
+        r"
 export function run(): number {
   const regex = /a/g;
   regex.lastIndex = 10;
   return regex.lastIndex;
 }
-"#,
+",
     );
 
     assert!(
@@ -7807,13 +7807,13 @@ export function run(): number {
 #[test]
 fn function_ptr_eq_coerces_operands_to_common_dyn_type() {
     let source = source_for(
-        r#"
+        r"
 export function run(fns: Array<() => unknown>): boolean {
   const a = fns[0];
   const b = fns[1];
   return a === b;
 }
-"#,
+",
     );
 
     assert!(
@@ -7831,7 +7831,7 @@ export function run(fns: Array<() => unknown>): boolean {
 #[test]
 fn never_return_coerces_to_bool_via_truthiness() {
     let source = source_for(
-        r#"
+        r"
 function pickBy(obj: Record<string, unknown>, pred: (v: unknown) => boolean): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key in obj) {
@@ -7847,7 +7847,7 @@ export function run(): Record<string, unknown> {
   const shouldPick = (value: never) => value;
   return pickBy(obj, shouldPick);
 }
-"#,
+",
     );
 
     assert!(
@@ -7866,7 +7866,7 @@ export function run(): Record<string, unknown> {
 #[test]
 fn object_literal_injects_into_record_union_arm() {
     let source = source_for(
-        r#"
+        r"
 interface Options {
   retries?: number;
 }
@@ -7878,7 +7878,7 @@ function retry(fn: () => number, options: number | Options): number {
 export function run(): number {
   return retry(() => 1, { retries: 3 });
 }
-"#,
+",
     );
 
     assert!(
@@ -7894,12 +7894,12 @@ export function run(): number {
 #[test]
 fn list_slice_into_unknown_destination_materializes_smelt_list() {
     let source = source_for(
-        r#"
+        r"
 export function run(args: string[]): unknown {
   const capped: unknown = args.slice(0, 2);
   return capped;
 }
-"#,
+",
     );
 
     // The slice is materialized as an identity-bearing array value and erased,
@@ -7922,7 +7922,7 @@ export function run(args: string[]): unknown {
 #[test]
 fn async_callback_into_sync_slot_wraps_future_as_promise() {
     let source = source_for(
-        r#"
+        r"
 function attempt(fn: () => unknown): unknown {
   return fn();
 }
@@ -7930,7 +7930,7 @@ function attempt(fn: () => unknown): unknown {
 export function run(): unknown {
   return attempt(async () => 1);
 }
-"#,
+",
     );
 
     assert!(
@@ -7948,7 +7948,7 @@ export function run(): unknown {
 #[test]
 fn spread_call_selects_variadic_overload() {
     let source = source_for(
-        r#"
+        r"
 export function cartesianProduct<T>(arr1: readonly T[]): Array<[T]>;
 export function cartesianProduct<T, U>(arr1: readonly T[], arr2: readonly U[]): Array<[T, U]>;
 export function cartesianProduct<T>(...arrs: Array<readonly T[]>): T[][];
@@ -7959,7 +7959,7 @@ export function cartesianProduct<T>(...arrs: Array<readonly T[]>): T[][] {
 export function run(inputs: number[][]): unknown {
   return cartesianProduct(...inputs);
 }
-"#,
+",
     );
 
     assert!(
@@ -7979,7 +7979,7 @@ export function run(inputs: number[][]): unknown {
 #[test]
 fn to_equal_contextually_types_expected_from_actual() {
     let source = source_for(
-        r#"
+        r"
 import { describe, it, expect } from 'vitest';
 
 describe('toEqual', () => {
@@ -7988,7 +7988,7 @@ describe('toEqual', () => {
     expect(actual).toEqual([[1, 'a'], [2, 'b']]);
   });
 });
-"#,
+",
     );
 
     // The expected literal's rows lower as (f64, String) tuples, matching the
@@ -8007,7 +8007,7 @@ describe('toEqual', () => {
 #[test]
 fn fixed_params_against_variadic_hint_take_element_type() {
     let source = source_for(
-        r#"
+        r"
 function unzipWith<T, R>(target: readonly T[][], iteratee: (...args: T[]) => R): R[] {
   return target.map(group => iteratee(...group));
 }
@@ -8015,7 +8015,7 @@ function unzipWith<T, R>(target: readonly T[][], iteratee: (...args: T[]) => R):
 export function run(zipped: Array<[number, number, number]>): number[] {
   return unzipWith(zipped, (item, item2, item3) => item + item2 + item3);
 }
-"#,
+",
     );
 
     // The three-parameter user iteratee must not receive a list as its first
@@ -8034,13 +8034,13 @@ export function run(zipped: Array<[number, number, number]>): number[] {
 #[test]
 fn tuple_coerces_into_list_target() {
     let source = source_for(
-        r#"
+        r"
 function sink(rows: unknown[][]): void {}
 
 export function run(pairs: Array<[number, number]>): void {
   sink(pairs);
 }
-"#,
+",
     );
 
     assert!(
@@ -8296,7 +8296,7 @@ export function pickByIndex(values: number[]): number[] {
 #[test]
 fn async_closure_await_propagates_future_errors() {
     let source = source_for(
-        r#"
+        r"
 async function load(): Promise<number> {
   return 1;
 }
@@ -8311,7 +8311,7 @@ export function callback(): () => Promise<number> {
     return value;
   });
 }
-"#,
+",
     );
 
     assert!(
@@ -8426,14 +8426,14 @@ fn erased_apply_call_bind_function_receiver() {
     // regression). The read routes through `smelt_function_method`, which binds
     // the callable with `this`-dropping/argument-spreading semantics.
     let source = source_for(
-        r#"
+        r"
 export function invokeApply(func: any, args: unknown[]): unknown {
   return func.apply(undefined, args);
 }
 export function invokeCall(func: any, first: unknown): unknown {
   return func.call(undefined, first);
 }
-"#,
+",
     );
 
     assert!(
@@ -8461,7 +8461,7 @@ fn erased_rest_adapter_packs_target_arguments() {
     // variant of this adapter is exercised end-to-end by the es-toolkit
     // `partial`/`partialRight` suites).
     let source = source_for(
-        r#"
+        r"
 type ErasedBinary = (a: unknown, b: unknown) => unknown;
 function makeErased<R>(f: (...args: unknown[]) => R): (...args: unknown[]) => R {
   return (...args: unknown[]) => f(...args);
@@ -8469,7 +8469,7 @@ function makeErased<R>(f: (...args: unknown[]) => R): (...args: unknown[]) => R 
 export function adapt(f: (...args: unknown[]) => unknown): ErasedBinary {
   return makeErased(f);
 }
-"#,
+",
     );
 
     // Both target arguments are forwarded into the erased rest list, in order.
@@ -8522,11 +8522,11 @@ fn vitest_mock_prelude_is_pay_for_use() {
     // A crate with no `vi.fn()` mock keeps a byte-identical prelude: no mock
     // registry, no `SmeltPromise::rejected`.
     let source = source_for(
-        r#"
+        r"
 export function double(value: number): number {
   return value * 2;
 }
-"#,
+",
     );
     assert!(!source.contains("SmeltVitestMockState"), "{source}");
     assert!(!source.contains("fn rejected("), "{source}");
@@ -8650,7 +8650,7 @@ it("reads mock.calls", () => {
 #[test]
 fn closure_if_guard_mutating_captured_locals_keeps_the_branch() {
     let source = source_for(
-        r#"
+        r"
 export function once<T>(fn: () => T): () => T {
   let called = false;
   let ret: T;
@@ -8662,7 +8662,7 @@ export function once<T>(fn: () => T): () => T {
     return ret;
   };
 }
-"#,
+",
     );
 
     // The guard survives: `fn()` and the `called = true` write live inside an
@@ -8701,7 +8701,7 @@ export function once<T>(fn: () => T): () => T {
 #[test]
 fn object_rest_copies_named_object_source_that_erases_to_unknown() {
     let source = source_for(
-        r#"
+        r"
 interface Handle {
   readonly call: () => void;
   readonly cancel: () => void;
@@ -8713,7 +8713,7 @@ export function wrap(): Record<string, unknown> {
   call();
   return rest;
 }
-"#,
+",
     );
 
     // The rest copy is materialized from the erased object form, not an empty

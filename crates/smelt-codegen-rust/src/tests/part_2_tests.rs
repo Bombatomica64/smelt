@@ -42,11 +42,11 @@ const value = Number.parseFloat("42.5");
 #[test]
 fn emits_parse_float_string_coercion_for_erased_inputs() {
     let source = source_for(
-        r#"
+        r"
 function parseValue(value: any): number {
   return parseFloat(value);
 }
-"#,
+",
     );
     let program = source
         .split_once(PRELUDE_END_MARKER)
@@ -203,7 +203,7 @@ function invalid<ResultDate extends Date>(value: ResultDate): boolean {
     // helpers legitimately contain `return false;`), so the assertion must look
     // only at the emitted `invalid` body, not the runtime prelude.
     let program = source
-        .split_once(crate::PRELUDE_END_MARKER)
+        .split_once(PRELUDE_END_MARKER)
         .map_or(source.as_str(), |(_, program)| program);
     assert!(program.contains(".is_nan()"), "{source}");
     assert!(!program.contains("return false;"), "{source}");
@@ -407,7 +407,7 @@ function absent<ResultDate extends Date>(
     // `Some(SmeltUnknown::Number(value))`, so the negative assertion must look
     // only at the emitted `absent` body rather than the runtime prelude.
     let program = source
-        .split_once(crate::PRELUDE_END_MARKER)
+        .split_once(PRELUDE_END_MARKER)
         .map_or(source.as_str(), |(_, program)| program);
     assert!(
         program.contains(

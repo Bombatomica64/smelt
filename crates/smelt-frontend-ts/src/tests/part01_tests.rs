@@ -1843,22 +1843,21 @@ test("data-last overload", () => {
     let test_fn = module
         .items
         .iter()
-        .filter_map(|item_id| {
+        .find_map(|item_id| {
             let item = ctx.krate.items.get(usize::try_from(item_id.0).ok()?)?;
             match item {
                 Item::Function(function) if function.is_test => Some(function),
                 _ => None,
             }
         })
-        .next()
-        .ok_or_else(|| "missing test function".to_string())?;
+        .ok_or_else(|| "missing test function".to_owned())?;
     let body = function_body(&ctx, test_fn)?;
 
     let list_lit = body
         .exprs
         .iter()
         .find(|expr| matches!(expr.kind, ExprKind::ListLit(_)))
-        .ok_or_else(|| "expected a list literal for the expected value".to_string())?;
+        .ok_or_else(|| "expected a list literal for the expected value".to_owned())?;
     ensure!(
         matches!(ctx.krate.types.get(list_lit.ty), Some(Type::List(_))),
         "expected list literal to keep its List type, got {:?}",

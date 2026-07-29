@@ -14,10 +14,10 @@ use std::{
 };
 
 /// Result type used by integration tests.
-pub(crate) type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+pub type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 
 /// Returns the workspace root for the integration tests.
-pub(crate) fn workspace_root() -> Result<&'static Path, io::Error> {
+pub fn workspace_root() -> Result<&'static Path, io::Error> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
@@ -25,7 +25,7 @@ pub(crate) fn workspace_root() -> Result<&'static Path, io::Error> {
 }
 
 /// Runs the `smelt` binary from the workspace root and returns stdout.
-pub(crate) fn smelt(args: &[&str]) -> TestResult<String> {
+pub fn smelt(args: &[&str]) -> TestResult<String> {
     let output = Command::new(env!("CARGO_BIN_EXE_smelt"))
         .current_dir(workspace_root()?)
         .args(args)
@@ -44,7 +44,7 @@ pub(crate) fn smelt(args: &[&str]) -> TestResult<String> {
 }
 
 /// Temporary project directory used by integration tests.
-pub(crate) struct TempProject {
+pub struct TempProject {
     path: PathBuf,
 }
 
@@ -71,7 +71,7 @@ impl Drop for TempProject {
 }
 
 /// Runs `cargo run --manifest-path` for a generated crate and returns stdout.
-pub(crate) fn cargo_run_manifest(manifest: &Path) -> TestResult<String> {
+pub fn cargo_run_manifest(manifest: &Path) -> TestResult<String> {
     let output = Command::new("cargo")
         .arg("run")
         .arg("--quiet")
@@ -92,7 +92,7 @@ pub(crate) fn cargo_run_manifest(manifest: &Path) -> TestResult<String> {
 }
 
 /// Runs `cargo test --manifest-path` for a generated crate and returns stdout.
-pub(crate) fn cargo_test_manifest(manifest: &Path) -> TestResult<String> {
+pub fn cargo_test_manifest(manifest: &Path) -> TestResult<String> {
     let output = Command::new("cargo")
         .arg("test")
         .arg("--quiet")
@@ -113,7 +113,7 @@ pub(crate) fn cargo_test_manifest(manifest: &Path) -> TestResult<String> {
 }
 
 /// Converts a path to UTF-8 for CLI arguments.
-pub(crate) fn utf8_path(path: &Path) -> Result<String, io::Error> {
+pub fn utf8_path(path: &Path) -> Result<String, io::Error> {
     path.to_str().map(ToOwned::to_owned).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -123,14 +123,14 @@ pub(crate) fn utf8_path(path: &Path) -> Result<String, io::Error> {
 }
 
 /// Returns the absolute path to an end-to-end example fixture.
-pub(crate) fn example_dir(name: &str) -> TestResult<PathBuf> {
+pub fn example_dir(name: &str) -> TestResult<PathBuf> {
     Ok(workspace_root()?
         .join("examples/typescript/end-to-end")
         .join(name))
 }
 
 /// Fails the test when `condition` is false.
-pub(crate) fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
+pub fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
     if condition {
         Ok(())
     } else {
@@ -139,7 +139,7 @@ pub(crate) fn ensure(condition: bool, message: impl Into<String>) -> TestResult 
 }
 
 /// Fails the test when `actual` and `expected` differ.
-pub(crate) fn ensure_eq<T>(actual: &T, expected: &T, message: impl Into<String>) -> TestResult
+pub fn ensure_eq<T>(actual: &T, expected: &T, message: impl Into<String>) -> TestResult
 where
     T: PartialEq + std::fmt::Debug,
 {
@@ -151,7 +151,7 @@ where
 }
 
 /// Verifies the compiled output for a single end-to-end example fixture.
-pub(crate) fn verify_end_to_end_example(name: &str) -> TestResult {
+pub fn verify_end_to_end_example(name: &str) -> TestResult {
     let example = example_dir(name)?;
     let input = example.join("input.ts");
     let expected_mir = fs::read_to_string(example.join("expected.mir"))?;

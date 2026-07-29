@@ -1,5 +1,5 @@
 //! Runtime execution tests for JavaScript `Map` reference semantics and
-//! object-identity (SameValueZero) key comparison.
+//! object-identity (`SameValueZero`) key comparison.
 //!
 //! The `compile_corpus` tier proves the emitted Rust type-checks; string-golden
 //! tests prove a specific shape is emitted. Neither observes runtime behavior.

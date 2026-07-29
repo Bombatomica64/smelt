@@ -594,21 +594,6 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
-    // result into a `__smelt_update_tmp` local so the store can run inside the
-    // current block without the enclosing expression re-reading the mutated
-    // target. That temp's type is whatever the update target's type is; it is
-    // `SmeltUnknown` *only* when the target is already an erased dynamic value
-    // (e.g. an erased `unknown` callback parameter, as in `(v) => v++`). In that
-    // case the temp is a boundary adapter carrying the dynamic value through JS's
-    // prefix/postfix result semantics — a concrete type is unavailable precisely
-    // because the underlying target is erased, so this is a genuine boundary, not
-    // avoidable program-storage erasure. Match only the snapshot declaration
-    // itself (not array-padding index uses that merely reference the temp).
-    let trimmed = line.trim_start();
-    if trimmed.starts_with("let __smelt_update_tmp") && trimmed.contains(": SmeltUnknown =") {
-        return true;
-    }
     const BOUNDARY_MARKERS: [&str; 11] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
@@ -641,6 +626,23 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // so this is a boundary adapter, not avoidable program-storage erasure.
         "smelt_slice_value",
     ];
+
+    // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
+    // result into a `__smelt_update_tmp` local so the store can run inside the
+    // current block without the enclosing expression re-reading the mutated
+    // target. That temp's type is whatever the update target's type is; it is
+    // `SmeltUnknown` *only* when the target is already an erased dynamic value
+    // (e.g. an erased `unknown` callback parameter, as in `(v) => v++`). In that
+    // case the temp is a boundary adapter carrying the dynamic value through JS's
+    // prefix/postfix result semantics — a concrete type is unavailable precisely
+    // because the underlying target is erased, so this is a genuine boundary, not
+    // avoidable program-storage erasure. Match only the snapshot declaration
+    // itself (not array-padding index uses that merely reference the temp).
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("let __smelt_update_tmp") && trimmed.contains(": SmeltUnknown =") {
+        return true;
+    }
+
     BOUNDARY_MARKERS.iter().any(|marker| line.contains(marker))
 }
 

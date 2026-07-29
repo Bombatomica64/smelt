@@ -8292,11 +8292,11 @@ fn lowers_string_includes_inside_filter_callback_body() -> Result<(), String> {
     // dominant callback blocker across the quicktype/knip probes.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export function withNeedle(words: string[], needle: string): string[] {
   return words.filter((w) => w.includes(needle));
 }
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
