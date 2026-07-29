@@ -777,6 +777,30 @@ impl ::std::fmt::Display for SmeltUnknown {
     }
 }
 
+/// A JavaScript `throw` payload travelling Smelt's `Box<dyn Error>` channel.
+///
+/// DYNAMIC BOUNDARY: `throw` accepts any JavaScript value and a `catch`
+/// binding has no static type, so the single error channel shared by every
+/// generated fallible function cannot be a concrete type, a generated union,
+/// or a scoped generic. The payload is kept whole here and recovered by
+/// `smelt_thrown_value`; foreign errors reaching the same channel fall back
+/// to their `Display` text.
+#[derive(Debug)]
+struct SmeltThrown { value: SmeltUnknown }
+/// Project a thrown payload to the message text a string-typed `catch` observes.
+fn smelt_thrown_message(value: &SmeltUnknown) -> String { if let SmeltUnknown::Object(object) = value { if let Some(SmeltUnknown::String(message)) = object.get("message") { return message; } } format!("{value}") }
+impl ::std::fmt::Display for SmeltThrown { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(&smelt_thrown_message(&self.value)) } }
+impl ::std::error::Error for SmeltThrown {}
+/// Enter the error channel, keeping the thrown value's structure and identity.
+fn smelt_throw(value: SmeltUnknown) -> Box<dyn ::std::error::Error> { Box::new(SmeltThrown { value }) }
+/// Recover the original thrown payload from the error channel.
+///
+/// A foreign error (anything that reached the channel through `?` rather than
+/// a Smelt `throw`) has no payload, so it is presented as an erased `Error`
+/// record built from its `Display` text -- the shape a `catch` saw before the
+/// payload ABI existed.
+fn smelt_thrown_value(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown { if let Some(thrown) = error.downcast_ref::<SmeltThrown>() { return thrown.value.clone(); } SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([("__smelt_error".to_owned(), SmeltUnknown::Bool(true)), ("message".to_owned(), SmeltUnknown::String(error.to_string()))]))) }
+
 impl Eq for SmeltUnknown {}
 
 impl ::std::hash::Hash for SmeltUnknown {
