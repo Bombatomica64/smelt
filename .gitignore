@@ -79,6 +79,18 @@ blocker-logs/*.md
 !blocker-logs/estk-e0308-round2.md
 # estk-jsset-and-tail.md documents the SmeltJsSet container and tail E0277/E0631 fixes
 !blocker-logs/estk-jsset-and-tail.md
+# estoolkit-runtime-current.md is the es-toolkit runtime baseline plus the
+# ranked root-cause family analysis follow-up agents pick their target from
+!blocker-logs/estoolkit-runtime-current.md
+# estoolkit-runtime-after.md is the same suite after the closure-loop fix
+!blocker-logs/estoolkit-runtime-after.md
+# estoolkit-runtime-family7.md documents the exception-payload ABI and the
+# per-defect analysis of why the remaining throw assertions still fail
+!blocker-logs/estoolkit-runtime-family7.md
+# estoolkit-frontend-families-plan.md is the design plan for the hardest
+# remaining es-toolkit families (clone/isEqual/merge + the in-place-mutation
+# lever), including the corrected root causes follow-up agents work from
+!blocker-logs/estoolkit-frontend-families-plan.md
 
 # Generated docs site output
 _site/

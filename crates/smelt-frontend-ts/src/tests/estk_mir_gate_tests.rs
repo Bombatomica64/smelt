@@ -139,12 +139,13 @@ export function pick(a: unknown, b: unknown): boolean {
                 op: BinOp::JsStrictEq,
                 lhs,
                 rhs,
-            } => Some((*lhs, *rhs)),
+            } => Some([*lhs, *rhs]),
             _ => None,
         })
         .ok_or_else(|| "expected a `JsStrictEq` comparison for `a === b`".to_owned())?;
-    for operand in [strict_eq.0, strict_eq.1] {
-        let index = usize::try_from(operand.0).expect("expr id should fit into usize");
+    for operand in strict_eq {
+        let index = usize::try_from(operand.0)
+            .map_err(|error| format!("expr id should fit into usize: {error}"))?;
         let operand_expr = &body.exprs[index];
         ensure!(
             !matches!(&operand_expr.kind, ExprKind::UnknownCast { .. }),

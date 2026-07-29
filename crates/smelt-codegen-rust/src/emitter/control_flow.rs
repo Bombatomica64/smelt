@@ -703,17 +703,9 @@ impl FunctionEmitter<'_> {
                 Ok(())
             }
             Terminator::Throw(operand) => {
-                // Annotate the `Result` error type at the `Err` construction so
-                // Rust never has to infer `E`. Throwing closures whose result is
-                // only stored (never called at a site that pins the error type)
-                // otherwise leave `E` ambiguous (E0283). Every fallible/async
-                // Smelt function models its error channel as
-                // `Box<dyn std::error::Error>`, so fixing it here is a general
-                // rule rather than a per-call special case.
-                out.push_str(&format!(
-                    "    return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
-                    self.operand_text(operand)?
-                ));
+                // Shared with the closure-body emitter so the two throw paths
+                // cannot drift; see `emitter::throw`.
+                out.push_str(&self.throw_terminator_text(operand)?);
                 set_last_emit_diverged(true);
                 Ok(())
             }
@@ -893,11 +885,11 @@ impl FunctionEmitter<'_> {
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
-            let value = match self.mir.types.get(exception_decl.ty) {
-                Some(Type::String) => "__smelt_error.to_string()".to_owned(),
-                Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error.to_string()))])))".to_owned(),
-                _ => self.default_value(exception_decl.ty)?,
-            };
+            // This arm is the real Smelt error channel, so an erased catch
+            // binding recovers the thrown payload rather than a rebuilt message
+            // record. (The two `Err(__smelt_panic)` arms below stay text-only: a
+            // Rust panic never carried a JavaScript value in the first place.)
+            let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
             out.push_str(&format!("            let {exception_name} = {value};\n"));
             self.mark_local_declared(exception_local);
         }
@@ -969,15 +961,15 @@ impl FunctionEmitter<'_> {
         self.emit_block(self.block(target)?, out)?;
         out.push_str("        }\n");
         out.push_str("        Err(__smelt_error) => {\n");
-        out.push_str("            let __smelt_error = __smelt_error.to_string();\n");
+        // A rejected future carries the same error channel as a throwing call, so
+        // an erased catch binding recovers the rejection's payload here too
+        // (`await` on a rejected promise is `throw` in JavaScript). Previously
+        // this arm eagerly collapsed the error to `to_string()`, which is why a
+        // `catch` after `await` could only ever observe a message.
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
-            let value = match self.mir.types.get(exception_decl.ty) {
-                Some(Type::String) => "__smelt_error".to_owned(),
-                Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])))".to_owned(),
-                _ => self.default_value(exception_decl.ty)?,
-            };
+            let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
             out.push_str(&format!("            let {exception_name} = {value};\n"));
             self.mark_local_declared(exception_local);
         }
@@ -1676,7 +1668,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Returns whether `block_id` reaches `target` without crossing avoided blocks.
-    fn block_reaches_target_avoiding(
+    pub(super) fn block_reaches_target_avoiding(
         &self,
         block_id: smelt_mir::BlockId,
         target: smelt_mir::BlockId,

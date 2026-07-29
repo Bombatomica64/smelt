@@ -231,14 +231,14 @@ clone-strategy = "aggressive"
     )?;
     fs::write(
         project_path.join("src/main.py"),
-        r#"import alpha, beta
+        r"import alpha, beta
 from pkg.sub.helper import (
     compute,
 )
 
 result: int = alpha.first() + beta.second() + compute(5)
 print(result)
-"#,
+",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
@@ -361,7 +361,7 @@ clone-strategy = "aggressive"
     )?;
     fs::write(
         project_path.join("src/main.ts"),
-        r#"function combinations(n: number, r: number): number[][] {
+        r"function combinations(n: number, r: number): number[][] {
   const result: number[][] = [];
   const indices: number[] = [];
   for (let k = 0; k < r; k++) indices.push(k);
@@ -383,7 +383,7 @@ console.log(c[0][0]);
 console.log(c[0][1]);
 console.log(c[5][0]);
 console.log(c[5][1]);
-"#,
+",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
@@ -430,7 +430,7 @@ clone-strategy = "aggressive"
     )?;
     fs::write(
         project_path.join("src/main.ts"),
-        r#"interface Item { tag: string; vals: number[]; }
+        r"interface Item { tag: string; vals: number[]; }
 function f(items: Item[]): number {
   let total = 0;
   for (let i = 0; i < items.length; i++) {
@@ -456,7 +456,7 @@ const items: Item[] = [
   { tag: 'sum', vals: [10, 20] },
 ];
 console.log(f(items));
-"#,
+",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;

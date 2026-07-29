@@ -1010,6 +1010,50 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
+    /// Returns whether a closure-body `Switch` block is a genuine loop header.
+    ///
+    /// The closure emitter renders control flow as a tree: each branch is
+    /// emitted recursively, so a block that is a join point gets duplicated once
+    /// per incoming path. A `Switch` block becomes a Rust `loop { ... }` only
+    /// when one of its branches *back-edges* to the block itself.
+    ///
+    /// Plain reachability cannot answer that question once emission is already
+    /// inside a loop. Every block in a loop body reaches every other block in
+    /// that body by going around the enclosing back edge, so a nested `if` or a
+    /// short-circuit (`&&` / `||`) join block inside a `for` body looks
+    /// "self-reaching" and was wrapped in its own spurious `loop`. The real
+    /// latch then back-edged to the *enclosing* header, which no longer matched
+    /// the innermost `stop`, so emission walked into an already-active block and
+    /// emitted `panic!("recursive closure control flow is not structured yet")`
+    /// in place of the loop's continue edge — silently replacing the tail of
+    /// every such closure with a runtime abort.
+    ///
+    /// The test therefore has to ignore paths that leave through an enclosing
+    /// region: `then_block` must reach `block_id` *without* crossing any block
+    /// already on the emission stack (`active`, minus `block_id` itself, which is
+    /// pushed before this check runs). That is the standard back-edge test
+    /// restricted to the region currently being emitted, and it is what the
+    /// function-level emitter's `while_header` family already does through
+    /// `block_reaches_target_avoiding`.
+    fn closure_block_is_loop_header(
+        &self,
+        block_id: smelt_mir::BlockId,
+        then_block: smelt_mir::BlockId,
+        active: &[smelt_mir::BlockId],
+    ) -> bool {
+        let enclosing = active
+            .iter()
+            .copied()
+            .filter(|candidate| *candidate != block_id)
+            .collect::<Vec<_>>();
+        self.block_reaches_target_avoiding(
+            then_block,
+            block_id,
+            &enclosing,
+            &mut BlockIdSet::default(),
+        )
+    }
+
     /// Emits a closure block while guarding against unstructured CFG cycles.
     ///
     /// `in_loop` is set while emitting the branches of a loop-shaped closure
@@ -1021,19 +1065,18 @@ impl FunctionEmitter<'_> {
         &self,
         block: &BasicBlock,
         out: &mut String,
-        active: &mut Vec<*const BasicBlock>,
+        active: &mut Vec<smelt_mir::BlockId>,
         stop: Option<smelt_mir::BlockId>,
         in_loop: bool,
     ) -> Result<(), EmitError> {
         if Some(block.id) == stop {
             return Ok(());
         }
-        let block_ptr = std::ptr::from_ref(block);
-        if active.contains(&block_ptr) {
+        if active.contains(&block.id) {
             out.push_str("    panic!(\"recursive closure control flow is not structured yet\")\n");
             return Ok(());
         }
-        active.push(block_ptr);
+        active.push(block.id);
         let Some(terminator) = &block.terminator else {
             return Err(EmitError::new("closure basic block has no terminator"));
         };
@@ -1042,7 +1085,7 @@ impl FunctionEmitter<'_> {
             then_block,
             else_block,
         } = terminator
-            && self.block_can_reach(*then_block, block.id, &mut BlockIdSet::default())
+            && self.closure_block_is_loop_header(block.id, *then_block, active)
         {
             out.push_str("    loop {\n");
             for statement in &block.statements {
@@ -1212,13 +1255,8 @@ impl FunctionEmitter<'_> {
                 default,
             } => self.emit_closure_match(scrutinee, arms, *default, out, active, stop, in_loop),
             Terminator::Throw(operand) => {
-                // Same rationale as the function-level throw terminator: pin the
-                // `Result` error type to `Box<dyn std::error::Error>` at the `Err`
-                // construction so a throwing closure never leaves `E` ambiguous.
-                out.push_str(&format!(
-                    "    return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
-                    self.operand_text(operand)?
-                ));
+                // Same helper as the function-level throw terminator.
+                out.push_str(&self.throw_terminator_text(operand)?);
                 Ok(())
             }
             Terminator::Unreachable => {
@@ -1242,7 +1280,7 @@ impl FunctionEmitter<'_> {
         arms: &[smelt_mir::MatchArm],
         default: Option<smelt_mir::BlockId>,
         out: &mut String,
-        active: &mut Vec<*const BasicBlock>,
+        active: &mut Vec<smelt_mir::BlockId>,
         stop: Option<smelt_mir::BlockId>,
         in_loop: bool,
     ) -> Result<(), EmitError> {

@@ -511,11 +511,11 @@ fn emits_statement_position_set_add_on_erased_element_slot() {
     // statement-position `set.add(concreteValue)` on an erased element slot must
     // likewise emit the insert rather than drop the observable mutation.
     let source = source_for(
-        r#"
+        r"
 const bag: Set<unknown> = new Set();
 bag.add(1);
 bag.add(2);
-"#,
+",
     );
 
     let inserts = source.matches(".insert(").count();
@@ -532,7 +532,7 @@ fn emits_optional_chained_map_methods_as_guarded_modeled_ops() {
     // a presence test and narrowed via the `optional value was absent` unwrap.
     // It must NOT fall through to a generic `.get("has")` field access.
     let source = source_for(
-        r#"
+        r"
 export function probe(stack: Map<string, number> | undefined, key: string): boolean | undefined {
   return stack?.has(key);
 }
@@ -545,7 +545,7 @@ export function store(stack: Map<string, number> | undefined, key: string): void
 export function drop(stack: Map<string, number> | undefined, key: string): boolean | undefined {
   return stack?.delete(key);
 }
-"#,
+",
     );
 
     assert!(
@@ -579,11 +579,11 @@ fn emits_optional_chained_set_has_as_guarded_modeled_op() {
     // `recv?.has(value)` on an optional Set receiver desugars to a guarded
     // modeled `contains` check rather than a generic erased field access.
     let source = source_for(
-        r#"
+        r"
 export function probe(seen: Set<string> | undefined, value: string): boolean | undefined {
   return seen?.has(value);
 }
-"#,
+",
     );
 
     assert!(

@@ -11,13 +11,13 @@ use super::*;
 #[test]
 fn mutated_module_let_emits_const_init_cell_thread_local() {
     let source = source_for(
-        r#"
+        r"
 let idCounter = 0;
 
 export function uniqueId(): number {
   return ++idCounter;
 }
-"#,
+",
     );
     assert!(
         source.contains(
@@ -38,14 +38,14 @@ export function uniqueId(): number {
 #[test]
 fn mutated_module_string_let_emits_refcell_thread_local() {
     let source = source_for(
-        r#"
+        r"
 let lastTag = '';
 
 export function remember(tag: string): string {
   lastTag = tag;
   return lastTag;
 }
-"#,
+",
     );
     assert!(
         source.contains(
@@ -68,14 +68,14 @@ export function remember(tag: string): string {
 #[test]
 fn bool_global_emits_bool_cell() {
     let source = source_for(
-        r#"
+        r"
 let enabled = false;
 
 export function toggle(): boolean {
   enabled = !enabled;
   return enabled;
 }
-"#,
+",
     );
     assert!(
         source.contains(
@@ -88,13 +88,13 @@ export function toggle(): boolean {
 #[test]
 fn no_globals_emits_no_global_thread_locals() {
     let source = source_for(
-        r#"
+        r"
 let greeting = 'hello';
 
 export function greet(): string {
   return greeting;
 }
-"#,
+",
     );
     assert!(
         !source.contains("SMELT_GLOBAL_"),
@@ -110,12 +110,12 @@ fn delete_on_list_receiver_emits_noop_true() {
     // no-op list `length` growth. Regression for the es-toolkit compat
     // `unset(list, index)` specialization.
     let source = source_for(
-        r#"
+        r"
 export function unsetIndex(values: number[], index: number): boolean {
   // @ts-expect-error delete on a dense array models a sparse hole
   return delete values[index];
 }
-"#,
+",
     );
     assert!(
         source.contains("fn unset_index"),

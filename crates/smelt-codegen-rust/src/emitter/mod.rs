@@ -56,6 +56,7 @@ mod rendered_value;
 mod set;
 mod strings;
 mod strings_io;
+mod throw;
 mod tuple;
 mod types;
 mod union;

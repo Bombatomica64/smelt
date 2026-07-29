@@ -54,7 +54,7 @@ fn slot_and_helpers_emitted_for_written_name() {
 /// construction is byte-identical to before.
 #[test]
 fn gating_off_when_no_writes() {
-    let source = super::source_for(
+    let source = source_for(
         "export function probe(): boolean { return typeof Blob !== 'undefined'; }\n\
          export function make(): unknown { return new Blob(['x']); }\n",
     );

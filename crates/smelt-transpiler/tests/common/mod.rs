@@ -4,6 +4,16 @@
     dead_code,
     reason = "shared CLI test helpers are used by different test shards"
 )]
+// `redundant_pub_crate` and rustc's `unreachable_pub` are mutually unsatisfiable
+// here: this module is `mod common;`-included into several integration-test
+// binaries, so `pub(crate)` reads as redundant to clippy while plain `pub` reads
+// as unreachable to rustc. `pub(crate)` is the more accurate of the two -- the
+// test binary really is the crate these helpers belong to -- so the clippy side
+// is the one suppressed.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "pub(crate) is correct for a helper module shared across test binaries; plain pub trips unreachable_pub instead"
+)]
 
 use std::{
     error::Error,

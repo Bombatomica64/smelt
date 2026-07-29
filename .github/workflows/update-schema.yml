@@ -16,7 +16,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Share the plain debug-build lane used by ci.yml's corpus/regression jobs
+      # and compat/library-probes: `cargo run --bin smelt` produces exactly the
+      # same artifacts those jobs already cache. Without a shared-key this
+      # derived a job-specific lane and always built the workspace cold.
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+          # Only ever runs on main; be explicit so it cannot write the shared
+          # lane from anywhere else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Generate schema
         run: cargo run --bin smelt -- dump-schema > smelt-schema.json
