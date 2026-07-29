@@ -1676,7 +1676,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Returns whether `block_id` reaches `target` without crossing avoided blocks.
-    fn block_reaches_target_avoiding(
+    pub(super) fn block_reaches_target_avoiding(
         &self,
         block_id: smelt_mir::BlockId,
         target: smelt_mir::BlockId,

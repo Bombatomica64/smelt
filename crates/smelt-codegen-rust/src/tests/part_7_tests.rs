@@ -8728,3 +8728,92 @@ export function wrap(): Record<string, unknown> {
         "the destructured `call` key must be removed from rest\n{source}"
     );
 }
+
+/// Returns the generated program below the fixed runtime prelude.
+///
+/// The emitter writes a `// @smelt:prelude-end` sentinel between the shared
+/// runtime prelude (which contains its own `loop`s and helpers) and the lowered
+/// program, so structural assertions that count Rust constructs must look only
+/// at the program half.
+fn program_body(source: &str) -> &str {
+    source
+        .split_once("// @smelt:prelude-end")
+        .map_or(source, |(_, program)| program)
+}
+
+#[test]
+fn closure_loop_body_branch_is_not_treated_as_a_nested_loop_header() {
+    // A `for` loop inside a closure body whose body contains a plain `if`/`else`
+    // must emit exactly one Rust `loop`. The closure emitter used to decide
+    // "this switch block is a loop header" with plain reachability, but inside an
+    // open loop every body block reaches itself around the back edge, so the
+    // nested `if` was wrapped in its own spurious `loop` and the real latch then
+    // back-edged into an already-active block, replacing the loop's continue edge
+    // with `panic!("recursive closure control flow is not structured yet")`.
+    // es-toolkit's `flatten` (and every `flatMap*`/`flatten*` built on it) aborted
+    // at runtime because of this.
+    let source = source_for(
+        r"
+export function run(items: number[]): number[] {
+  const out: number[] = [];
+  const walk = (values: number[]) => {
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] > 0) {
+        out.push(values[i]);
+      } else {
+        out.push(0);
+      }
+    }
+  };
+  walk(items);
+  return out;
+}
+",
+    );
+
+    assert!(
+        !source.contains("closure control flow is not structured yet"),
+        "a for-loop with a branching body must stay structured: {source}"
+    );
+    let program = program_body(&source);
+    assert_eq!(
+        program.matches("loop {").count(),
+        1,
+        "only the `for` header may become a Rust `loop`: {source}"
+    );
+}
+
+#[test]
+fn closure_loop_with_short_circuit_condition_emits_single_loop() {
+    // Same defect through the other shape that made it fire in es-toolkit's
+    // compat `orderBy`/`sortBy`: a short-circuit (`&&`) inside the loop body
+    // lowers to a join block that reconverges before the branch. That join block
+    // is reachable from itself only via the enclosing back edge, so it must not
+    // be promoted to a loop header of its own.
+    let source = source_for(
+        r"
+export function firstBig(values: number[], limit: number): number {
+  const pick = (input: number[]) => {
+    for (let i = 0; i < input.length; i++) {
+      if (input[i] > limit && input[i] < 100) {
+        return input[i];
+      }
+    }
+    return -1;
+  };
+  return pick(values);
+}
+",
+    );
+
+    assert!(
+        !source.contains("closure control flow is not structured yet"),
+        "a short-circuit condition inside a closure loop must stay structured: {source}"
+    );
+    let program = program_body(&source);
+    assert_eq!(
+        program.matches("loop {").count(),
+        1,
+        "the `&&` join block must not become a second Rust `loop`: {source}"
+    );
+}
