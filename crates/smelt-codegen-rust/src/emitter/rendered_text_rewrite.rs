@@ -37,6 +37,12 @@ pub(super) fn replace_shared_capture_uses(mut text: String, replacements: &[(Str
 /// (`name::`, double colon) is excluded from this guard and handled by the
 /// identifier-boundary check below.
 ///
+/// Occurrences inside a Rust string, byte-string, char, or raw-string literal are
+/// left untouched: literal bytes are data, not identifiers. Both emitter-authored
+/// literals (a `panic!("recursive closure …")` message inside a user closure
+/// named `recursive`) and user program strings can contain the source name, and
+/// rewriting them silently corrupts the emitted text. See [`literal_intervals`].
+///
 /// Occurrences inside a closure that rebinds `source` as one of its parameters
 /// are also left untouched. Synthesized coercion adapters bind throwaway
 /// parameters (`|value| …`, `|(key, value)| …`) whose names can collide with a
@@ -47,6 +53,7 @@ pub(super) fn replace_shared_capture_uses(mut text: String, replacements: &[(Str
 /// silently read the captured value instead of the closure argument. See
 /// [`closure_shadow_intervals`].
 fn replace_identifier(text: &str, source: &str, target: &str) -> String {
+    let literals = literal_intervals(text);
     let shadows = closure_shadow_intervals(text, source);
     let mut out = String::with_capacity(text.len());
     let mut index = 0;
@@ -58,13 +65,13 @@ fn replace_identifier(text: &str, source: &str, target: &str) -> String {
         let mut trailing = text[end..].chars();
         let after = trailing.next();
         let is_field_key = after == Some(':') && trailing.next() != Some(':');
-        let is_shadowed = shadows
-            .iter()
-            .any(|&(begin, finish)| start >= begin && start < finish);
+        let is_shadowed = contains_offset(&shadows, start);
+        let is_literal_data = contains_offset(&literals, start);
         if before.is_some_and(is_rust_ident_char)
             || after.is_some_and(is_rust_ident_char)
             || is_field_key
             || is_shadowed
+            || is_literal_data
         {
             out.push_str(source);
         } else {
@@ -82,17 +89,23 @@ fn replace_identifier(text: &str, source: &str, target: &str) -> String {
 ///
 /// The scan recognizes closure parameter lists of the form `|pattern|` (a `|`
 /// that is neither part of `||` nor a bitwise operator, followed only by
-/// pattern characters up to the closing `|`). When the pattern binds `source`,
-/// the closure body — a single expression extending to the enclosing top-level
-/// comma, statement terminator, or closing delimiter — is included so that both
-/// the binding and every shadowed body use are protected. String and character
-/// literals in the body are skipped so their delimiters do not end the body
-/// prematurely.
+/// pattern characters up to the closing `|`). Literals are skipped whole so a
+/// `|` inside string data cannot be mistaken for a parameter list.
+///
+/// When the pattern binds `source`, the closure body — a single expression
+/// extending to the enclosing top-level comma, statement terminator, or closing
+/// delimiter — is included so that both the binding and every shadowed body use
+/// are protected. String and character literals in the body are skipped so their
+/// delimiters do not end the body prematurely.
 fn closure_shadow_intervals(text: &str, source: &str) -> Vec<(usize, usize)> {
     let bytes = text.as_bytes();
     let mut intervals = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
+        if let Some(literal_end) = literal_end(bytes, i) {
+            i = literal_end;
+            continue;
+        }
         if bytes[i] == b'|'
             && bytes.get(i + 1) != Some(&b'|')
             && (i == 0 || bytes[i - 1] != b'|')
@@ -112,6 +125,109 @@ fn closure_shadow_intervals(text: &str, source: &str) -> Vec<(usize, usize)> {
         i += 1;
     }
     intervals
+}
+
+/// Returns true when `offset` falls inside one of `intervals`.
+fn contains_offset(intervals: &[(usize, usize)], offset: usize) -> bool {
+    intervals
+        .iter()
+        .any(|&(begin, finish)| offset >= begin && offset < finish)
+}
+
+/// Returns byte ranges `[open, close)` for every Rust literal in `text` whose
+/// contents are data rather than code.
+///
+/// Covers string (`"…"`), byte-string (`b"…"`), raw-string (`r"…"`, `r#"…"#`,
+/// `br#"…"#`), char, and byte-char literals. Identifier occurrences inside these
+/// ranges must never be rewritten: they are emitted verbatim into the generated
+/// program's string data.
+fn literal_intervals(text: &str) -> Vec<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut intervals = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if let Some(end) = literal_end(bytes, i) {
+            intervals.push((i, end));
+            i = end;
+            continue;
+        }
+        i = i.saturating_add(1);
+    }
+    intervals
+}
+
+/// Returns the byte index just past the literal starting at `start`, or `None`
+/// when no literal starts there.
+///
+/// A lifetime tick (`'a`) is not a literal, so it yields `None`. A `b`/`r`
+/// prefix only opens a literal when it sits at a token boundary and is actually
+/// followed by the expected quote (so raw identifiers like `r#type` and ordinary
+/// identifiers ending in `r` are not mistaken for literal openers).
+fn literal_end(bytes: &[u8], start: usize) -> Option<usize> {
+    match bytes.get(start)? {
+        b'"' => Some(skip_string_literal(bytes, start)),
+        b'\'' => {
+            let end = skip_char_or_lifetime(bytes, start);
+            // `start + 1` means only the tick was consumed: a lifetime, not a literal.
+            (end > start.saturating_add(1)).then_some(end)
+        }
+        b'b' | b'r' => {
+            if start
+                .checked_sub(1)
+                .and_then(|prev| bytes.get(prev))
+                .is_some_and(|&prev| is_rust_ident_char(char::from(prev)))
+            {
+                return None;
+            }
+            let mut cursor = start;
+            if bytes.get(cursor) == Some(&b'b') {
+                cursor = cursor.saturating_add(1);
+            }
+            if bytes.get(cursor) == Some(&b'r') {
+                cursor = cursor.saturating_add(1);
+                let mut hashes = 0_usize;
+                while bytes.get(cursor) == Some(&b'#') {
+                    cursor = cursor.saturating_add(1);
+                    hashes = hashes.saturating_add(1);
+                }
+                if bytes.get(cursor) != Some(&b'"') {
+                    return None;
+                }
+                return Some(skip_raw_string_literal(bytes, cursor, hashes));
+            }
+            match bytes.get(cursor) {
+                Some(&b'"') => Some(skip_string_literal(bytes, cursor)),
+                Some(&b'\'') => {
+                    let end = skip_char_or_lifetime(bytes, cursor);
+                    (end > cursor.saturating_add(1)).then_some(end)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Returns the index just past a raw string literal whose opening quote is at
+/// `quote` and which is delimited by `hashes` `#` characters.
+///
+/// Raw strings have no escapes: the literal ends at the first `"` followed by
+/// exactly the opening hash count.
+fn skip_raw_string_literal(bytes: &[u8], quote: usize, hashes: usize) -> usize {
+    let mut i = quote.saturating_add(1);
+    while i < bytes.len() {
+        let closing = i.saturating_add(1).saturating_add(hashes);
+        if bytes.get(i) == Some(&b'"')
+            && closing <= bytes.len()
+            && bytes
+                .get(i.saturating_add(1)..closing)
+                .is_some_and(|run| run.iter().all(|&ch| ch == b'#'))
+        {
+            return closing;
+        }
+        i = i.saturating_add(1);
+    }
+    bytes.len()
 }
 
 /// Returns the byte index of the `|` closing a closure parameter list that opens
@@ -330,6 +446,75 @@ mod replace_identifier_tests {
                 "CAP",
             ),
             "xs.map(|value| panic!(\"bad, value)\", value)) + CAP"
+        );
+    }
+
+    /// An occurrence inside a string literal is program data, not an identifier,
+    /// so it must survive verbatim. Regression for the es-toolkit `flatten`
+    /// closure named `recursive`, whose name corrupted the emitter's own
+    /// `panic!("recursive closure control flow …")` message.
+    #[test]
+    fn preserves_string_literal_contents() {
+        assert_eq!(
+            replace_identifier(
+                "panic!(\"recursive closure control flow is not structured yet\")",
+                "recursive",
+                "(*smelt_capture_recursive.borrow_mut())",
+            ),
+            "panic!(\"recursive closure control flow is not structured yet\")"
+        );
+    }
+
+    /// A literal is skipped, but a real value use after it is still rewritten.
+    #[test]
+    fn rewrites_use_after_string_literal() {
+        assert_eq!(
+            replace_identifier("log(\"value\"); value", "value", "CAP"),
+            "log(\"value\"); CAP"
+        );
+    }
+
+    /// An escaped quote inside a literal must not end the literal early, or the
+    /// following literal text would be treated as code.
+    #[test]
+    fn preserves_escaped_quote_string_literal() {
+        assert_eq!(
+            replace_identifier("f(\"a \\\" value b\", value)", "value", "CAP"),
+            "f(\"a \\\" value b\", CAP)"
+        );
+    }
+
+    /// Raw string literals (`r"…"`, `r#"…"#`) have no escapes and are skipped
+    /// whole, including their embedded quotes.
+    #[test]
+    fn preserves_raw_string_literal_contents() {
+        assert_eq!(
+            replace_identifier("f(r#\"a \"value\" b\"#, value)", "value", "CAP"),
+            "f(r#\"a \"value\" b\"#, CAP)"
+        );
+        assert_eq!(
+            replace_identifier("f(r\"value\", value)", "value", "CAP"),
+            "f(r\"value\", CAP)"
+        );
+    }
+
+    /// A `r`/`b` that merely ends or begins an identifier does not open a
+    /// literal, so a following value use is still rewritten.
+    #[test]
+    fn identifier_ending_in_r_does_not_open_literal() {
+        assert_eq!(
+            replace_identifier("other\"value\" + value", "value", "CAP"),
+            "other\"value\" + CAP"
+        );
+    }
+
+    /// A `|` inside string data is not a closure parameter list, so it cannot
+    /// fabricate a shadow interval that suppresses a later real use.
+    #[test]
+    fn pipe_inside_string_literal_is_not_a_closure() {
+        assert_eq!(
+            replace_identifier("f(\"|value| x\", value)", "value", "CAP"),
+            "f(\"|value| x\", CAP)"
         );
     }
 
