@@ -84,6 +84,9 @@ blocker-logs/*.md
 !blocker-logs/estoolkit-runtime-current.md
 # estoolkit-runtime-after.md is the same suite after the closure-loop fix
 !blocker-logs/estoolkit-runtime-after.md
+# estoolkit-runtime-family7.md documents the exception-payload ABI and the
+# per-defect analysis of why the remaining throw assertions still fail
+!blocker-logs/estoolkit-runtime-family7.md
 # estoolkit-frontend-families-plan.md is the design plan for the hardest
 # remaining es-toolkit families (clone/isEqual/merge + the in-place-mutation
 # lever), including the corrected root causes follow-up agents work from
