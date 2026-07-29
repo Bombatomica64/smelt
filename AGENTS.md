@@ -65,8 +65,11 @@ Measure it: `smelt smelt-unknown-report <generated-crate>/src --baseline blocker
 Two committed baselines: `blocker-logs/smelt-unknown-baseline.json` (examples corpus) is a hard invariant — avoidable stays 0; `blocker-logs/smelt-unknown-baseline-es-toolkit.json` is a ratchet — avoidable may only stay equal or fall. Any PR that regenerates a corpus must include the report delta. `avoidable(current) > avoidable(baseline)` blocks merge (CI runs the es-toolkit report with `--fail-on-regression`) unless the PR (1) documents the genuine dynamic boundary in a code comment at the emit site and (2) adds a regression test proving concrete types/unions/scoped generics cannot represent it — then reclassify via `classify_line` in `crates/smelt-transpiler/src/unknown_report.rs` and re-snapshot the baseline in the same commit rather than accepting the increase. legitimate-boundary increases never block; avoidable decreases re-snapshot in the same commit.
 
 ## Subagents
-the orchestrating session (Fable) must not write feature code itself when dispatching subagents: send code-writing subagents on Opus (`model: opus`) and review their diffs before merging
-run at most two coding subagents in parallel — five parallel cargo builds exhaust both the token budget and the disk
+the orchestrating session may write feature code itself — the old "Fable must only orchestrate" rule is retired now that Opus 5 runs the main loop. Prefer doing small, well-understood changes inline over paying a dispatch round-trip for them; delegate when the work is large, parallelisable, or needs a context of its own
+send code-writing subagents on Opus (`model: opus`), and review their diffs before merging rather than trusting the summary — verify the load-bearing claims independently
+
+the real constraint is concurrent **cargo builds**, not agent count: parallel rustc makes this machine lag. So cap the builders, not the agents — at most two agents running cargo at a time, but any number of cargo-free agents (CI/YAML edits, report and blocker-log analysis, design plans, doc writing) may run alongside them
+state explicitly in each dispatch prompt whether the agent is expected to compile. two agents sharing one worktree's `target/` serialize on the cargo lock rather than thrashing, so same-worktree builders are cheaper than agents given separate target dirs via `isolation: worktree`
 
 ## git
 After each feature, push a commit with the changes and a clear description of what was implemented
