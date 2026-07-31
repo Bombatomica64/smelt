@@ -1,7 +1,62 @@
 //! Call emission helpers.
 
 use super::*;
+use rendered_text_rewrite::shared_capture_cell_name;
 use smelt_hir::FunctionType;
+
+/// How a mutable-list argument needs its elements treated at a call site.
+///
+/// A `&mut SmeltList<..>` argument only type-checks when the caller's rendered
+/// element type matches the callee's, because Rust `&mut` references are
+/// invariant. There are two ways to reach that state and they are opposites, so
+/// the convert-in-place adapter classifies every mutable-list argument into one
+/// of them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum MutListArgKind {
+    /// The callee emits real Rust generics and its parameter is that generic
+    /// list shape instantiated by this argument (`arr: &mut SmeltList<T>`
+    /// receiving a `SmeltList<f64>`). Rust binds the callee's type parameter
+    /// from the argument, so the elements must pass through *unconverted*:
+    /// erasing them would monomorphize the callee at `SmeltUnknown` and clash
+    /// with the concrete destination.
+    Monomorphized,
+    /// The callee renders its element at a different concrete type (typically an
+    /// erased `SmeltUnknown` monomorphization). `&mut` invariance rules out a
+    /// direct reborrow, so each element is converted on the way in and back out.
+    Erased,
+}
+
+/// How a mutable-list argument's caller-side place is spelled in Rust.
+///
+/// The adapter both *reads* the place's current contents into a temporary and
+/// *writes* the mutated contents back, and `place_text` renders only a read
+/// expression whose shape depends on how the binding is stored. The three
+/// storages need three different spellings, so mixing them up is a silent
+/// miscompile rather than a type error.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum MutListPlaceStorage {
+    /// A forwarded `&mut` parameter of the current function: `place_text` is the
+    /// reference itself (`arr`), so the value lives behind a deref.
+    Reference,
+    /// A shared closure capture: `place_text` is `(*smelt_capture_x.borrow())`,
+    /// and the write needs a fresh `borrow_mut()` of the same cell.
+    SharedCapture,
+    /// An ordinary owned local: `place_text` is already the value.
+    Owned,
+}
+
+/// The read expression and assignment target for a mutable-list argument place.
+struct MutListPlaceAccess {
+    /// Expression producing an owned clone of the list currently in the place.
+    read: String,
+    /// Place expression the mutated list is assigned back to.
+    assign_target: String,
+    /// Place expression that may be borrowed mutably *for the whole call*, when
+    /// that is safe. `None` for a shared capture, whose `RefCell` guard must not
+    /// stay alive across the callee (a callback could re-enter the same cell and
+    /// panic with "already borrowed"), so those must go through a temporary.
+    mut_borrow: Option<String>,
+}
 
 impl FunctionEmitter<'_> {
     /// Converts a runtime-backed async operation to Rust.
@@ -1316,12 +1371,25 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
         // Detect which arguments need the convert-in-place mutable-list adapter.
+        // `callee_generics` is the set of type parameters the callee actually emits
+        // as real Rust generics; it is empty for an erased monomorphization, so
+        // the same set both renders the callee's parameter types and decides
+        // whether an argument monomorphizes them.
         let callee_emits_generics = self.context.is_generic_function(func);
+        let callee_generics: HashSet<Symbol> = if callee_emits_generics {
+            function
+                .type_params
+                .iter()
+                .map(|type_param| type_param.name)
+                .collect()
+        } else {
+            HashSet::new()
+        };
         let caller_scope = self.current_function_type_params();
         let mut needs_adapter = false;
         for (index, arg) in args.iter().enumerate() {
             if self
-                .mut_list_adapter_arg(function, index, arg, target_tys[index], callee_emits_generics)?
+                .mut_list_adapter_arg(function, index, arg, target_tys[index], &callee_generics)?
                 .is_some()
             {
                 needs_adapter = true;
@@ -1333,34 +1401,72 @@ impl FunctionEmitter<'_> {
         let mut prelude = String::new();
         let mut rendered_args = Vec::with_capacity(args.len());
         let mut writebacks = String::new();
+        // Set when an argument monomorphizes the callee's generics, recording the
+        // callee parameter type it instantiated and the concrete type it bound;
+        // the return conversion needs both.
+        let mut monomorphized_arg: Option<(TypeId, TypeId)> = None;
         for (index, arg) in args.iter().enumerate() {
             let target_ty = target_tys[index];
-            if let Some(place) =
-                self.mut_list_adapter_arg(function, index, arg, target_ty, callee_emits_generics)?
+            if let Some((place, kind)) =
+                self.mut_list_adapter_arg(function, index, arg, target_ty, &callee_generics)?
             {
-                let place_text = self.place_text(&place)?;
-                let arg_item = self.list_element_ty(self.place_ty(&place)?)?;
-                let caller_elem = self.type_text_with_scoped_type_params(
-                    arg_item,
-                    false,
-                    &caller_scope,
-                )?;
-                // The callee renders its erased element as `SmeltUnknown`; build
-                // the temporary at the callee's rendered parameter type so the
-                // `&mut` reborrow is type-correct.
-                let temp_ty = self.type_text_with_scoped_type_params(
-                    target_ty,
-                    false,
-                    &HashSet::new(),
-                )?;
+                let access = self.mut_list_place_access(&place)?;
+                let place_ty = self.place_ty(&place)?;
                 let temp = format!("smelt_mut_arg_{index}");
-                prelude.push_str(&format!(
-                    "let mut {temp}: {temp_ty} = (*{place_text}).clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<{temp_ty}>(); "
-                ));
-                rendered_args.push(format!("&mut {temp}"));
-                writebacks.push_str(&format!(
-                    "*{place_text} = {temp}.into_iter().map(|smelt_element| <{caller_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>(); "
-                ));
+                match kind {
+                    MutListArgKind::Monomorphized => {
+                        // The callee's parameter is its own generic list shape, so
+                        // Rust binds the callee's type parameter from the caller's
+                        // list and no element conversion happens in either
+                        // direction. Borrow the place itself where that is safe —
+                        // the callee then mutates the caller's list directly, with
+                        // no copy and no write-back. A shared capture cannot hold
+                        // its borrow guard across the call, so it goes through a
+                        // temporary at the caller's own list type instead.
+                        if let Some(borrow) = access.mut_borrow {
+                            rendered_args.push(format!("&mut {borrow}"));
+                        } else {
+                            let temp_ty = self.type_text_with_scoped_type_params(
+                                place_ty,
+                                false,
+                                &caller_scope,
+                            )?;
+                            prelude.push_str(&format!(
+                                "let mut {temp}: {temp_ty} = {}; ",
+                                access.read
+                            ));
+                            rendered_args.push(format!("&mut {temp}"));
+                            writebacks
+                                .push_str(&format!("{} = {temp}; ", access.assign_target));
+                        }
+                        monomorphized_arg = Some((target_ty, place_ty));
+                    }
+                    MutListArgKind::Erased => {
+                        let arg_item = self.list_element_ty(place_ty)?;
+                        let caller_elem = self.type_text_with_scoped_type_params(
+                            arg_item,
+                            false,
+                            &caller_scope,
+                        )?;
+                        // The callee renders its erased element as `SmeltUnknown`;
+                        // build the temporary at the callee's rendered parameter
+                        // type so the `&mut` reborrow is type-correct.
+                        let temp_ty = self.type_text_with_scoped_type_params(
+                            target_ty,
+                            false,
+                            &HashSet::new(),
+                        )?;
+                        prelude.push_str(&format!(
+                            "let mut {temp}: {temp_ty} = {}.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<{temp_ty}>(); ",
+                            access.read
+                        ));
+                        rendered_args.push(format!("&mut {temp}"));
+                        writebacks.push_str(&format!(
+                            "{} = {temp}.into_iter().map(|smelt_element| <{caller_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>(); ",
+                            access.assign_target
+                        ));
+                    }
+                }
             } else if matches!(self.mir.types.get(target_ty), Some(Type::Function(_))) {
                 rendered_args.push(self.borrowed_function_argument_text(arg, target_ty)?);
             } else {
@@ -1376,12 +1482,36 @@ impl FunctionEmitter<'_> {
         let return_ty = self
             .emitted_function_return_type(&rust_function_name)
             .unwrap_or(function.return_ty);
-        let result_expr = self.mut_list_adapter_return_text(
-            "smelt_mut_call_result",
-            return_ty,
-            dest_ty,
-            &caller_scope,
-        )?;
+        let dest_is_list = matches!(self.mir.types.get(dest_ty), Some(Type::List(_)));
+        let result_expr = match monomorphized_arg {
+            // The callee's declared return type is literally the parameter type
+            // this argument instantiated (`pullAt<T>(arr: T[]): T[]`), so at this
+            // call site the returned value already has the argument's own list
+            // type. Convert from that concrete type, not from the unbound generic
+            // (which renders as `SmeltUnknown` and would emit a bogus extraction
+            // against concrete elements). A non-list destination — a discarded
+            // (void) call — has nothing to convert to.
+            Some((param_ty, arg_ty)) if return_ty == param_ty && dest_is_list => {
+                self.value_at_type_text("smelt_mut_call_result", arg_ty, dest_ty)?
+            }
+            // Any other return position that mentions the callee's generics is
+            // likewise monomorphized here, and the destination local already
+            // carries the substituted type from the frontend (the same reasoning
+            // `call_emitted_source_ty` applies to type-parameter returns), so the
+            // value passes through unchanged.
+            Some(_) if self.type_mentions_type_params(return_ty, &callee_generics) => {
+                "smelt_mut_call_result".to_owned()
+            }
+            // A fully concrete return position from a generic callee needs the
+            // ordinary destination coercion.
+            Some(_) => self.value_at_type_text("smelt_mut_call_result", return_ty, dest_ty)?,
+            None => self.mut_list_adapter_return_text(
+                "smelt_mut_call_result",
+                return_ty,
+                dest_ty,
+                &caller_scope,
+            )?,
+        };
         Ok(Some(format!(
             "{{ {prelude}let smelt_mut_call_result = {rust_function_name}({arg_values}); {writebacks}{result_expr} }}"
         )))
@@ -1416,23 +1546,29 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Returns the place of the `index`-th argument when it needs the
-    /// convert-in-place mutable-list adapter.
+    /// Returns the place of the `index`-th argument, and how its elements must be
+    /// treated, when it needs the convert-in-place mutable-list adapter.
     ///
-    /// The adapter applies when the argument is a forwarded `&mut` list
-    /// parameter of the current function, the callee needs a mutable reference
-    /// to that parameter, and the caller renders the list element type
-    /// differently from the callee (typically a generic `T` in a generic caller
-    /// versus `SmeltUnknown` in an erased callee). Because `&mut` references are
-    /// invariant, such a reborrow cannot type-check without element conversion.
+    /// The adapter applies when the callee needs a mutable reference to a list
+    /// parameter, the argument is a writable local list place, and the caller
+    /// renders the list element type differently from the callee. Because `&mut`
+    /// references are invariant such a call cannot be emitted as a plain
+    /// reborrow, and emitting it as `&mut <converted temporary>` would silently
+    /// discard the callee's mutation.
+    ///
+    /// The two rendered-difference shapes need opposite treatment, so the result
+    /// carries a [`MutListArgKind`]: a callee that emits real Rust generics binds
+    /// its type parameter from the argument and must see the elements unchanged
+    /// (`Monomorphized`), while an erased monomorphization needs each element
+    /// converted in and back out (`Erased`).
     fn mut_list_adapter_arg(
         &self,
         function: &MirFunction,
         index: usize,
         arg: &Operand,
         target_ty: TypeId,
-        callee_emits_generics: bool,
-    ) -> Result<Option<Place>, EmitError> {
+        callee_generics: &HashSet<Symbol>,
+    ) -> Result<Option<(Place, MutListArgKind)>, EmitError> {
         let Some(param) = function.params.get(index).copied() else {
             return Ok(None);
         };
@@ -1443,16 +1579,11 @@ impl FunctionEmitter<'_> {
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
             _ => return Ok(None),
         };
-        // The argument must itself be a `&mut` list parameter of the current
-        // function; only then does the emitted argument text reborrow through a
-        // reference whose element type must match invariantly.
-        if self.function.id.0 == u32::MAX
-            || !self.function.params.contains(&local)
-            || !self.parameter_needs_mutable_reference(local)
-        {
+        let place = Place::Local(local);
+        if !self.mut_list_place_is_writable(local)? {
             return Ok(None);
         }
-        let arg_ty = self.place_ty(&Place::Local(local))?;
+        let arg_ty = self.place_ty(&place)?;
         let (Some(Type::List(arg_item)), Some(Type::List(target_item))) =
             (self.mir.types.get(arg_ty), self.mir.types.get(target_ty))
         else {
@@ -1461,24 +1592,167 @@ impl FunctionEmitter<'_> {
         // Compare rendered element types: the MIR element types can be identical
         // (a shared `TypeParam`) while the caller keeps it generic and the callee
         // erases it. The callee renders its element with generics only when it
-        // emits real Rust generics.
-        let arg_element_text =
-            self.type_text_with_scoped_type_params(*arg_item, false, &self.current_function_type_params())?;
-        let callee_scope: HashSet<Symbol> = if callee_emits_generics {
-            function
-                .type_params
-                .iter()
-                .map(|type_param| type_param.name)
-                .collect()
-        } else {
-            HashSet::new()
-        };
+        // emits real Rust generics, which is what `callee_generics` encodes.
+        let arg_element_text = self.type_text_with_scoped_type_params(
+            *arg_item,
+            false,
+            &self.current_function_type_params(),
+        )?;
         let param_element_text =
-            self.type_text_with_scoped_type_params(*target_item, false, &callee_scope)?;
+            self.type_text_with_scoped_type_params(*target_item, false, callee_generics)?;
         if arg_element_text == param_element_text {
+            // Already invariance-compatible: the ordinary call path passes the
+            // place (or the forwarded reference) straight through.
             return Ok(None);
         }
-        Ok(Some(Place::Local(local)))
+        // The callee emits real generics and this argument is exactly its generic
+        // list shape instantiated, so Rust infers the type parameter from the
+        // caller's concrete list and no element conversion is possible *or*
+        // wanted. This reuses the same instantiation rule the ordinary
+        // pass-through path uses for by-value generic arguments.
+        if !callee_generics.is_empty()
+            && self.generic_param_instantiated_by(arg_ty, target_ty, callee_generics)
+        {
+            return Ok(Some((place, MutListArgKind::Monomorphized)));
+        }
+        // The erasing adapter converts elements with `IntoSmeltUnknown` on the way
+        // in and `SmeltFromUnknown` on the way out, so it can only target a
+        // parameter whose element really is the erased `SmeltUnknown`. Any other
+        // rendered difference (a callee element that is itself a narrower generated
+        // type, such as `SmeltErasedFunction`) has no such element bridge; leave
+        // those on the ordinary call path rather than emit conversions that cannot
+        // type-check.
+        if param_element_text != "SmeltUnknown" {
+            return Ok(None);
+        }
+        Ok(Some((place, MutListArgKind::Erased)))
+    }
+
+    /// Returns how a mutable-list argument's local place is stored in Rust.
+    ///
+    /// See [`MutListPlaceStorage`]; the classification drives both the writable
+    /// check and the read/assign spellings.
+    fn mut_list_place_storage(&self, local: LocalId) -> Result<MutListPlaceStorage, EmitError> {
+        if self.function.id.0 != u32::MAX
+            && self.function.params.contains(&local)
+            && self.parameter_needs_mutable_reference(local)
+        {
+            return Ok(MutListPlaceStorage::Reference);
+        }
+        if shared_capture_cell_name(&self.place_text(&Place::Local(local))?).is_some() {
+            return Ok(MutListPlaceStorage::SharedCapture);
+        }
+        Ok(MutListPlaceStorage::Owned)
+    }
+
+    /// Returns whether the adapter may write a new list back through `local`.
+    ///
+    /// A `&mut` parameter and a shared closure capture are always writable (the
+    /// first through its reference, the second through the cell's `borrow_mut()`,
+    /// neither of which needs a `mut` binding). An owned local is only writable
+    /// when its `let` is actually rendered `mut`; `local_binding_needs_mut` is the
+    /// single source of truth for that, and it already forces `mut` for any local
+    /// passed to a mutable-reference parameter of a static call — exactly this
+    /// shape — so the check is a self-consistency guard rather than a
+    /// restriction. Inside a closure body the emitter runs on a synthetic
+    /// function whose mutability analysis does not cover the enclosing binding,
+    /// so only the shared-capture storage is accepted there.
+    fn mut_list_place_is_writable(&self, local: LocalId) -> Result<bool, EmitError> {
+        match self.mut_list_place_storage(local)? {
+            MutListPlaceStorage::Reference | MutListPlaceStorage::SharedCapture => Ok(true),
+            MutListPlaceStorage::Owned => {
+                Ok(self.function.id.0 != u32::MAX && self.local_binding_needs_mut(local))
+            }
+        }
+    }
+
+    /// Returns the read expression and assignment target for a mutable-list
+    /// argument place.
+    ///
+    /// `place_text` renders a read whose shape depends on the storage, so the
+    /// adapter cannot assume a reference: `(*array).clone()` on an owned
+    /// `SmeltList` would deref to a slice and clone that instead of the list, and
+    /// `*array = ..` does not compile on a non-reference at all.
+    fn mut_list_place_access(&self, place: &Place) -> Result<MutListPlaceAccess, EmitError> {
+        let Place::Local(local) = place else {
+            return Err(EmitError::new(
+                "mutable-list adapter place must be a local",
+            ));
+        };
+        let text = self.place_text(place)?;
+        match self.mut_list_place_storage(*local)? {
+            MutListPlaceStorage::Reference => Ok(MutListPlaceAccess {
+                read: format!("(*{text}).clone()"),
+                assign_target: format!("*{text}"),
+                mut_borrow: Some(format!("*{text}")),
+            }),
+            MutListPlaceStorage::SharedCapture => {
+                let cell = shared_capture_cell_name(&text).ok_or_else(|| {
+                    EmitError::new("shared-capture place lost its cell binding")
+                })?;
+                Ok(MutListPlaceAccess {
+                    // `text` is already `(*smelt_capture_x.borrow())`, so the read
+                    // clones through the shared borrow; the write needs its own
+                    // short-lived `borrow_mut()` of the same cell.
+                    read: format!("{text}.clone()"),
+                    assign_target: format!("*{cell}.borrow_mut()"),
+                    mut_borrow: None,
+                })
+            }
+            MutListPlaceStorage::Owned => Ok(MutListPlaceAccess {
+                read: format!("{text}.clone()"),
+                assign_target: text.clone(),
+                mut_borrow: Some(text),
+            }),
+        }
+    }
+
+    /// Returns whether `ty` mentions any of `params` anywhere in its structure.
+    ///
+    /// Used to decide whether a callee's return position is monomorphized at a
+    /// call site. The walk is structural and bounded by `depth` so a
+    /// pathologically nested type cannot recurse without end.
+    fn type_mentions_type_params(&self, ty: TypeId, params: &HashSet<Symbol>) -> bool {
+        self.type_mentions_type_params_at_depth(ty, params, 16)
+    }
+
+    /// Depth-limited worker for [`Self::type_mentions_type_params`].
+    fn type_mentions_type_params_at_depth(
+        &self,
+        ty: TypeId,
+        params: &HashSet<Symbol>,
+        depth: usize,
+    ) -> bool {
+        if depth == 0 || params.is_empty() {
+            return false;
+        }
+        let next = depth.saturating_sub(1);
+        match self.mir.types.get(ty) {
+            Some(Type::TypeParam { name }) => params.contains(name),
+            Some(
+                Type::List(item)
+                | Type::Set(item)
+                | Type::Optional(item)
+                | Type::Future(item),
+            ) => self.type_mentions_type_params_at_depth(*item, params, next),
+            Some(Type::Dict(key, value)) => {
+                self.type_mentions_type_params_at_depth(*key, params, next)
+                    || self.type_mentions_type_params_at_depth(*value, params, next)
+            }
+            Some(Type::Tuple(items) | Type::Union(items)) => items
+                .iter()
+                .any(|item| self.type_mentions_type_params_at_depth(*item, params, next)),
+            Some(Type::Function(function)) => {
+                self.type_mentions_type_params_at_depth(function.return_ty, params, next)
+                    || function
+                        .params
+                        .iter()
+                        .any(|param| {
+                            self.type_mentions_type_params_at_depth(*param, params, next)
+                        })
+            }
+            _ => false,
+        }
     }
 
     /// Returns the element type of a list type, or an error when the type is

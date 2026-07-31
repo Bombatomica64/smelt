@@ -7678,6 +7678,88 @@ export function useStrs(): string[] {
 }
 
 #[test]
+fn plain_local_mut_list_argument_to_generic_callee_passes_elements_through() {
+    // Regression (es-toolkit pullAt): an ordinary caller passes a concrete local
+    // list into a callee that mutates it and IS emitted with real Rust generics
+    // (`fn drop_first<T>(arr: &mut SmeltList<T>)`). Rust binds `T` from the
+    // caller's `SmeltList<f64>`, so the elements must pass through unconverted and
+    // the callee must borrow the caller's local directly — no conversion, no copy,
+    // no write-back. Rendering the argument as `&mut <erased clone>` silently
+    // discarded the mutation.
+    let source = source_for(
+        r"
+function dropFirst<T>(arr: T[]): T[] {
+  return arr.splice(0, 1);
+}
+export function useDrop(): number[] {
+  const xs: number[] = [1, 2, 3];
+  dropFirst(xs);
+  return xs;
+}
+export function useDropStrings(): string[] {
+  const ys: string[] = ['a', 'b'];
+  dropFirst(ys);
+  return ys;
+}
+",
+    );
+    assert!(
+        source.contains("fn drop_first<T"),
+        "the mutating callee must stay generic: {source}"
+    );
+    assert!(
+        source.contains("drop_first(&mut xs)") && source.contains("drop_first(&mut ys)"),
+        "both concrete locals must be borrowed mutably in place, with no erasing \
+         temporary: {source}"
+    );
+    assert!(
+        !source.contains("drop_first(&mut {"),
+        "the argument must not be a converted temporary — that would discard the \
+         mutation: {source}"
+    );
+    assert!(
+        source.contains("let mut xs:") && source.contains("let mut ys:"),
+        "a local borrowed mutably at a call site must be declared `mut`: {source}"
+    );
+}
+
+#[test]
+fn plain_local_mut_list_argument_to_erased_callee_converts_in_place() {
+    // Regression (es-toolkit pull/remove): an ordinary caller passes a concrete
+    // local list into a callee whose mutable list parameter is erased
+    // (`&mut SmeltList<SmeltUnknown>`). `&mut` is invariant, so the elements must
+    // be erased into a temporary, the callee must mutate that temporary, and the
+    // result must be un-erased back into the caller's local. The write-back must
+    // assign the local directly — the place is not a reference, so `*xs = ..`
+    // would not compile and `(*xs).clone()` would clone a slice.
+    let source = source_for(
+        r"
+function eraseInto(target: unknown[], value: unknown): void {
+  target.push(value);
+}
+export function useErase(): number[] {
+  const xs: number[] = [1, 2];
+  eraseInto(xs, 3);
+  return xs;
+}
+",
+    );
+    assert!(
+        source.contains("let mut smelt_mut_arg_0: SmeltList<SmeltUnknown> = xs.clone()")
+            && source.contains("into_smelt_unknown"),
+        "the concrete local must be erased into the adapter temporary: {source}"
+    );
+    assert!(
+        source.contains("xs = smelt_mut_arg_0")
+            && source.contains("smelt_from_unknown")
+            && !source.contains("*xs = ")
+            && !source.contains("(*xs).clone()"),
+        "the mutated temporary must be un-erased back into the owned local, not \
+         written through a reference: {source}"
+    );
+}
+
+#[test]
 fn loop_body_if_guard_condition_renders_at_bool_type() {
     // Regression (es-toolkit template): an `if`-guard nested inside a for-of loop
     // is emitted through the structured while-header path when its then-branch

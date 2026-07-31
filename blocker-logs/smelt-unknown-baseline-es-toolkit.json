@@ -1,9 +1,9 @@
 {
   "files_scanned": 745,
-  "total": 79705,
+  "total": 79516,
   "category_totals": {
-    "avoidable-erasure": 35789,
-    "legitimate-boundary": 41294,
+    "avoidable-erasure": 35790,
+    "legitimate-boundary": 41104,
     "runtime-prelude": 2622
   },
   "shapes": [
@@ -1325,13 +1325,6 @@
     },
     {
       "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: SmeltList<fN> = { let smelt_l: SmeltList<_> = (pull_N(&mut { let smelt_l: SmeltList<_> = (array.clone()).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Number(value as fN)).collect::<Vec<_>>()) }, _smelt_tmp_N)).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) };",
-      "occurrences": 72,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/pull_spec.rs:16"
-    },
-    {
-      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: fN = max_by_N(_smelt_tmp_N, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: fN, argN: SmeltList<SmeltUnknown>| match (_smelt_adapted_callback)(argN).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN } }).clone().map_or(N.N, |value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN });",
       "occurrences": 72,
       "files": 1,
@@ -1616,13 +1609,6 @@
       "occurrences": 60,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/retry_spec.rs:18"
-    },
-    {
-      "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: SmeltList<fN> = { let smelt_l: SmeltList<_> = (pull_at_N(&mut { let smelt_l: SmeltList<_> = (array.clone()).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Number(value as fN)).collect::<Vec<_>>()) }, _smelt_tmp_N)).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) };",
-      "occurrences": 60,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/pullAt_spec.rs:19"
     },
     {
       "category": "legitimate-boundary",
@@ -2711,13 +2697,6 @@
     },
     {
       "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: SmeltList<SmeltRecord<String, fN>> = { let smelt_l: SmeltList<_> = (pull_at_N(&mut { let smelt_l: SmeltList<_> = (arr.clone()).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| { let smelt_record = (value).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as fN))).collect())) }).collect::<Vec<_>>()) }, _smelt_tmp_N)).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN })).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| { let value = SmeltUnknown::String(ch.to_string()); (index.to_string(), match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }) }).collect(), _ => SmeltRecord::new() }).collect::<Vec<_>>()) };",
-      "occurrences": 39,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/pullAt_spec.rs:203"
-    },
-    {
-      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: SmeltList<SmeltUnknown> = drop_right_while_N(arr.clone(), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: fN, argN: SmeltList<SmeltUnknown>| match (_smelt_adapted_callback)(argN).clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true } });",
       "occurrences": 39,
       "files": 1,
@@ -3562,13 +3541,6 @@
       "occurrences": 28,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/intersectionBy_spec.rs:29"
-    },
-    {
-      "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: SmeltList<fN> = { let smelt_l: SmeltList<_> = (remove_N(&mut { let smelt_l: SmeltList<_> = (numbers.clone()).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Number(value as fN)).collect::<Vec<_>>()) }, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: fN, argN: SmeltList<SmeltUnknown>| (_smelt_adapted_callback)() })).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) };",
-      "occurrences": 28,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/remove_spec.rs:86"
     },
     {
       "category": "legitimate-boundary",
@@ -5308,6 +5280,13 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: SmeltList<fN> = { let mut smelt_mut_arg_N: SmeltList<SmeltUnknown> = array.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<SmeltUnknown>>(); let smelt_mut_call_result = pull_N(&mut smelt_mut_arg_N, _smelt_tmp_N); array = smelt_mut_arg_N.into_iter().map(|smelt_element| <fN as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>(); smelt_mut_call_result.into_iter().map(|smelt_element| <fN as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>() };",
+      "occurrences": 18,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/pull_spec.rs:16"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: SmeltRecord<String, SmeltUnknown> = map_keys_N({ let smelt_record = (_smelt_tmp_N).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as fN))).collect())) }, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: String, argN: SmeltUnknown| SmeltUnknown::String((_smelt_adapted_callback)(argN, argN)) }).into_iter().map(|(key, value)| ({ fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"S\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\"S\"), SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() } } smelt_property_key((key).into_smelt_unknown()) }, value)).collect::<SmeltRecord<String, SmeltUnknown>>();",
       "occurrences": 18,
       "files": 1,
@@ -6481,20 +6460,6 @@
       "occurrences": 14,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/mergeWith.rs:100"
-    },
-    {
-      "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: SmeltList<fN> = { let smelt_l: SmeltList<_> = (remove_N(&mut { let smelt_l: SmeltList<_> = (empty_array.clone()).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Number(value as fN)).collect::<Vec<_>>()) }, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: fN, argN: SmeltList<SmeltUnknown>| (_smelt_adapted_callback)() })).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) };",
-      "occurrences": 14,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/remove_spec.rs:148"
-    },
-    {
-      "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: SmeltList<fN> = { let smelt_l: SmeltList<_> = (remove_N(&mut { let smelt_l: SmeltList<_> = (numbers.clone()).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Number(value as fN)).collect::<Vec<_>>()) }, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: fN, argN: SmeltList<SmeltUnknown>| (_smelt_adapted_callback)(argN) })).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) };",
-      "occurrences": 14,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/remove_spec.rs:23"
     },
     {
       "category": "legitimate-boundary",
@@ -8945,6 +8910,13 @@
       "occurrences": 10,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/sample.rs:22"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: SmeltList<fN> = { let mut smelt_mut_arg_N: SmeltList<SmeltUnknown> = numbers.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<SmeltUnknown>>(); let smelt_mut_call_result = remove_N(&mut smelt_mut_arg_N, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: fN, argN: SmeltList<SmeltUnknown>| (_smelt_adapted_callback)() }); numbers = smelt_mut_arg_N.into_iter().map(|smelt_element| <fN as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>(); smelt_mut_call_result.into_iter().map(|smelt_element| <fN as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>() };",
+      "occurrences": 10,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/remove_spec.rs:86"
     },
     {
       "category": "legitimate-boundary",
@@ -13502,6 +13474,20 @@
       "occurrences": 5,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/throttle_spec.rs:549"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: SmeltList<fN> = { let mut smelt_mut_arg_N: SmeltList<SmeltUnknown> = empty_array.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<SmeltUnknown>>(); let smelt_mut_call_result = remove_N(&mut smelt_mut_arg_N, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: fN, argN: SmeltList<SmeltUnknown>| (_smelt_adapted_callback)() }); empty_array = smelt_mut_arg_N.into_iter().map(|smelt_element| <fN as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>(); smelt_mut_call_result.into_iter().map(|smelt_element| <fN as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>() };",
+      "occurrences": 5,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/remove_spec.rs:148"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: SmeltList<fN> = { let mut smelt_mut_arg_N: SmeltList<SmeltUnknown> = numbers.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<SmeltUnknown>>(); let smelt_mut_call_result = remove_N(&mut smelt_mut_arg_N, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: fN, argN: SmeltList<SmeltUnknown>| (_smelt_adapted_callback)(argN) }); numbers = smelt_mut_arg_N.into_iter().map(|smelt_element| <fN as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>(); smelt_mut_call_result.into_iter().map(|smelt_element| <fN as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>() };",
+      "occurrences": 5,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/remove_spec.rs:23"
     },
     {
       "category": "legitimate-boundary",
@@ -27477,13 +27463,6 @@
     },
     {
       "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: SmeltList<SmeltUnknown> = { let smelt_l: SmeltList<_> = (pull_at_N(&mut { let smelt_l: SmeltList<_> = (array.clone()).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| value).collect::<Vec<_>>()) }, _smelt_tmp_N)).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| (value).into_smelt_unknown()).collect::<Vec<_>>()) };",
-      "occurrences": 1,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/pullAt_spec.rs:110"
-    },
-    {
-      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: SmeltList<SmeltUnknown> = { let smelt_l: SmeltList<_> = (tail_N({ let smelt_l: SmeltList<_> = (_smelt_tmp_N).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| value).collect::<Vec<_>>()) })).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| (value).into_smelt_unknown()).collect::<Vec<_>>()) };",
       "occurrences": 1,
       "files": 1,
@@ -29987,6 +29966,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/sampleSize.rs:15"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: SmeltList<SmeltUnknown> = { let smelt_mut_call_result = pull_at_N(&mut array, _smelt_tmp_N); smelt_mut_call_result };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/pullAt_spec.rs:110"
     },
     {
       "category": "avoidable-erasure",
