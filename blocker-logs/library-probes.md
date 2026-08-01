@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-07-31 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-08-01 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,7 +12,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 791 / 268 | — | — | — |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 802 / 257 | — | — | — |
 | [radash](https://github.com/sodiray/radash) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `home/runner/work/smelt/smelt/src/internals/helpers.ts` | 11 | non-working Rust (11r/0s) |
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `home/runner/work/smelt/smelt/library/src/storages/globalConfig/globalConfig.ts` | 15 | non-working Rust (14r/1s) |
@@ -29,7 +29,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: **791 passed / 268 failed**
+- Generated `cargo test`: **802 passed / 257 failed**
 
 ## radash
 
