@@ -80,11 +80,38 @@ impl FunctionEmitter<'_> {
         if self.is_erased_class_type(target) {
             return self.erase(operand);
         }
+        // JavaScript keeps `null` and `undefined` distinct under `===`
+        // (`undefined === null` is false). An `Option<SmeltUnknown>` slot has
+        // room for both: `None` is the absent/`undefined` case and a present
+        // `SmeltUnknown::Null` payload is an explicit `null` (see
+        // `optional_inner_preserves_erased_singletons`). Storing JS `null` as
+        // `Some(SmeltUnknown::Null)` is what lets the strict comparison in
+        // `optional_erased_singleton_equality_text` answer `x === null`
+        // correctly; folding it into `None` made `x !== null` true for a slot
+        // that holds `null`. Slots whose payload cannot carry the tag (a
+        // concrete inner or a tagged union with no nullish arm) keep the
+        // collapsed `None` encoding.
+        if matches!(operand, Operand::Const(Constant::None))
+            && let Some(Type::Optional(inner)) = self.mir.types.get(target)
+            && self.optional_inner_preserves_erased_singletons(*inner)
+        {
+            return Ok(format!(
+                "Some({})",
+                self.value_at_type_text("SmeltUnknown::Null", self.type_id(Type::Unknown)?, *inner)?
+            ));
+        }
         if matches!(
             operand,
             Operand::Const(Constant::None | Constant::Undefined)
         ) {
             return self.default_value(target);
+        }
+        if let Some(slot) = self.callable_object_call_slot_text(
+            &self.operand_text(operand)?,
+            source_ty,
+            target,
+        )? {
+            return Ok(slot);
         }
         if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
             self.mir.types.get(self.operand_ty(operand)?),
@@ -477,6 +504,72 @@ impl FunctionEmitter<'_> {
         self.operand_text(operand)
     }
 
+    /// Coerces a callable-object value into a function-typed destination by
+    /// reading its synthetic `__smelt_call` slot.
+    ///
+    /// A TypeScript interface (or class) carrying a call signature lowers to a
+    /// record struct whose declared members become fields and whose underlying
+    /// callable is stored in a synthetic `__smelt_call` field (frontend
+    /// `add_interface_call_signature_field`). Invoking such a value — `f(..)`
+    /// where `f: DebouncedFunction` — lowers to a `closure_call` whose callee
+    /// temporary is *function*-typed, so MIR asks the coercion seam for a
+    /// record → function conversion. Without this rule the record source falls
+    /// through to the function-typed fallbacks below, which fabricate a
+    /// `default_value` stub: an empty closure that is then called, silently
+    /// dropping the real call.
+    ///
+    /// Returns `None` unless the destination is a function type and the source
+    /// is a record with a `__smelt_call` slot, so ordinary record and function
+    /// coercions are untouched. The slot's own declared type drives the nested
+    /// coercion, which reuses the normal function → function adapters (arity,
+    /// throw, erased-rest) instead of duplicating them.
+    ///
+    /// That nested coercion can come back around: a call signature may return
+    /// the callable interface itself (`interface Curried { (a: A): Curried }`),
+    /// and the return-value adapter then asks for the same record → function
+    /// conversion. [`Self::enter_type_expansion`] bounds that: a pair already
+    /// being expanded yields `None` and falls through to the outer coercion's
+    /// remaining rules rather than recursing forever.
+    fn callable_object_call_slot_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
+            return Ok(None);
+        }
+        let Some(call_ty) = self.callable_interface_call_field_ty(source) else {
+            return Ok(None);
+        };
+        let Some(_guard) = self.enter_type_expansion(source, target) else {
+            return Ok(None);
+        };
+        let slot_text = format!("{value_text}.__smelt_call.clone()");
+        Ok(Some(self.value_at_type_text(&slot_text, call_ty, target)?))
+    }
+
+    /// Marks a `source` → `target` structural coercion as being expanded.
+    ///
+    /// Returns `None` when the pair is already on
+    /// [`FunctionEmitter::type_expansion_stack`], i.e. when the caller is about
+    /// to re-enter an expansion it is already inside. Callers treat that as "no
+    /// structural adapter available" and fall back to their remaining rules,
+    /// which is what keeps mutually recursive record/callable shapes from
+    /// exhausting the stack. The returned guard pops the pair on drop, so an
+    /// early `?` return cannot leave the stack unbalanced.
+    pub(super) fn enter_type_expansion(
+        &self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<TypeExpansionGuard<'_>> {
+        if self.type_expansion_stack.borrow().contains(&(source, target)) {
+            return None;
+        }
+        self.type_expansion_stack.borrow_mut().push((source, target));
+        Some(TypeExpansionGuard { stack: &self.type_expansion_stack })
+    }
+
     /// Returns whether rendered value text is a trivial place that can be
     /// duplicated for free.
     ///
@@ -624,6 +717,9 @@ impl FunctionEmitter<'_> {
             && value_text == "Default::default()"
         {
             return self.default_value(target);
+        }
+        if let Some(slot) = self.callable_object_call_slot_text(value_text, source, target)? {
+            return Ok(slot);
         }
         if let Some(adapter) =
             self.rendered_function_shape_adapter_text(value_text, source, target)?
@@ -2337,6 +2433,22 @@ impl FunctionEmitter<'_> {
     }
 
     // Converts an awaited future operand without cloning it.
+}
+
+/// Scope guard that pops a type pair off
+/// [`FunctionEmitter::type_expansion_stack`] when the expansion finishes.
+///
+/// Held by value at the expansion site (see
+/// [`FunctionEmitter::enter_type_expansion`]) so the stack stays balanced even
+/// when the expansion returns an `EmitError` through `?`.
+pub(super) struct TypeExpansionGuard<'emit> {
+    stack: &'emit RefCell<Vec<(TypeId, TypeId)>>,
+}
+
+impl Drop for TypeExpansionGuard<'_> {
+    fn drop(&mut self) {
+        self.stack.borrow_mut().pop();
+    }
 }
 
 /// Whether an expression is cheap and side-effect-free to evaluate more than

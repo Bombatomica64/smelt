@@ -1506,9 +1506,16 @@ fn emit_source_with_free_function_router(
         // callable directly: `apply` drops the `this` argument and spreads the
         // trailing array, `call` drops `this` and forwards the remaining
         // positional arguments. Object receivers keep the ordinary field read so
-        // user-defined `.apply`/`.call` properties still resolve.
+        // user-defined `.apply`/`.call` properties still resolve — but a
+        // *callable object* (a JS function carrying properties, erased here to an
+        // object with a `__smelt_call` slot: a vitest mock, `partial.placeholder`,
+        // a debounced function) has no own `apply`/`call`/`bind` property, and in
+        // JavaScript those names resolve on `Function.prototype` of the
+        // underlying callable. Fall back to the `__smelt_call` slot when the own
+        // field read finds nothing, so `mock.apply(this, args)` actually invokes
+        // and records the call instead of yielding `undefined`.
         writer.line("/// Bind `Function.prototype.apply`/`call` on an erased receiver, or read the field of an object receiver.");
-        writer.line("fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown { match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let forwarded: Vec<SmeltUnknown> = if method == \"apply\" { match args.get(1) { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() } } else { args.into_iter().skip(1).collect() }; function(forwarded) })) } SmeltUnknown::Object(map) => smelt_get_object_field(&map, method), _ => SmeltUnknown::Undefined } }");
+        writer.line("fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown { match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let forwarded: Vec<SmeltUnknown> = if method == \"apply\" { match args.get(1) { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() } } else { args.into_iter().skip(1).collect() }; function(forwarded) })) } SmeltUnknown::Object(map) => match smelt_get_object_field(&map, method) { SmeltUnknown::Undefined => match map.get(\"__smelt_call\") { Some(callable @ SmeltUnknown::Function(_)) => smelt_function_method(callable, method), _ => SmeltUnknown::Undefined }, value => value }, _ => SmeltUnknown::Undefined } }");
         writer.blank_line();
         // `AbortController`/`AbortSignal` cancellation model. Both erase to
         // marker-bearing `SmeltObject`s whose shared `Rc<RefCell<..>>` storage

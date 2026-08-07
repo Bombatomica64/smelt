@@ -38,6 +38,7 @@ impl<'mir> FunctionEmitter<'mir> {
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             record_conversion_stack: RefCell::new(Vec::new()),
+            type_expansion_stack: RefCell::new(Vec::new()),
             none_ty,
             unknown_local: LocalDecl {
                 ty: unknown_ty,
@@ -898,6 +899,21 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let Some(Type::Class { name, args }) = self.mir.types.get(target) else {
             return Ok(None);
+        };
+        // Field-wise adaptation recurses through each field's own coercion, and
+        // a callable interface's `__smelt_call` field is a function whose return
+        // value can be the record again (es-toolkit's
+        // `CurriedFunction1<T1, R>` returns `CurriedFunction1<T1, R>`), so this
+        // pair can be requested again from inside its own expansion. Truncate
+        // that cycle with the target's default value rather than `None`: the
+        // callers that reach an adapter here have already committed to a
+        // record-shaped destination, and handing them the *source* value back
+        // would be ill-typed (`CurriedFunction2` where `CurriedFunction1` is
+        // expected). A default is the same information the pre-existing
+        // function-typed fallbacks produce for an unresolvable callable, and it
+        // keeps the generated crate compiling.
+        let Some(_guard) = self.enter_type_expansion(source, target) else {
+            return Ok(Some(self.default_value(target)?));
         };
         let target_name = sanitize_ident(self.symbol_name(*name)?);
         let mut field_text = Vec::new();
@@ -1774,6 +1790,7 @@ impl<'mir> FunctionEmitter<'mir> {
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             record_conversion_stack: RefCell::new(Vec::new()),
+            type_expansion_stack: RefCell::new(Vec::new()),
             none_ty: ty,
             unknown_local: LocalDecl {
                 ty,
@@ -1818,6 +1835,7 @@ impl<'mir> FunctionEmitter<'mir> {
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             record_conversion_stack: RefCell::new(Vec::new()),
+            type_expansion_stack: RefCell::new(Vec::new()),
             none_ty: ty,
             unknown_local: LocalDecl {
                 ty,
@@ -1859,6 +1877,7 @@ impl<'mir> FunctionEmitter<'mir> {
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             record_conversion_stack: RefCell::new(Vec::new()),
+            type_expansion_stack: RefCell::new(Vec::new()),
             none_ty: ty,
             unknown_local: LocalDecl {
                 ty,
@@ -1897,6 +1916,7 @@ impl<'mir> FunctionEmitter<'mir> {
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             record_conversion_stack: RefCell::new(Vec::new()),
+            type_expansion_stack: RefCell::new(Vec::new()),
             none_ty: ty,
             unknown_local: LocalDecl {
                 ty,
@@ -2471,6 +2491,29 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             converted
         };
+        // An erased-rest, non-throwing destination is NOT a bare `Rc<dyn Fn(..)>`
+        // — `types.rs` renders it as the concrete `SmeltErasedFunction` struct,
+        // whose `callback` field takes the packed `Vec<SmeltUnknown>` argument
+        // list and returns `SmeltUnknown`. Binding the adapter closure directly
+        // as that type is an E0308. Build the struct instead, unpacking the
+        // argument vector into the single rest parameter the adapter body reads
+        // and erasing the adapted return value to the callable ABI. (The
+        // operand-based path reaches `erased_rest_function_value_text` before
+        // this adapter, which is why only rendered-text coercions — such as a
+        // callable object's `__smelt_call` slot — hit this shape.)
+        if self.is_erased_unknown_rest_function(target_function)
+            && !target_function.may_throw
+            && let [rest_param] = target_function.params.as_slice()
+        {
+            let rest_text =
+                self.function_type_param_text(target_function, 0, *rest_param, &HashSet::new())?;
+            let erased_return =
+                self.erase_value_text(&returned, target_function.return_ty)?;
+            let length = source_function.params.len();
+            return Ok(Some(format!(
+                "{{ let smelt_callback = {value_text}.clone(); SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ let arg0: {rest_text} = SmeltList::from(smelt_args); {erased_return} }}), length: {length}.0, object: None }} }}"
+            )));
+        }
         let target_text = self.type_text_with_impl_trait(target, false)?;
         Ok(Some(format!(
             "{{ let smelt_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(move |{}| {returned}); smelt_adapted }}",
