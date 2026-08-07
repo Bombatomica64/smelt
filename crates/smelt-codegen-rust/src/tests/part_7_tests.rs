@@ -8899,3 +8899,190 @@ export function firstBig(values: number[], limit: number): number {
         "the `&&` join block must not become a second Rust `loop`: {source}"
     );
 }
+
+/// A derived constructor's `super(...)` must actually run the base constructor
+/// against the derived `this`.
+///
+/// Rust has no inheritance, so the base's fields are flattened into the derived
+/// struct; nothing initializes them unless the `super(...)` lowering constructs
+/// the base and moves its fields across. Before the fix the call was dropped and
+/// `Child::new` returned a struct still holding the Rust type defaults.
+#[test]
+fn derived_constructor_super_call_runs_the_base_constructor() {
+    let source = source_for(
+        r"
+class Base {
+  message: string;
+  constructor(message: string) {
+    this.message = message;
+  }
+}
+class Child extends Base {
+  constructor(message: string) {
+    super(message);
+  }
+}
+const child = new Child('hello');
+",
+    );
+
+    assert!(source.contains("Base::new("), "{source}");
+    assert!(
+        source.contains("this.message = __smelt_super.message"),
+        "{source}"
+    );
+}
+
+/// `super(...)` chains through every inheritance level.
+///
+/// Each level reproduces only its immediate base, so a three-level chain must
+/// still initialize the base-most field: `C::new` constructs `B`, whose
+/// constructor constructs `A`.
+#[test]
+fn derived_constructor_super_call_composes_across_inheritance_levels() {
+    let source = source_for(
+        r"
+class A {
+  a: number;
+  constructor() {
+    this.a = 1;
+  }
+}
+class B extends A {
+  b: number;
+  constructor() {
+    super();
+    this.b = 2;
+  }
+}
+class C extends B {
+  c: number;
+  constructor() {
+    super();
+    this.c = 3;
+  }
+}
+const value = new C();
+",
+    );
+
+    assert!(source.contains("let __smelt_super: A = "), "{source}");
+    assert!(source.contains("B::new()"), "{source}");
+    // `C::new` copies BOTH inherited slots out of the constructed `B`, so the
+    // base-most field reaches the leaf instance.
+    assert!(
+        source.contains("this.a = __smelt_super.a") && source.contains("this.b = __smelt_super.b"),
+        "{source}"
+    );
+}
+
+/// A class extending a host `Error` constructor gets the base constructor's
+/// observable behaviour: `message` from the first argument and `name` from the
+/// base constructor's own name.
+///
+/// The rule is keyed on the resolved base type, not on the subclass name, so
+/// the same lowering covers `extends Error` and every standard error subclass.
+#[test]
+fn error_subclass_super_call_assigns_the_error_base_slots() {
+    let source = source_for(
+        r"
+class ParseFailure extends TypeError {
+  constructor(message: string) {
+    super(message);
+  }
+}
+const failure = new ParseFailure('bad input');
+",
+    );
+
+    assert!(
+        source.contains(r#"this.name = "TypeError".to_owned()"#),
+        "{source}"
+    );
+    assert!(source.contains("this.message = message"), "{source}");
+}
+
+/// The inherited `Error` slots keep concrete types; only `cause` erases.
+///
+/// TypeScript's lib types are `name: string`, `message: string`,
+/// `stack?: string`, `cause?: unknown`, and `tsc` rejects source that violates
+/// them before Smelt runs, so three of the four slots are ordinary strings
+/// rather than dynamic boundaries. This guards against a future change
+/// "consistently" re-erasing them to `SmeltUnknown`.
+#[test]
+fn error_subclass_inherited_slots_stay_concretely_typed() {
+    let source = source_for(
+        r"
+class ParseFailure extends TypeError {
+  constructor(message: string) {
+    super(message);
+  }
+}
+const failure = new ParseFailure('bad input');
+",
+    );
+
+    assert!(source.contains("name: String,"), "{source}");
+    assert!(source.contains("message: String,"), "{source}");
+    assert!(source.contains("stack: Option<String>,"), "{source}");
+    // `cause` is the one genuine dynamic boundary: ES2022 types it `unknown`
+    // because it carries an arbitrary thrown value.
+    assert!(source.contains("cause: SmeltUnknown,"), "{source}");
+    assert!(
+        !source.contains("message: SmeltUnknown,") && !source.contains("name: SmeltUnknown,"),
+        "{source}"
+    );
+    // A concrete `String` slot must still erase to `SmeltUnknown::String` when the
+    // instance is erased, because the throw path reads `message` off the erased
+    // object and expects that variant.
+    assert!(
+        source.contains(r#"("message".to_owned(), SmeltUnknown::String(self.message))"#),
+        "{source}"
+    );
+}
+
+/// Constructor parameter defaults are applied in the constructor body, exactly
+/// like plain function parameter defaults.
+///
+/// The ABI parameter widens to `Option<T>` and the body applies the declared
+/// initializer, so an omitted argument evaluates the source default instead of
+/// the Rust type's zero value (`String::new()` before the fix).
+#[test]
+fn constructor_parameter_default_is_applied_in_the_body() {
+    let source = source_for(
+        r"
+class Greeting {
+  text: string;
+  constructor(text = 'hi there') {
+    this.text = text;
+  }
+}
+const greeting = new Greeting();
+",
+    );
+
+    assert!(source.contains("fn new(text: Option<String>)"), "{source}");
+    assert!(source.contains(r#"unwrap_or("hi there".to_owned())"#), "{source}");
+    assert!(source.contains("Greeting::new(None"), "{source}");
+}
+
+/// A parameter property with a default stores the applied default, not the
+/// `Option` ABI slot.
+///
+/// The parameter-property assignment is emitted after the default prelude, so
+/// the field keeps its declared concrete type.
+#[test]
+fn defaulted_parameter_property_stores_the_applied_default() {
+    let source = source_for(
+        r"
+class Sized {
+  constructor(readonly size = 10) {}
+}
+const sized = new Sized();
+",
+    );
+
+    assert!(source.contains("size: f64"), "{source}");
+    assert!(source.contains("unwrap_or(10.0)"), "{source}");
+    assert!(source.contains("this.size = size"), "{source}");
+}

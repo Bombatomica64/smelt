@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 
 use crate::lowering::support::visibility;
+use crate::lowering::decls::super_call;
 use crate::lowering::{
     AssertionNarrowing, GeneratorYieldAccumulator,
     ModuleBuilder, RestParam, specialization,
@@ -198,7 +199,7 @@ impl ModuleBuilder<'_> {
             if let Some(source_name) = source_name {
                 self.locals.insert(source_name.clone(), local);
                 if let Some(initializer) = default_initializer {
-                    defaulted_params.push((local, ty, initializer, param_name, source_name, span));
+                    defaulted_params.push((local, ty, &**initializer, param_name, source_name, span));
                 }
             } else {
                 destructured_params.push((&param.pattern, local, ty));
@@ -309,52 +310,8 @@ impl ModuleBuilder<'_> {
                 errors.push(error);
             }
         }
-        // Apply parameter defaults: shadow each defaulted `Optional<T>` ABI
-        // parameter with a body-scoped `T` local initialized to
-        // `param ?? <default>`. Later defaults may reference earlier
-        // parameters, which already resolve to their applied-default locals.
-        for (abi_local, abi_ty, initializer, param_name, source_name, span) in defaulted_params {
-            let inner_ty = match self.ctx.krate.types.get(abi_ty) {
-                Some(Type::Optional(inner)) => *inner,
-                _ => abi_ty,
-            };
-            let optional = body.push_expr(Expr {
-                kind: ExprKind::Local(abi_local),
-                ty: abi_ty,
-                span,
-            });
-            let fallback = match self.expression_with_hint(initializer, &mut body, Some(inner_ty)) {
-                Ok(value) => value,
-                Err(error) => {
-                    errors.push(error);
-                    continue;
-                }
-            };
-            let value = body.push_expr(Expr {
-                kind: ExprKind::OptionalCoalesce { optional, fallback },
-                ty: inner_ty,
-                span,
-            });
-            let applied = body.push_local(LocalDecl {
-                name: Some(param_name),
-                ty: inner_ty,
-                mutable: true,
-                span,
-            });
-            if self.type_is_known_date_value(inner_ty) {
-                self.date_value_locals.insert(applied);
-            }
-            self.locals.insert(source_name, applied);
-            let pat = body.push_pattern(Pattern::Binding(applied));
-            let root = body.root;
-            body.push_stmt_to_block(
-                root,
-                Stmt::Let {
-                    pat,
-                    ty: inner_ty,
-                    value: Some(value),
-                },
-            );
+        if let Err(error) = self.apply_parameter_defaults(defaulted_params, &mut body) {
+            errors.push(error);
         }
         if let Err(error) =
             self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
@@ -645,6 +602,75 @@ impl ModuleBuilder<'_> {
     /// Return whether a TypeScript formal parameter has a default value.
     pub(in crate::lowering) fn formal_parameter_has_default(param: &oxc::ast::ast::FormalParameter<'_>) -> bool {
         param.initializer.is_some() || matches!(param.pattern, BindingPattern::AssignmentPattern(_))
+    }
+
+    /// Emit the body prelude that applies declared parameter defaults.
+    ///
+    /// Each defaulted parameter arrives on the ABI as `Optional<T>` and is
+    /// shadowed by a body-scoped `T` local initialized to `param ?? <default>`,
+    /// mirroring JavaScript's per-call evaluation of defaults in callee scope.
+    /// Later defaults may reference earlier parameters, which by then already
+    /// resolve to their applied-default locals.
+    ///
+    /// Shared by free functions, methods, and constructors so all three agree on
+    /// the ABI and on when a default is applied.
+    fn apply_parameter_defaults<'src>(
+        &mut self,
+        defaulted_params: Vec<(
+            smelt_hir::LocalId,
+            smelt_hir::TypeId,
+            &'src Expression<'src>,
+            smelt_hir::Symbol,
+            String,
+            Span,
+        )>,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let mut first_error = None;
+        for (abi_local, abi_ty, initializer, param_name, source_name, span) in defaulted_params {
+            let inner_ty = match self.ctx.krate.types.get(abi_ty) {
+                Some(Type::Optional(inner)) => *inner,
+                _ => abi_ty,
+            };
+            let optional = body.push_expr(Expr {
+                kind: ExprKind::Local(abi_local),
+                ty: abi_ty,
+                span,
+            });
+            let fallback = match self.expression_with_hint(initializer, body, Some(inner_ty)) {
+                Ok(value) => value,
+                Err(error) => {
+                    first_error = first_error.or(Some(error));
+                    continue;
+                }
+            };
+            let value = body.push_expr(Expr {
+                kind: ExprKind::OptionalCoalesce { optional, fallback },
+                ty: inner_ty,
+                span,
+            });
+            let applied = body.push_local(LocalDecl {
+                name: Some(param_name),
+                ty: inner_ty,
+                mutable: true,
+                span,
+            });
+            if self.type_is_known_date_value(inner_ty) {
+                self.date_value_locals.insert(applied);
+            }
+            self.locals.insert(source_name, applied);
+            let pat = body.push_pattern(Pattern::Binding(applied));
+            let root = body.root;
+            body.push_stmt_to_block(
+                root,
+                Stmt::Let {
+                    pat,
+                    ty: inner_ty,
+                    value: Some(value),
+                },
+            );
+        }
+        first_error.map_or(Ok(()), Err)
     }
 
     /// Return whether a parameter default is the type's zero value.
@@ -2134,8 +2160,8 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Inject the dynamic Error-instance marker fields into a class that extends
-    /// the JavaScript `Error` builtin (or one of its standard subclasses).
+    /// Inject the inherited `Error`-instance slots into a class that extends the
+    /// JavaScript `Error` builtin (or one of its standard subclasses).
     ///
     /// The `Error` constructor is a modeled host builtin, not a source-declared
     /// Smelt class, so `effective_class_fields` finds no base layout to inherit.
@@ -2143,13 +2169,15 @@ impl ModuleBuilder<'_> {
     /// `name`/`message`/`stack`/`cause` slots (`this.name = ...`, `super(msg)`),
     /// which otherwise reference struct fields that were never declared (E0609).
     ///
-    /// These four properties have no statically knowable Smelt shape from the
-    /// erased host `Error` boundary, so they are declared as `Unknown` — this is
-    /// a genuine interop boundary with the JS builtin, matching the `SmeltUnknown`
-    /// assignment the constructor body already lowers. Fields the subclass
-    /// redeclares itself are left untouched. Only the direct Error-extending class
-    /// needs injection; deeper subclasses inherit these through the normal
-    /// flattened class layout.
+    /// The slots are declared with the types TypeScript's lib gives them, NOT as
+    /// a uniform erased shape: `name`/`message` are `string`, `stack` is an
+    /// optional `string`, and only `cause` is `Unknown`. See
+    /// [`super_call::ERROR_MARKER_FIELDS`] for that reasoning — it owns the layout
+    /// so the declared types and the types `super(...)` writes cannot drift.
+    ///
+    /// Fields the subclass redeclares itself are left untouched. Only the direct
+    /// Error-extending class needs injection; deeper subclasses inherit these
+    /// through the normal flattened class layout.
     fn inject_error_marker_fields(
         &mut self,
         base: Option<smelt_hir::Symbol>,
@@ -2168,40 +2196,15 @@ impl ModuleBuilder<'_> {
         // const alias to a host constructor — so a subclass such as
         // `AbortError extends DOMException` inherits no fields unless we inject the
         // Error marker slots here too (was E0609 on `.message`).
-        let extends_error = matches!(
-            base_name,
-            "Error"
-                | "EvalError"
-                | "RangeError"
-                | "ReferenceError"
-                | "SyntaxError"
-                | "TypeError"
-                | "URIError"
-                | "AggregateError"
-                | "DOMException"
-        );
-        if !extends_error {
+        //
+        // The base-name predicate and the injected slot layout are shared with
+        // the `super(...)` lowering in `super_call`, so the fields a class gains
+        // and the slots its derived constructor writes cannot drift apart.
+        let base_name = base_name.to_owned();
+        if !super_call::is_error_like_base(&base_name) {
             return;
         }
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let mut injected = Vec::new();
-        for marker in ["name", "message", "stack", "cause"] {
-            let symbol = self.ctx.krate.symbols.intern(marker);
-            if fields.iter().any(|field| field.name == symbol) {
-                continue;
-            }
-            injected.push(Field {
-                name: symbol,
-                ty: unknown_ty,
-                visibility: Visibility::Public,
-                optional: false,
-                span: class_span,
-            });
-        }
-        // Inherited slots come first so the flattened layout mirrors a real base
-        // class (`effective_class_fields` orders base fields before own fields).
-        injected.extend(std::mem::take(fields));
-        *fields = injected;
+        *fields = self.with_error_marker_fields(std::mem::take(fields), class_span);
     }
 
     /// Lower the single supported TypeScript `extends` shape for class declarations.
@@ -2598,9 +2601,10 @@ impl ModuleBuilder<'_> {
         }
 
         let mut destructured_params = Vec::new();
+        let mut defaulted_params = Vec::new();
         let mut parameter_property_initializers = Vec::new();
         for (index, param) in method.value.params.items.iter().enumerate() {
-            let ty = self.function_parameter_type(param)?;
+            let declared_ty = self.function_parameter_type(param)?;
             let (param_name, span, source_name) =
                 if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
                     (
@@ -2616,28 +2620,58 @@ impl ModuleBuilder<'_> {
                         None,
                     )
                 };
+            // Methods and constructors take parameter defaults through exactly the
+            // machinery plain functions use (see `function_declaration_named`): the
+            // ABI parameter widens to `Optional<T>` and a body prelude applies the
+            // declared initializer, so an omitted argument evaluates the source
+            // default instead of the Rust type's zero value. Defaults that already
+            // equal the type's zero value keep the plain ABI, matching the free
+            // function rule.
+            let default_initializer = source_name
+                .is_some()
+                .then_some(param.initializer.as_ref())
+                .flatten()
+                .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
+            let abi_ty = if default_initializer.is_some()
+                && !matches!(
+                    self.ctx.krate.types.get(declared_ty),
+                    Some(Type::Optional(_))
+                )
+            {
+                self.ctx.krate.types.intern(Type::Optional(declared_ty))
+            } else {
+                declared_ty
+            };
             let local = body.push_local(LocalDecl {
                 name: Some(param_name),
-                ty,
+                ty: abi_ty,
                 mutable: false,
                 span,
             });
             body.params.push(local);
             if let Some(source_name) = source_name {
-                self.locals.insert(source_name, local);
+                self.locals.insert(source_name.clone(), local);
+                if let Some(initializer) = default_initializer {
+                    defaulted_params
+                        .push((local, abi_ty, &**initializer, param_name, source_name, span));
+                }
             } else {
-                destructured_params.push((&param.pattern, local, ty));
+                destructured_params.push((&param.pattern, local, abi_ty));
             }
             params.push(Param {
                 name: param_name,
                 local,
-                ty,
+                ty: abi_ty,
                 span,
             });
             if is_constructor && (param.accessibility.is_some() || param.readonly) {
+                // The declared (non-`Optional`) type is the field's type: the
+                // widened ABI slot only exists to carry "argument omitted". The
+                // initializing local is resolved after the default prelude runs,
+                // so a defaulted parameter property stores the applied value.
                 let field = Field {
                     name: param_name,
-                    ty,
+                    ty: declared_ty,
                     visibility: visibility(param.accessibility),
                     optional: false,
                     span,
@@ -2646,7 +2680,12 @@ impl ModuleBuilder<'_> {
                     .entry(class_text.to_owned())
                     .or_default()
                     .push(field);
-                parameter_property_initializers.push((param_name, local, ty, span));
+                parameter_property_initializers.push((
+                    param_name,
+                    binding_source_name(&param.pattern).map(str::to_owned),
+                    declared_ty,
+                    span,
+                ));
             }
         }
         if is_constructor {
@@ -2656,12 +2695,6 @@ impl ModuleBuilder<'_> {
                 field_initializers,
                 &mut body,
             )?;
-            Self::emit_parameter_property_initializers(
-                this_local,
-                class_ty,
-                &parameter_property_initializers,
-                &mut body,
-            );
         }
 
         let mut errors = Vec::new();
@@ -2677,6 +2710,27 @@ impl ModuleBuilder<'_> {
             {
                 errors.push(error);
             }
+        }
+        if let Err(error) = self.apply_parameter_defaults(defaulted_params, &mut body) {
+            errors.push(error);
+        }
+        if is_constructor {
+            // Parameter properties are emitted after the default prelude so a
+            // `constructor(public size = 10)` stores `10`, not the `Optional` slot.
+            let resolved = parameter_property_initializers
+                .into_iter()
+                .filter_map(|(field, source_name, ty, span)| {
+                    let local = source_name
+                        .and_then(|source_name| self.locals.get(&source_name).copied())?;
+                    Some((field, local, ty, span))
+                })
+                .collect::<Vec<_>>();
+            Self::emit_parameter_property_initializers(
+                this_local,
+                class_ty,
+                &resolved,
+                &mut body,
+            );
         }
         if let Err(error) =
             self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
@@ -2694,7 +2748,19 @@ impl ModuleBuilder<'_> {
             .then(|| self.initialize_generator_yield_accumulator(&method.value, &mut body));
         self.current_generator_yields = generator_yields;
         for statement in &function_body.statements {
+            // `super(...)` has no callee to defer to once inheritance is flattened
+            // into the derived struct, so it lowers to the base's initialization
+            // applied to `this` instead of running as an ordinary call.
             if self.is_super_call_statement(statement) {
+                if let Err(error) = self.lower_super_call_statement(
+                    statement,
+                    this_local,
+                    class_ty,
+                    class_text,
+                    &mut body,
+                ) {
+                    errors.push(error);
+                }
                 continue;
             }
             if let Err(error) = self.statement(statement, &mut body) {
@@ -2773,4 +2839,16 @@ impl ModuleBuilder<'_> {
     }
 
     // Continued in the next split builder file.
+}
+
+/// Return the source identifier a parameter pattern binds, if it binds one.
+///
+/// Parameter properties (`constructor(public value: T)`) always bind a plain
+/// identifier, so this is how their initializing local is looked back up in the
+/// local scope after the parameter-default prelude may have shadowed it.
+fn binding_source_name<'src>(pattern: &'src BindingPattern<'src>) -> Option<&'src str> {
+    match pattern {
+        BindingPattern::BindingIdentifier(binding) => Some(binding.name.as_str()),
+        _ => None,
+    }
 }
