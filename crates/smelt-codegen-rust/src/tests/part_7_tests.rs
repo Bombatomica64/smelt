@@ -9086,3 +9086,118 @@ const sized = new Sized();
     assert!(source.contains("unwrap_or(10.0)"), "{source}");
     assert!(source.contains("this.size = size"), "{source}");
 }
+
+#[test]
+fn calling_a_callable_object_value_dispatches_through_its_call_slot() {
+    // Regression (es-toolkit debounce/throttle specs): invoking a value whose
+    // type is a callable interface (`debouncedFunc()` where `debouncedFunc:
+    // DebouncedFunction`) lowers to a `closure_call` whose callee temporary is
+    // function-typed. The record -> function coercion had no rule, so the
+    // callee fell through to `default_value`, which FABRICATED an empty closure
+    // and then called it: the real function never ran, no timer was scheduled,
+    // and every `toHaveBeenCalledTimes` assertion failed. The call must read the
+    // interface's synthetic `__smelt_call` slot instead.
+    let source = source_for(
+        r"
+export interface Counter {
+  (...args: number[]): void;
+  reset: () => void;
+}
+export function makeCounter(): Counter {
+  let count = 0;
+  const reset = () => {
+    count = 0;
+  };
+  const counter = function (...args: number[]) {
+    count = count + args.length;
+  };
+  counter.reset = reset;
+  return counter;
+}
+export function useCounter(): void {
+  const c = makeCounter();
+  c();
+  c(1, 2);
+}
+",
+    );
+    assert!(
+        source.contains("__smelt_call.clone()"),
+        "calling a callable-object value must dispatch through its `__smelt_call` \
+         slot: {source}"
+    );
+    // The dead-stub shape: a freshly built empty callable ASSIGNED to a
+    // temporary (as opposed to a declaration-site default initializer), which is
+    // then immediately invoked.
+    let dead_stub_assignment = source.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("_smelt_tmp_")
+            && line.contains("= { let smelt_default_callback:")
+            && line.contains("SmeltList<f64>")
+    });
+    assert!(
+        !dead_stub_assignment,
+        "a callable-object call must not materialize a fabricated empty callback \
+         at the call site: {source}"
+    );
+}
+
+#[test]
+fn apply_on_a_callable_object_invokes_its_underlying_callable() {
+    // Regression (es-toolkit debounce: `func.apply(pendingThis, pendingArgs)`
+    // where `func` is a vitest mock). A callable object erases to
+    // `SmeltUnknown::Object` carrying a `__smelt_call` slot and has no own
+    // `apply` property, so the object arm of `smelt_function_method` returned
+    // `undefined` and the call silently became a no-op. `apply`/`call`/`bind`
+    // are `Function.prototype` members of the underlying callable and must
+    // resolve there when the object itself does not define them.
+    let source = source_for(
+        r"
+export function applyTo(func: unknown, args: unknown[]): unknown {
+  return (func as (...values: unknown[]) => unknown).apply(null, args);
+}
+",
+    );
+    assert!(
+        source.contains("fn smelt_function_method("),
+        "expected the Function.prototype method helper: {source}"
+    );
+    assert!(
+        source.contains(r#"match map.get("__smelt_call")"#),
+        "`smelt_function_method` must fall back to a callable object's \
+         `__smelt_call` slot: {source}"
+    );
+}
+
+#[test]
+fn strict_null_comparison_distinguishes_a_stored_null_from_an_absent_slot() {
+    // Regression (es-toolkit debounce `cancelTimer`): `timeoutId !== null` on a
+    // `ReturnType<typeof setTimeout> | null` slot lowered to `Option<SmeltUnknown>`
+    // answered `true` for a cleared timer, because JS `null` had been folded
+    // into `None` while the strict comparison only matched a PRESENT
+    // `SmeltUnknown::Null` payload. The `.expect(..)` guarded by that test then
+    // panicked. JavaScript keeps `null` and `undefined` distinct under `===`, and
+    // an erased `Option` payload has room for both, so an assigned `null` must be
+    // stored as `Some(SmeltUnknown::Null)`.
+    let source = source_for(
+        r"
+export function clearSlot(handle: unknown): number {
+  let slot: unknown | null = null;
+  slot = handle;
+  slot = null;
+  if (slot !== null) {
+    return 1;
+  }
+  return 0;
+}
+",
+    );
+    assert!(
+        source.contains("Some(SmeltUnknown::Null)"),
+        "an assigned JS `null` must stay observable in an erased Option payload: {source}"
+    );
+    assert!(
+        source.contains("is_some_and(|value| matches!(value, SmeltUnknown::Null))"),
+        "strict `!== null` must test for a present Null payload: {source}"
+    );
+}

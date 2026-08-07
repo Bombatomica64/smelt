@@ -811,6 +811,22 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// Callback-bearing records can contain their own option type again, so
     /// this bounds structural expansion of cyclic TypeScript object shapes.
     record_conversion_stack: RefCell<Vec<TypeId>>,
+    /// Source/destination type pairs whose *structural* coercion is currently
+    /// being expanded.
+    ///
+    /// Two coercions rebuild a value out of its parts and can therefore ask for
+    /// a nested coercion of a component type: the field-wise record adapter
+    /// ([`FunctionEmitter::structural_record_adapter_text`]) and the
+    /// callable-object `__smelt_call` read
+    /// ([`FunctionEmitter::callable_object_call_slot_text`], whose slot coercion
+    /// goes on to adapt the call signature's return value). TypeScript callable
+    /// interfaces routinely make those two mutually recursive — es-toolkit's
+    /// `CurriedFunction1<T1, R>` has a call signature returning
+    /// `CurriedFunction1<T1, R>`, so adapting the record adapts a function whose
+    /// return value is the record again. Recording the pair being expanded lets
+    /// the inner request decline (fall back to the caller's remaining rules)
+    /// instead of recursing until the stack is gone.
+    type_expansion_stack: RefCell<Vec<(TypeId, TypeId)>>,
     /// The type ID of the None type.
     none_ty: TypeId,
     /// Synthetic unknown local used when malformed MIR references a missing local.
