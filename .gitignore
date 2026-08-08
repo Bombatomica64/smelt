@@ -91,6 +91,8 @@ blocker-logs/*.md
 # remaining es-toolkit families (clone/isEqual/merge + the in-place-mutation
 # lever), including the corrected root causes follow-up agents work from
 !blocker-logs/estoolkit-frontend-families-plan.md
+# test-coverage-analysis.md documents workspace test coverage gaps and priorities
+!blocker-logs/test-coverage-analysis.md
 
 # Generated docs site output
 _site/
