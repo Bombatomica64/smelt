@@ -14,7 +14,7 @@ use smelt_hir::FileId;
 use smelt_specialize::{
     BackendAvailability, HashInputs, LinuxBubblewrapBackend, NodeModule,
     NodeSpecializationRequest, NodeSpecializer, SandboxBackend, SandboxPolicyRecord,
-    SpecializationManifest,
+    SpecializationManifest, prereq::missing_prerequisite,
 };
 
 /// Result type shared by the parity fixture and its helpers, defaulting to a
@@ -67,25 +67,27 @@ console.log(example.initialized);
 
 #[test]
 fn decorated_members_match_node_output() -> ParityResult {
-    let Some(node) = discovered_executable(&["/usr/bin/node", "/usr/local/bin/node"]) else {
-        return Ok(());
+    const TEST: &str = "decorated_members_match_node_output";
+    let Some(node) = discovered_executable("node", &["/usr/bin/node", "/usr/local/bin/node"])
+    else {
+        return missing_prerequisite(TEST, "node executable");
     };
-    let Some(tsc) = discovered_executable(&["/usr/local/bin/tsc", "/usr/bin/tsc"]) else {
-        return Ok(());
+    let Some(tsc) = discovered_executable("tsc", &["/usr/local/bin/tsc", "/usr/bin/tsc"]) else {
+        return missing_prerequisite(TEST, "tsc (TypeScript compiler)");
     };
     let backend = LinuxBubblewrapBackend::discover();
     if backend.availability() != BackendAvailability::Available {
-        return Ok(());
+        return missing_prerequisite(TEST, "bubblewrap hard sandbox (bwrap + prlimit)");
     }
 
     let project = tempfile::tempdir()?;
     let source_path = project.path().join("fixture.ts");
     let emitted_dir = project.path().join("dist");
     fs::write(&source_path, DECORATED_MEMBER_SOURCE)?;
-    compile_typescript(tsc, &source_path, &emitted_dir)?;
+    compile_typescript(&tsc, &source_path, &emitted_dir)?;
     let emitted_path = emitted_dir.join("fixture.js");
     let source_map_path = emitted_dir.join("fixture.js.map");
-    let expected = run_node(node, &emitted_path)?;
+    let expected = run_node(&node, &emitted_path)?;
     let manifest = NodeSpecializer::new(backend).specialize(&NodeSpecializationRequest {
         smelt_version: "parity-test".to_owned(),
         node_executable: node.to_path_buf(),
@@ -238,12 +240,8 @@ fn run_generated(manifest: &Path, scratch: &Path) -> ParityResult<String> {
 }
 
 /// Finds the first available executable.
-fn discovered_executable(candidates: &[&'static str]) -> Option<&'static Path> {
-    candidates
-        .iter()
-        .copied()
-        .map(Path::new)
-        .find(|path| path.is_file())
+fn discovered_executable(name: &str, fallbacks: &[&str]) -> Option<PathBuf> {
+    smelt_specialize::prereq::locate_executable(name, fallbacks)
 }
 
 /// Builds deterministic placeholder hashes for the parity run.

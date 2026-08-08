@@ -311,15 +311,12 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::prereq::missing_prerequisite;
 
     #[test]
     fn guest_source_is_valid_python() -> Result<(), String> {
-        let discovered = ["/usr/bin/python3", "/usr/local/bin/python3"]
-            .iter()
-            .map(Path::new)
-            .find(|path| path.is_file());
-        let Some(python) = discovered else {
-            return Ok(());
+        let Some(python) = discovered_python() else {
+            return missing_prerequisite("guest_source_is_valid_python", "python3 interpreter");
         };
         let status = std::process::Command::new(python)
             .args([
@@ -347,19 +344,19 @@ mod tests {
     #[test]
     fn guest_materializes_wrappers_descriptors_and_cycles() -> Result<(), String> {
         let Some(python) = discovered_python() else {
-            return Ok(());
+            return missing_prerequisite("guest_materializes_wrappers_descriptors_and_cycles", "python3 interpreter");
         };
-        let manifest = run_fixture_guest(python)?;
+        let manifest = run_fixture_guest(&python)?;
         assert_fixture_manifest(&manifest)
     }
 
     #[test]
     fn guest_rejects_runtime_dynamic_attribute_objects() -> Result<(), String> {
         let Some(python) = discovered_python() else {
-            return Ok(());
+            return missing_prerequisite("guest_rejects_runtime_dynamic_attribute_objects", "python3 interpreter");
         };
         let stderr = run_rejected_fixture_guest(
-            python,
+            &python,
             "class Dynamic:\n    def __getattr__(self, name):\n        return name\n\ndynamic = Dynamic()\n",
         )?;
         if stderr.contains("smelt::dynamic-attribute-access")
@@ -376,9 +373,9 @@ mod tests {
     #[test]
     fn guest_preserves_import_cycles_reexports_and_singleton_identity() -> Result<(), String> {
         let Some(python) = discovered_python() else {
-            return Ok(());
+            return missing_prerequisite("guest_preserves_import_cycles_reexports_and_singleton_identity", "python3 interpreter");
         };
-        let manifest = run_module_graph_guest(python)?;
+        let manifest = run_module_graph_guest(&python)?;
         let module_a = manifest
             .modules
             .iter()
@@ -434,16 +431,13 @@ mod tests {
 
     #[test]
     fn sandboxed_specializer_runs_when_backend_is_available() -> Result<(), String> {
+        const TEST: &str = "sandboxed_specializer_runs_when_backend_is_available";
         let Some(python) = discovered_python() else {
-            return Ok(());
+            return missing_prerequisite(TEST, "python3 interpreter");
         };
-        let backend = crate::LinuxBubblewrapBackend::discover();
-        if !matches!(
-            backend.availability(),
-            crate::BackendAvailability::Available
-        ) {
-            return Ok(());
-        }
+        let Some(backend) = available_backend() else {
+            return missing_prerequisite(TEST, "bubblewrap hard sandbox (bwrap + prlimit)");
+        };
         let scratch = ScratchDirectory::create().map_err(|error| error.to_string())?;
         let project = scratch.path().join("sandbox-project");
         fs::create_dir(&project).map_err(|error| error.to_string())?;
@@ -455,7 +449,7 @@ mod tests {
         policy.memory_bytes = 512 * 1024 * 1024;
         let request = PythonSpecializationRequest {
             smelt_version: "test".to_owned(),
-            python_executable: python.to_path_buf(),
+            python_executable: python.clone(),
             project_root: project,
             modules: vec![PythonModule {
                 name: "fixture".to_owned(),
@@ -488,12 +482,21 @@ mod tests {
         .collect()
     }
 
-    /// Finds a test `CPython` executable.
-    fn discovered_python() -> Option<&'static Path> {
-        ["/usr/bin/python3", "/usr/local/bin/python3"]
-            .iter()
-            .map(Path::new)
-            .find(|path| path.is_file())
+    /// Locates a `CPython` interpreter for the guest tests.
+    ///
+    /// Searches `PATH` before the distro paths so a runner-installed
+    /// interpreter is found rather than skipped.
+    fn discovered_python() -> Option<PathBuf> {
+        crate::prereq::locate_executable(
+            "python3",
+            &["/usr/bin/python3", "/usr/local/bin/python3"],
+        )
+    }
+
+    /// Returns the hard-sandbox backend when it can actually enforce a policy.
+    fn available_backend() -> Option<crate::LinuxBubblewrapBackend> {
+        let backend = crate::LinuxBubblewrapBackend::discover();
+        (backend.availability() == crate::BackendAvailability::Available).then_some(backend)
     }
 
     /// Runs the embedded guest against a representative fixture.
