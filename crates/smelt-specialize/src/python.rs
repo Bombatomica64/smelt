@@ -444,7 +444,7 @@ mod tests {
         let module_path = project.join("fixture.py");
         fs::write(&module_path, "value: int = 7\n").map_err(|error| error.to_string())?;
         let mut policy = fixture_policy(&project, scratch.path());
-        policy.read_only_roots = runtime_roots(&project);
+        policy.read_only_roots = runtime_roots(&project, &python);
         policy.writable_roots.clear();
         policy.memory_bytes = 512 * 1024 * 1024;
         let request = PythonSpecializationRequest {
@@ -468,12 +468,18 @@ mod tests {
     }
 
     /// Returns existing `CPython` runtime roots plus the fixture project.
-    fn runtime_roots(project: &Path) -> Vec<String> {
+    /// Read-only roots a sandboxed guest needs to run `python`.
+    ///
+    /// The interpreter's own prefix is included: hardcoding `/usr` only works
+    /// for a distro-installed runtime, and a runner-installed one lives
+    /// elsewhere.
+    fn runtime_roots(project: &Path, python: &Path) -> Vec<String> {
         [
-            Some(project),
-            Some(Path::new("/usr")),
-            Some(Path::new("/lib")),
-            Some(Path::new("/lib64")),
+            Some(project.to_path_buf()),
+            crate::prereq::runtime_prefix(python),
+            Some(PathBuf::from("/usr")),
+            Some(PathBuf::from("/lib")),
+            Some(PathBuf::from("/lib64")),
         ]
         .into_iter()
         .flatten()

@@ -173,13 +173,20 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           npm install --global typescript@5.9.3
 
-      # Fails the job early with a readable message if the backend cannot
-      # actually start a guest, instead of leaving that to a Rust test.
+      # Fails the job early with a readable message if the runner cannot create
+      # the namespaces bubblewrap needs, instead of leaving that to a Rust test.
+      #
+      # This binds all of `/` read-only on purpose. It is a smoke test of
+      # "can bwrap unshare and exec a guest here", NOT the production sandbox
+      # posture — the real policy comes from `SandboxPolicyRecord` and binds
+      # only its own read-only roots. Enumerating those roots by hand here is
+      # what broke the first attempt: binding /usr, /bin, and /lib but not
+      # /lib64 left the dynamic loader missing, and exec fails with a bare
+      # "No such file or directory" that points at the wrong thing entirely.
       - name: Verify the hard sandbox can start a guest
         run: |
           bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
-                --clearenv --proc /proc --dev /dev --tmpfs /tmp \
-                --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
+                --clearenv --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp \
                 /bin/echo "hard sandbox is functional"
 
       - name: Specialization tests (skipping forbidden)

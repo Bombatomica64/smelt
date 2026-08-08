@@ -124,6 +124,31 @@ pub fn locate_executable(name: &str, fallbacks: &[&str]) -> Option<PathBuf> {
     })
 }
 
+/// Returns the installation prefix to bind read-only so `executable` can run.
+///
+/// A sandbox policy that hardcodes `/usr` only works when the guest runtime is
+/// distro-installed. It is not: `setup-node` installs under the hosted tool
+/// cache, and this repo's dev container ships Node at `/opt/node22/bin/node`.
+/// Binding the prefix instead keeps the fixture policies working wherever the
+/// runtime actually lives, including any libraries it ships alongside itself.
+///
+/// `<prefix>/bin/<exe>` yields `<prefix>`; anything else yields the containing
+/// directory. Never returns `/`, which would defeat the point of a policy.
+#[must_use]
+pub fn runtime_prefix(executable: &Path) -> Option<PathBuf> {
+    let parent = executable.parent()?;
+    let prefix = if parent.file_name().is_some_and(|name| name == "bin") {
+        parent.parent().unwrap_or(parent)
+    } else {
+        parent
+    };
+    if prefix.parent().is_none() {
+        // `prefix` is the filesystem root; fall back to the containing directory.
+        return Some(parent.to_path_buf());
+    }
+    Some(prefix.to_path_buf())
+}
+
 /// Searches `PATH` for a named executable.
 fn search_path(name: &str) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|path| {
@@ -215,6 +240,40 @@ mod tests {
         assert!(
             locate_executable("smelt-not-on-path", &["/bin/sh"]).is_some(),
             "an absolute fallback must resolve when PATH lookup fails"
+        );
+    }
+
+    /// `<prefix>/bin/<exe>` binds the prefix, so bundled libraries come along.
+    #[test]
+    fn runtime_prefix_strips_a_bin_directory() {
+        assert_eq!(
+            runtime_prefix(Path::new("/opt/node22/bin/node")),
+            Some(PathBuf::from("/opt/node22")),
+            "a bin/ layout must bind the install prefix, not just bin/"
+        );
+        assert_eq!(
+            runtime_prefix(Path::new("/opt/hostedtoolcache/node/22.9.0/x64/bin/node")),
+            Some(PathBuf::from("/opt/hostedtoolcache/node/22.9.0/x64")),
+            "the hosted tool cache layout must resolve to its own prefix"
+        );
+    }
+
+    /// A runtime not laid out under `bin/` binds its containing directory.
+    #[test]
+    fn runtime_prefix_falls_back_to_the_parent_directory() {
+        assert_eq!(
+            runtime_prefix(Path::new("/opt/custom/node")),
+            Some(PathBuf::from("/opt/custom"))
+        );
+    }
+
+    /// The root filesystem is never returned; that would defeat the policy.
+    #[test]
+    fn runtime_prefix_never_returns_the_filesystem_root() {
+        assert_eq!(
+            runtime_prefix(Path::new("/bin/node")),
+            Some(PathBuf::from("/bin")),
+            "a top-level bin/ must not widen the policy to all of /"
         );
     }
 

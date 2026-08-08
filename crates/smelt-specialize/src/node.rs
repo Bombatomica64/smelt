@@ -391,13 +391,20 @@ mod tests {
             .output()
             .map_err(|error| error.to_string())?;
         if !compile.status.success() {
-            return Err(String::from_utf8_lossy(&compile.stderr).into_owned());
+            // tsc reports diagnostics on stdout and leaves stderr empty, so
+            // reading stderr alone turns every compile failure into an
+            // inscrutable empty error. Include both.
+            return Err(format!(
+                "TypeScript fixture failed to compile:\n{}{}",
+                String::from_utf8_lossy(&compile.stdout),
+                String::from_utf8_lossy(&compile.stderr)
+            ));
         }
         let emitted = emitted_dir.join("fixture.js");
         let source_map = emitted_dir.join("fixture.js.map");
         let request = NodeSpecializationRequest {
             smelt_version: "test".to_owned(),
-            node_executable: node,
+            node_executable: node.clone(),
             project_root: project.path().to_path_buf(),
             modules: vec![NodeModule {
                 name: "fixture".to_owned(),
@@ -408,7 +415,7 @@ mod tests {
             typescript_version: "5.9.3".to_owned(),
             decorators_revision: "2023-11".to_owned(),
             hashes: fixture_hashes(),
-            sandbox_policy: fixture_policy(project.path()),
+            sandbox_policy: fixture_policy(project.path(), &node),
         };
         let manifest = NodeSpecializer::new(backend)
             .specialize(&request)
@@ -436,7 +443,7 @@ mod tests {
         .map_err(|error| error.to_string())?;
         let request = NodeSpecializationRequest {
             smelt_version: "test".to_owned(),
-            node_executable: node,
+            node_executable: node.clone(),
             project_root: project.path().to_path_buf(),
             modules: vec![NodeModule {
                 name: "legacy".to_owned(),
@@ -447,7 +454,7 @@ mod tests {
             typescript_version: "5.9.3".to_owned(),
             decorators_revision: "2023-11".to_owned(),
             hashes: fixture_hashes(),
-            sandbox_policy: fixture_policy(project.path()),
+            sandbox_policy: fixture_policy(project.path(), &node),
         };
         let Err(error) = NodeSpecializer::new(backend).specialize(&request) else {
             return Err("legacy decorators unexpectedly specialized".to_owned());
@@ -500,7 +507,7 @@ mod tests {
                 typescript_version: "5.9.3".to_owned(),
                 decorators_revision: "2023-11".to_owned(),
                 hashes: fixture_hashes(),
-                sandbox_policy: fixture_policy(project.path()),
+                sandbox_policy: fixture_policy(project.path(), &node),
             };
             let Err(error) = NodeSpecializer::new(backend.clone()).specialize(&request) else {
                 return Err(format!("{label} object unexpectedly specialized"));
@@ -539,7 +546,7 @@ mod tests {
 (Symbol as any).metadata ??= Symbol("metadata");
 
 function decorate(value: any, context: ClassDecoratorContext) {
-    context.metadata.label = "example";
+    (context.metadata as any).label = "example";
     context.addInitializer(function () {
         (this as any).ready = "yes";
     });
@@ -547,8 +554,8 @@ function decorate(value: any, context: ClassDecoratorContext) {
 
 function decorateMember(value: any, context: any): any {
     context.metadata[`${context.kind}:${String(context.name)}`] = true;
-    context.addInitializer(function () {
-        (this as any).memberInitialized = true;
+    context.addInitializer(function (this: any) {
+        this.memberInitialized = true;
     });
     if (context.kind === "field") {
         return function (initial: any) {
@@ -635,17 +642,24 @@ cycle.self = cycle;
 "#;
 
     /// Restrictive sandbox policy for the Node fixture.
-    fn fixture_policy(project: &Path) -> SandboxPolicyRecord {
+    ///
+    /// `node` is passed in so its installation prefix is bound read-only.
+    /// Hardcoding `/usr` only works for a distro-installed runtime, and the
+    /// runtimes that matter here are not: `setup-node` uses the hosted tool
+    /// cache and this repo's dev container ships Node at `/opt/node22`.
+    fn fixture_policy(project: &Path, node: &Path) -> SandboxPolicyRecord {
         SandboxPolicyRecord {
             backend: "linux-bubblewrap".to_owned(),
             network: false,
             read_only_roots: [
-                project,
-                Path::new("/usr"),
-                Path::new("/lib"),
-                Path::new("/lib64"),
+                Some(project.to_path_buf()),
+                crate::prereq::runtime_prefix(node),
+                Some(PathBuf::from("/usr")),
+                Some(PathBuf::from("/lib")),
+                Some(PathBuf::from("/lib64")),
             ]
             .into_iter()
+            .flatten()
             .filter(|path| path.exists())
             .map(|path| path.display().to_string())
             .collect(),
