@@ -1,0 +1,35 @@
+module examples/typescript/end-to-end/17_mutating_array/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 let xs: List<Float>
+  exprs
+    #0: Float = 1.0
+    #1: Float = 2.0
+    #2: Float = 3.0
+    #3: List<Float> = [#0, #1, #2]
+    #4: List<Float> = %0
+    #5: Float = 1.0
+    #6: Float = #4[#5]
+    #7: Float = 5.0
+    #8: List<Float> = %0
+    #9: Float = 0.0
+    #10: Float = #8[#9]
+    #11: List<Float> = %0
+    #12: Float = 1.0
+    #13: Float = #11[#12]
+    #14: Float = Add #10, #13
+    #15: List<Float> = %0
+    #16: Float = 2.0
+    #17: Float = #15[#16]
+    #18: Float = Add #14, #17
+    #19: None = @0(console_log)
+    #20: None = call #19(#18)
+  stmts
+    s0: let %0: List<Float> = #3
+    s1: #6 = #7
+    s2: #20
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = None

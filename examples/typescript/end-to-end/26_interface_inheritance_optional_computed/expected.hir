@@ -1,0 +1,24 @@
+module examples/typescript/end-to-end/26_interface_inheritance_optional_computed/input.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    interface Entity fields [Public id: String] methods []
+    interface Named fields [Public id: String, Public name?: Optional<String>] methods []
+    class User fields [Public id: String] constructor Some(ItemId(2)) methods [] implements [Named]
+  locals
+    %0 const user: User
+  exprs
+    #0: String = "u1"
+    #1: User = new User(#0)
+    #2: User = %0
+    #3: String = #2.id
+    #4: None = @4(console_log)
+    #5: None = call #4(#3)
+  stmts
+    s0: let %0: User = #1
+    s1: #5
+
+interned types
+  t0 = String
+  t1 = User
+  t2 = Optional<String>
+  t3 = None

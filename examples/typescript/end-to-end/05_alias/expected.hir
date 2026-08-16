@@ -1,0 +1,19 @@
+module examples/typescript/end-to-end/05_alias/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const sourceValue: Float
+    %1 let copiedValue: Float
+  exprs
+    #0: Float = 7.0
+    #1: Float = %0
+    #2: Float = %1
+    #3: None = @0(console_log)
+    #4: None = call #3(#2)
+  stmts
+    s0: let %0: Float = #0
+    s1: let %1: Float = #1
+    s2: #4
+
+interned types
+  t0 = Float
+  t1 = None

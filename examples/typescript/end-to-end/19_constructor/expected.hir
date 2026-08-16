@@ -1,0 +1,21 @@
+module examples/typescript/end-to-end/19_constructor/input.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    class Box fields [Public value: String] constructor Some(ItemId(0)) methods [] implements []
+  locals
+    %0 const box: Box
+  exprs
+    #0: String = "ok"
+    #1: Box = new Box(#0)
+    #2: Box = %0
+    #3: String = #2.value
+    #4: None = @2(console_log)
+    #5: None = call #4(#3)
+  stmts
+    s0: let %0: Box = #1
+    s1: #5
+
+interned types
+  t0 = String
+  t1 = Box
+  t2 = None

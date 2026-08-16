@@ -1,0 +1,34 @@
+module examples/python/end-to-end/07_if_else/input.py (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 let x: Int
+  exprs
+    #0: Int = 5
+    #1: Int = %0
+    #2: Int = 10
+    #3: Bool = Gt #1, #2
+    #4: None = @0(console_log)
+    #5: Int = %0
+    #6: None = call #4(#5)
+    #7: Int = %0
+    #8: Int = 3
+    #9: Bool = Gt #7, #8
+    #10: None = @0(console_log)
+    #11: Int = 1
+    #12: None = call #10(#11)
+    #13: None = @0(console_log)
+    #14: Int = 0
+    #15: None = call #13(#14)
+  stmts
+    s0: let %0: Int = #0
+    s1: #6
+    s2: #12
+    s3: #15
+    s4: if #9 then BlockId(3) else BlockId(4)
+    s5: if #3 then BlockId(1) else BlockId(2)
+
+interned types
+  t0 = None
+  t1 = String
+  t2 = Int
+  t3 = Bool

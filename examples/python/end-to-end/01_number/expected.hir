@@ -1,0 +1,17 @@
+module examples/python/end-to-end/01_number/input.py (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 let count: Int
+  exprs
+    #0: Int = 42
+    #1: None = @0(console_log)
+    #2: Int = %0
+    #3: None = call #1(#2)
+  stmts
+    s0: let %0: Int = #0
+    s1: #3
+
+interned types
+  t0 = None
+  t1 = String
+  t2 = Int

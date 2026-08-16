@@ -1,0 +1,16 @@
+module examples/typescript/end-to-end/03_boolean/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 let enabled: Bool
+  exprs
+    #0: Bool = true
+    #1: Bool = %0
+    #2: None = @0(console_log)
+    #3: None = call #2(#1)
+  stmts
+    s0: let %0: Bool = #0
+    s1: #3
+
+interned types
+  t0 = Bool
+  t1 = None

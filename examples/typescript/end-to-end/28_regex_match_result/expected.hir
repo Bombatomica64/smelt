@@ -1,0 +1,136 @@
+module examples/typescript/end-to-end/28_regex_match_result/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const pattern: RegExp
+    %1 const matches: List<__SmeltMatch>
+    %2 let found: __SmeltMatch
+    %3 const whole: Optional<String>
+    %4 const letter: Optional<String>
+    %5 const digit: Optional<String>
+    %6 const full: Optional<Optional<String>>
+    %7 const first: Optional<Optional<String>>
+    %8 const second: Optional<Optional<String>>
+    %9 const single: RegExp
+    %10 const found: Optional<__SmeltMatch>
+  exprs
+    #0: String = "(?P<letter>[a-z])(\d)?"
+    #1: String = "g"
+    #2: RegExp = new RegExp(#0, #1)
+    #3: String = "a1 b c3"
+    #4: RegExp = %0
+    #5: List<__SmeltMatch> = regex_match_all #4, #3
+    #6: List<__SmeltMatch> = %1
+    #7: __SmeltMatch = %2
+    #8: Float = 0.0
+    #9: Optional<String> = #7[#8]
+    #10: __SmeltMatch = %2
+    #11: __SmeltMatchGroups = #10.groups
+    #12: Optional<String> = #11.letter
+    #13: __SmeltMatch = %2
+    #14: Float = 2.0
+    #15: Optional<String> = #13[#14]
+    #16: Optional<String> = %3
+    #17: None = @0(console_log)
+    #18: None = call #17(#16)
+    #19: Optional<String> = %4
+    #20: None = @1(console_log)
+    #21: None = call #20(#19)
+    #22: Optional<String> = %5
+    #23: None = @2(console_log)
+    #24: None = call #23(#22)
+    #25: __SmeltMatch = %2
+    #26: Float = #25.index
+    #27: None = @3(console_log)
+    #28: None = call #27(#26)
+    #29: __SmeltMatch = %2
+    #30: String = #29.input
+    #31: None = @4(console_log)
+    #32: None = call #31(#30)
+    #33: __SmeltMatch = %2
+    #34: Float = 0.0
+    #35: Optional<Optional<String>> = #33[#34]
+    #36: Float = 1.0
+    #37: Optional<Optional<String>> = #33[#36]
+    #38: Float = 2.0
+    #39: Optional<Optional<String>> = #33[#38]
+    #40: Optional<Optional<String>> = %6
+    #41: None = @5(console_log)
+    #42: None = call #41(#40)
+    #43: Optional<Optional<String>> = %7
+    #44: None = @6(console_log)
+    #45: None = call #44(#43)
+    #46: Optional<Optional<String>> = %8
+    #47: None = @7(console_log)
+    #48: None = call #47(#46)
+    #49: String = "(?P<year>\d{4})-(\d{2})"
+    #50: String = ""
+    #51: RegExp = new RegExp(#49, #50)
+    #52: RegExp = %9
+    #53: String = "2024-07"
+    #54: Optional<__SmeltMatch> = regex_exec #52, #53
+    #55: Optional<__SmeltMatch> = %10
+    #56: None = none
+    #57: Bool = JsStrictNotEq #55, #56
+    #58: __SmeltMatch = %10
+    #59: Float = 0.0
+    #60: Optional<String> = #58[#59]
+    #61: None = @8(console_log)
+    #62: None = call #61(#60)
+    #63: __SmeltMatch = %10
+    #64: __SmeltMatchGroups = #63.groups
+    #65: Optional<String> = #64.year
+    #66: None = @9(console_log)
+    #67: None = call #66(#65)
+    #68: __SmeltMatch = %10
+    #69: Float = 1.0
+    #70: Optional<String> = #68[#69]
+    #71: None = @10(console_log)
+    #72: None = call #71(#70)
+    #73: __SmeltMatch = %10
+    #74: Float = 2.0
+    #75: Optional<String> = #73[#74]
+    #76: None = @11(console_log)
+    #77: None = call #76(#75)
+    #78: __SmeltMatch = %10
+    #79: Float = #78.index
+    #80: None = @12(console_log)
+    #81: None = call #80(#79)
+  stmts
+    s0: let %0: RegExp = #2
+    s1: let %1: List<__SmeltMatch> = #5
+    s2: let %3: Optional<String> = #9
+    s3: let %4: Optional<String> = #12
+    s4: let %5: Optional<String> = #15
+    s5: #18
+    s6: #21
+    s7: #24
+    s8: #28
+    s9: #32
+    s10: let %6: Optional<Optional<String>> = #35
+    s11: let %7: Optional<Optional<String>> = #37
+    s12: let %8: Optional<Optional<String>> = #39
+    s13: #42
+    s14: #45
+    s15: #48
+    s16: for %2 in #6 BlockId(1)
+    s17: let %9: RegExp = #51
+    s18: let %10: Optional<__SmeltMatch> = #54
+    s19: #62
+    s20: #67
+    s21: #72
+    s22: #77
+    s23: #81
+    s24: if #57 then BlockId(2)
+
+interned types
+  t0 = RegExp
+  t1 = String
+  t2 = __SmeltMatch
+  t3 = List<__SmeltMatch>
+  t4 = Optional<__SmeltMatch>
+  t5 = Float
+  t6 = Optional<String>
+  t7 = __SmeltMatchGroups
+  t8 = None
+  t9 = Optional<Optional<String>>
+  t10 = Bool

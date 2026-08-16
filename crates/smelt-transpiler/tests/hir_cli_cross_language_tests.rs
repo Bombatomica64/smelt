@@ -6,7 +6,7 @@ use std::fs;
 
 use common::{
     TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, smelt, utf8_path,
-    verify_end_to_end_example,
+    verify_end_to_end_example, verify_python_end_to_end_example,
 };
 
 #[test]
@@ -325,6 +325,30 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "29_callable_object",
     ] {
         verify_end_to_end_example(name)?;
+    }
+
+    Ok(())
+}
+
+/// Golden-checks the Python example corpus, which no test read before.
+///
+/// These fixtures shipped with only `input.py` and a `Smelt.toml`, so a Python
+/// lowering or formatting regression could not fail anything. Only the HIR and
+/// MIR tiers are asserted here: the corpus has no generated-Rust or runtime
+/// goldens yet, and adding those needs a `smelt build` per case.
+#[test]
+fn python_end_to_end_examples_match_expected_dumps() -> TestResult {
+    for name in [
+        "01_number",
+        "02_string",
+        "03_boolean",
+        "04_none",
+        "05_while_sum",
+        "06_function",
+        "07_if_else",
+        "08_match",
+    ] {
+        verify_python_end_to_end_example(name)?;
     }
 
     Ok(())

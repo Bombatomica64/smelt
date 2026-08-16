@@ -1,0 +1,25 @@
+module examples/typescript/end-to-end/21_this_field/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    class User fields [Public first: String, Public last: String] constructor Some(ItemId(0)) methods [ItemId(1)] implements []
+  locals
+    %0 const user: User
+  exprs
+    #0: String = "Ada"
+    #1: String = "Lovelace"
+    #2: User = new User(#0, #1)
+    #3: User = %0
+    #4: fn() -> String = #3.label
+    #5: User = %0
+    #6: String = #5.label()
+    #7: None = @3(console_log)
+    #8: None = call #7(#6)
+  stmts
+    s0: let %0: User = #2
+    s1: #8
+
+interned types
+  t0 = String
+  t1 = User
+  t2 = None
+  t3 = fn() -> String

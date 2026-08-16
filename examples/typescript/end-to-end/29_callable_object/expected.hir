@@ -1,0 +1,67 @@
+module examples/typescript/end-to-end/29_callable_object/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    interface Counter fields [Public bump: fn() -> Float, Public current: fn() -> Float, Public reset: fn() -> None, Public __smelt_call: fn() -> Float] methods [Public bump() -> Float, Public current() -> Float, Public reset() -> None]
+    fn make_counter owner Module
+  locals
+    %0 const c: Counter
+  exprs
+    #0: fn() -> Counter = @0(make_counter)
+    #1: Counter = call #0()
+    #2: Counter = %0
+    #3: fn() -> Float = #2.bump
+    #4: Counter = %0
+    #5: Float = closure_call #3()
+    #6: None = @2(console_log)
+    #7: None = call #6(#5)
+    #8: Counter = %0
+    #9: fn() -> Float = #8.bump
+    #10: Counter = %0
+    #11: Float = closure_call #9()
+    #12: None = @3(console_log)
+    #13: None = call #12(#11)
+    #14: Counter = %0
+    #15: fn() -> Float = #14.current
+    #16: Counter = %0
+    #17: Float = closure_call #15()
+    #18: None = @4(console_log)
+    #19: None = call #18(#17)
+    #20: Counter = %0
+    #21: Counter = %0
+    #22: fn() -> None = #21.reset
+    #23: Counter = %0
+    #24: None = closure_call #22()
+    #25: Counter = %0
+    #26: fn() -> Float = #25.current
+    #27: Counter = %0
+    #28: Float = closure_call #26()
+    #29: None = @5(console_log)
+    #30: None = call #29(#28)
+    #31: Counter = %0
+    #32: fn() -> Float = #31.bump
+    #33: Counter = %0
+    #34: Float = closure_call #32()
+    #35: None = @6(console_log)
+    #36: None = call #35(#34)
+  stmts
+    s0: let %0: Counter = #1
+    s1: #7
+    s2: #13
+    s3: #19
+    s4: #24
+    s5: #30
+    s6: #36
+
+interned types
+  t0 = Unknown
+  t1 = String
+  t2 = Dict<String, Unknown>
+  t3 = Counter
+  t4 = fn() -> Counter
+  t5 = Float
+  t6 = None
+  t7 = fn() -> Float
+  t8 = fn() -> None
+  t9 = fn() -> Counter
+  t10 = fn() -> Float
+  t11 = fn() -> None

@@ -1,0 +1,27 @@
+module examples/typescript/end-to-end/24_interface_method_signature/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    interface Named fields [Public name: String, Public label: fn(String) -> String] methods [Public label(prefix: String) -> String]
+    class User fields [Public name: String] constructor Some(ItemId(1)) methods [ItemId(2)] implements [Named]
+  locals
+    %0 const user: User
+  exprs
+    #0: String = "Ada"
+    #1: User = new User(#0)
+    #2: User = %0
+    #3: fn(String) -> String = #2.label
+    #4: User = %0
+    #5: String = "Hi "
+    #6: String = #4.label(#5)
+    #7: None = @4(console_log)
+    #8: None = call #7(#6)
+  stmts
+    s0: let %0: User = #1
+    s1: #8
+
+interned types
+  t0 = String
+  t1 = User
+  t2 = fn(String) -> String
+  t3 = None
+  t4 = fn(String) -> String

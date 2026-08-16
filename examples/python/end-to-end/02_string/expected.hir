@@ -1,0 +1,16 @@
+module examples/python/end-to-end/02_string/input.py (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 let greeting: String
+  exprs
+    #0: String = "hello"
+    #1: None = @0(console_log)
+    #2: String = %0
+    #3: None = call #1(#2)
+  stmts
+    s0: let %0: String = #0
+    s1: #3
+
+interned types
+  t0 = None
+  t1 = String

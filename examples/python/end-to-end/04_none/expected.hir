@@ -1,0 +1,16 @@
+module examples/python/end-to-end/04_none/input.py (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 let x: None
+  exprs
+    #0: None = none
+    #1: None = @0(console_log)
+    #2: None = %0
+    #3: None = call #1(#2)
+  stmts
+    s0: let %0: None = #0
+    s1: #3
+
+interned types
+  t0 = None
+  t1 = String

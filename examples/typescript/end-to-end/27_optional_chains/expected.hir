@@ -1,0 +1,68 @@
+module examples/typescript/end-to-end/27_optional_chains/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    class User fields [Public name: String, Public scores: List<Float>] constructor Some(ItemId(0)) methods [ItemId(1)] implements []
+  locals
+    %0 const present: Optional<User>
+    %1 const missing: Optional<User>
+    %2 const name: Optional<String>
+    %3 const absentName: Optional<String>
+    %4 const score: Optional<Float>
+    %5 const label: Optional<String>
+  exprs
+    #0: String = "Ada"
+    #1: Float = 3.0
+    #2: List<Float> = [#1]
+    #3: User = new User(#0, #2)
+    #4: None = none
+    #5: Optional<User> = %0
+    #6: Optional<String> = #5?.name
+    #7: Optional<User> = %1
+    #8: Optional<String> = #7?.name
+    #9: Optional<User> = %0
+    #10: Optional<List<Float>> = #9?.scores
+    #11: Float = 0.0
+    #12: Optional<Float> = #10?.[#11]
+    #13: Optional<User> = %0
+    #14: Optional<fn() -> String> = #13?.label
+    #15: Optional<User> = %0
+    #16: Optional<String> = #15?.label()
+    #17: Optional<String> = %2
+    #18: None = @3(console_log)
+    #19: None = call #18(#17)
+    #20: Optional<String> = %3
+    #21: None = @4(console_log)
+    #22: None = call #21(#20)
+    #23: Optional<Float> = %4
+    #24: None = @5(console_log)
+    #25: None = call #24(#23)
+    #26: Optional<String> = %5
+    #27: None = @6(console_log)
+    #28: None = call #27(#26)
+  stmts
+    s0: let %0: Optional<User> = #3
+    s1: let %1: Optional<User> = #4
+    s2: let %2: Optional<String> = #6
+    s3: let %3: Optional<String> = #8
+    s4: let %4: Optional<Float> = #12
+    s5: let %5: Optional<String> = #16
+    s6: #19
+    s7: #22
+    s8: #25
+    s9: #28
+
+interned types
+  t0 = User
+  t1 = None
+  t2 = Optional<User>
+  t3 = Unknown
+  t4 = Optional<Unknown>
+  t5 = Float
+  t6 = fn() -> Unknown
+  t7 = String
+  t8 = List<Float>
+  t9 = Optional<String>
+  t10 = Optional<List<Float>>
+  t11 = Optional<Float>
+  t12 = fn() -> String
+  t13 = Optional<fn() -> String>
