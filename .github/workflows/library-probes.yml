@@ -72,27 +72,26 @@ jobs:
             echo "SMELT_BIN=$PWD/target/release/smelt" >> "$GITHUB_ENV"
           fi
 
+      # The checkouts live in RUNNER_TEMP, never under `target/`: `target/` is
+      # restored by the cargo cache above, which brings the probe checkouts'
+      # `.git` directories back without their worktrees. The old inline version
+      # of this step checked out into `target/library-probes` and skipped the
+      # clone whenever `<dest>/.git` existed, so from 2026-08-07 it silently
+      # skipped all 12 clones and the probe published an all-failed report.
       - name: Check out probed libraries at pinned refs
         run: |
-          mkdir -p target/library-probes
-          python3 - <<'PY'
-          import json, os, subprocess
-          cfg = json.load(open(".github/compat/libraries.json"))
-          for lib in cfg["libraries"]:
-              dest = os.path.join("target/library-probes", lib["name"])
-              if os.path.isdir(os.path.join(dest, ".git")):
-                  continue
-              url = f"https://github.com/{lib['repo']}.git"
-              subprocess.run(["git", "clone", "--no-tags", "--filter=blob:none", url, dest], check=True)
-              subprocess.run(["git", "-C", dest, "checkout", lib["ref"]], check=True)
-          PY
+          python3 scripts/checkout_probe_libraries.py \
+            --config .github/compat/libraries.json \
+            --work-dir "$RUNNER_TEMP/library-probes"
 
+      # Fails without touching the report if any library is missing or scans
+      # zero files, so a broken probe never auto-commits over real measurements.
       - name: Run probes and generate report
         run: |
           python3 scripts/probe_libraries.py \
             --config .github/compat/libraries.json \
             --fixtures .github/compat \
-            --work-dir target/library-probes \
+            --work-dir "$RUNNER_TEMP/library-probes" \
             --output blocker-logs/library-probes.md
 
       - name: Commit report
