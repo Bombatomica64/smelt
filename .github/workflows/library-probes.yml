@@ -94,6 +94,16 @@ jobs:
             --work-dir "$RUNNER_TEMP/library-probes" \
             --output blocker-logs/library-probes.md
 
+      # A probe run takes ~10 minutes and CI's coverage job also auto-commits to
+      # main, so the branch tip can move underneath us: run 31954553437 lost a
+      # complete, correct report to `! [rejected] main -> main (non-fast-forward)`
+      # because a coverage commit landed three minutes before the push. The
+      # commit action fetches but never rebases, so replay the report on top of
+      # the current tip first (--autostash keeps the file we just wrote).
+      - name: Rebase onto the current branch tip
+        run: |
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME"
+
       - name: Commit report
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
