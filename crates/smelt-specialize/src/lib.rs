@@ -17,6 +17,7 @@ mod cache_key;
 mod detection;
 mod manifest;
 mod node;
+pub mod prereq;
 mod python;
 mod sandbox;
 

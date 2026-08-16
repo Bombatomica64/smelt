@@ -135,6 +135,69 @@ jobs:
         run: |
           cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored
 
+  # Sandbox gate: proves the fail-closed specialization boundary actually
+  # executes, rather than skipping itself into a green result.
+  #
+  # The sandbox-backed tests skip when `bwrap`, `prlimit`, or a guest runtime is
+  # missing, because developer machines rarely have them. That skip used to be
+  # spelled `return Ok(())`, which is indistinguishable from a pass — so every
+  # one of these tests reported success in CI while never launching a guest
+  # process. See gap 3 of blocker-logs/test-coverage-analysis.md.
+  #
+  # `SMELT_REQUIRE_SANDBOX=1` turns a missing prerequisite into a failure, so
+  # this job is red exactly when the boundary is not being exercised. It is a
+  # separate job on purpose: a runner-side sandbox regression should surface as
+  # one clearly-named failure rather than taking coverage and clippy with it.
+  sandbox:
+    # See the note on `clippy`: never re-run just because a label was added.
+    if: ${{ github.event.action != 'labeled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+
+      - name: Install sandbox prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
+          # which bubblewrap needs. The key is absent on older images.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          npm install --global typescript@5.9.3
+
+      # Fails the job early with a readable message if the runner cannot create
+      # the namespaces bubblewrap needs, instead of leaving that to a Rust test.
+      #
+      # This binds all of `/` read-only on purpose. It is a smoke test of
+      # "can bwrap unshare and exec a guest here", NOT the production sandbox
+      # posture — the real policy comes from `SandboxPolicyRecord` and binds
+      # only its own read-only roots. Enumerating those roots by hand here is
+      # what broke the first attempt: binding /usr, /bin, and /lib but not
+      # /lib64 left the dynamic loader missing, and exec fails with a bare
+      # "No such file or directory" that points at the wrong thing entirely.
+      - name: Verify the hard sandbox can start a guest
+        run: |
+          bwrap --die-with-parent --new-session --unshare-all --cap-drop ALL \
+                --clearenv --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp \
+                /bin/echo "hard sandbox is functional"
+
+      - name: Specialization tests (skipping forbidden)
+        env:
+          SMELT_REQUIRE_SANDBOX: "1"
+        run: |
+          cargo test -p smelt-specialize
+          cargo test -p smelt-codegen-rust \
+            --test python_specialization_parity \
+            --test typescript_specialization_parity
+
   coverage:
     # See the note on `clippy`. This one matters most: coverage is the critical
     # path at 6 min 18 s, so without this guard every label added to any PR would
@@ -184,6 +247,21 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
+
+      # Without these the sandbox-backed specialization tests skip themselves,
+      # and `smelt-specialize` reports ~50% line / ~36% branch coverage for code
+      # that never ran. `SMELT_REQUIRE_SANDBOX` is deliberately NOT set here: a
+      # runner-side sandbox quirk should not blank the coverage badge. The
+      # `sandbox` job below is the one that enforces non-skipping.
+      - name: Install sandbox prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
+          # which bubblewrap needs. The key is absent on older images, so this
+          # must not fail the job.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          npm install --global typescript@5.9.3
 
       - name: Test with coverage
         run: |

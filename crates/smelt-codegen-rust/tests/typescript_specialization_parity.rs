@@ -14,7 +14,7 @@ use smelt_hir::FileId;
 use smelt_specialize::{
     BackendAvailability, HashInputs, LinuxBubblewrapBackend, NodeModule,
     NodeSpecializationRequest, NodeSpecializer, SandboxBackend, SandboxPolicyRecord,
-    SpecializationManifest,
+    SpecializationManifest, prereq::missing_prerequisite,
 };
 
 /// Result type shared by the parity fixture and its helpers, defaulting to a
@@ -27,14 +27,14 @@ function identity(value: any, _context: any): any {
 }
 
 function initialized(value: any, context: any): any {
-    context.addInitializer(function () {
-        (this as any).initialized = "yes";
+    context.addInitializer(function (this: any) {
+        this.initialized = "yes";
     });
     return value;
 }
 
 function wrap(value: any, _context: any): any {
-    return function (name: string): string {
+    return function (this: any, name: string): string {
         return "wrapped " + value.call(this, name);
     };
 }
@@ -67,25 +67,27 @@ console.log(example.initialized);
 
 #[test]
 fn decorated_members_match_node_output() -> ParityResult {
-    let Some(node) = discovered_executable(&["/usr/bin/node", "/usr/local/bin/node"]) else {
-        return Ok(());
+    const TEST: &str = "decorated_members_match_node_output";
+    let Some(node) = discovered_executable("node", &["/usr/bin/node", "/usr/local/bin/node"])
+    else {
+        return missing_prerequisite(TEST, "node executable");
     };
-    let Some(tsc) = discovered_executable(&["/usr/local/bin/tsc", "/usr/bin/tsc"]) else {
-        return Ok(());
+    let Some(tsc) = discovered_executable("tsc", &["/usr/local/bin/tsc", "/usr/bin/tsc"]) else {
+        return missing_prerequisite(TEST, "tsc (TypeScript compiler)");
     };
     let backend = LinuxBubblewrapBackend::discover();
     if backend.availability() != BackendAvailability::Available {
-        return Ok(());
+        return missing_prerequisite(TEST, "bubblewrap hard sandbox (bwrap + prlimit)");
     }
 
     let project = tempfile::tempdir()?;
     let source_path = project.path().join("fixture.ts");
     let emitted_dir = project.path().join("dist");
     fs::write(&source_path, DECORATED_MEMBER_SOURCE)?;
-    compile_typescript(tsc, &source_path, &emitted_dir)?;
+    compile_typescript(&tsc, &source_path, &emitted_dir)?;
     let emitted_path = emitted_dir.join("fixture.js");
     let source_map_path = emitted_dir.join("fixture.js.map");
-    let expected = run_node(node, &emitted_path)?;
+    let expected = run_node(&node, &emitted_path)?;
     let manifest = NodeSpecializer::new(backend).specialize(&NodeSpecializationRequest {
         smelt_version: "parity-test".to_owned(),
         node_executable: node.to_path_buf(),
@@ -99,7 +101,7 @@ fn decorated_members_match_node_output() -> ParityResult {
         typescript_version: "5.9.3".to_owned(),
         decorators_revision: "2023-11".to_owned(),
         hashes: fixture_hashes(),
-        sandbox_policy: fixture_policy(project.path()),
+        sandbox_policy: fixture_policy(project.path(), &node),
     })?;
     assert_manifest_invariants(&manifest)?;
     emit_and_compare(&manifest, &source_path, &expected, project.path())
@@ -197,8 +199,10 @@ fn compile_typescript(tsc: &Path, source: &Path, output: &Path) -> ParityResult 
         .args(["--sourceMap", "--skipLibCheck", "--pretty", "false"])
         .output()?;
     if !result.status.success() {
+        // tsc reports diagnostics on stdout and leaves stderr empty.
         return Err(format!(
-            "TypeScript fixture failed to compile: {}",
+            "TypeScript fixture failed to compile:\n{}{}",
+            String::from_utf8_lossy(&result.stdout),
             String::from_utf8_lossy(&result.stderr)
         )
         .into());
@@ -238,12 +242,8 @@ fn run_generated(manifest: &Path, scratch: &Path) -> ParityResult<String> {
 }
 
 /// Finds the first available executable.
-fn discovered_executable(candidates: &[&'static str]) -> Option<&'static Path> {
-    candidates
-        .iter()
-        .copied()
-        .map(Path::new)
-        .find(|path| path.is_file())
+fn discovered_executable(name: &str, fallbacks: &[&str]) -> Option<PathBuf> {
+    smelt_specialize::prereq::locate_executable(name, fallbacks)
 }
 
 /// Builds deterministic placeholder hashes for the parity run.
@@ -259,11 +259,11 @@ fn fixture_hashes() -> HashInputs {
 }
 
 /// Builds the restrictive policy used by the sandboxed parity run.
-fn fixture_policy(project: &Path) -> SandboxPolicyRecord {
+fn fixture_policy(project: &Path, node: &Path) -> SandboxPolicyRecord {
     SandboxPolicyRecord {
         backend: "linux-bubblewrap".to_owned(),
         network: false,
-        read_only_roots: runtime_roots(project),
+        read_only_roots: runtime_roots(project, node),
         writable_roots: Vec::new(),
         environment: BTreeMap::new(),
         wall_time_ms: 5_000,
@@ -277,14 +277,18 @@ fn fixture_policy(project: &Path) -> SandboxPolicyRecord {
 }
 
 /// Returns the source and Node runtime roots mounted read-only.
-fn runtime_roots(project: &Path) -> Vec<String> {
+fn runtime_roots(project: &Path, node: &Path) -> Vec<String> {
     [
-        PathBuf::from(project),
-        PathBuf::from("/usr"),
-        PathBuf::from("/lib"),
-        PathBuf::from("/lib64"),
+        Some(PathBuf::from(project)),
+        // Bind Node's own install prefix: hardcoding /usr only works for a
+        // distro-installed runtime, and `setup-node` uses the hosted tool cache.
+        smelt_specialize::prereq::runtime_prefix(node),
+        Some(PathBuf::from("/usr")),
+        Some(PathBuf::from("/lib")),
+        Some(PathBuf::from("/lib64")),
     ]
     .into_iter()
+    .flatten()
     .filter(|path| path.exists())
     .map(|path| path.display().to_string())
     .collect()

@@ -14,6 +14,7 @@ use smelt_hir::FileId;
 use smelt_specialize::{
     BackendAvailability, HashInputs, LinuxBubblewrapBackend, PythonModule,
     PythonSpecializationRequest, PythonSpecializer, SandboxBackend, SandboxPolicyRecord,
+    prereq::missing_prerequisite,
 };
 
 /// Result type shared by the parity fixtures and their helpers, defaulting to a
@@ -175,19 +176,19 @@ fn init_subclass_generated_method_matches_cpython_output() -> ParityResult {
 /// Specializes one fixture, generates Rust, and compares process stdout.
 fn assert_specialized_parity(source: &str, fixture_name: &str) -> ParityResult {
     let Some(python) = discovered_python() else {
-        return Ok(());
+        return missing_prerequisite(fixture_name, "python3 interpreter");
     };
     let backend = LinuxBubblewrapBackend::discover();
     if backend.availability() != BackendAvailability::Available {
-        return Ok(());
+        return missing_prerequisite(fixture_name, "bubblewrap hard sandbox (bwrap + prlimit)");
     }
     let project = tempfile::tempdir()?;
     let source_path = project.path().join("fixture.py");
     fs::write(&source_path, source)?;
-    let expected = run_python(python, &source_path)?;
+    let expected = run_python(&python, &source_path)?;
     let manifest = PythonSpecializer::new(backend).specialize(&PythonSpecializationRequest {
         smelt_version: "parity-test".to_owned(),
-        python_executable: python.to_path_buf(),
+        python_executable: python.clone(),
         project_root: project.path().to_path_buf(),
         modules: vec![PythonModule {
             name: "fixture".to_owned(),
@@ -238,11 +239,11 @@ fn assert_specialized_parity(source: &str, fixture_name: &str) -> ParityResult {
 }
 
 /// Finds a `CPython` executable suitable for the parity fixture.
-fn discovered_python() -> Option<&'static Path> {
-    ["/usr/bin/python3", "/usr/local/bin/python3"]
-        .iter()
-        .map(Path::new)
-        .find(|path| path.is_file())
+fn discovered_python() -> Option<PathBuf> {
+    smelt_specialize::prereq::locate_executable(
+        "python3",
+        &["/usr/bin/python3", "/usr/local/bin/python3"],
+    )
 }
 
 /// Runs the source fixture directly and returns its stdout.

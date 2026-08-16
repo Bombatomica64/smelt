@@ -713,8 +713,17 @@ fn run_prepared(
     );
     let wall_limit = Duration::from_millis(policy.wall_time_ms);
     let wait = wait_for_child(&mut child, &exceeded, started, wall_limit)?;
-    let stdout = join_reader(stdout_reader)?;
-    let stderr = join_reader(stderr_reader)?;
+    // A bound violation returns *before* joining the output readers.
+    //
+    // Killing the launcher does not reap descendants it forked, and an orphan
+    // inherits the pipe write ends. Joining here would therefore block until
+    // that orphan exits on its own, turning a bounded wall-time limit into an
+    // unbounded wait — a guest that ignores its deadline could stall the build
+    // for as long as it likes. The Linux backend normally contains this with
+    // `--unshare-all --die-with-parent` (the guest tree dies with its PID
+    // namespace), but the limit must hold even where the backend does not
+    // provide that. The reader threads are detached and exit once the
+    // descriptors close; their partial output is discarded on these paths.
     if wait.timed_out {
         return Err(SandboxError::WallTimeExceeded { limit: wall_limit });
     }
@@ -723,6 +732,8 @@ fn run_prepared(
             limit: policy.output_bytes,
         });
     }
+    let stdout = join_reader(stdout_reader)?;
+    let stderr = join_reader(stderr_reader)?;
     Ok(SandboxOutput {
         status: wait.status,
         stdout,
@@ -1006,6 +1017,186 @@ mod tests {
                 Err(SandboxError::InvalidPolicy(_))
             ),
             "specialization must not accept a network-enabled policy"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Backend-free bound enforcement.
+    //
+    // The tests below drive `run_prepared` and `SandboxRunner` directly with
+    // `/bin/sh`, so they exercise the wall-time monitor, the bounded output
+    // readers, and the fail-closed ordering in `SandboxRunner::run` on any
+    // POSIX host — no `bwrap`, no `prlimit`, no guest runtime. They are the
+    // floor that stays meaningful when the hard-sandbox launchers are absent
+    // and the launcher-backed tests skip.
+    // ---------------------------------------------------------------------
+
+    /// Builds a prepared command running `script` under `/bin/sh`.
+    #[cfg(unix)]
+    fn shell_command(script: &str, policy: &SandboxPolicyRecord) -> PreparedCommand {
+        PreparedCommand {
+            program: PathBuf::from("/bin/sh"),
+            args: os_args(["-c", script]),
+            environment: policy_environment(policy),
+            current_dir: std::env::temp_dir(),
+        }
+    }
+
+    /// The deadline must bound the call even when the guest forks a descendant
+    /// that outlives the kill.
+    ///
+    /// `/bin/sh -c 'sleep 30'` forks rather than execs, so killing the shell
+    /// orphans `sleep`, which keeps the inherited stdout pipe open. Before the
+    /// early return in `run_prepared`, this call blocked on the reader join for
+    /// the orphan's full 30 s despite a 250 ms deadline.
+    #[cfg(unix)]
+    #[test]
+    fn wall_time_limit_bounds_a_guest_that_orphans_a_descendant() {
+        let scratch = std::env::temp_dir();
+        let mut bounded = policy(&scratch);
+        bounded.wall_time_ms = 250;
+        let started = Instant::now();
+        let outcome = run_prepared(&shell_command("sleep 30", &bounded), &bounded);
+        let elapsed = started.elapsed();
+        assert!(
+            matches!(outcome, Err(SandboxError::WallTimeExceeded { .. })),
+            "a guest past its deadline must be killed and reported, got: {outcome:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the deadline must bound the call; an orphan holding the output pipe \
+             must not extend it (took {elapsed:?} for a 250 ms limit)"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_limit_stops_a_flooding_guest() {
+        let scratch = std::env::temp_dir();
+        let mut bounded = policy(&scratch);
+        bounded.output_bytes = 4096;
+        bounded.wall_time_ms = 30_000;
+        let flood = "while :; do echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; done";
+        let outcome = run_prepared(&shell_command(flood, &bounded), &bounded);
+        assert!(
+            matches!(outcome, Err(SandboxError::OutputLimitExceeded { .. })),
+            "an unbounded writer must trip the output budget, got: {outcome:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_run_returns_output_within_limits() -> Result<(), String> {
+        let scratch = std::env::temp_dir();
+        let bounded = policy(&scratch);
+        let output = run_prepared(&shell_command("echo smelt-guest-ok", &bounded), &bounded)
+            .map_err(|error| error.to_string())?;
+        assert!(output.status.success(), "the guest must exit cleanly");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "smelt-guest-ok",
+            "stdout must be captured verbatim below the budget"
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn guest_environment_is_replaced_not_inherited() -> Result<(), String> {
+        let scratch = std::env::temp_dir();
+        let bounded = policy(&scratch);
+        let output = run_prepared(&shell_command("env", &bounded), &bounded)
+            .map_err(|error| error.to_string())?;
+        let environment = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            environment.contains("LANG=C"),
+            "the policy environment must reach the guest, got: {environment}"
+        );
+        // Cargo exports this into the test process; `sh` never synthesizes it,
+        // so its presence would mean the host environment leaked into the guest.
+        assert!(
+            !environment.contains("CARGO_PKG_NAME"),
+            "host environment must not leak into the guest, got: {environment}"
+        );
+        Ok(())
+    }
+
+    /// Backend double that reports a fixed availability and records preparation.
+    ///
+    /// Confined to `#[cfg(test)]`: it performs no isolation, and exists only to
+    /// observe the order of checks inside [`SandboxRunner::run`].
+    #[derive(Debug)]
+    struct ProbeBackend {
+        /// Availability this double reports.
+        availability: BackendAvailability,
+        /// Set when `prepare` is reached.
+        prepared: Arc<AtomicBool>,
+    }
+
+    impl SandboxBackend for ProbeBackend {
+        fn name(&self) -> &'static str {
+            "probe"
+        }
+
+        fn availability(&self) -> BackendAvailability {
+            self.availability.clone()
+        }
+
+        fn prepare(
+            &self,
+            request: &SandboxRequest,
+            _policy: &SandboxPolicyRecord,
+        ) -> Result<PreparedCommand, SandboxError> {
+            self.prepared.store(true, Ordering::Release);
+            Ok(PreparedCommand {
+                program: request.executable.clone(),
+                args: request.args.clone(),
+                environment: BTreeMap::new(),
+                current_dir: request.current_dir.clone(),
+            })
+        }
+    }
+
+    #[test]
+    fn runner_rejects_a_policy_written_for_another_backend() {
+        let scratch = std::env::temp_dir();
+        let prepared = Arc::new(AtomicBool::new(false));
+        let runner = SandboxRunner::new(ProbeBackend {
+            availability: BackendAvailability::Available,
+            prepared: Arc::clone(&prepared),
+        });
+        // `policy()` is stamped "test", which is not this backend's name.
+        let outcome = runner.run(&request(&scratch), &policy(&scratch));
+        assert!(
+            matches!(outcome, Err(SandboxError::InvalidPolicy(_))),
+            "a policy recorded for another backend must be refused, got: {outcome:?}"
+        );
+        assert!(
+            !prepared.load(Ordering::Acquire),
+            "a mismatched policy must be refused before the command is prepared"
+        );
+    }
+
+    #[test]
+    fn runner_fails_closed_before_preparing_an_unavailable_backend() {
+        let scratch = std::env::temp_dir();
+        let mut matching = policy(&scratch);
+        matching.backend = "probe".to_owned();
+        let prepared = Arc::new(AtomicBool::new(false));
+        let runner = SandboxRunner::new(ProbeBackend {
+            availability: BackendAvailability::Unavailable {
+                reason: "bwrap absent".to_owned(),
+            },
+            prepared: Arc::clone(&prepared),
+        });
+        let outcome = runner.run(&request(&scratch), &matching);
+        assert!(
+            matches!(outcome, Err(SandboxError::Unavailable { .. })),
+            "an unavailable backend must never degrade to an unsandboxed run, got: {outcome:?}"
+        );
+        assert!(
+            !prepared.load(Ordering::Acquire),
+            "an unavailable backend must be refused before the command is prepared"
         );
     }
 }

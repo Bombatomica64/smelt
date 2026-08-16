@@ -346,11 +346,12 @@ mod tests {
     use std::{collections::BTreeMap, process::Command};
 
     use super::*;
+    use crate::prereq::missing_prerequisite;
 
     #[test]
     fn guest_source_is_valid_javascript() -> Result<(), String> {
-        let Some(node) = discovered_executable(&["/usr/bin/node", "/usr/local/bin/node"]) else {
-            return Ok(());
+        let Some(node) = discovered_node() else {
+            return missing_prerequisite("guest_source_is_valid_javascript", "node executable");
         };
         let scratch = NodeScratchDirectory::create().map_err(|error| error.to_string())?;
         let guest = scratch.path().join("guest.js");
@@ -368,16 +369,16 @@ mod tests {
 
     #[test]
     fn sandboxed_guest_materializes_decorated_class_metadata_and_cycles() -> Result<(), String> {
-        let Some(node) = discovered_executable(&["/usr/bin/node", "/usr/local/bin/node"]) else {
-            return Ok(());
+        const TEST: &str = "sandboxed_guest_materializes_decorated_class_metadata_and_cycles";
+        let Some(node) = discovered_node() else {
+            return missing_prerequisite(TEST, "node executable");
         };
-        let Some(tsc) = discovered_executable(&["/usr/local/bin/tsc", "/usr/bin/tsc"]) else {
-            return Ok(());
+        let Some(tsc) = discovered_tsc() else {
+            return missing_prerequisite(TEST, "tsc (TypeScript compiler)");
         };
-        let backend = crate::LinuxBubblewrapBackend::discover();
-        if backend.availability() != crate::BackendAvailability::Available {
-            return Ok(());
-        }
+        let Some(backend) = available_backend() else {
+            return missing_prerequisite(TEST, "bubblewrap hard sandbox (bwrap + prlimit)");
+        };
         let project = tempfile::tempdir().map_err(|error| error.to_string())?;
         let source = project.path().join("fixture.ts");
         fs::write(&source, DECORATED_FIXTURE).map_err(|error| error.to_string())?;
@@ -390,13 +391,20 @@ mod tests {
             .output()
             .map_err(|error| error.to_string())?;
         if !compile.status.success() {
-            return Err(String::from_utf8_lossy(&compile.stderr).into_owned());
+            // tsc reports diagnostics on stdout and leaves stderr empty, so
+            // reading stderr alone turns every compile failure into an
+            // inscrutable empty error. Include both.
+            return Err(format!(
+                "TypeScript fixture failed to compile:\n{}{}",
+                String::from_utf8_lossy(&compile.stdout),
+                String::from_utf8_lossy(&compile.stderr)
+            ));
         }
         let emitted = emitted_dir.join("fixture.js");
         let source_map = emitted_dir.join("fixture.js.map");
         let request = NodeSpecializationRequest {
             smelt_version: "test".to_owned(),
-            node_executable: node.to_path_buf(),
+            node_executable: node.clone(),
             project_root: project.path().to_path_buf(),
             modules: vec![NodeModule {
                 name: "fixture".to_owned(),
@@ -407,7 +415,7 @@ mod tests {
             typescript_version: "5.9.3".to_owned(),
             decorators_revision: "2023-11".to_owned(),
             hashes: fixture_hashes(),
-            sandbox_policy: fixture_policy(project.path()),
+            sandbox_policy: fixture_policy(project.path(), &node),
         };
         let manifest = NodeSpecializer::new(backend)
             .specialize(&request)
@@ -417,13 +425,13 @@ mod tests {
 
     #[test]
     fn sandboxed_guest_rejects_legacy_decorator_abi() -> Result<(), String> {
-        let Some(node) = discovered_executable(&["/usr/bin/node", "/usr/local/bin/node"]) else {
-            return Ok(());
+        const TEST: &str = "sandboxed_guest_rejects_legacy_decorator_abi";
+        let Some(node) = discovered_node() else {
+            return missing_prerequisite(TEST, "node executable");
         };
-        let backend = crate::LinuxBubblewrapBackend::discover();
-        if backend.availability() != crate::BackendAvailability::Available {
-            return Ok(());
-        }
+        let Some(backend) = available_backend() else {
+            return missing_prerequisite(TEST, "bubblewrap hard sandbox (bwrap + prlimit)");
+        };
         let project = tempfile::tempdir().map_err(|error| error.to_string())?;
         let source = project.path().join("legacy.ts");
         let emitted = project.path().join("legacy.js");
@@ -435,7 +443,7 @@ mod tests {
         .map_err(|error| error.to_string())?;
         let request = NodeSpecializationRequest {
             smelt_version: "test".to_owned(),
-            node_executable: node.to_path_buf(),
+            node_executable: node.clone(),
             project_root: project.path().to_path_buf(),
             modules: vec![NodeModule {
                 name: "legacy".to_owned(),
@@ -446,7 +454,7 @@ mod tests {
             typescript_version: "5.9.3".to_owned(),
             decorators_revision: "2023-11".to_owned(),
             hashes: fixture_hashes(),
-            sandbox_policy: fixture_policy(project.path()),
+            sandbox_policy: fixture_policy(project.path(), &node),
         };
         let Err(error) = NodeSpecializer::new(backend).specialize(&request) else {
             return Err("legacy decorators unexpectedly specialized".to_owned());
@@ -463,14 +471,13 @@ mod tests {
 
     #[test]
     fn sandboxed_guest_rejects_accessors_and_proxies_as_dynamic_objects() -> Result<(), String> {
-        let Some(node) = discovered_executable(&["/usr/bin/node", "/usr/local/bin/node"]) else {
-            return Ok(());
+        const TEST: &str = "sandboxed_guest_rejects_accessors_and_proxies_as_dynamic_objects";
+        let Some(node) = discovered_node() else {
+            return missing_prerequisite(TEST, "node executable");
         };
-        if crate::LinuxBubblewrapBackend::discover().availability()
-            != crate::BackendAvailability::Available
-        {
-            return Ok(());
-        }
+        let Some(backend) = available_backend() else {
+            return missing_prerequisite(TEST, "bubblewrap hard sandbox (bwrap + prlimit)");
+        };
         for (label, emitted_source) in [
             (
                 "accessor",
@@ -489,7 +496,7 @@ mod tests {
             fs::write(&emitted, emitted_source).map_err(|error| error.to_string())?;
             let request = NodeSpecializationRequest {
                 smelt_version: "test".to_owned(),
-                node_executable: node.to_path_buf(),
+                node_executable: node.clone(),
                 project_root: project.path().to_path_buf(),
                 modules: vec![NodeModule {
                     name: "dynamic".to_owned(),
@@ -500,11 +507,9 @@ mod tests {
                 typescript_version: "5.9.3".to_owned(),
                 decorators_revision: "2023-11".to_owned(),
                 hashes: fixture_hashes(),
-                sandbox_policy: fixture_policy(project.path()),
+                sandbox_policy: fixture_policy(project.path(), &node),
             };
-            let Err(error) = NodeSpecializer::new(crate::LinuxBubblewrapBackend::discover())
-                .specialize(&request)
-            else {
+            let Err(error) = NodeSpecializer::new(backend.clone()).specialize(&request) else {
                 return Err(format!("{label} object unexpectedly specialized"));
             };
             if !error
@@ -517,13 +522,23 @@ mod tests {
         Ok(())
     }
 
-    /// Finds the first existing executable path.
-    fn discovered_executable(candidates: &[&'static str]) -> Option<&'static Path> {
-        candidates
-            .iter()
-            .copied()
-            .map(Path::new)
-            .find(|path| path.is_file())
+    /// Locates the Node executable used by the guest tests.
+    ///
+    /// Searches `PATH` before the distro paths so a runner-installed toolchain
+    /// (GitHub's `setup-node` uses the hosted tool cache) is found.
+    fn discovered_node() -> Option<PathBuf> {
+        crate::prereq::locate_executable("node", &["/usr/bin/node", "/usr/local/bin/node"])
+    }
+
+    /// Locates the TypeScript compiler used to build guest fixtures.
+    fn discovered_tsc() -> Option<PathBuf> {
+        crate::prereq::locate_executable("tsc", &["/usr/local/bin/tsc", "/usr/bin/tsc"])
+    }
+
+    /// Returns the hard-sandbox backend when it can actually enforce a policy.
+    fn available_backend() -> Option<crate::LinuxBubblewrapBackend> {
+        let backend = crate::LinuxBubblewrapBackend::discover();
+        (backend.availability() == crate::BackendAvailability::Available).then_some(backend)
     }
 
     /// Representative standard-decorator TypeScript fixture.
@@ -531,7 +546,7 @@ mod tests {
 (Symbol as any).metadata ??= Symbol("metadata");
 
 function decorate(value: any, context: ClassDecoratorContext) {
-    context.metadata.label = "example";
+    (context.metadata as any).label = "example";
     context.addInitializer(function () {
         (this as any).ready = "yes";
     });
@@ -539,8 +554,8 @@ function decorate(value: any, context: ClassDecoratorContext) {
 
 function decorateMember(value: any, context: any): any {
     context.metadata[`${context.kind}:${String(context.name)}`] = true;
-    context.addInitializer(function () {
-        (this as any).memberInitialized = true;
+    context.addInitializer(function (this: any) {
+        this.memberInitialized = true;
     });
     if (context.kind === "field") {
         return function (initial: any) {
@@ -627,17 +642,24 @@ cycle.self = cycle;
 "#;
 
     /// Restrictive sandbox policy for the Node fixture.
-    fn fixture_policy(project: &Path) -> SandboxPolicyRecord {
+    ///
+    /// `node` is passed in so its installation prefix is bound read-only.
+    /// Hardcoding `/usr` only works for a distro-installed runtime, and the
+    /// runtimes that matter here are not: `setup-node` uses the hosted tool
+    /// cache and this repo's dev container ships Node at `/opt/node22`.
+    fn fixture_policy(project: &Path, node: &Path) -> SandboxPolicyRecord {
         SandboxPolicyRecord {
             backend: "linux-bubblewrap".to_owned(),
             network: false,
             read_only_roots: [
-                project,
-                Path::new("/usr"),
-                Path::new("/lib"),
-                Path::new("/lib64"),
+                Some(project.to_path_buf()),
+                crate::prereq::runtime_prefix(node),
+                Some(PathBuf::from("/usr")),
+                Some(PathBuf::from("/lib")),
+                Some(PathBuf::from("/lib64")),
             ]
             .into_iter()
+            .flatten()
             .filter(|path| path.exists())
             .map(|path| path.display().to_string())
             .collect(),

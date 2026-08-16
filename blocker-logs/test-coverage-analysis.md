@@ -125,6 +125,10 @@ month stale.
 
 ## Gap 3 — The sandbox is green in CI without running
 
+> **Status: addressed.** All three proposals below have landed, along with two
+> defects the work uncovered. See "Gap 3 follow-up" at the end of this report.
+
+
 `smelt-specialize` has the worst branch coverage in the workspace (36.1%), and
 its two most security-relevant modules are the least covered:
 
@@ -269,9 +273,8 @@ these both stronger and less brittle.
 
 Ranked by (risk × cost-to-fix):
 
-1. **Make the sandbox tests actually run in CI** (Gap 3). A security boundary
-   reporting green without executing is the highest-severity item, and the fix
-   is an apt-get line plus a fail-closed env var.
+1. ~~**Make the sandbox tests actually run in CI** (Gap 3).~~ **Done** — see
+   the follow-up section below.
 2. **Snapshot the HIR/MIR formatters over the existing example corpus**
    (Gap 4). Largest concentrated coverage block, ~1,700 lines, and the fixtures
    already exist.
@@ -282,6 +285,91 @@ Ranked by (risk × cost-to-fix):
 5. **Adopt snapshot-by-default for new emitter tests** (Gap 1). A policy change
    that compounds, with no big-bang rewrite.
 6. **Give Python one real compat target** (Gap 5).
+
+---
+
+## Gap 3 follow-up — what landed, and two defects it exposed
+
+All three proposals were implemented. Doing so surfaced two real bugs that the
+silent skip had been hiding.
+
+### What changed
+
+- **`smelt_specialize::prereq`** (new module). One place that decides
+  skip-versus-fail. `missing_prerequisite(test, requirement)` prints a `SKIP`
+  notice naming both, and returns an error instead when `SMELT_REQUIRE_SANDBOX`
+  is set. Its return type is generic over `E: From<String>`, so a single call
+  site serves tests returning `Result<(), String>` and
+  `Result<(), Box<dyn Error>>` alike. The environment is read in exactly one
+  function and every decision below it is pure, so the behavior is unit-tested
+  without mutating process environment — which `unsafe_code = "deny"` forbids
+  anyway and which is racy under the threaded runner.
+- **All 22 silent `return Ok(())` skips replaced** across `node.rs`,
+  `python.rs`, `typescript_specialization_parity.rs`, and
+  `python_specialization_parity.rs`.
+- **A `sandbox` CI job**, separate from `coverage` on purpose: it installs
+  bubblewrap and `typescript`, asserts `bwrap` can actually start a guest, then
+  runs the specialization tests with `SMELT_REQUIRE_SANDBOX=1`. It is red
+  exactly when the boundary is not being exercised. The `coverage` job installs
+  the same prerequisites but does *not* set the strict flag, so a runner-side
+  sandbox quirk cannot blank the coverage badge.
+- **Seven backend-free tests** added to `sandbox.rs`, covering wall-time
+  enforcement, the output budget, environment replacement, and the fail-closed
+  ordering inside `SandboxRunner::run` (verifying that a mismatched policy and
+  an unavailable backend are both refused *before* the command is prepared, via
+  a `#[cfg(test)]` backend double that records whether `prepare` was reached).
+  These need no `bwrap` and no guest runtime, so they are a floor that stays
+  meaningful on any POSIX host.
+
+### Defect 1 — executable discovery could never succeed on CI
+
+The per-test helpers probed hardcoded absolute paths only:
+
+```rust
+["/usr/bin/node", "/usr/local/bin/node"].iter().map(Path::new).find(|p| p.is_file())
+```
+
+GitHub's `setup-node` installs into the hosted tool cache, so this check would
+have failed even after adding Node to CI — installing the prerequisite alone
+would not have un-skipped a single test. It was also skipping on the development
+container used for this analysis, where Node and `tsc` are present at
+`/opt/node22/bin`. `prereq::locate_executable` searches `PATH` first and keeps
+the absolute paths as fallbacks.
+
+### Defect 2 — the wall-time limit was not actually bounded
+
+Found by the new `wall_time_limit_bounds_a_guest_that_orphans_a_descendant`
+test, which took **30 seconds to enforce a 250 ms deadline**.
+
+`run_prepared` killed the child at the deadline and then joined the output
+reader threads. But killing a launcher does not reap descendants it forked, and
+an orphan inherits the pipe write ends — so the join blocked until the orphan
+exited on its own. `/bin/sh -c 'sleep 30'` forks rather than execs, which
+reproduces it exactly: the deadline fires on time, then the call sits for the
+orphan's full 30 seconds. A guest that ignores its deadline could stall a build
+for as long as it liked.
+
+The fix returns the bound violation *before* joining the readers, for both the
+wall-time and output-budget paths. The reader threads are detached and exit once
+the descriptors close; their partial output is discarded on those paths anyway.
+In production the Linux backend usually contains this with
+`--unshare-all --die-with-parent` (the guest tree dies with its PID namespace),
+but the limit now holds even where the backend does not provide that — which
+matters for the macOS `sandbox-exec` backend, where no PID namespace exists.
+
+The `smelt-specialize` suite went from 30.38 s to 0.41 s as a side effect.
+
+### Caveat
+
+Whether `bwrap` runs on a GitHub-hosted runner is unverified from here. Ubuntu
+24.04 restricts unprivileged user namespaces through AppArmor; the job sets
+`kernel.apparmor_restrict_unprivileged_userns=0` (tolerating absence of the key
+on older images). The explicit "verify the hard sandbox can start a guest" step
+exists so that if this is wrong, the failure is one readable line in a
+purpose-named job rather than an inscrutable Rust test error. **The first CI run
+on this branch is the real test of that assumption.**
+
+---
 
 Three small cleanups worth folding in:
 
