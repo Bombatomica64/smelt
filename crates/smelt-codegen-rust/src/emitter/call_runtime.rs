@@ -882,6 +882,7 @@ impl FunctionEmitter<'_> {
             Rvalue::PrototypeSentinel {
                 value: unknown_value,
             } => self.prototype_sentinel_text(unknown_value),
+            Rvalue::BoxPrimitive { value } => self.box_primitive_text(value),
             Rvalue::ObjectFromPrototype { prototype } => {
                 self.object_from_prototype_text(prototype)
             }

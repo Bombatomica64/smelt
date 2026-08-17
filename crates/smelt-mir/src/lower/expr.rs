@@ -245,6 +245,16 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::BoxPrimitive { value } => {
+                let lowered_value = self.lower_expr(*value)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::BoxPrimitive {
+                        value: lowered_value,
+                    },
+                )?
+            }
             ExprKind::ObjectFromPrototype { prototype } => {
                 let lowered_prototype = self.lower_expr(*prototype)?;
                 self.assign_temp(

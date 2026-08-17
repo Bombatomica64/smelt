@@ -1938,6 +1938,19 @@ impl FunctionEmitter<'_> {
         Ok(format!("smelt_prototype_sentinel(&({text}))"))
     }
 
+    /// Emits `Object(value)` as a boxed primitive.
+    ///
+    /// Defers to the `smelt_box_value` runtime helper, which wraps a primitive in
+    /// the same marker shape `new Number(..)` / `new Boolean(..)` /
+    /// `new String(..)` build and passes objects through unchanged. The branch is
+    /// necessarily a runtime one — a `Type::Unknown` argument's tag is only known
+    /// then — so the operand goes through the erased-`unknown` coercion seam.
+    pub(super) fn box_primitive_text(&self, value: &Operand) -> Result<String, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let text = self.value_at_type(value, unknown_ty)?;
+        Ok(format!("smelt_box_value({text})"))
+    }
+
     /// Emits `Object.create(proto)` as a fresh erased object.
     ///
     /// Defers to the `smelt_object_from_prototype` runtime helper so the

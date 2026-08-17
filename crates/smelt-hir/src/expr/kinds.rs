@@ -787,6 +787,15 @@ pub enum ExprKind {
         /// Value whose prototype sentinel is being computed.
         value: ExprId,
     },
+    /// Box a primitive the way `Object(value)` does (objects pass through).
+    ///
+    /// Lowers to the `smelt_box_value` runtime helper. The wrapper it builds is
+    /// the same marker shape `new Number(..)` / `new Boolean(..)` /
+    /// `new String(..)` build, so both spellings share one representation.
+    BoxPrimitive {
+        /// Value being boxed.
+        value: ExprId,
+    },
     /// Create a fresh erased object from a runtime prototype value.
     ///
     /// Lowers to the `smelt_object_from_prototype` runtime helper. `Object.create`

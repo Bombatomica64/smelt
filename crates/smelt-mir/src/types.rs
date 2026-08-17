@@ -672,6 +672,12 @@ pub enum Rvalue {
         /// Value whose prototype sentinel is being computed.
         value: Operand,
     },
+    /// Box a primitive the way `Object(value)` does; objects pass through
+    /// (see the runtime `smelt_box_value`).
+    BoxPrimitive {
+        /// Value being boxed.
+        value: Operand,
+    },
     /// Create a fresh erased object from a runtime prototype value
     /// (`Object.create(proto)`; see the runtime `smelt_object_from_prototype`).
     ObjectFromPrototype {

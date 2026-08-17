@@ -708,6 +708,39 @@ function protoDepth(value: object): number {
 }
 
 #[test]
+fn object_call_boxes_and_value_of_unwraps_through_runtime_helpers() {
+    // Regression: `Object(value)` (the boxing call, not the `Object.*` statics)
+    // was unrecognized, and `.valueOf()` went through the ordinary own-field
+    // read. `Object.prototype.valueOf` is an own property of no value, so that
+    // read always missed and collapsed to a null callback — which is what made
+    // `isEqualWith(1, Object(1), noop)` answer `false`. Both must route through
+    // runtime helpers, because the branch depends on the receiver's runtime tag.
+    let source = source_for(
+        r"
+function unwrap(value: unknown): unknown {
+  const boxed: any = Object(value);
+  return boxed.valueOf();
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_box_value("),
+        "Object(value) must route through the boxing runtime helper: {source}"
+    );
+    assert!(
+        source.contains("smelt_value_of_method("),
+        "valueOf must route through the runtime helper, not an own-field read: {source}"
+    );
+    // Strings stay unboxed, matching `new String(x)`; boxing them would require
+    // re-exposing the whole `String.prototype` surface on a marker object.
+    assert!(
+        !source.contains("(\"__smelt_string\", value)"),
+        "Object(string) must stay a plain string: {source}"
+    );
+}
+
+#[test]
 fn object_create_mints_a_fresh_object_instead_of_aliasing_the_prototype() {
     // Regression: `Object.create(proto)` used to lower to `proto` itself whenever
     // the prototype was already erased. Two things broke. (1) The prototype of an

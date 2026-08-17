@@ -129,6 +129,17 @@ impl FunctionEmitter<'_> {
                             "smelt_function_method({scrutinee}, {field_name:?})"
                         ));
                     }
+                    // `Object.prototype.valueOf` exists on EVERY value, so it can
+                    // never resolve through the own-field read: a boxed primitive
+                    // (`Object(1)`, `new Number(1)`) is a marker object with no own
+                    // `valueOf`, and an erased primitive is not an object at all.
+                    // Both used to collapse to a null callback, which is what made
+                    // `isEqualWith(1, Object(1), noop)` answer `false`. The runtime
+                    // helper unwraps the wrapper and still prefers a user-defined
+                    // own `valueOf` when the receiver has one.
+                    if field_name == "valueOf" {
+                        return Ok(format!("smelt_value_of_method({scrutinee})"));
+                    }
                     return Ok(format!(
                         "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                     ));

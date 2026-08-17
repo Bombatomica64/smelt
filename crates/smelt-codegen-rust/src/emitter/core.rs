@@ -4096,6 +4096,7 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         | Rvalue::UnknownIs { value: operand, .. }
         | Rvalue::TypeofValue { value: operand }
         | Rvalue::PrototypeSentinel { value: operand }
+        | Rvalue::BoxPrimitive { value: operand }
         | Rvalue::ObjectFromPrototype { prototype: operand }
         | Rvalue::UnknownCast { value: operand, .. }
         | Rvalue::DateFromValue { value: operand }

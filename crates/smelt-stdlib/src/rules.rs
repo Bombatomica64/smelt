@@ -122,6 +122,8 @@ pub enum RuleId {
     TsUrlField,
     /// TypeScript `structuredClone(value)`.
     TsStructuredClone,
+    /// TypeScript `Object(value)` called as a function (boxes a primitive).
+    TsObjectBox,
     /// TypeScript `Promise.resolve`, `Promise.all`, `Promise.race`, or `Promise.allSettled`.
     TsPromiseStatic,
     /// TypeScript global primitive conversion or numeric parse call.
@@ -205,6 +207,7 @@ impl RuleId {
             | Self::PyDateTimeFromTimestamp => Some(BackendDependency::Chrono),
             Self::TsUrlField | Self::PyUrlparseField => Some(BackendDependency::Url),
             Self::TsStructuredClone
+            | Self::TsObjectBox
             | Self::TsPromiseStatic
             | Self::TsPrimitiveCast
             | Self::TsSymbol
@@ -238,6 +241,7 @@ impl RuleId {
             Self::TsDateToIsoString => "Date.toISOString",
             Self::TsUrlField => "URL field access",
             Self::TsStructuredClone => "structuredClone",
+            Self::TsObjectBox => "Object",
             Self::TsPromiseStatic => "Promise static method",
             Self::TsPrimitiveCast => "primitive conversion",
             Self::TsSymbol => "Symbol",

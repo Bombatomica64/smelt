@@ -109,6 +109,9 @@ impl Rvalue {
             } => {
                 visit(unknown_value);
             }
+            Self::BoxPrimitive { value } => {
+                visit(value);
+            }
             Self::ObjectFromPrototype { prototype } => {
                 visit(prototype);
             }
@@ -857,6 +860,9 @@ impl Rvalue {
                 visit(unknown_value);
             }
             Self::PrototypeSentinel { value } => {
+                visit(value);
+            }
+            Self::BoxPrimitive { value } => {
                 visit(value);
             }
             Self::ObjectFromPrototype { prototype } => {

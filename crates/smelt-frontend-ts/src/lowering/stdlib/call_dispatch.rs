@@ -2713,6 +2713,7 @@ impl<'builder> ModuleBuilder<'builder> {
         };
         match rule {
             RuleId::TsStructuredClone => self.structured_clone_call(call, body),
+            RuleId::TsObjectBox => self.object_box_call(call, body),
             RuleId::TsPromiseStatic => self.promise_static_call(call, body),
             RuleId::TsFetch => self.fetch_call(call, body),
             RuleId::TsPrimitiveCast => self.primitive_cast_call(call, body),

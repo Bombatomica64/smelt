@@ -364,6 +364,9 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         } => {
             format!("prototype_sentinel {}", operand_text(unknown_value))
         }
+        Rvalue::BoxPrimitive { value } => {
+            format!("box_primitive {}", operand_text(value))
+        }
         Rvalue::ObjectFromPrototype { prototype } => {
             format!("object_from_prototype {}", operand_text(prototype))
         }

@@ -43,6 +43,9 @@ pub struct MethodRecognition {
 pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     free("fetch", RuleId::TsFetch),
     free("structuredClone", RuleId::TsStructuredClone),
+    // `Object(value)` — the boxing call, not the `Object.*` statics. Recognized
+    // here as a free call because the callee is a bare `Object` identifier.
+    free("Object", RuleId::TsObjectBox),
     free("String", RuleId::TsPrimitiveCast),
     free("Number", RuleId::TsPrimitiveCast),
     free("Boolean", RuleId::TsPrimitiveCast),

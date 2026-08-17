@@ -426,6 +426,68 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `Object(value)` — the boxing call — to a runtime box.
+    ///
+    /// `Object(1)` / `Object('a')` / `Object(true)` wrap a primitive in the same
+    /// marker record `new Number(1)` builds, `Object(obj)` returns `obj`, and
+    /// `Object()` / `Object(null)` yield a fresh empty object. Deep-equality code
+    /// leans on the wrapper being distinguishable from its primitive while
+    /// comparing equal through `valueOf` (es-toolkit `isEqualWith`), so the
+    /// distinction cannot be dropped. Which branch applies depends on the runtime
+    /// tag, so the decision belongs to `smelt_box_value`.
+    ///
+    /// A user-declared value named `Object` shadows the global; the recognition
+    /// table cannot see that, so bail out and let ordinary call lowering handle it.
+    pub(in crate::lowering) fn object_box_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        if callee.name != "Object"
+            || self.classes.contains_key("Object")
+            || self.value_imports.contains("Object")
+        {
+            return Ok(None);
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(call.span.start, call.span.end);
+        let Some(argument) = call.arguments.first() else {
+            // `Object()` with no argument is `{}`.
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictLit(Vec::new()),
+                ty: unknown_ty,
+                span,
+            })));
+        };
+        if call.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                span,
+                "Object(value) accepts at most one argument",
+            ));
+        }
+        let value = self.argument(argument, body)?;
+        let value = if Self::expr_ty(body, value) == unknown_ty {
+            value
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value,
+                    target: unknown_ty,
+                },
+                ty: unknown_ty,
+                span,
+            })
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::BoxPrimitive { value },
+            ty: unknown_ty,
+            span,
+        })))
+    }
+
     /// Lower `Object.create(proto)` to an erased object shaped from its prototype.
     pub(in crate::lowering) fn object_create_call(
         &mut self,
