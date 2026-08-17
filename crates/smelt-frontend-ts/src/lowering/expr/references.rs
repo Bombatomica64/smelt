@@ -369,7 +369,22 @@ impl ModuleBuilder<'_> {
         Ok(local_expr)
     }
 
-    /// Lower JavaScript `arguments` to the array-like shape used by object checks.
+    /// Lower JavaScript `arguments` to the array-like exotic object, carrying the
+    /// enclosing function's actual argument *values*.
+    ///
+    /// The enclosing function's parameters are the arguments: `body.params` holds
+    /// the positional parameter locals followed by the rest parameter's local when
+    /// one is declared, and the top of the argument-arity stack is the count of
+    /// positional parameters. Reading them recovers the call's argument vector, so
+    /// `Object.keys(arguments)` enumerates the real index keys — which is what
+    /// `isEqual(toArgs([1, 2, 3]), { 0: 1, 1: 2, 2: 3 })` compares.
+    ///
+    /// When the body being lowered is *not* the function that owns this
+    /// `arguments` — an arrow function nested inside it inherits the binding but
+    /// has its own parameter list — the parameter shape does not match the arity
+    /// on the stack and there is nothing local to read. Those references keep the
+    /// length-only record rather than reporting a nested closure's parameters as
+    /// the outer call's arguments.
     pub(in crate::lowering) fn arguments_object_expression(
         &mut self,
         start: u32,
@@ -382,16 +397,49 @@ impl ModuleBuilder<'_> {
                 "`arguments` is only available inside function bodies",
             ));
         };
+        let span = self.span(start, end);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        // `body.params` is the positional parameters, optionally followed by the
+        // rest parameter, so exactly one of these two lengths belongs to the
+        // function that owns this `arguments`.
+        if matches!(
+            body.params.len().checked_sub(argument_count),
+            Some(0 | 1)
+        ) {
+            let has_rest = body.params.len() > argument_count;
+            let param_locals = body.params.clone();
+            let mut fixed = Vec::with_capacity(argument_count);
+            for local in param_locals.iter().take(argument_count) {
+                let ty = Self::local_ty(body, *local);
+                fixed.push(body.push_expr(Expr {
+                    kind: ExprKind::Local(*local),
+                    ty,
+                    span,
+                }));
+            }
+            let rest = has_rest.then(|| {
+                let local = param_locals[argument_count];
+                let ty = Self::local_ty(body, local);
+                body.push_expr(Expr {
+                    kind: ExprKind::Local(local),
+                    ty,
+                    span,
+                })
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ArgumentsObject { fixed, rest },
+                ty: unknown_ty,
+                span,
+            }));
+        }
         let argument_count = u32::try_from(argument_count).map_err(|_error| {
             SmeltError::unsupported(
                 self.span(start, end),
                 "`arguments.length` exceeds the supported numeric range",
             )
         })?;
-        let span = self.span(start, end);
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, unknown_ty));
         let key = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::String("length".to_owned())),
             ty: key_ty,
@@ -407,7 +455,6 @@ impl ModuleBuilder<'_> {
             ty: dict_ty,
             span,
         });
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         Ok(body.push_expr(Expr {
             kind: ExprKind::UnknownCast {
                 value: object,
@@ -760,43 +807,14 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let span = self.span(start, end);
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self
-            .ctx
-            .krate
-            .types
-            .intern(Type::Dict(string_ty, unknown_ty));
-        let marker_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("__smelt_builtin_namespace".to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let marker_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
-            span,
-        });
-        let name_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("name".to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let name_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(name.to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let object = body.push_expr(Expr {
-            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (name_key, name_value)]),
-            ty: dict_ty,
-            span,
-        });
+        // Interned, not a fresh record per reference: JavaScript exposes one object
+        // per global name, so `Blob === Blob` and `blob.constructor === Blob` both
+        // hold. A record literal mints an identity on construction, which made both
+        // comparisons `false`.
         Some(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: object,
-                target: unknown_ty,
+            kind: ExprKind::BuiltinNamespace {
+                name: name.to_owned(),
             },
             ty: unknown_ty,
             span,

@@ -689,7 +689,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let fn_ty = self.type_text_with_impl_trait(ty, false)?;
         Ok(format!(
-            "::std::rc::Rc::ptr_eq(&{{ let smelt_lhs_fn: {fn_ty} = {left}.clone(); smelt_lhs_fn }}, &{{ let smelt_rhs_fn: {fn_ty} = {right}.clone(); smelt_rhs_fn }})"
+            "smelt_same_function_identity(&{{ let smelt_lhs_fn: {fn_ty} = {left}.clone(); smelt_lhs_fn }}, &{{ let smelt_rhs_fn: {fn_ty} = {right}.clone(); smelt_rhs_fn }})"
         ))
     }
 

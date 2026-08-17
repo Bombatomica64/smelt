@@ -424,7 +424,9 @@ impl FunctionEmitter<'_> {
                         let base_read = self.local_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_read}.len()"), index)?;
-                        let default_value = self.default_value(*item)?;
+                        // Growing past the end leaves JS *holes*, which read as
+                        // `undefined`, not `null` (see `array_hole_value`).
+                        let default_value = self.array_hole_value(*item)?;
                         out.push_str(&format!(
                             "    {{ let smelt_assign_index = {index_text}; if smelt_assign_index >= {base_read}.len() {{ {base_mut}.resize(smelt_assign_index.saturating_add(1), {default_value}); }} {base_mut}[smelt_assign_index] = {rendered_value}; }}\n"
                         ));
@@ -842,7 +844,7 @@ impl FunctionEmitter<'_> {
                 let exception_decl = self.local_decl(exception_local)?;
                 let value = match self.mir.types.get(exception_decl.ty) {
                     Some(Type::String) => "__smelt_error".to_owned(),
-                    Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])))".to_owned(),
+                    Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])))".to_owned(),
                     _ => self.default_value(exception_decl.ty)?,
                 };
                 out.push_str(&format!("            let {exception_name} = {value};\n"));
@@ -902,7 +904,7 @@ impl FunctionEmitter<'_> {
             let exception_decl = self.local_decl(exception_local)?;
             let value = match self.mir.types.get(exception_decl.ty) {
                 Some(Type::String) => "__smelt_error".to_owned(),
-                Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])))".to_owned(),
+                Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])))".to_owned(),
                 _ => self.default_value(exception_decl.ty)?,
             };
             out.push_str(&format!("            let {exception_name} = {value};\n"));

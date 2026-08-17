@@ -708,6 +708,117 @@ function protoDepth(value: object): number {
 }
 
 #[test]
+fn valueless_return_at_an_erased_return_type_is_undefined_not_null() {
+    // Regression: falling off the end of a JavaScript function evaluates to
+    // `undefined`, but the value-less return terminator emitted
+    // `SmeltUnknown::Null`. At an erased return type the difference is
+    // observable, and es-toolkit's `cloneDeepWith` guards its customizer with
+    // `if (cloned !== undefined) return cloned;` — so a customizer that falls
+    // through answered `null`, satisfied the guard on its first call, and made
+    // the whole clone collapse to `null`.
+    //
+    // An explicit `return null` must keep answering `null`; it carries a real
+    // literal operand rather than the synthesized value-less one.
+    let source = source_for(
+        r"
+function fallsThrough(value: unknown): unknown {
+  if (typeof value === 'number') {
+    return value;
+  }
+}
+function returnsNull(value: unknown): unknown {
+  if (typeof value === 'number') {
+    return value;
+  }
+  return null;
+}
+",
+    );
+
+    assert!(
+        source.contains("return SmeltUnknown::Undefined;"),
+        "a value-less return at an erased return type must yield undefined: {source}"
+    );
+    assert!(
+        source.contains("return SmeltUnknown::Null;"),
+        "an explicit `return null` must still yield null: {source}"
+    );
+}
+
+#[test]
+fn object_call_boxes_and_value_of_unwraps_through_runtime_helpers() {
+    // Regression: `Object(value)` (the boxing call, not the `Object.*` statics)
+    // was unrecognized, and `.valueOf()` went through the ordinary own-field
+    // read. `Object.prototype.valueOf` is an own property of no value, so that
+    // read always missed and collapsed to a null callback — which is what made
+    // `isEqualWith(1, Object(1), noop)` answer `false`. Both must route through
+    // runtime helpers, because the branch depends on the receiver's runtime tag.
+    let source = source_for(
+        r"
+function unwrap(value: unknown): unknown {
+  const boxed: any = Object(value);
+  return boxed.valueOf();
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_box_value("),
+        "Object(value) must route through the boxing runtime helper: {source}"
+    );
+    assert!(
+        source.contains("smelt_value_of_method("),
+        "valueOf must route through the runtime helper, not an own-field read: {source}"
+    );
+    // Strings stay unboxed, matching `new String(x)`; boxing them would require
+    // re-exposing the whole `String.prototype` surface on a marker object.
+    assert!(
+        !source.contains("(\"__smelt_string\", value)"),
+        "Object(string) must stay a plain string: {source}"
+    );
+}
+
+#[test]
+fn object_create_mints_a_fresh_object_instead_of_aliasing_the_prototype() {
+    // Regression: `Object.create(proto)` used to lower to `proto` itself whenever
+    // the prototype was already erased. Two things broke. (1) The prototype of an
+    // erased value is an opaque `"__smelt_proto:*"` *string* sentinel, so
+    // `Object.assign(Object.create(Object.getPrototypeOf(obj)), obj)` — the
+    // es-toolkit `clone` / `cloneDeepWith` shape — assigned fields onto a string
+    // and every copied key was dropped (`Object.keys` then enumerated the
+    // string's character indices). (2) With a concrete prototype object the
+    // result ALIASED that prototype, so the assign mutated it.
+    //
+    // The lowering must route through `smelt_object_from_prototype`, which always
+    // allocates a fresh `SmeltObject`.
+    let source = source_for(
+        r"
+function shallowClone(obj: object): object {
+  const prototype = Object.getPrototypeOf(obj);
+  return Object.assign(Object.create(prototype), obj);
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_object_from_prototype("),
+        "Object.create must route through the fresh-object runtime helper: {source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Object(SmeltObject::new(fields))"),
+        "the helper must allocate a fresh object: {source}"
+    );
+    // The class-prototype sentinel keeps the hidden marker so a cloned class
+    // instance is still classified as a class instance, not a plain object.
+    assert!(
+        source.contains(
+            "SmeltUnknown::String(sentinel) if sentinel == \"__smelt_proto:class\" => { fields.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true)); }"
+        ),
+        "a class prototype must carry the class marker onto the fresh object: {source}"
+    );
+}
+
+#[test]
 fn emits_static_function_with_params_and_return_value() {
     let source = source_for(
         "function add(a: number, b: number): number {
@@ -1712,8 +1823,13 @@ console.log(ok);
     );
     // Both the object-key walk (then-branch, the diverging region) and the
     // array index walk (the continuation) must survive.
+    // Anchored on the `for...in` key projection. `smelt_for_in_record_keys`
+    // replaced an inline `smelt_is_for_in_record_key` filter once `for...in` had
+    // to walk the prototype chain (which `Object.keys` must not), so the marker
+    // moved; what this test checks — that the diverging then-branch's for-in
+    // region survives and precedes the array continuation — is unchanged.
     let for_in = body
-        .find("smelt_is_for_in_record_key")
+        .find("smelt_for_in_record_keys")
         .expect("object-key (for-in) loop of the diverging then-branch preserved");
     let array_guard = body
         .rfind("if !(")

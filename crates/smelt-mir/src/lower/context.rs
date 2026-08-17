@@ -50,6 +50,15 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) exception_targets: Vec<ExceptionTarget>,
     /// Stack of lexical finally clauses active at the current source position.
     pub(super) generator_cleanups: Vec<crate::GeneratorCleanup>,
+    /// HIR blocks of the `finally` clauses lexically enclosing the cursor.
+    ///
+    /// Innermost last. A `return` inside a `try`/`catch` that has a finalizer must
+    /// run every enclosing finalizer before it leaves the function, so
+    /// [`super::LoweringCtx::lower_return`] re-lowers these blocks inline ahead of
+    /// the `Return` terminator. Holding the *HIR* block — rather than the single
+    /// MIR block the fall-through path uses, whose exit continues after the `try` —
+    /// is what makes that duplication possible.
+    pub(super) finally_scopes: Vec<smelt_hir::BlockId>,
     /// Numeric type used for generated index-based loop counters.
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.
@@ -257,6 +266,7 @@ impl<'hir> LoweringCtx<'hir> {
             loops: Vec::new(),
             exception_targets: Vec::new(),
             generator_cleanups: Vec::new(),
+            finally_scopes: Vec::new(),
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
         }
@@ -270,6 +280,7 @@ impl<'hir> LoweringCtx<'hir> {
             span,
         })
     }
+
 
     /// Returns a reference to the current block.
     pub(super) fn block(&self) -> Result<&BasicBlock, LowerError> {

@@ -129,6 +129,17 @@ impl FunctionEmitter<'_> {
                             "smelt_function_method({scrutinee}, {field_name:?})"
                         ));
                     }
+                    // `Object.prototype.valueOf` exists on EVERY value, so it can
+                    // never resolve through the own-field read: a boxed primitive
+                    // (`Object(1)`, `new Number(1)`) is a marker object with no own
+                    // `valueOf`, and an erased primitive is not an object at all.
+                    // Both used to collapse to a null callback, which is what made
+                    // `isEqualWith(1, Object(1), noop)` answer `false`. The runtime
+                    // helper unwraps the wrapper and still prefers a user-defined
+                    // own `valueOf` when the receiver has one.
+                    if field_name == "valueOf" {
+                        return Ok(format!("smelt_value_of_method({scrutinee})"));
+                    }
                     return Ok(format!(
                         "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                     ));
@@ -788,9 +799,10 @@ impl FunctionEmitter<'_> {
                             smelt_key.parse::<usize>().ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
                         }}
                     }}
-                    SmeltUnknown::Object(values) => values.get(&{key_text}).unwrap_or(SmeltUnknown::Null),
+                    SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Null)),
                     _ => SmeltUnknown::Null,
-                }}"#
+                }}"#,
+                byte_buffer_element = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENT,
             ));
         }
         let numeric_index_text = match self.mir.types.get(index_ty) {
@@ -827,9 +839,10 @@ impl FunctionEmitter<'_> {
                         let normalized = if index < 0 {{ len + index }} else {{ index }};
                         usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
                     }}
-                SmeltUnknown::Object(values) => values.get(&{key_text}).unwrap_or(SmeltUnknown::Null),
+                SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Null)),
                 _ => SmeltUnknown::Null,
-            }}"
+            }}",
+            byte_buffer_element = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENT,
         ))
     }
 

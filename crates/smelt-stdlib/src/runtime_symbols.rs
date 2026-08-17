@@ -104,6 +104,82 @@ pub mod host {
     /// byte `size`, and stamps `__smelt_file` on top of `__smelt_blob` when a
     /// file name is supplied.
     pub const BLOB_RECORD_FROM_PARTS: &str = "smelt_blob_record_from_parts";
+
+    /// Interns the single host-constructor/namespace value for a global name.
+    ///
+    /// JavaScript exposes exactly one object per global builtin name, so
+    /// `Blob === Blob` and `blob.constructor === Blob` both hold. Smelt models
+    /// such a bare reference as a `__smelt_builtin_namespace` record, and records
+    /// mint a fresh identity on construction — two references would compare
+    /// `!==`. This helper caches one record per name in a thread-local so the
+    /// identity is stable, and it is the value `.constructor` resolves to for a
+    /// host-marker record (`Rvalue::BuiltinNamespace`).
+    pub const BUILTIN_NAMESPACE: &str = "smelt_builtin_namespace";
+
+    /// Builds a modeled host instance from constructor arguments, keyed by the
+    /// host identity's *kind* (its marker with the `__smelt_` prefix stripped).
+    ///
+    /// One helper serves both the direct `new DataView(buf, 1, 2)` spelling
+    /// (`Rvalue::HostConstruct`) and the reflected
+    /// `new Object.getPrototypeOf(view).constructor(...)` spelling, so records
+    /// built the two ways are indistinguishable.
+    pub const REFLECTED_CONSTRUCT: &str = "smelt_reflected_construct";
+
+    /// Maps a marker-bearing record to the class name whose constructor value its
+    /// `.constructor` read resolves to.
+    pub const MARKER_CONSTRUCTOR_CLASS: &str = "smelt_marker_constructor_class";
+
+    /// Builds the array-like `arguments` exotic object from a function's
+    /// positional parameters plus its flattened rest list
+    /// (`Rvalue::ArgumentsObject`).
+    pub const ARGUMENTS_OBJECT: &str = "smelt_arguments_object";
+
+    /// The identity marker stamped onto an `arguments` object.
+    ///
+    /// Unlike the [`crate::host_object::HOST_OBJECTS`] markers — which hide a
+    /// record's *whole* key set from enumeration — this marker hides only itself
+    /// and `length`, because an `arguments` object's indexed elements are
+    /// genuinely enumerable own properties while its `length` is not.
+    pub const ARGUMENTS_MARKER: &str = "__smelt_arguments";
+}
+
+/// Byte-buffer host-object runtime helpers.
+///
+/// The binary-data host objects (`ArrayBuffer`, `SharedArrayBuffer`, Node
+/// `Buffer`, `DataView` — see [`crate::host_object::ByteBufferRole`]) are modeled
+/// as marker records carrying a `bytes` list. These helpers are the single place
+/// that knows that layout, so `.slice()`/`.subarray()`, indexed element
+/// reads/writes, array-like element extraction, and `ArrayBuffer.isView` all
+/// agree on it.
+pub mod byte_buffer {
+    /// Returns a byte-backed host record's `bytes` as an element vector, or
+    /// `None` when the value is not a byte-backed host object.
+    ///
+    /// Backs `new Uint8Array(arrayBuffer)` and any other array-like extraction
+    /// from a byte buffer.
+    pub const ELEMENTS: &str = "smelt_host_buffer_elements";
+
+    /// Slices a byte-backed host record, returning a **fresh** record of the same
+    /// host identity over the sliced bytes, or `None` for other values.
+    ///
+    /// Backs `arrayBuffer.slice(0)` and `buffer.subarray()`, both of which
+    /// es-toolkit's clone paths rely on to produce a distinct object.
+    pub const SLICE: &str = "smelt_host_buffer_slice";
+
+    /// Reads one indexed element of a byte-backed host record (`buffer[1]`), or
+    /// `None` when the receiver is not byte-backed or the key is not an index.
+    pub const ELEMENT: &str = "smelt_host_buffer_element";
+
+    /// Writes one indexed element of a byte-backed host record
+    /// (`result[i] = byte`), returning whether the write was absorbed.
+    pub const SET_ELEMENT: &str = "smelt_host_buffer_set_element";
+
+    /// Whether an erased value is a *view* over byte storage; backs
+    /// `ArrayBuffer.isView(x)`.
+    pub const IS_VIEW: &str = "smelt_host_buffer_is_view";
+
+    /// The record key holding a byte-backed host object's storage.
+    pub const BYTES_KEY: &str = "bytes";
 }
 
 /// Host-global override-slot runtime helpers.

@@ -47,10 +47,35 @@ impl LoweringCtx<'_> {
                 self.set_terminator(Terminator::Return(Operand::Move(Place::Local(LocalId(0)))))?;
                 return Ok((self.function, self.closures));
             }
-            self.set_terminator(Terminator::Return(Operand::Const(Constant::None)))?;
+            self.set_terminator(Terminator::Return(self.valueless_return_operand()))?;
         }
 
         Ok((self.function, self.closures))
+    }
+
+    /// The operand a value-less `return` yields.
+    ///
+    /// Falling off the end of a JavaScript function — or a bare `return;` —
+    /// evaluates to `undefined`, never `null`. The two are one `Constant::None`
+    /// once a typed return has erased them, but at an *erased* return type the
+    /// distinction is observable: es-toolkit's `cloneDeepWith` guards its
+    /// customizer with `if (cloned !== undefined) return cloned;`, so a
+    /// customizer that falls through (`(v) => { if (typeof v === 'number') return
+    /// v * 2; }`) used to answer `null`, satisfy the guard on its very first
+    /// call, and make the whole clone collapse to `null`.
+    ///
+    /// Only the erased return type switches: a `None`/void return emits Rust `()`
+    /// and an `Optional<T>` return needs Rust `None`, so both keep
+    /// `Constant::None`. An explicit `return null` carries a `Literal::None`
+    /// operand and never reaches here.
+    fn valueless_return_operand(&self) -> Operand {
+        if matches!(
+            self.krate.types.get(self.function.return_ty),
+            Some(smelt_hir::Type::Unknown)
+        ) {
+            return Operand::Const(Constant::Undefined);
+        }
+        Operand::Const(Constant::None)
     }
 
     /// Lowers all statements in a HIR block.
@@ -116,12 +141,30 @@ impl LoweringCtx<'_> {
             }
             HirStmt::Return(Some(expr)) => {
                 let lowered_operand = self.lower_expr(*expr)?;
-                self.set_terminator(Terminator::Return(lowered_operand))?;
-                Ok(())
+                // A finalizer runs *after* the return expression is evaluated but
+                // *before* the value leaves the function, so it may reassign the
+                // very binding the operand names — `try { return x } finally { x = 2 }`
+                // must still answer the original `x`. Copy such a value into a temp
+                // at the expression's own type first. Constants and compiler temps
+                // need no copy (no source statement can name them), which keeps the
+                // MIR of every function without this shape unchanged.
+                if !self.finally_scopes.is_empty()
+                    && !self.operand_is_finalizer_stable(&lowered_operand)?
+                {
+                    let expr_info = self.hir_expr(*expr)?;
+                    let (ty, span) = (expr_info.ty, expr_info.span);
+                    let frozen = self.push_temp(ty, span);
+                    self.block_mut()?.statements.push(Statement::Assign {
+                        dest: frozen,
+                        value: Rvalue::Use(lowered_operand),
+                    });
+                    return self.lower_return(Operand::Move(Place::Local(frozen)));
+                }
+                self.lower_return(lowered_operand)
             }
             HirStmt::Return(None) => {
-                self.set_terminator(Terminator::Return(Operand::Const(Constant::None)))?;
-                Ok(())
+                let lowered_operand = self.valueless_return_operand();
+                self.lower_return(lowered_operand)
             }
             HirStmt::If {
                 cond,
@@ -182,6 +225,101 @@ impl LoweringCtx<'_> {
         }
     }
 
+    /// Whether an inlined `finally` clause can be trusted not to change `operand`.
+    ///
+    /// Constants are immutable and a compiler temporary has no source-level name,
+    /// so no statement inside a finalizer can assign to either. A parameter or a
+    /// user binding can be reassigned, and so can any field/index projection off
+    /// one, so those must be copied before the finalizer runs.
+    fn operand_is_finalizer_stable(&self, operand: &Operand) -> Result<bool, LowerError> {
+        match operand {
+            Operand::Const(_) => Ok(true),
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
+                Ok(matches!(self.mir_local(*local)?.kind, crate::LocalKind::Temp))
+            }
+            Operand::Copy(_) | Operand::Move(_) => Ok(false),
+        }
+    }
+
+    /// Terminates the current block with a `return`, honoring enclosing finalizers.
+    ///
+    /// Outside a `try`/`finally` this is just `Terminator::Return`. Inside one,
+    /// JavaScript runs every enclosing finalizer *before* the function returns, and
+    /// the MIR block the finalizer was lowered into cannot be reused — its exit
+    /// falls through to the code after the `try`. So each enclosing finalizer is
+    /// *re-lowered inline*, innermost first, ahead of the `Return` terminator: the
+    /// classic finalizer-duplication strategy.
+    ///
+    /// Duplication rather than a shared cleanup block reached by `Goto` is
+    /// deliberate. A `return` can sit arbitrarily deep inside loops and branches,
+    /// and codegen reconstructs structured Rust from the CFG; a jump *out of a loop*
+    /// to a shared cleanup block is a shape that reconstruction gets wrong (it
+    /// degrades to a plain `break`, so control falls into the code after the loop
+    /// and the wrong value is returned — it silently broke `isEqual` on arrays with
+    /// differing values). Inlining introduces no new control-flow shape at all, at
+    /// the cost of repeating the normally tiny cleanup once per early exit.
+    ///
+    /// Without any of this the finalizer was skipped entirely whenever the `try`
+    /// body returned. es-toolkit's `areObjectsEqual` clears its recursion stack in a
+    /// `finally` and returns from inside the `try`, so the stale entries made
+    /// `isEqualWith({ constructor: [1] }, { constructor: ['1'] })` answer `true`.
+    ///
+    /// A finalizer that itself terminates (its own `return`/`throw`) wins, exactly
+    /// as in JavaScript: the walk stops as soon as the block has a terminator and
+    /// the pending `Return` is dropped.
+    fn lower_return(&mut self, value: Operand) -> Result<(), LowerError> {
+        if self.finally_scopes.is_empty() {
+            self.set_terminator(Terminator::Return(value))?;
+            return Ok(());
+        }
+        let scopes = std::mem::take(&mut self.finally_scopes);
+        let mut result = Ok(());
+        let mut terminated = false;
+        for depth in (0..scopes.len()).rev() {
+            // While one finalizer is inlined, only the finalizers OUTSIDE it are
+            // still pending, so a `return` nested in it resumes at the right depth
+            // instead of re-entering itself.
+            self.finally_scopes = scopes[..depth].to_vec();
+            result = self.lower_inline_finally(scopes[depth]);
+            if result.is_err() {
+                break;
+            }
+            match self.block() {
+                Ok(block) => {
+                    if block.terminator.is_some() {
+                        terminated = true;
+                        break;
+                    }
+                }
+                Err(error) => {
+                    result = Err(error);
+                    break;
+                }
+            }
+        }
+        self.finally_scopes = scopes;
+        result?;
+        if !terminated {
+            self.set_terminator(Terminator::Return(value))?;
+        }
+        Ok(())
+    }
+
+    /// Re-lowers one `finally` block inline at the current cursor.
+    ///
+    /// The HIR-expression memo is cleared for the duration: it caches "this
+    /// `ExprId` already became this operand", which is exactly what must *not*
+    /// hold when the same source statements are emitted a second time — otherwise
+    /// the duplicated cleanup would compile to nothing. Clearing is safe because
+    /// each syntactic position owns its `ExprId`, so no entry that the surrounding
+    /// code still needs can be produced inside the finalizer.
+    fn lower_inline_finally(&mut self, finally_hir: smelt_hir::BlockId) -> Result<(), LowerError> {
+        let saved_exprs = std::mem::take(&mut self.exprs);
+        let result = self.lower_block_stmts(finally_hir);
+        self.exprs = saved_exprs;
+        result
+    }
+
     /// Lowers try/catch/finally into explicit catch and cleanup blocks.
     pub(super) fn lower_try_catch(
         &mut self,
@@ -214,6 +352,13 @@ impl LoweringCtx<'_> {
                 block: finally_block,
                 after,
             });
+        }
+        // Track the clause for the duration of the `try` and `catch` bodies: a
+        // `return` in either must run it before it leaves the function (see
+        // `lower_return`). The *HIR* block, because the return path re-lowers the
+        // same source statements rather than jumping into the MIR block above.
+        if let Some(finally_hir) = finally_body_hir {
+            self.finally_scopes.push(finally_hir);
         }
 
         if let Some(catch_block) = catch_mir_block {
@@ -250,6 +395,11 @@ impl LoweringCtx<'_> {
 
         if finally_mir_block.is_some() {
             self.generator_cleanups.pop();
+        }
+        // Pop before lowering the clause itself, so a `return` written *inside* it
+        // resumes at the next enclosing clause instead of re-entering this one.
+        if finally_body_hir.is_some() {
+            self.finally_scopes.pop();
         }
 
         if let (Some(finally_hir), Some(finally_block)) = (finally_body_hir, finally_mir_block) {

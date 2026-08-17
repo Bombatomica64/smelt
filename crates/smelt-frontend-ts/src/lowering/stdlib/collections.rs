@@ -591,14 +591,25 @@ impl ModuleBuilder<'_> {
         };
         let key_ty = *dict_key_ty;
         let value_ty = *dict_value_ty;
-        let symbol_key_ty = self.ctx.krate.types.intern(Type::String);
-        let symbol_list_ty = self.ctx.krate.types.intern(Type::List(symbol_key_ty));
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
                 self.ctx.krate.types.intern(Type::List(key_ty))
             }
-            DictProjectionOp::Symbols => symbol_list_ty,
+            // A symbol-keyed property list holds symbol VALUES, not their
+            // descriptions: the property key an erased record stores is
+            // `__smelt_symbol:<description>`, so handing back the bare
+            // description made `source[sym]` miss and `target[sym] = v` write a
+            // plain string key. `Type::Unknown` is the representation a symbol
+            // already has everywhere else (`Literal::Symbol` ->
+            // `SmeltUnknown::Symbol`), and the dynamic index paths map that tag
+            // back to the prefixed key. Interned only on this arm — interning
+            // `Unknown`/`List<Unknown>` for every projection would change which
+            // record backing the other arms pick.
+            DictProjectionOp::Symbols => {
+                let symbol_key_ty = self.ctx.krate.types.intern(Type::Unknown);
+                self.ctx.krate.types.intern(Type::List(symbol_key_ty))
+            }
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
             DictProjectionOp::Entries => {
                 let entry_ty = self
@@ -676,14 +687,25 @@ impl ModuleBuilder<'_> {
             }
             _ => return Ok(None),
         };
-        let symbol_key_ty = self.ctx.krate.types.intern(Type::String);
-        let symbol_list_ty = self.ctx.krate.types.intern(Type::List(symbol_key_ty));
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
                 self.ctx.krate.types.intern(Type::List(key_ty))
             }
-            DictProjectionOp::Symbols => symbol_list_ty,
+            // A symbol-keyed property list holds symbol VALUES, not their
+            // descriptions: the property key an erased record stores is
+            // `__smelt_symbol:<description>`, so handing back the bare
+            // description made `source[sym]` miss and `target[sym] = v` write a
+            // plain string key. `Type::Unknown` is the representation a symbol
+            // already has everywhere else (`Literal::Symbol` ->
+            // `SmeltUnknown::Symbol`), and the dynamic index paths map that tag
+            // back to the prefixed key. Interned only on this arm — interning
+            // `Unknown`/`List<Unknown>` for every projection would change which
+            // record backing the other arms pick.
+            DictProjectionOp::Symbols => {
+                let symbol_key_ty = self.ctx.krate.types.intern(Type::Unknown);
+                self.ctx.krate.types.intern(Type::List(symbol_key_ty))
+            }
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
             DictProjectionOp::Entries => {
                 let entry_ty = self

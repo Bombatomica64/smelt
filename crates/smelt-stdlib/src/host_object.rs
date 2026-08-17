@@ -21,6 +21,31 @@
 //! flow through the tagged dynamic ABI; this registry only names the host objects
 //! whose identity Smelt can resolve ahead of time.
 
+/// How a host object relates to raw byte storage.
+///
+/// JavaScript splits the binary-data host objects into *storage* — an
+/// `ArrayBuffer`/`SharedArrayBuffer` that owns bytes — and *views* over storage
+/// (`DataView`, the typed arrays, and Node's `Buffer`). The distinction is
+/// observable: `ArrayBuffer.isView(x)` answers `true` only for a view, and
+/// es-toolkit's `isTypedArray` is exactly `ArrayBuffer.isView(x) && !(x
+/// instanceof DataView)`.
+///
+/// Both roles are *byte-backed*: their modeled records carry a `bytes` list, so
+/// `slice`/`subarray`, `byteLength`, and indexed element reads/writes all resolve
+/// against real storage rather than answering `undefined`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ByteBufferRole {
+    /// Owns the bytes (`ArrayBuffer`, `SharedArrayBuffer`).
+    ///
+    /// `ArrayBuffer.isView` is `false` for these.
+    Storage,
+    /// A view over bytes (`DataView`, Node `Buffer`).
+    ///
+    /// `ArrayBuffer.isView` is `true` for these.
+    View,
+}
+
 /// A single host-object identity: the JavaScript constructor name, the dedicated
 /// identity marker key stamped onto the constructed record, and whether the
 /// identity denotes a boxed primitive wrapper.
@@ -43,6 +68,20 @@ pub struct HostObject {
     /// `typeof === "object"`, so the runtime `typeof` narrowing must miss it while
     /// `instanceof` still resolves through the marker.
     pub is_boxed_primitive: bool,
+    /// The `Object.prototype.toString.call(x)` body for this identity.
+    ///
+    /// Defaults to `class_name`, which is right for every host object whose
+    /// constructor name *is* its spec tag. Node's `Buffer` is the exception: it
+    /// subclasses `Uint8Array`, so the platform reports `[object Uint8Array]`,
+    /// and es-toolkit's equality/clone tag dispatch depends on that (its
+    /// `isEqualWith` comments "Buffers are also treated as `[object Uint8Array]`s"
+    /// and routes them through the typed-array arm).
+    pub to_string_tag: &'static str,
+    /// Byte storage role, when this host object is backed by bytes.
+    ///
+    /// `None` for the identity-only host objects (`WeakMap`, `Intl.*`, the boxed
+    /// wrappers, ...) that have no byte surface.
+    pub byte_buffer: Option<ByteBufferRole>,
 }
 
 /// Concise constructor for a host-object registry entry.
@@ -51,6 +90,28 @@ const fn host(class_name: &'static str, marker: &'static str) -> HostObject {
         class_name,
         marker,
         is_boxed_primitive: false,
+        to_string_tag: class_name,
+        byte_buffer: None,
+    }
+}
+
+/// Concise constructor for a byte-backed host-object registry entry.
+///
+/// `to_string_tag` is spelled out because the byte-buffer family is exactly where
+/// constructor name and spec tag come apart (Node `Buffer` reports
+/// `[object Uint8Array]`).
+const fn byte_buffer(
+    class_name: &'static str,
+    marker: &'static str,
+    to_string_tag: &'static str,
+    role: ByteBufferRole,
+) -> HostObject {
+    HostObject {
+        class_name,
+        marker,
+        is_boxed_primitive: false,
+        to_string_tag,
+        byte_buffer: Some(role),
     }
 }
 
@@ -60,6 +121,8 @@ const fn boxed(class_name: &'static str, marker: &'static str) -> HostObject {
         class_name,
         marker,
         is_boxed_primitive: true,
+        to_string_tag: class_name,
+        byte_buffer: None,
     }
 }
 
@@ -70,16 +133,37 @@ const fn boxed(class_name: &'static str, marker: &'static str) -> HostObject {
 /// host identity here automatically wires it into the frontend construction
 /// helper, the `instanceof` lowering, and the runtime host-marker registry.
 pub const HOST_OBJECTS: &[HostObject] = &[
-    host("ArrayBuffer", "__smelt_arraybuffer"),
-    host("SharedArrayBuffer", "__smelt_sharedarraybuffer"),
+    byte_buffer(
+        "ArrayBuffer",
+        "__smelt_arraybuffer",
+        "ArrayBuffer",
+        ByteBufferRole::Storage,
+    ),
+    byte_buffer(
+        "SharedArrayBuffer",
+        "__smelt_sharedarraybuffer",
+        "SharedArrayBuffer",
+        ByteBufferRole::Storage,
+    ),
     // Node's `Buffer` byte-buffer host object. es-toolkit constructs it
     // (`Buffer.from`/`Buffer.alloc`/`Buffer.concat`) and inspects it via
     // `Buffer.isBuffer(x)` / `value instanceof Buffer`, both of which resolve
     // through this marker (see `buffer_constructor_expression` and
     // `instance_of_text`). Modeled as a concrete byte-buffer record rather than
-    // a shapeless dynamic value.
-    host("Buffer", "__smelt_buffer"),
-    host("DataView", "__smelt_dataview"),
+    // a shapeless dynamic value. `Buffer` subclasses `Uint8Array`, so its spec
+    // tag is `[object Uint8Array]`, not `[object Buffer]`.
+    byte_buffer(
+        "Buffer",
+        "__smelt_buffer",
+        "Uint8Array",
+        ByteBufferRole::View,
+    ),
+    byte_buffer(
+        "DataView",
+        "__smelt_dataview",
+        "DataView",
+        ByteBufferRole::View,
+    ),
     host("WeakMap", "__smelt_weakmap"),
     host("WeakSet", "__smelt_weakset"),
     host("File", "__smelt_file"),
@@ -143,6 +227,26 @@ pub fn host_object_markers() -> impl Iterator<Item = &'static str> {
     HOST_OBJECTS.iter().map(|entry| entry.marker)
 }
 
+/// Every byte-backed host object, with its byte-storage role.
+///
+/// Consumers: the runtime byte-buffer helpers (`slice`/`subarray`, indexed
+/// element access, `ArrayBuffer.isView`) and the frontend construction sites that
+/// stamp a `bytes` list onto the record. Driving all of them from this one
+/// iterator is what keeps "which markers have bytes" from being restated per
+/// call site.
+pub fn byte_buffer_host_objects() -> impl Iterator<Item = (&'static str, ByteBufferRole)> {
+    HOST_OBJECTS
+        .iter()
+        .filter_map(|entry| entry.byte_buffer.map(|role| (entry.marker, role)))
+}
+
+/// Return the byte-storage role of a host constructor, or `None` when the host
+/// object has no byte surface.
+#[must_use]
+pub fn byte_buffer_role(class_name: &str) -> Option<ByteBufferRole> {
+    host_object_by_class(class_name).and_then(|entry| entry.byte_buffer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,6 +301,49 @@ mod tests {
                 .into_iter()
                 .collect(),
         );
+    }
+
+    /// The byte-backed host objects are exactly the binary-data family, split into
+    /// the two roles `ArrayBuffer.isView` distinguishes. A regression here would
+    /// silently change `isTypedArray`, since es-toolkit defines it as
+    /// `ArrayBuffer.isView(x) && !(x instanceof DataView)`.
+    #[test]
+    fn byte_buffer_roles_are_classified() {
+        let mut storage = Vec::new();
+        let mut views = Vec::new();
+        for entry in HOST_OBJECTS {
+            match entry.byte_buffer {
+                Some(ByteBufferRole::Storage) => storage.push(entry.class_name),
+                Some(ByteBufferRole::View) => views.push(entry.class_name),
+                None => {}
+            }
+        }
+        assert_eq!(storage, ["ArrayBuffer", "SharedArrayBuffer"]);
+        assert_eq!(views, ["Buffer", "DataView"]);
+        assert_eq!(byte_buffer_role("ArrayBuffer"), Some(ByteBufferRole::Storage));
+        assert_eq!(byte_buffer_role("Buffer"), Some(ByteBufferRole::View));
+        assert_eq!(byte_buffer_role("WeakMap"), None);
+        assert_eq!(byte_buffer_role("NotAHostObject"), None);
+        assert_eq!(byte_buffer_host_objects().count(), 4);
+    }
+
+    /// Only Node's `Buffer` reports a spec tag that differs from its constructor
+    /// name; every other host identity tags as itself. es-toolkit's `isEqualWith`
+    /// and `cloneDeepWith` dispatch on the tag, so `Buffer` reporting
+    /// `[object Buffer]` would fall off the end of their `switch` statements.
+    #[test]
+    fn only_buffer_overrides_its_to_string_tag() {
+        for entry in HOST_OBJECTS {
+            if entry.class_name == "Buffer" {
+                assert_eq!(entry.to_string_tag, "Uint8Array");
+            } else {
+                assert_eq!(
+                    entry.to_string_tag, entry.class_name,
+                    "`{}` should tag as itself",
+                    entry.class_name,
+                );
+            }
+        }
     }
 
     /// `host_object_markers` yields the same set the entries carry, so the runtime

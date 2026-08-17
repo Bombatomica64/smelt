@@ -205,3 +205,63 @@ test("map mutation visible through aliases", () => {
 "#;
     run_map_fixture(source, "smelt_map_alias_mutation");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn erased_map_exposes_its_prototype_methods() {
+    // Regression: an erased Map is the marker object
+    // `{ __smelt_map: [[k, v], ...] }`, and only `.size` was synthesized on it.
+    // Every other `Map.prototype` read answered `undefined`, and *calling* that
+    // `undefined` collapsed to a null callback instead of failing — so the miss
+    // was silent.
+    //
+    // es-toolkit `isEqualWith` walks a Map with
+    // `for (const [key, value] of a.entries())` after checking
+    // `a.size !== b.size`. With `entries()` yielding nothing the loop body never
+    // ran, so two same-size Maps holding completely different entries compared
+    // EQUAL. The `deepEqualMaps` helper below is that walk; it must reject
+    // `{a: 1}` against `{b: 2}`.
+    let source = r#"
+import { test, expect } from "vitest";
+function deepEqualMaps(a: any, b: any): boolean {
+  if (a.size !== b.size) {
+    return false;
+  }
+  for (const [key, value] of a.entries()) {
+    if (!b.has(key) || b.get(key) !== value) {
+      return false;
+    }
+  }
+  return true;
+}
+test("same-size maps with different entries are not equal", () => {
+  const left = new Map<string, number>();
+  const right = new Map<string, number>();
+  left.set("a", 1);
+  right.set("b", 2);
+  expect(deepEqualMaps(left, right)).toBe(false);
+});
+test("maps with the same entries in a different order are equal", () => {
+  const left = new Map<string, number>();
+  const right = new Map<string, number>();
+  left.set("a", 1);
+  left.set("b", 2);
+  right.set("b", 2);
+  right.set("a", 1);
+  expect(deepEqualMaps(left, right)).toBe(true);
+});
+test("erased keys, values, get and has see the entries", () => {
+  const source = new Map<string, number>();
+  source.set("a", 1);
+  source.set("b", 2);
+  const erased: any = source;
+  expect(erased.keys().length).toBe(2);
+  expect(erased.values().length).toBe(2);
+  expect(erased.get("b")).toBe(2);
+  expect(erased.get("missing")).toBe(undefined);
+  expect(erased.has("a")).toBe(true);
+  expect(erased.has("missing")).toBe(false);
+});
+"#;
+    run_map_fixture(source, "smelt_erased_map_prototype_methods");
+}

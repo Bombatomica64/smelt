@@ -60,6 +60,89 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Emit `new <HostClass>(args...)` for a registry host object as a call of
+    /// the shared reflected constructor.
+    ///
+    /// The direct `new DataView(buf, 1, 2)` spelling and the reflected
+    /// `new Object.getPrototypeOf(view).constructor(...)` spelling must produce
+    /// indistinguishable records — es-toolkit's `clone` uses the reflected form
+    /// where `cloneDeepWith` uses the direct one, and their results are compared
+    /// against each other. Emitting both as `smelt_reflected_construct(kind, ..)`
+    /// makes that identity hold by construction rather than by keeping two
+    /// lowerings in sync.
+    ///
+    /// The *kind* string is the class's registry marker with its `__smelt_`
+    /// prefix stripped, which is the same discriminator
+    /// `smelt_reflected_marker_kind` hands back for a record.
+    pub(super) fn host_construct_text(
+        &self,
+        class_name: &str,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let Some(kind) = crate::reflection_prelude::reflected_construct_kind(class_name) else {
+            return Err(EmitError::new(format!(
+                "`{class_name}` is not a modeled host constructor"
+            )));
+        };
+        let arg_texts = args
+            .iter()
+            .map(|arg| self.erase(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let call = format!(
+            "{construct}({kind:?}, vec![{args}])",
+            construct = smelt_stdlib::runtime_symbols::host::REFLECTED_CONSTRUCT,
+            args = arg_texts.join(", "),
+        );
+        self.value_at_type_text(&call, unknown_ty, dest_ty)
+    }
+
+    /// Emit the interned value for a global builtin name used as a value.
+    ///
+    /// One record per name for the whole program, so `Blob === Blob` holds and a
+    /// host record's `.constructor` can answer with the very same object.
+    pub(super) fn builtin_namespace_text(
+        &self,
+        name: &str,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let call = format!(
+            "{namespace}({name:?})",
+            namespace = smelt_stdlib::runtime_symbols::host::BUILTIN_NAMESPACE,
+        );
+        self.value_at_type_text(&call, unknown_ty, dest_ty)
+    }
+
+    /// Emit the enclosing function's `arguments` object from its parameters.
+    ///
+    /// The positional parameters become the leading elements and the rest
+    /// parameter's list is flattened onto the end, which is how the runtime helper
+    /// recovers the original call's argument vector.
+    pub(super) fn arguments_object_text(
+        &self,
+        fixed: &[Operand],
+        rest: Option<&Operand>,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let fixed_texts = fixed
+            .iter()
+            .map(|value| self.erase(value))
+            .collect::<Result<Vec<_>, _>>()?;
+        let rest_text = match rest {
+            Some(operand) => format!("Some({})", self.erase(operand)?),
+            None => "None".to_owned(),
+        };
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let call = format!(
+            "{helper}(vec![{fixed}], {rest_text})",
+            helper = smelt_stdlib::runtime_symbols::host::ARGUMENTS_OBJECT,
+            fixed = fixed_texts.join(", "),
+        );
+        self.value_at_type_text(&call, unknown_ty, dest_ty)
+    }
+
     /// Converts a set insertion operation to Rust text.
     /// Converts a blocking HTTP GET operation to Rust text.
     pub(super) fn http_get_text(&self, url: &Operand) -> Result<String, EmitError> {

@@ -249,6 +249,9 @@ impl LoweringCtx<'_> {
             | ExprKind::FileReadText { .. }
             | ExprKind::FileWriteText { .. }
             | ExprKind::BlobFromParts { .. }
+            | ExprKind::HostConstruct { .. }
+            | ExprKind::BuiltinNamespace { .. }
+            | ExprKind::ArgumentsObject { .. }
             | ExprKind::HostGlobalRead { .. }
             | ExprKind::HostGlobalWrite { .. }
             | ExprKind::HostGlobalPresent { .. }
@@ -260,6 +263,8 @@ impl LoweringCtx<'_> {
             | ExprKind::UnknownIs { .. }
             | ExprKind::TypeofValue { .. }
             | ExprKind::PrototypeSentinel { .. }
+            | ExprKind::BoxPrimitive { .. }
+            | ExprKind::ObjectFromPrototype { .. }
             | ExprKind::Block(_)
             | ExprKind::Lambda { .. }
             | ExprKind::Closure(_)

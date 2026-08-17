@@ -882,6 +882,10 @@ impl FunctionEmitter<'_> {
             Rvalue::PrototypeSentinel {
                 value: unknown_value,
             } => self.prototype_sentinel_text(unknown_value),
+            Rvalue::BoxPrimitive { value } => self.box_primitive_text(value),
+            Rvalue::ObjectFromPrototype { prototype } => {
+                self.object_from_prototype_text(prototype)
+            }
             Rvalue::UnknownCast {
                 value: unknown_value,
                 target,
@@ -954,7 +958,7 @@ impl FunctionEmitter<'_> {
                 if self.is_regexp_class_symbol(*class)?
                     && matches!(self.mir.types.get(dest_ty), Some(Type::String))
                 {
-                    Ok(format!("{text}.source.clone()"))
+                    Ok(Self::regexp_literal_text(&text))
                 } else {
                     Ok(text)
                 }
@@ -1695,6 +1699,13 @@ impl FunctionEmitter<'_> {
                     blob_record_from_parts =
                         smelt_stdlib::runtime_symbols::host::BLOB_RECORD_FROM_PARTS,
                 ))
+            }
+            Rvalue::HostConstruct { class_name, args } => {
+                self.host_construct_text(class_name, args, dest_ty)
+            }
+            Rvalue::BuiltinNamespace { name } => self.builtin_namespace_text(name, dest_ty),
+            Rvalue::ArgumentsObject { fixed, rest } => {
+                self.arguments_object_text(fixed, rest.as_ref(), dest_ty)
             }
             Rvalue::HostGlobalRead { class } => self.host_global_read_text(*class, dest_ty),
             Rvalue::HostGlobalWrite {

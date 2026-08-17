@@ -245,6 +245,26 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::BoxPrimitive { value } => {
+                let lowered_value = self.lower_expr(*value)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::BoxPrimitive {
+                        value: lowered_value,
+                    },
+                )?
+            }
+            ExprKind::ObjectFromPrototype { prototype } => {
+                let lowered_prototype = self.lower_expr(*prototype)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ObjectFromPrototype {
+                        prototype: lowered_prototype,
+                    },
+                )?
+            }
             ExprKind::UnknownCast { value, target } => {
                 let lowered_value = self.lower_expr(*value)?;
                 self.assign_temp(
@@ -2025,6 +2045,42 @@ impl LoweringCtx<'_> {
                         blob_type: blob_type_operand,
                         name: name_operand,
                         last_modified: last_modified_operand,
+                    },
+                )?
+            }
+            ExprKind::HostConstruct { class_name, args } => {
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HostConstruct {
+                        class_name: class_name.clone(),
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::BuiltinNamespace { name } => self.assign_temp(
+                expr.ty,
+                expr.span,
+                Rvalue::BuiltinNamespace {
+                    name: name.clone(),
+                },
+            )?,
+            ExprKind::ArgumentsObject { fixed, rest } => {
+                let fixed_operands = fixed
+                    .iter()
+                    .map(|value| self.lower_expr(*value))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let rest_operand = rest.map(|value| self.lower_expr(value)).transpose()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ArgumentsObject {
+                        fixed: fixed_operands,
+                        rest: rest_operand,
                     },
                 )?
             }

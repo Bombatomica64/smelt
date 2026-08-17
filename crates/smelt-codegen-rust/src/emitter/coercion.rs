@@ -206,7 +206,7 @@ impl FunctionEmitter<'_> {
             && let Some(Type::Class { name, .. }) = self.mir.types.get(self.operand_ty(operand)?)
             && self.is_regexp_class_symbol(*name)?
         {
-            return Ok(format!("{}.source.clone()", self.operand_text(operand)?));
+            return Ok(Self::regexp_literal_text(&self.operand_text(operand)?));
         }
         if self.is_match_fn_result_type(self.operand_ty(operand)?)?
             && !self.is_match_fn_result_class_type(target)?
@@ -1938,6 +1938,35 @@ impl FunctionEmitter<'_> {
         Ok(format!("smelt_prototype_sentinel(&({text}))"))
     }
 
+    /// Emits `Object(value)` as a boxed primitive.
+    ///
+    /// Defers to the `smelt_box_value` runtime helper, which wraps a primitive in
+    /// the same marker shape `new Number(..)` / `new Boolean(..)` /
+    /// `new String(..)` build and passes objects through unchanged. The branch is
+    /// necessarily a runtime one — a `Type::Unknown` argument's tag is only known
+    /// then — so the operand goes through the erased-`unknown` coercion seam.
+    pub(super) fn box_primitive_text(&self, value: &Operand) -> Result<String, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let text = self.value_at_type(value, unknown_ty)?;
+        Ok(format!("smelt_box_value({text})"))
+    }
+
+    /// Emits `Object.create(proto)` as a fresh erased object.
+    ///
+    /// Defers to the `smelt_object_from_prototype` runtime helper so the
+    /// null-prototype, opaque-`__smelt_proto:*`-sentinel and concrete-prototype
+    /// branches stay in one place. The operand goes through the erased-`unknown`
+    /// coercion seam because a prototype is typically the `SmeltUnknown` returned
+    /// by `smelt_prototype_sentinel`.
+    pub(super) fn object_from_prototype_text(
+        &self,
+        prototype: &Operand,
+    ) -> Result<String, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let text = self.value_at_type(prototype, unknown_ty)?;
+        Ok(format!("smelt_object_from_prototype({text})"))
+    }
+
     /// Emits the JavaScript `Object.prototype.toString.call(x)` tag probe.
     ///
     /// Defers the tag resolution to the `smelt_object_to_string_tag` runtime
@@ -2104,18 +2133,21 @@ impl FunctionEmitter<'_> {
             // unaffected.
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)), _ => panic!(\"unknown is not iterable\") }} }}, _ => panic!(\"unknown is not iterable\") }}) }}"
+                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = {byte_buffer_elements}(&SmeltUnknown::Object(value.clone())) {{ smelt_bytes }} else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)), _ => panic!(\"unknown is not iterable\") }} }}, _ => panic!(\"unknown is not iterable\") }}) }}",
+                    byte_buffer_elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 ))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
                 Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), _ => panic!(\"unknown is not iterable\") }} }}, _ => panic!(\"unknown is not iterable\") }}) }}"
+                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = {byte_buffer_elements}(&SmeltUnknown::Object(value.clone())) {{ smelt_bytes.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), _ => panic!(\"unknown is not iterable\") }} }}, _ => panic!(\"unknown is not iterable\") }}) }}",
+                    byte_buffer_elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 ))
             }
             Some(Type::List(item)) => {
                 let item_text = self.extract_value_text("value", *item)?;
                 Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec().into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec().into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| {item_text}).collect::<Vec<_>>(), _ => panic!(\"unknown is not array\") }} }}, _ => panic!(\"unknown is not array\") }}) }}"
+                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = {byte_buffer_elements}(&SmeltUnknown::Object(value.clone())) {{ smelt_bytes.into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec().into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec().into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| {item_text}).collect::<Vec<_>>(), _ => panic!(\"unknown is not array\") }} }}, _ => panic!(\"unknown is not array\") }}) }}",
+                    byte_buffer_elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 ))
             }
             Some(Type::Dict(key, item))
@@ -2345,7 +2377,7 @@ impl FunctionEmitter<'_> {
                 };
                 let default_callback = self.default_value(target)?;
                 Ok(format!(
-                    "{{ let smelt_source_value = {text}.clone(); let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_callback }} else {{ {default_callback} }} }}"
+                    "{{ let smelt_source_value = {text}.clone(); let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback }} else {{ {default_callback} }} }}"
                 ))
             }
             // An already-erased `SmeltUnknown` at a `Type::Future` position is a

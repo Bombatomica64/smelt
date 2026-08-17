@@ -878,10 +878,15 @@ const yes = value instanceof Error;
         source.contains("value.contains_key(\"__smelt_error\")"),
         "{source}"
     );
+    // `stack` joins the hidden error keys: `Object.keys(err)` must not list it,
+    // because it is a non-enumerable own property in JavaScript. es-toolkit
+    // `clone` assigns `newError.stack = obj.stack`, which otherwise gave the clone
+    // an own `stack` key the original lacked and broke `toEqual`.
     assert!(
         source.contains("object.contains_key(\"__smelt_error\")")
-            && source
-                .contains("matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")"),
+            && source.contains(
+                "matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")"
+            ),
         "{source}"
     );
 }
@@ -7898,11 +7903,17 @@ export function run(fns: Array<() => unknown>): boolean {
 ",
     );
 
+    // The comparison goes through `smelt_same_function_identity` rather than a
+    // bare `Rc::ptr_eq`: erasing a callable builds a fresh forwarding adapter, so
+    // two handles on one source function are distinct allocations and pointer
+    // equality alone reports `f === f` as false. The operand coercion this test
+    // was written to protect is unchanged — both sides are still bound at a
+    // common dyn-Fn type before being compared.
     assert!(
-        source.contains("::std::rc::Rc::ptr_eq(&{ let smelt_lhs_fn:")
+        source.contains("smelt_same_function_identity(&{ let smelt_lhs_fn:")
             && source.contains("let smelt_rhs_fn:"),
         "function identity comparison must coerce both operands to a common \
-         dyn-Fn type before ptr_eq\n{source}"
+         dyn-Fn type before comparing identity\n{source}"
     );
 }
 
@@ -9199,5 +9210,325 @@ export function clearSlot(handle: unknown): number {
     assert!(
         source.contains("is_some_and(|value| matches!(value, SmeltUnknown::Null))"),
         "strict `!== null` must test for a present Null payload: {source}"
+    );
+}
+
+#[test]
+fn byte_buffer_hosts_construct_through_the_shared_reflected_constructor() {
+    // `new ArrayBuffer(8)` / `new SharedArrayBuffer(8)` / `new DataView(buf, 1, 2)`
+    // all lower to `smelt_reflected_construct`, the *same* runtime constructor the
+    // reflected `new Object.getPrototypeOf(x).constructor(...)` path calls. That
+    // shared constructor is what makes a directly built record indistinguishable
+    // from a reflectively built one — es-toolkit's `clone` uses the reflected form
+    // where its `cloneDeepWith` uses the direct one, and its specs compare the two
+    // results against each other.
+    for (source, kind) in [
+        (
+            "export function f() { return new ArrayBuffer(8); }",
+            "arraybuffer",
+        ),
+        (
+            "export function f() { return new SharedArrayBuffer(8); }",
+            "sharedarraybuffer",
+        ),
+        (
+            "export function f() { return new DataView(new ArrayBuffer(8), 1, 2); }",
+            "dataview",
+        ),
+    ] {
+        let generated = source_for(source);
+        assert!(
+            generated.contains(&format!("smelt_reflected_construct(\"{kind}\"")),
+            "expected `{source}` to construct through the shared `{kind}` host constructor:\n{generated}"
+        );
+    }
+}
+
+#[test]
+fn erased_slice_routes_a_byte_buffer_receiver_through_the_host_slice_helper() {
+    // `buffer.slice(0)` on an erased receiver must be able to answer a FRESH record
+    // of the same host identity: the tag-preserving erased slice used to forward any
+    // non-array receiver unchanged, so the `clone(buf) { return buf.slice(0) }`
+    // shape returned its own argument and `expect(cloned).not.toBe(buffer)` failed.
+    // `subarray` is the same operation and routes the same way.
+    for source in [
+        "export function f(value: any): any { return value.slice(0); }",
+        "export function f(value: any): any { return value.subarray(); }",
+    ] {
+        let generated = source_for(source);
+        assert!(
+            generated.contains("smelt_host_buffer_slice(&smelt_slice_value"),
+            "expected `{source}` to try the host byte-buffer slice first:\n{generated}"
+        );
+    }
+}
+
+#[test]
+fn erased_reads_and_writes_reach_a_byte_buffers_bytes() {
+    // A byte buffer's indexed slots are its bytes, not ordinary record properties.
+    // Index reads used to miss the `bytes` storage and answer `null`, which made the
+    // `a[i]` element walk deep equality performs over a typed-array-tagged value
+    // compare two different buffers as equal; index writes landed in a property
+    // instead of the storage, so the typed-array clone shape
+    // `result[i] = clone(source[i])` produced a record with stray numeric keys.
+    let indexed = source_for("export function f(value: any): any { return value[1]; }");
+    assert!(
+        indexed.contains("smelt_host_buffer_element(&values"),
+        "an erased index read must try the byte-buffer element first:\n{indexed}"
+    );
+    let field = source_for("export function f(value: any): any { return value.length; }");
+    assert!(
+        field.contains("smelt_host_buffer_element(map, field)"),
+        "the erased field read helper must try the byte-buffer element first:\n{field}"
+    );
+    let assign = source_for("export function f(value: any): void { value[1] = 2; }");
+    assert!(
+        assign.contains("smelt_host_buffer_set_element(map, &key, value.clone())"),
+        "an erased index write must offer the byte storage the write first:\n{assign}"
+    );
+}
+
+#[test]
+fn arraybuffer_is_view_covers_every_registry_view_kind() {
+    // `ArrayBuffer.isView(x)` is true for a *view* over byte storage and false for
+    // the storage itself, which is exactly the `ByteBufferRole::View` split in the
+    // shared host registry. es-toolkit defines `isTypedArray` as
+    // `ArrayBuffer.isView(x) && !(x instanceof DataView)`, so a Node `Buffer` (a
+    // `Uint8Array` subclass) has to answer `true` here or its clone path is never
+    // taken. Checking only `DataView` left `isTypedArray(Buffer.from([1]))` false.
+    let generated =
+        source_for("export function f(value: any): boolean { return ArrayBuffer.isView(value); }");
+    for marker in ["__smelt_buffer", "__smelt_dataview"] {
+        assert!(
+            generated.contains(&format!("value.contains_key(\"{marker}\")")),
+            "`ArrayBuffer.isView` must recognize `{marker}`:\n{generated}"
+        );
+    }
+    assert!(
+        !generated.contains("matches!(value.clone().clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\"))"),
+        "`ArrayBuffer.isView` must stay false for byte *storage*:\n{generated}"
+    );
+}
+
+#[test]
+fn buffer_reports_the_uint8array_spec_tag() {
+    // Node's `Buffer` subclasses `Uint8Array`, so the platform reports
+    // `[object Uint8Array]`. es-toolkit's `isEqualWith` and `cloneDeepWith` dispatch
+    // on that tag ("Buffers are also treated as [object Uint8Array]s"), and a
+    // `[object Buffer]` tag falls off the end of both `switch` statements — two
+    // equal buffers compared unequal and a buffer was not cloneable.
+    let generated = source_for(
+        "export function f(value: any): string { return Object.prototype.toString.call(value); }",
+    );
+    assert!(
+        generated
+            .contains("if map.contains_key(\"__smelt_buffer\") { return \"[object Uint8Array]\""),
+        "a `Buffer` record must tag as `[object Uint8Array]`:\n{generated}"
+    );
+}
+
+#[test]
+fn a_bare_host_constructor_reference_is_interned() {
+    // JavaScript exposes one object per global builtin name, so `Blob === Blob` and
+    // `blob.constructor === Blob` both hold. A record literal mints a fresh identity
+    // on construction, so building a `__smelt_builtin_namespace` record per
+    // reference made both comparisons false. The interning helper is also what a
+    // host record's `.constructor` resolves through, so the two spellings meet.
+    let generated = source_for("export function f(): any { return Blob; }");
+    assert!(
+        generated.contains("smelt_builtin_namespace(\"Blob\")"),
+        "a bare host-constructor reference must intern:\n{generated}"
+    );
+    let field = source_for("export function f(value: any): any { return value.constructor; }");
+    assert!(
+        field.contains("smelt_marker_constructor_class(map)"),
+        "an erased `.constructor` read must resolve a marker record's own global:\n{field}"
+    );
+}
+
+#[test]
+fn arguments_object_carries_parameter_values_and_hides_length() {
+    // The `arguments` exotic object stores the actual call arguments under index
+    // keys with a non-enumerable `length`. It used to be a `{ length: n }` stand-in
+    // holding no values at all, so `Object.keys(arguments)` enumerated
+    // `["length"]` — the exact inverse of the real key set — and comparing an
+    // `arguments` object against the plain object with the same indexed properties
+    // could not work in either direction.
+    let generated = source_for(
+        r"
+export function f(a: number, b: number): any {
+  const unused = a + b;
+  return arguments;
+}
+",
+    );
+    assert!(
+        generated.contains("smelt_arguments_object(vec!["),
+        "`arguments` must be built from the function's parameters:\n{generated}"
+    );
+    assert!(
+        generated.contains("[object Arguments]"),
+        "an `arguments` record must carry the `[object Arguments]` spec tag:\n{generated}"
+    );
+    assert!(
+        generated.contains(
+            "!(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\"))"
+        ),
+        "`length` must stay out of an `arguments` object's own-key enumeration:\n{generated}"
+    );
+}
+
+/// A `return` inside a `try` that has a `finally` must still run the finalizer.
+///
+/// MIR made the finalizer the *fall-through* exit of the `try` body, so a
+/// `Return` terminator bypassed it and the cleanup vanished from the generated
+/// Rust altogether. es-toolkit's `areObjectsEqual` clears its recursion `Map` in
+/// exactly that shape, and the leaked entries made
+/// `isEqualWith({ constructor: [1] }, { constructor: ['1'] })` answer `true`.
+/// `lower_return` now re-lowers the finalizer inline ahead of the return, so the
+/// cleanup has to appear on the return path.
+#[test]
+fn finally_body_is_emitted_on_the_return_path() {
+    let source = source_for(
+        r#"
+export function cleanupOnReturn(seen: Map<string, number>): number {
+  seen.set("a", 1);
+  try {
+    return 7;
+  } finally {
+    seen.delete("a");
+  }
+}
+const out = cleanupOnReturn(new Map<string, number>());
+console.log(out);
+"#,
+    );
+
+    let start = source
+        .find("fn cleanup_on_return")
+        .expect("cleanupOnReturn present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("cleanupOnReturn closing brace");
+    let body = &after[..end];
+
+    // The `seen.delete("a")` cleanup must survive on the return path. Before the
+    // fix the function body contained no removal at all.
+    assert!(
+        body.contains(".remove("),
+        "the finalizer's Map delete must be emitted, got:\n{body}"
+    );
+    assert!(
+        body.contains("7"),
+        "the try body's return value must survive the finalizer, got:\n{body}"
+    );
+}
+
+/// Nested finalizers unwind inner-to-outer ahead of the return.
+///
+/// The inline duplication has to walk the whole lexical finalizer stack in
+/// JavaScript's unwind order, not just the innermost clause.
+#[test]
+fn nested_finally_bodies_are_emitted_inner_to_outer() {
+    let source = source_for(
+        r#"
+export function nestedCleanup(log: string[]): string {
+  try {
+    try {
+      return "value";
+    } finally {
+      log.push("inner");
+    }
+  } finally {
+    log.push("outer");
+  }
+}
+const out = nestedCleanup([]);
+console.log(out);
+"#,
+    );
+
+    let start = source
+        .find("fn nested_cleanup")
+        .expect("nestedCleanup present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("nestedCleanup closing brace");
+    let body = &after[..end];
+
+    let inner = body.find("\"inner\"").expect("inner finalizer emitted");
+    let outer = body.find("\"outer\"").expect("outer finalizer emitted");
+    assert!(
+        inner < outer,
+        "the inner finalizer must be emitted before the outer one on the return \
+         path (inner={inner}, outer={outer}):\n{body}"
+    );
+}
+
+/// `Object.getOwnPropertySymbols` yields symbol VALUES, not descriptions.
+///
+/// A symbol-keyed property is stored under `"__smelt_symbol:<description>"`, and a
+/// symbol value is `SmeltUnknown::Symbol(description)`. The projection used to
+/// strip the prefix and hand back a bare `String`, which broke both directions of
+/// the round trip: `source[symbols[i]]` looked up the *unprefixed* string key and
+/// missed, and `target[symbols[i]] = v` created a plain string property that no
+/// symbol lookup or symbol enumeration could see. Re-tagging the description keeps
+/// the property-key mapping able to rebuild the internal key.
+#[test]
+fn reflected_symbol_keys_keep_their_symbol_tag() {
+    let source = source_for(
+        r"
+export function copySymbols(source: any, target: any): void {
+  const symbols = Object.getOwnPropertySymbols(source);
+  for (let i = 0; i < symbols.length; i++) {
+    target[symbols[i]] = source[symbols[i]];
+  }
+}
+const out: any = {};
+copySymbols({}, out);
+console.log(out);
+",
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Symbol(description.to_owned())"),
+        "the symbols projection must re-tag the stripped description as a symbol \
+         value:\n{source}"
+    );
+    assert!(
+        !source.contains("strip_prefix(\"__smelt_symbol:\").map(str::to_owned)"),
+        "the symbols projection must not hand back bare descriptions:\n{source}"
+    );
+}
+
+/// A `(string | symbol)[]` key spread must keep both halves.
+///
+/// `[...Object.keys(o), ...Object.getOwnPropertySymbols(o)]` chains a
+/// `List<String>` onto a `List<Unknown>`. The concat emitter bailed out on
+/// mismatched element types and returned `Default::default()` — an EMPTY list — so
+/// es-toolkit's `copyProperties` silently copied nothing. The concrete side's
+/// elements are erased into the `SmeltUnknown` element type instead.
+#[test]
+fn mixed_string_and_symbol_key_spread_erases_instead_of_emptying() {
+    let source = source_for(
+        r"
+export function allKeys(source: any): any[] {
+  return [...Object.keys(source), ...Object.getOwnPropertySymbols(source)];
+}
+const keys = allKeys({});
+console.log(keys.length);
+",
+    );
+
+    let start = source.find("fn all_keys").expect("allKeys present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("allKeys closing brace");
+    let body = &after[..end];
+
+    assert!(
+        !body.contains("Default::default()"),
+        "a mixed string/symbol key spread must not collapse to an empty list:\n{body}"
+    );
+    assert!(
+        body.contains(".chain("),
+        "both spread halves must be chained into the result list:\n{body}"
     );
 }

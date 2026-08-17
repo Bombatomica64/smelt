@@ -301,14 +301,25 @@ impl ModuleBuilder<'_> {
         };
         let key_ty = key_type;
         let value_ty = value_type;
-        let symbol_key_ty = self.ctx.krate.types.intern(Type::String);
-        let symbol_list_ty = self.ctx.krate.types.intern(Type::List(symbol_key_ty));
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
                 self.ctx.krate.types.intern(Type::List(key_ty))
             }
-            DictProjectionOp::Symbols => symbol_list_ty,
+            // A symbol-keyed property list holds symbol VALUES, not their
+            // descriptions: the property key an erased record stores is
+            // `__smelt_symbol:<description>`, so handing back the bare
+            // description made `source[sym]` miss and `target[sym] = v` write a
+            // plain string key. `Type::Unknown` is the representation a symbol
+            // already has everywhere else (`Literal::Symbol` ->
+            // `SmeltUnknown::Symbol`), and the dynamic index paths map that tag
+            // back to the prefixed key. Interned only on this arm — interning
+            // `Unknown`/`List<Unknown>` for every projection would change which
+            // record backing the other arms pick.
+            DictProjectionOp::Symbols => {
+                let symbol_key_ty = self.ctx.krate.types.intern(Type::Unknown);
+                self.ctx.krate.types.intern(Type::List(symbol_key_ty))
+            }
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
             DictProjectionOp::Entries => {
                 let entry_ty = self
@@ -374,7 +385,12 @@ impl ModuleBuilder<'_> {
             ty: target,
             span: self.span(call.span.start, call.span.end),
         });
-        let symbol_ty = self.ctx.krate.types.intern(Type::String);
+        // The elements are symbol VALUES (erased `SmeltUnknown::Symbol`), not their
+        // descriptions — see `object_projection_call`. A symbol read back out of
+        // this list has to index the receiver again (`source[symbols[i]]`), which
+        // only works if it still carries the symbol tag the property-key mapping
+        // turns into the internal `__smelt_symbol:` key.
+        let symbol_ty = self.ctx.krate.types.intern(Type::Unknown);
         let ty = self.ctx.krate.types.intern(Type::List(symbol_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DictProjection {
@@ -426,6 +442,68 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `Object(value)` — the boxing call — to a runtime box.
+    ///
+    /// `Object(1)` / `Object('a')` / `Object(true)` wrap a primitive in the same
+    /// marker record `new Number(1)` builds, `Object(obj)` returns `obj`, and
+    /// `Object()` / `Object(null)` yield a fresh empty object. Deep-equality code
+    /// leans on the wrapper being distinguishable from its primitive while
+    /// comparing equal through `valueOf` (es-toolkit `isEqualWith`), so the
+    /// distinction cannot be dropped. Which branch applies depends on the runtime
+    /// tag, so the decision belongs to `smelt_box_value`.
+    ///
+    /// A user-declared value named `Object` shadows the global; the recognition
+    /// table cannot see that, so bail out and let ordinary call lowering handle it.
+    pub(in crate::lowering) fn object_box_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        if callee.name != "Object"
+            || self.classes.contains_key("Object")
+            || self.value_imports.contains("Object")
+        {
+            return Ok(None);
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(call.span.start, call.span.end);
+        let Some(argument) = call.arguments.first() else {
+            // `Object()` with no argument is `{}`.
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictLit(Vec::new()),
+                ty: unknown_ty,
+                span,
+            })));
+        };
+        if call.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                span,
+                "Object(value) accepts at most one argument",
+            ));
+        }
+        let value = self.argument(argument, body)?;
+        let value = if Self::expr_ty(body, value) == unknown_ty {
+            value
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value,
+                    target: unknown_ty,
+                },
+                ty: unknown_ty,
+                span,
+            })
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::BoxPrimitive { value },
+            ty: unknown_ty,
+            span,
+        })))
+    }
+
     /// Lower `Object.create(proto)` to an erased object shaped from its prototype.
     pub(in crate::lowering) fn object_create_call(
         &mut self,
@@ -452,23 +530,36 @@ impl ModuleBuilder<'_> {
         }
         let prototype = self.argument(prototype, body)?;
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(call.span.start, call.span.end);
         if matches!(self.ctx.krate.types.get(Self::expr_ty(body, prototype)), Some(Type::None)) {
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::DictLit(Vec::new()),
                 ty: unknown_ty,
-                span: self.span(call.span.start, call.span.end),
+                span,
             })));
         }
-        if Self::expr_ty(body, prototype) == unknown_ty {
-            return Ok(Some(prototype));
-        }
+        // Any other prototype spelling goes through the runtime helper, which
+        // always mints a fresh object. Returning `prototype` itself (the previous
+        // behavior) aliased a concrete prototype and, for the opaque
+        // `"__smelt_proto:*"` sentinels `Object.getPrototypeOf` yields, handed the
+        // caller a string to assign fields onto — the shape
+        // `Object.assign(Object.create(Object.getPrototypeOf(obj)), obj)` needs.
+        let prototype = if Self::expr_ty(body, prototype) == unknown_ty {
+            prototype
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: prototype,
+                    target: unknown_ty,
+                },
+                ty: unknown_ty,
+                span,
+            })
+        };
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: prototype,
-                target: unknown_ty,
-            },
+            kind: ExprKind::ObjectFromPrototype { prototype },
             ty: unknown_ty,
-            span: self.span(call.span.start, call.span.end),
+            span,
         })))
     }
 
@@ -927,7 +1018,7 @@ return_ty,
             return Ok(None);
         };
         if member.property.name == "call"
-            && Self::is_object_prototype_has_own_property(&member.object)
+            && Self::is_object_prototype_own_key_probe(&member.object)
         {
             let [dict_argument, key_argument] = call.arguments.as_slice() else {
                 return Err(SmeltError::unsupported(
@@ -953,7 +1044,10 @@ return_ty,
             let key = self.argument(key_argument, body)?;
             return self.object_has_own_expr(call, body, dict, key);
         }
-        if member.property.name == "hasOwnProperty" {
+        if matches!(
+            member.property.name.as_str(),
+            "hasOwnProperty" | "propertyIsEnumerable"
+        ) {
             let [key_argument] = call.arguments.as_slice() else {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
@@ -967,15 +1061,32 @@ return_ty,
         Ok(None)
     }
 
-    /// Return true for the canonical unbound ownership helper.
-    pub(in crate::lowering) fn is_object_prototype_has_own_property(expression: &Expression<'_>) -> bool {
-        let Expression::StaticMemberExpression(has_own_member) = expression else {
+    /// Return true for either unbound own-key probe on `Object.prototype`.
+    ///
+    /// `hasOwnProperty` and `propertyIsEnumerable` differ only for own properties
+    /// that are not enumerable, and Smelt's object model has no way to make one
+    /// from source: the only non-enumerable entries a record carries are internal
+    /// `__smelt_*` marker keys, which no source key can name and which own-key
+    /// enumeration already hides. So both spellings lower to the same own-key
+    /// check. Modeling `propertyIsEnumerable` matters because es-toolkit's
+    /// `getSymbols` gates every symbol-keyed property on it
+    /// (`getOwnPropertySymbols(o).filter(s => propertyIsEnumerable.call(o, s))`);
+    /// reading it off the opaque `Object.prototype` sentinel yielded `undefined`,
+    /// the call answered `null`, and every symbol key was filtered away.
+    fn is_object_prototype_own_key_probe(expression: &Expression<'_>) -> bool {
+        Self::is_object_prototype_method(expression, "hasOwnProperty")
+            || Self::is_object_prototype_method(expression, "propertyIsEnumerable")
+    }
+
+    /// Return true for the unshadowed `Object.prototype.<name>` member expression.
+    fn is_object_prototype_method(expression: &Expression<'_>, name: &str) -> bool {
+        let Expression::StaticMemberExpression(method_member) = expression else {
             return false;
         };
-        if has_own_member.property.name != "hasOwnProperty" {
+        if method_member.property.name != name {
             return false;
         }
-        let Expression::StaticMemberExpression(prototype_member) = &has_own_member.object else {
+        let Expression::StaticMemberExpression(prototype_member) = &method_member.object else {
             return false;
         };
         if prototype_member.property.name != "prototype" {
@@ -1194,12 +1305,18 @@ return_ty,
 
     /// Lower direct TypeScript `ArrayBuffer.isView` calls.
     ///
-    /// `ArrayBuffer.isView(x)` is true for typed-array views and `DataView`s.
-    /// Smelt's runtime lowers typed arrays to plain numeric lists (no view
-    /// identity survives), so the only value the check can recognize is the
-    /// marker-bearing `DataView` model: the call lowers exactly like
-    /// `x instanceof DataView`, reusing the marker-based `InstanceOf` path.
-    /// Statically concrete non-erased values fold to `false`.
+    /// `ArrayBuffer.isView(x)` is true for a *view* over byte storage and false
+    /// for the storage itself. The modeled view identities are exactly the
+    /// `ByteBufferRole::View` entries of the shared host registry (`DataView` and
+    /// Node's `Buffer`, which subclasses `Uint8Array`), so the call lowers to the
+    /// `instanceof` disjunction over those classes, reusing the marker-based
+    /// `InstanceOf` path. Deriving the set from the registry rather than naming it
+    /// here is what keeps this in step with es-toolkit's `isTypedArray`
+    /// (`ArrayBuffer.isView(x) && !(x instanceof DataView)`).
+    ///
+    /// Smelt lowers the *numeric* typed arrays to plain numeric lists, so no view
+    /// identity survives for them and they are not recognized here; statically
+    /// concrete non-erased values fold to `false`.
     pub(in crate::lowering) fn arraybuffer_is_view_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1225,21 +1342,44 @@ return_ty,
         };
         let value = self.argument(argument, body)?;
         let ty = self.ctx.krate.types.intern(Type::Bool);
+        let span = self.span(call.span.start, call.span.end);
         if matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, value)),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
-            let class = self.intern_type_name("DataView");
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::InstanceOf { value, class },
-                ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
+            let view_classes = smelt_stdlib::HOST_OBJECTS
+                .iter()
+                .filter(|entry| entry.byte_buffer == Some(smelt_stdlib::ByteBufferRole::View))
+                .map(|entry| entry.class_name)
+                .collect::<Vec<_>>();
+            let mut disjunction: Option<smelt_hir::ExprId> = None;
+            for class_name in view_classes {
+                let class = self.intern_type_name(class_name);
+                let check = body.push_expr(Expr {
+                    kind: ExprKind::InstanceOf { value, class },
+                    ty,
+                    span,
+                });
+                disjunction = Some(disjunction.map_or(check, |lhs| {
+                    body.push_expr(Expr {
+                        kind: ExprKind::BinOp {
+                            op: smelt_hir::BinOp::Or,
+                            lhs,
+                            rhs: check,
+                        },
+                        ty,
+                        span,
+                    })
+                }));
+            }
+            if let Some(expr) = disjunction {
+                return Ok(Some(expr));
+            }
         }
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Bool(false)),
             ty,
-            span: self.span(call.span.start, call.span.end),
+            span,
         })))
     }
 

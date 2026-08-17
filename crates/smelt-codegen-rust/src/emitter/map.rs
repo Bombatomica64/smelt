@@ -690,10 +690,17 @@ impl FunctionEmitter<'_> {
                     "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect(), _ => Vec::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::ForInKeys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter(|key| smelt_is_for_in_object_key(&map, key)).collect(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => smelt_for_in_object_keys(&map), _ => Vec::new() }}"
                 )),
+                // `Object.getOwnPropertySymbols` yields symbol VALUES. The stored
+                // key is `__smelt_symbol:<description>`; handing back the bare
+                // description (a `String`) made the caller lose the symbol tag, so
+                // `source[symbols[i]]` read the *string* key and missed, and
+                // `target[symbols[i]] = v` wrote a plain string key. Re-tagging the
+                // description as `SmeltUnknown::Symbol` keeps the round trip: the
+                // property-key mapping turns that tag back into the prefixed key.
                 smelt_hir::DictProjectionOp::Symbols => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(str::to_owned)).collect(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.to_owned()))).collect(), _ => Vec::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::Values => Ok(format!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect(), _ => Vec::new() }}"
@@ -761,11 +768,11 @@ impl FunctionEmitter<'_> {
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
-                            "{dict_text}.keys().filter(|key| smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
+                            "smelt_for_in_record_keys(&{dict_text})"
                         ))
                     } else {
                         Ok(format!(
-                            "{dict_text}.keys().filter(|key| smelt_is_for_in_record_key(&{dict_text}, key)).cloned().collect::<Vec<_>>()"
+                            "smelt_for_in_record_keys(&{dict_text})"
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
@@ -782,16 +789,19 @@ impl FunctionEmitter<'_> {
                 else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
+                // Symbol VALUES, not descriptions — see the erased arm above. A
+                // `String`-keyed backing stores them prefixed, a `SmeltUnknown`-keyed
+                // one stores the tag directly, and both hand back the tag.
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
                     Ok(format!(
-                        "{dict_text}.keys().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(str::to_owned)).collect::<Vec<_>>()"
+                        "{dict_text}.keys().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.to_owned()))).collect::<Vec<_>>()"
                     ))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
-                        "{dict_text}.keys().filter_map(|key| match key {{ SmeltUnknown::Symbol(value) => Some(value), _ => None }}).collect::<Vec<_>>()"
+                        "{dict_text}.keys().filter(|key| matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))
                 } else {
-                    Ok("Vec::<String>::new()".to_owned())
+                    Ok("Vec::<SmeltUnknown>::new()".to_owned())
                 }
             }
             smelt_hir::DictProjectionOp::Values => {

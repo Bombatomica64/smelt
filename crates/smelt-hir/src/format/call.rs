@@ -864,6 +864,16 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*blob_type),
             )
         }
+        ExprKind::HostConstruct { class_name, args } => {
+            let args_text = args.iter().copied().map(expr_ref).collect::<Vec<_>>();
+            format!("host_construct {class_name}({})", args_text.join(", "))
+        }
+        ExprKind::BuiltinNamespace { name } => format!("builtin_namespace {name}"),
+        ExprKind::ArgumentsObject { fixed, rest } => {
+            let fixed_text = fixed.iter().copied().map(expr_ref).collect::<Vec<_>>();
+            let rest_text = rest.map_or("none".to_owned(), expr_ref);
+            format!("arguments_object [{}], {rest_text}", fixed_text.join(", "))
+        }
         ExprKind::HostGlobalRead { class } => {
             let class_name = krate.symbols.get(*class).unwrap_or("<unknown>");
             format!("host_global_read {class_name}")
@@ -909,6 +919,10 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::TypeofValue { value } => format!("typeof {}", expr_ref(*value)),
         ExprKind::PrototypeSentinel { value } => {
             format!("prototype_sentinel {}", expr_ref(*value))
+        }
+        ExprKind::BoxPrimitive { value } => format!("box_primitive {}", expr_ref(*value)),
+        ExprKind::ObjectFromPrototype { prototype } => {
+            format!("object_from_prototype {}", expr_ref(*prototype))
         }
         ExprKind::UnknownCast { value, target } => {
             format!(

@@ -109,6 +109,12 @@ impl Rvalue {
             } => {
                 visit(unknown_value);
             }
+            Self::BoxPrimitive { value } => {
+                visit(value);
+            }
+            Self::ObjectFromPrototype { prototype } => {
+                visit(prototype);
+            }
             Self::UnknownCast {
                 value: unknown_value,
                 ..
@@ -681,6 +687,20 @@ impl Rvalue {
                     visit(last_modified_operand);
                 }
             }
+            Self::HostConstruct { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::ArgumentsObject { fixed, rest } => {
+                for value in fixed {
+                    visit(value);
+                }
+                if let Some(rest_operand) = rest {
+                    visit(rest_operand);
+                }
+            }
+            Self::BuiltinNamespace { .. } => {}
             Self::HostGlobalRead { .. } | Self::HostGlobalPresent { .. } => {}
             Self::HostGlobalWrite { value, .. } => {
                 visit(value);
@@ -855,6 +875,12 @@ impl Rvalue {
             }
             Self::PrototypeSentinel { value } => {
                 visit(value);
+            }
+            Self::BoxPrimitive { value } => {
+                visit(value);
+            }
+            Self::ObjectFromPrototype { prototype } => {
+                visit(prototype);
             }
             Self::UnknownCast {
                 value: unknown_value,
@@ -1428,6 +1454,20 @@ impl Rvalue {
                     visit(last_modified_operand);
                 }
             }
+            Self::HostConstruct { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::ArgumentsObject { fixed, rest } => {
+                for value in fixed {
+                    visit(value);
+                }
+                if let Some(rest_operand) = rest {
+                    visit(rest_operand);
+                }
+            }
+            Self::BuiltinNamespace { .. } => {}
             Self::HostGlobalRead { .. } | Self::HostGlobalPresent { .. } => {}
             Self::HostGlobalWrite { value, .. } => {
                 visit(value);

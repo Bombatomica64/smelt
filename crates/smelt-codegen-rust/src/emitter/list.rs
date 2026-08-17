@@ -204,6 +204,29 @@ impl FunctionEmitter<'_> {
         let has_never_item = matches!(self.mir.types.get(*left_item), Some(Type::Never))
             || matches!(self.mir.types.get(*right_item), Some(Type::Never));
         if left_item != right_item && !has_never_item {
+            // Mixed element types. `[...Object.keys(o), ...getSymbols(o)]` is a
+            // `(string | symbol)[]`: `List<String>` chained onto `List<Unknown>`.
+            // Both sides collect into one `Vec`, so when one element type is
+            // already the erased `SmeltUnknown` the other side's elements are
+            // erased into it. The `Default::default()` fallback below produced an
+            // EMPTY list, which is how es-toolkit's `copyProperties` silently lost
+            // every string key once symbols stopped arriving as bare descriptions.
+            if let Some(unknown_ty) = self.find_type_id(&Type::Unknown) {
+                let left_text = self.operand_text(left)?;
+                let right_text = self.operand_text(right)?;
+                if *right_item == unknown_ty {
+                    let item = self.erase_value_text("item", *left_item)?;
+                    return Ok(format!(
+                        "{left_text}.iter().cloned().map(|item| {item}).chain({right_text}.iter().cloned()).collect::<Vec<_>>()"
+                    ));
+                }
+                if *left_item == unknown_ty {
+                    let item = self.erase_value_text("item", *right_item)?;
+                    return Ok(format!(
+                        "{left_text}.iter().cloned().chain({right_text}.iter().cloned().map(|item| {item})).collect::<Vec<_>>()"
+                    ));
+                }
+            }
             return Ok("Default::default()".to_owned());
         }
         Ok(format!(
@@ -395,12 +418,16 @@ impl FunctionEmitter<'_> {
         {
             // Tag-preserving erased slice: an array receiver yields a fresh
             // `SmeltUnknown::Array` (JS `Array.prototype.slice` returns a new
-            // array), a string receiver yields a `SmeltUnknown::String`, and any
-            // other value (e.g. a typed-array / array-buffer marker object) is
-            // forwarded unchanged so `.slice()` tolerates it rather than
-            // panicking or ToString-coercing it.
+            // array), a string receiver yields a `SmeltUnknown::String`, a
+            // byte-backed host object (`ArrayBuffer`, `Buffer`, `DataView`) yields
+            // a *fresh record of the same host identity* over the sliced bytes —
+            // which is exactly what the `clone(buf)` idiom
+            // (`return obj.slice(0)`) depends on to hand back a distinct object —
+            // and any other value is forwarded unchanged so `.slice()` tolerates
+            // it rather than panicking or ToString-coercing it.
             return Ok(format!(
-                "{{ let smelt_slice_value = {list_text}; let smelt_slice_start = {start_text} as i64; let smelt_slice_end = {end_text}.map(|end| end as i64); match smelt_slice_value {{ SmeltUnknown::Array(values) => {{ let values = values.into_vec(); let smelt_slice_len = values.len() as i64; let smelt_start_index = (if smelt_slice_start < 0 {{ smelt_slice_len + smelt_slice_start }} else {{ smelt_slice_start }}).clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < 0 {{ smelt_slice_len + end }} else {{ end }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>())) }}, SmeltUnknown::String(value) => {{ let chars = value.chars().collect::<Vec<char>>(); let smelt_slice_len = chars.len() as i64; let smelt_start_index = (if smelt_slice_start < 0 {{ smelt_slice_len + smelt_slice_start }} else {{ smelt_slice_start }}).clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < 0 {{ smelt_slice_len + end }} else {{ end }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::String(chars.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<String>()) }}, smelt_other => smelt_other }} }}"
+                "{{ let smelt_slice_value = {list_text}; let smelt_slice_start = {start_text} as i64; let smelt_slice_end = {end_text}.map(|end| end as i64); if let Some(smelt_sliced) = {host_slice}(&smelt_slice_value, smelt_slice_start, smelt_slice_end) {{ smelt_sliced }} else {{ match smelt_slice_value {{ SmeltUnknown::Array(values) => {{ let values = values.into_vec(); let smelt_slice_len = values.len() as i64; let smelt_start_index = (if smelt_slice_start < 0 {{ smelt_slice_len + smelt_slice_start }} else {{ smelt_slice_start }}).clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < 0 {{ smelt_slice_len + end }} else {{ end }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>())) }}, SmeltUnknown::String(value) => {{ let chars = value.chars().collect::<Vec<char>>(); let smelt_slice_len = chars.len() as i64; let smelt_start_index = (if smelt_slice_start < 0 {{ smelt_slice_len + smelt_slice_start }} else {{ smelt_slice_start }}).clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < 0 {{ smelt_slice_len + end }} else {{ end }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::String(chars.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<String>()) }}, smelt_other => smelt_other }} }} }}",
+                host_slice = smelt_stdlib::runtime_symbols::byte_buffer::SLICE,
             ));
         }
         let sliced_values_text = "smelt_slice_values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>()";

@@ -971,6 +971,21 @@ impl FunctionEmitter<'_> {
 
     /// Gets the default value for a given type.
     /// Gets the default value for a given type.
+    /// The filler JavaScript leaves in an array hole when an index write grows it.
+    ///
+    /// `arr[2] = 3` on a one-element array creates a hole at index 1, and reading
+    /// that hole yields `undefined` — never `null`. At an erased element type the
+    /// two are distinguishable, and deep-equality code sees the difference:
+    /// es-toolkit's `isEqualWith` compares `[1, <hole>, 3]` against an explicitly
+    /// written `[1, undefined, 3]` and must call them equal. Typed element types
+    /// cannot represent a hole at all, so they keep their ordinary default.
+    pub(super) fn array_hole_value(&self, item_ty: TypeId) -> Result<String, EmitError> {
+        if matches!(self.mir.types.get(item_ty), Some(Type::Unknown)) {
+            return Ok("SmeltUnknown::Undefined".to_owned());
+        }
+        self.default_value(item_ty)
+    }
+
     pub(super) fn default_value(&self, ty: TypeId) -> Result<String, EmitError> {
         match self
             .mir

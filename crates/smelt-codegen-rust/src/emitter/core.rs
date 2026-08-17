@@ -2522,6 +2522,17 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Render conversion from a JavaScript property-key value to an owned Rust string.
+    /// A `RegExp` rendered the way JavaScript stringifies one: `/source/flags`.
+    ///
+    /// `String(/foo/u)` and `/foo/u.toString()` are `"/foo/u"`, not the bare
+    /// pattern. Every RegExp-to-string coercion routes through here so the typed
+    /// and erased paths cannot drift: remeda's `isDeepEqual` compares two regexes
+    /// with `data.toString() === other.toString()`, and when one side was narrowed
+    /// from `unknown` while the other was cast, the two renderings disagreed.
+    pub(super) fn regexp_literal_text(receiver_text: &str) -> String {
+        format!("format!(\"/{{}}/{{}}\", {receiver_text}.source, {receiver_text}.flags)")
+    }
+
     pub(super) fn property_key_to_string_text(
         &self,
         value_text: &str,
@@ -2537,7 +2548,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 ))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
-                Ok(format!("{value_text}.source.clone()"))
+                Ok(Self::regexp_literal_text(value_text))
             }
             Some(Type::List(item_ty)) => {
                 let item_text = self.property_key_to_string_text("value", *item_ty)?;
@@ -2553,7 +2564,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 // source already spelled as `Unknown` erases to itself.
                 let erased = self.erase_value_text(value_text, source_key)?;
                 Ok(format!(
-                    "{{ fn smelt_property_key(value: SmeltUnknown) -> String {{ match value {{ SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{{value}}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }} }} smelt_property_key({erased}) }}"
+                    "smelt_property_key({erased})"
                 ))
             }
             _ => Ok("\"[object Object]\".to_owned()".to_owned()),
@@ -3289,7 +3300,11 @@ impl<'mir> FunctionEmitter<'mir> {
             // the original owned-callback code, so the emitted text is identical.
             let inner = self.erased_rest_forwarding_closure_text(source_ty)?;
             return Ok(Some(format!(
-                "{{ let smelt_callback = {function_text}.clone(); {inner} }}"
+                // Bind the source ONCE, then record which callable the adapter
+                // forwards to so JavaScript `===` can see through the wrapper
+                // (`smelt_same_erased_function`). Two erasures of one closure
+                // build two adapters; without this they compare unequal.
+                "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_erased_fn }}"
             )));
         }
         // Non-owned (function-parameter) path: invoke the callback by its operand
@@ -4096,6 +4111,8 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         | Rvalue::UnknownIs { value: operand, .. }
         | Rvalue::TypeofValue { value: operand }
         | Rvalue::PrototypeSentinel { value: operand }
+        | Rvalue::BoxPrimitive { value: operand }
+        | Rvalue::ObjectFromPrototype { prototype: operand }
         | Rvalue::UnknownCast { value: operand, .. }
         | Rvalue::DateFromValue { value: operand }
         | Rvalue::InstanceOf { value: operand, .. } => operand_uses_local(operand, local),

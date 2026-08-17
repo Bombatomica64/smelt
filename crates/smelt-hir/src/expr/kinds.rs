@@ -713,6 +713,59 @@ pub enum ExprKind {
         name: Option<ExprId>,
         last_modified: Option<ExprId>,
     },
+    /// Construct a modeled host object of a *registry* identity from its
+    /// constructor arguments (`new ArrayBuffer(8)`, `new DataView(buf, 1, 2)`).
+    ///
+    /// The distinguishing feature is that this lowers to the *same* runtime
+    /// constructor the reflected `Object.getPrototypeOf(x).constructor` path
+    /// calls. JavaScript clone idioms reach a host constructor both ways —
+    /// directly (`new DataView(v.buffer.slice(0), v.byteOffset, v.byteLength)` in
+    /// es-toolkit's `cloneDeepWith`) and reflectively (`new Constructor(...)` in
+    /// its `clone`) — so a record built one way has to be indistinguishable from
+    /// one built the other. Routing both through one runtime helper is what makes
+    /// that true by construction instead of by two hand-matched lowerings.
+    ///
+    /// `class_name` is the host constructor's registry class name (`"DataView"`);
+    /// `args` are the spelled constructor arguments, erased.
+    HostConstruct {
+        class_name: String,
+        args: Vec<ExprId>,
+    },
+    /// The single interned value for a global builtin *name* used as a value
+    /// (`Blob`, `ArrayBuffer`, `Math`, `JSON`).
+    ///
+    /// JavaScript exposes one object per global name, so `Blob === Blob` and
+    /// `blob.constructor === Blob` both hold. Building a fresh record per
+    /// reference — which is what a plain object literal does, since records mint
+    /// an identity on construction — makes both comparisons `false`. The runtime
+    /// helper caches one record per name, and it is the value a host-marker
+    /// record's `.constructor` resolves to, so the two spellings meet.
+    ///
+    /// For a name that also names a modeled host *constructor*, the interned
+    /// record additionally carries a `__smelt_call` slot, so `new Ctor(...)`
+    /// through a captured reference constructs rather than answering `null`.
+    BuiltinNamespace {
+        name: String,
+    },
+    /// The JavaScript `arguments` object of the enclosing non-arrow function,
+    /// built from that function's own parameters.
+    ///
+    /// `arguments` is an array-like exotic object: its *elements* are the actual
+    /// call arguments under index keys, and its `length` is non-enumerable, so
+    /// `Object.keys(arguments)` is `["0", "1", ...]` with no `"length"`. Code that
+    /// compares an `arguments` object against a plain object
+    /// (`isEqual(toArgs([1, 2, 3]), { 0: 1, 1: 2, 2: 3 })`) depends on exactly
+    /// that key set, so a `{ length: n }` stand-in cannot stand in.
+    ///
+    /// Smelt reconstructs the object from the parameters the enclosing function
+    /// declared: `fixed` are the positional parameter reads, and `rest` is the
+    /// rest parameter's list, flattened onto the end. A function whose parameters
+    /// fully describe its call arguments — which is every function whose
+    /// `arguments` Smelt can see — reproduces the object exactly.
+    ArgumentsObject {
+        fixed: Vec<ExprId>,
+        rest: Option<ExprId>,
+    },
     /// Read the current value of a modeled host constructor's global override
     /// slot (`globalThis.<class>`), for a host name the crate reassigns
     /// somewhere (see the host-global override plan).
@@ -786,6 +839,27 @@ pub enum ExprKind {
     PrototypeSentinel {
         /// Value whose prototype sentinel is being computed.
         value: ExprId,
+    },
+    /// Box a primitive the way `Object(value)` does (objects pass through).
+    ///
+    /// Lowers to the `smelt_box_value` runtime helper. The wrapper it builds is
+    /// the same marker shape `new Number(..)` / `new Boolean(..)` /
+    /// `new String(..)` build, so both spellings share one representation.
+    BoxPrimitive {
+        /// Value being boxed.
+        value: ExprId,
+    },
+    /// Create a fresh erased object from a runtime prototype value.
+    ///
+    /// Lowers to the `smelt_object_from_prototype` runtime helper. `Object.create`
+    /// must yield a NEW object, never the prototype it was handed: returning the
+    /// argument aliases the prototype (so `Object.assign(Object.create(p), o)`
+    /// would mutate `p`) and, when the prototype is one of the opaque
+    /// `"__smelt_proto:*"` sentinels produced by `PrototypeSentinel`, would hand
+    /// back a string where the source expects an object.
+    ObjectFromPrototype {
+        /// Prototype the fresh object inherits from.
+        prototype: ExprId,
     },
     UnknownCast {
         value: ExprId,

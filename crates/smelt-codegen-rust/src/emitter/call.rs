@@ -2045,13 +2045,33 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
         ) {
             let value_text = self.operand_text(value)?;
+            // `Error` is the base class, so ANY error marker satisfies it. A
+            // subclass must match the class name the marker records — every error
+            // class used to share one boolean marker, so `new Error('x') instanceof
+            // AggregateError` answered `true`. es-toolkit `clone` branches on
+            // exactly that and rebuilt a plain Error as
+            // `new Ctor(obj.errors, obj.message, ..)`, putting `errors` in the
+            // message slot and dropping the message.
+            //
+            // This models the one level of the built-in hierarchy that exists:
+            // every built-in error derives directly from `Error`, so a subclass
+            // check is an equality test on the recorded name. A user class
+            // `extends Error` carries `__smelt_class` and resolves through the
+            // class path before reaching here.
+            let marker_probe = if class_name == "Error" {
+                "value.contains_key(\"__smelt_error\")".to_owned()
+            } else {
+                format!(
+                    "matches!(value.get(\"__smelt_error\"), Some(SmeltUnknown::String(smelt_error_class)) if smelt_error_class == {class_name:?})"
+                )
+            };
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
                 return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_error\"))"
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {marker_probe})"
                 ));
             }
             return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_error\"))"
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if {marker_probe})"
             ));
         }
         if class_name == "Date"
@@ -2068,6 +2088,29 @@ impl FunctionEmitter<'_> {
             }
             return Ok(format!(
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\"))"
+            ));
+        }
+        // A concrete `SmeltRegExp` answers `instanceof RegExp` through the typed
+        // path; an erased one recovers its identity from the `__smelt_regexp`
+        // marker its erasure stamps, exactly like the Date arm above. Without this
+        // arm the check was `false` for any `unknown`-typed regex, so es-toolkit
+        // `cloneDeepWithImpl` skipped its `valueToClone instanceof RegExp` branch
+        // and fell through to the generic `Object.create(getPrototypeOf(x))` path,
+        // which produced an object with no `source`/`flags` at all.
+        if class_name == "RegExp"
+            && matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            )
+        {
+            let value_text = self.operand_text(value)?;
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                return Ok(format!(
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_regexp\"))"
+                ));
+            }
+            return Ok(format!(
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\"))"
             ));
         }
         if class_name == "Map" {

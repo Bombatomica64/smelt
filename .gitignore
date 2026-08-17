@@ -98,6 +98,15 @@ blocker-logs/*.md
 !blocker-logs/estoolkit-frontend-families-plan.md
 # test-coverage-analysis.md documents workspace test coverage gaps and priorities
 !blocker-logs/test-coverage-analysis.md
+# estk-clone-and-equality.md records the clone/isEqualWith campaign and clusters
+# the remaining failures by probe-confirmed root cause for follow-up agents
+!blocker-logs/estk-clone-and-equality.md
+# estk-class-identity-and-symbols.md records the class-identity / symbol-key pass
+# of that campaign, including the root causes it deliberately did not attempt
+!blocker-logs/estk-class-identity-and-symbols.md
 
 # Generated docs site output
 _site/
+
+# Agent worktrees are transient checkouts created under .claude/, never part of the tree
+.claude/worktrees/

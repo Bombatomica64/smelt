@@ -182,8 +182,15 @@ impl ModuleBuilder<'_> {
         if callee.name == "Object" && !self.classes.contains_key("Object") {
             return self.object_constructor_expression(new_expr, body, type_hint);
         }
-        if callee.name == "ArrayBuffer" && !self.classes.contains_key("ArrayBuffer") {
-            return self.arraybuffer_constructor_expression(new_expr, body);
+        // The byte-backed host objects other than Node's `Buffer` (which keeps its
+        // own `Buffer.from`/`alloc`/`concat`-shaped lowering) construct through the
+        // shared host constructor so their records carry real byte storage.
+        if callee.name != "Buffer"
+            && smelt_stdlib::byte_buffer_role(callee.name.as_str()).is_some()
+            && !self.classes.contains_key(callee.name.as_str())
+        {
+            let class_name = callee.name.to_string();
+            return self.byte_buffer_constructor_expression(new_expr, &class_name, body);
         }
         if callee.name == "Buffer" && !self.classes.contains_key("Buffer") {
             return self.buffer_constructor_expression(new_expr, body);
@@ -579,7 +586,7 @@ impl ModuleBuilder<'_> {
             // Reuse the erased-Error record model. `new Error(message)` keeps
             // only the message argument, so pass the first closure parameter
             // through the shared error-object builder.
-            self.error_object_from_message(arg_exprs.first().copied(), span, &mut closure_body)
+            self.error_object_from_message(arg_exprs.first().copied(), name, span, &mut closure_body)
         } else {
             let class_ty = self.ctx.krate.types.intern(Type::Class {
                 name: class_symbol,
@@ -637,11 +644,11 @@ impl ModuleBuilder<'_> {
     pub(super) fn error_object_from_message(
         &mut self,
         message: Option<smelt_hir::ExprId>,
+        class_name: &str,
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let message = message.unwrap_or_else(|| {
@@ -656,9 +663,16 @@ impl ModuleBuilder<'_> {
             ty: string_ty,
             span,
         });
+        // The marker VALUE is the constructor's class name, not a bare `true`.
+        // Every error class shared one boolean marker, so `instance_of_text`
+        // could not tell them apart: `new Error('x') instanceof AggregateError`
+        // answered `true`, which sent es-toolkit `clone` down the AggregateError
+        // branch and rebuilt the error as `new Ctor(obj.errors, obj.message, ..)`
+        // — putting `errors` in the message slot and losing the message. It also
+        // makes `.name` truthful, which `smelt_get_object_field` reads back.
         let marker_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
+            kind: ExprKind::Literal(Literal::String(class_name.to_owned())),
+            ty: string_ty,
             span,
         });
         let message_key = body.push_expr(Expr {
@@ -879,19 +893,16 @@ impl ModuleBuilder<'_> {
     /// The mapping lives in the shared `smelt_stdlib::host_object` registry so the
     /// construct side, the `instanceof` side, and the runtime host-marker registry
     /// cannot drift. "Marker-only" here means host objects with no retained
-    /// structural fields (`WeakMap`/`WeakSet`/`DataView`/`SharedArrayBuffer`/
-    /// `Request`);
-    /// host objects with retained fields (`ArrayBuffer`, `Blob`, `File`, boxed
-    /// primitives, `DOMException`) have their own dedicated constructors and are
-    /// excluded here even though they share the registry.
+    /// structural fields (`WeakMap`/`WeakSet`/`Request`); host objects with
+    /// retained fields (the byte buffers, `Blob`, `File`, boxed primitives,
+    /// `DOMException`) have their own dedicated constructors and are excluded here
+    /// even though they share the registry.
     pub(crate) fn marker_only_builtin_marker(name: &str) -> Option<&'static str> {
         match name {
             // `Request` joins the marker-only set: es-toolkit constructs it only
             // to probe host identity (`isPlainObject(new Request(url))`), reading
             // none of its structural surface, exactly like the other entries here.
-            "WeakMap" | "WeakSet" | "DataView" | "SharedArrayBuffer" | "Request" => {
-                smelt_stdlib::host_object_marker(name)
-            }
+            "WeakMap" | "WeakSet" | "Request" => smelt_stdlib::host_object_marker(name),
             _ => None,
         }
     }
@@ -927,18 +938,25 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let parts = self.error_constructor_parts(new_expr, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
+        // Which error class was spelled. Falls back to `Error` for a callee shape
+        // that is not a bare identifier, which is the base class anyway.
+        let class_name = match &new_expr.callee {
+            Expression::Identifier(callee) => callee.name.to_string(),
+            _ => "Error".to_owned(),
+        };
         let marker_key = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::String("__smelt_error".to_owned())),
             ty: string_ty,
             span,
         });
+        // See `error_object_from_message`: the marker value carries the class name
+        // so error subclasses stay distinguishable and `.name` reads truthfully.
         let marker_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
+            kind: ExprKind::Literal(Literal::String(class_name)),
+            ty: string_ty,
             span,
         });
         let message_key = body.push_expr(Expr {
@@ -1089,61 +1107,39 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower `new ArrayBuffer(byteLength)` to a concrete marker-bearing record.
+    /// Lower `new <ByteBufferHost>(...)` — `ArrayBuffer`, `SharedArrayBuffer`,
+    /// `DataView` — through the shared host constructor.
     ///
-    /// JavaScript `ArrayBuffer` is a host binary-buffer object. es-toolkit only
-    /// constructs it and inspects it via `value instanceof ArrayBuffer` (the
-    /// `isArrayBuffer` predicate over an erased `unknown`). Rather than erase it
-    /// to a shapeless `SmeltUnknown` (which would lose its identity), model it as
-    /// a record carrying a dedicated `__smelt_arraybuffer` marker plus its
-    /// `byteLength`, mirroring how `Date`/`Error` keep a distinct identity for
-    /// later dynamic `instanceof` checks (see `instance_of_text`).
-    pub(super) fn arraybuffer_constructor_expression(
+    /// These are JavaScript's binary-data host objects. Source code constructs
+    /// them, probes them with `value instanceof ArrayBuffer`, and *operates on
+    /// their bytes*: `slice(0)`, `byteLength`, `byteOffset`, and indexed element
+    /// reads all appear in the clone/equality paths of any library that handles
+    /// binary data. So an identity-only marker record is not enough; the record
+    /// needs real byte storage, which the runtime constructor gives it.
+    ///
+    /// Routing through `ExprKind::HostConstruct` — the same runtime constructor
+    /// the reflected `new Object.getPrototypeOf(x).constructor(...)` path calls —
+    /// is what makes a directly-constructed record indistinguishable from a
+    /// reflectively-constructed one. es-toolkit's `clone` uses the reflected form
+    /// where `cloneDeepWith` uses the direct one, and its specs compare the
+    /// results against each other.
+    pub(super) fn byte_buffer_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
+        class_name: &str,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let number_ty = self.ctx.krate.types.intern(Type::Float);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
-        let byte_length = match new_expr.arguments.first() {
-            Some(argument) => self.argument(argument, body)?,
-            None => body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Float(0.0)),
-                ty: number_ty,
-                span,
-            }),
-        };
-        let marker_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("__smelt_arraybuffer".to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let marker_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
-            span,
-        });
-        let byte_length_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("byteLength".to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let object = body.push_expr(Expr {
-            kind: ExprKind::DictLit(vec![
-                (marker_key, marker_value),
-                (byte_length_key, byte_length),
-            ]),
-            ty: dict_ty,
-            span,
-        });
+        let args = new_expr
+            .arguments
+            .iter()
+            .map(|argument| self.argument(argument, body))
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: object,
-                target: unknown_ty,
+            kind: ExprKind::HostConstruct {
+                class_name: class_name.to_owned(),
+                args,
             },
             ty: unknown_ty,
             span,
