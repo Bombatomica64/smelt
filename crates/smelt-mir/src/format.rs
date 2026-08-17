@@ -1318,6 +1318,20 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(blob_type),
             )
         }
+        Rvalue::HostConstruct { class_name, args } => {
+            let args_text = args.iter().map(operand_text).collect::<Vec<_>>();
+            format!("host_construct {class_name}({})", args_text.join(", "))
+        }
+        Rvalue::ArgumentsObject { fixed, rest } => {
+            let fixed_text = fixed.iter().map(operand_text).collect::<Vec<_>>();
+            let rest_text = rest
+                .as_ref()
+                .map_or_else(|| "none".to_owned(), operand_text);
+            format!("arguments_object [{}], {rest_text}", fixed_text.join(", "))
+        }
+        Rvalue::BuiltinNamespace { name } => {
+            format!("builtin_namespace {name}")
+        }
         Rvalue::HostGlobalRead { class } => format!("host_global_read class{}", class.0),
         Rvalue::HostGlobalWrite {
             class,

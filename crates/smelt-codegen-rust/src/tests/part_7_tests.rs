@@ -9201,3 +9201,168 @@ export function clearSlot(handle: unknown): number {
         "strict `!== null` must test for a present Null payload: {source}"
     );
 }
+
+#[test]
+fn byte_buffer_hosts_construct_through_the_shared_reflected_constructor() {
+    // `new ArrayBuffer(8)` / `new SharedArrayBuffer(8)` / `new DataView(buf, 1, 2)`
+    // all lower to `smelt_reflected_construct`, the *same* runtime constructor the
+    // reflected `new Object.getPrototypeOf(x).constructor(...)` path calls. That
+    // shared constructor is what makes a directly built record indistinguishable
+    // from a reflectively built one — es-toolkit's `clone` uses the reflected form
+    // where its `cloneDeepWith` uses the direct one, and its specs compare the two
+    // results against each other.
+    for (source, kind) in [
+        (
+            "export function f() { return new ArrayBuffer(8); }",
+            "arraybuffer",
+        ),
+        (
+            "export function f() { return new SharedArrayBuffer(8); }",
+            "sharedarraybuffer",
+        ),
+        (
+            "export function f() { return new DataView(new ArrayBuffer(8), 1, 2); }",
+            "dataview",
+        ),
+    ] {
+        let generated = source_for(source);
+        assert!(
+            generated.contains(&format!("smelt_reflected_construct(\"{kind}\"")),
+            "expected `{source}` to construct through the shared `{kind}` host constructor:\n{generated}"
+        );
+    }
+}
+
+#[test]
+fn erased_slice_routes_a_byte_buffer_receiver_through_the_host_slice_helper() {
+    // `buffer.slice(0)` on an erased receiver must be able to answer a FRESH record
+    // of the same host identity: the tag-preserving erased slice used to forward any
+    // non-array receiver unchanged, so the `clone(buf) { return buf.slice(0) }`
+    // shape returned its own argument and `expect(cloned).not.toBe(buffer)` failed.
+    // `subarray` is the same operation and routes the same way.
+    for source in [
+        "export function f(value: any): any { return value.slice(0); }",
+        "export function f(value: any): any { return value.subarray(); }",
+    ] {
+        let generated = source_for(source);
+        assert!(
+            generated.contains("smelt_host_buffer_slice(&smelt_slice_value"),
+            "expected `{source}` to try the host byte-buffer slice first:\n{generated}"
+        );
+    }
+}
+
+#[test]
+fn erased_reads_and_writes_reach_a_byte_buffers_bytes() {
+    // A byte buffer's indexed slots are its bytes, not ordinary record properties.
+    // Index reads used to miss the `bytes` storage and answer `null`, which made the
+    // `a[i]` element walk deep equality performs over a typed-array-tagged value
+    // compare two different buffers as equal; index writes landed in a property
+    // instead of the storage, so the typed-array clone shape
+    // `result[i] = clone(source[i])` produced a record with stray numeric keys.
+    let indexed = source_for("export function f(value: any): any { return value[1]; }");
+    assert!(
+        indexed.contains("smelt_host_buffer_element(&values"),
+        "an erased index read must try the byte-buffer element first:\n{indexed}"
+    );
+    let field = source_for("export function f(value: any): any { return value.length; }");
+    assert!(
+        field.contains("smelt_host_buffer_element(map, field)"),
+        "the erased field read helper must try the byte-buffer element first:\n{field}"
+    );
+    let assign = source_for("export function f(value: any): void { value[1] = 2; }");
+    assert!(
+        assign.contains("smelt_host_buffer_set_element(map, &key, value.clone())"),
+        "an erased index write must offer the byte storage the write first:\n{assign}"
+    );
+}
+
+#[test]
+fn arraybuffer_is_view_covers_every_registry_view_kind() {
+    // `ArrayBuffer.isView(x)` is true for a *view* over byte storage and false for
+    // the storage itself, which is exactly the `ByteBufferRole::View` split in the
+    // shared host registry. es-toolkit defines `isTypedArray` as
+    // `ArrayBuffer.isView(x) && !(x instanceof DataView)`, so a Node `Buffer` (a
+    // `Uint8Array` subclass) has to answer `true` here or its clone path is never
+    // taken. Checking only `DataView` left `isTypedArray(Buffer.from([1]))` false.
+    let generated =
+        source_for("export function f(value: any): boolean { return ArrayBuffer.isView(value); }");
+    for marker in ["__smelt_buffer", "__smelt_dataview"] {
+        assert!(
+            generated.contains(&format!("value.contains_key(\"{marker}\")")),
+            "`ArrayBuffer.isView` must recognize `{marker}`:\n{generated}"
+        );
+    }
+    assert!(
+        !generated.contains("matches!(value.clone().clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\"))"),
+        "`ArrayBuffer.isView` must stay false for byte *storage*:\n{generated}"
+    );
+}
+
+#[test]
+fn buffer_reports_the_uint8array_spec_tag() {
+    // Node's `Buffer` subclasses `Uint8Array`, so the platform reports
+    // `[object Uint8Array]`. es-toolkit's `isEqualWith` and `cloneDeepWith` dispatch
+    // on that tag ("Buffers are also treated as [object Uint8Array]s"), and a
+    // `[object Buffer]` tag falls off the end of both `switch` statements — two
+    // equal buffers compared unequal and a buffer was not cloneable.
+    let generated = source_for(
+        "export function f(value: any): string { return Object.prototype.toString.call(value); }",
+    );
+    assert!(
+        generated
+            .contains("if map.contains_key(\"__smelt_buffer\") { return \"[object Uint8Array]\""),
+        "a `Buffer` record must tag as `[object Uint8Array]`:\n{generated}"
+    );
+}
+
+#[test]
+fn a_bare_host_constructor_reference_is_interned() {
+    // JavaScript exposes one object per global builtin name, so `Blob === Blob` and
+    // `blob.constructor === Blob` both hold. A record literal mints a fresh identity
+    // on construction, so building a `__smelt_builtin_namespace` record per
+    // reference made both comparisons false. The interning helper is also what a
+    // host record's `.constructor` resolves through, so the two spellings meet.
+    let generated = source_for("export function f(): any { return Blob; }");
+    assert!(
+        generated.contains("smelt_builtin_namespace(\"Blob\")"),
+        "a bare host-constructor reference must intern:\n{generated}"
+    );
+    let field = source_for("export function f(value: any): any { return value.constructor; }");
+    assert!(
+        field.contains("smelt_marker_constructor_class(map)"),
+        "an erased `.constructor` read must resolve a marker record's own global:\n{field}"
+    );
+}
+
+#[test]
+fn arguments_object_carries_parameter_values_and_hides_length() {
+    // The `arguments` exotic object stores the actual call arguments under index
+    // keys with a non-enumerable `length`. It used to be a `{ length: n }` stand-in
+    // holding no values at all, so `Object.keys(arguments)` enumerated
+    // `["length"]` — the exact inverse of the real key set — and comparing an
+    // `arguments` object against the plain object with the same indexed properties
+    // could not work in either direction.
+    let generated = source_for(
+        r"
+export function f(a: number, b: number): any {
+  const unused = a + b;
+  return arguments;
+}
+",
+    );
+    assert!(
+        generated.contains("smelt_arguments_object(vec!["),
+        "`arguments` must be built from the function's parameters:\n{generated}"
+    );
+    assert!(
+        generated.contains("[object Arguments]"),
+        "an `arguments` record must carry the `[object Arguments]` spec tag:\n{generated}"
+    );
+    assert!(
+        generated.contains(
+            "!(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\"))"
+        ),
+        "`length` must stay out of an `arguments` object's own-key enumeration:\n{generated}"
+    );
+}

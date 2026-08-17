@@ -687,6 +687,20 @@ impl Rvalue {
                     visit(last_modified_operand);
                 }
             }
+            Self::HostConstruct { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::ArgumentsObject { fixed, rest } => {
+                for value in fixed {
+                    visit(value);
+                }
+                if let Some(rest_operand) = rest {
+                    visit(rest_operand);
+                }
+            }
+            Self::BuiltinNamespace { .. } => {}
             Self::HostGlobalRead { .. } | Self::HostGlobalPresent { .. } => {}
             Self::HostGlobalWrite { value, .. } => {
                 visit(value);
@@ -1440,6 +1454,20 @@ impl Rvalue {
                     visit(last_modified_operand);
                 }
             }
+            Self::HostConstruct { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::ArgumentsObject { fixed, rest } => {
+                for value in fixed {
+                    visit(value);
+                }
+                if let Some(rest_operand) = rest {
+                    visit(rest_operand);
+                }
+            }
+            Self::BuiltinNamespace { .. } => {}
             Self::HostGlobalRead { .. } | Self::HostGlobalPresent { .. } => {}
             Self::HostGlobalWrite { value, .. } => {
                 visit(value);

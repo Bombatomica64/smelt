@@ -172,15 +172,6 @@ pub(crate) fn needs_vitest_mock_runtime(mir: &Mir) -> bool {
     })
 }
 
-/// Returns true when generated Rust constructs a modeled host `Blob`/`File`
-/// record and therefore needs the `smelt_blob_record_from_parts` runtime helper.
-#[must_use]
-pub(crate) fn needs_blob_record_runtime(mir: &Mir) -> bool {
-    any_rvalue_needs(mir, |rvalue| {
-        matches!(rvalue, Rvalue::BlobFromParts { .. })
-    })
-}
-
 /// Returns true when generated Rust reads/writes/probes a host-global override
 /// slot and therefore needs the `SmeltHostOverride` enum + helper prelude.
 ///

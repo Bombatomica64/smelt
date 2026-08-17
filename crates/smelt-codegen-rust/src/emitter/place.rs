@@ -799,9 +799,10 @@ impl FunctionEmitter<'_> {
                             smelt_key.parse::<usize>().ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
                         }}
                     }}
-                    SmeltUnknown::Object(values) => values.get(&{key_text}).unwrap_or(SmeltUnknown::Null),
+                    SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Null)),
                     _ => SmeltUnknown::Null,
-                }}"#
+                }}"#,
+                byte_buffer_element = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENT,
             ));
         }
         let numeric_index_text = match self.mir.types.get(index_ty) {
@@ -838,9 +839,10 @@ impl FunctionEmitter<'_> {
                         let normalized = if index < 0 {{ len + index }} else {{ index }};
                         usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
                     }}
-                SmeltUnknown::Object(values) => values.get(&{key_text}).unwrap_or(SmeltUnknown::Null),
+                SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Null)),
                 _ => SmeltUnknown::Null,
-            }}"
+            }}",
+            byte_buffer_element = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENT,
         ))
     }
 

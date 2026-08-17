@@ -688,6 +688,15 @@ impl ExprKind {
                 name: map_opt(name, f)?,
                 last_modified: map_opt(last_modified, f)?,
             },
+            Self::HostConstruct { class_name, args } => Self::HostConstruct {
+                class_name,
+                args: map_vec(args, f)?,
+            },
+            Self::BuiltinNamespace { name } => Self::BuiltinNamespace { name },
+            Self::ArgumentsObject { fixed, rest } => Self::ArgumentsObject {
+                fixed: map_vec(fixed, f)?,
+                rest: map_opt(rest, f)?,
+            },
             Self::HostGlobalRead { class } => Self::HostGlobalRead { class },
             Self::HostGlobalWrite { class, value } => Self::HostGlobalWrite {
                 class,
