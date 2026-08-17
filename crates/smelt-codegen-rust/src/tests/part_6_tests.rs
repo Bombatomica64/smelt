@@ -708,6 +708,44 @@ function protoDepth(value: object): number {
 }
 
 #[test]
+fn valueless_return_at_an_erased_return_type_is_undefined_not_null() {
+    // Regression: falling off the end of a JavaScript function evaluates to
+    // `undefined`, but the value-less return terminator emitted
+    // `SmeltUnknown::Null`. At an erased return type the difference is
+    // observable, and es-toolkit's `cloneDeepWith` guards its customizer with
+    // `if (cloned !== undefined) return cloned;` — so a customizer that falls
+    // through answered `null`, satisfied the guard on its first call, and made
+    // the whole clone collapse to `null`.
+    //
+    // An explicit `return null` must keep answering `null`; it carries a real
+    // literal operand rather than the synthesized value-less one.
+    let source = source_for(
+        r"
+function fallsThrough(value: unknown): unknown {
+  if (typeof value === 'number') {
+    return value;
+  }
+}
+function returnsNull(value: unknown): unknown {
+  if (typeof value === 'number') {
+    return value;
+  }
+  return null;
+}
+",
+    );
+
+    assert!(
+        source.contains("return SmeltUnknown::Undefined;"),
+        "a value-less return at an erased return type must yield undefined: {source}"
+    );
+    assert!(
+        source.contains("return SmeltUnknown::Null;"),
+        "an explicit `return null` must still yield null: {source}"
+    );
+}
+
+#[test]
 fn object_call_boxes_and_value_of_unwraps_through_runtime_helpers() {
     // Regression: `Object(value)` (the boxing call, not the `Object.*` statics)
     // was unrecognized, and `.valueOf()` went through the ordinary own-field

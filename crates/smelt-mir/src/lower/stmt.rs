@@ -47,10 +47,35 @@ impl LoweringCtx<'_> {
                 self.set_terminator(Terminator::Return(Operand::Move(Place::Local(LocalId(0)))))?;
                 return Ok((self.function, self.closures));
             }
-            self.set_terminator(Terminator::Return(Operand::Const(Constant::None)))?;
+            self.set_terminator(Terminator::Return(self.valueless_return_operand()))?;
         }
 
         Ok((self.function, self.closures))
+    }
+
+    /// The operand a value-less `return` yields.
+    ///
+    /// Falling off the end of a JavaScript function — or a bare `return;` —
+    /// evaluates to `undefined`, never `null`. The two are one `Constant::None`
+    /// once a typed return has erased them, but at an *erased* return type the
+    /// distinction is observable: es-toolkit's `cloneDeepWith` guards its
+    /// customizer with `if (cloned !== undefined) return cloned;`, so a
+    /// customizer that falls through (`(v) => { if (typeof v === 'number') return
+    /// v * 2; }`) used to answer `null`, satisfy the guard on its very first
+    /// call, and make the whole clone collapse to `null`.
+    ///
+    /// Only the erased return type switches: a `None`/void return emits Rust `()`
+    /// and an `Optional<T>` return needs Rust `None`, so both keep
+    /// `Constant::None`. An explicit `return null` carries a `Literal::None`
+    /// operand and never reaches here.
+    fn valueless_return_operand(&self) -> Operand {
+        if matches!(
+            self.krate.types.get(self.function.return_ty),
+            Some(smelt_hir::Type::Unknown)
+        ) {
+            return Operand::Const(Constant::Undefined);
+        }
+        Operand::Const(Constant::None)
     }
 
     /// Lowers all statements in a HIR block.
@@ -120,7 +145,7 @@ impl LoweringCtx<'_> {
                 Ok(())
             }
             HirStmt::Return(None) => {
-                self.set_terminator(Terminator::Return(Operand::Const(Constant::None)))?;
+                self.set_terminator(Terminator::Return(self.valueless_return_operand()))?;
                 Ok(())
             }
             HirStmt::If {

@@ -196,3 +196,59 @@ test("distinct values stay unequal", () => {
 "#;
     run_fixture(source, "smelt_boxed_primitive_value_equality");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_valueless_return_reads_as_undefined_not_null() {
+    // Falling off the end of a JavaScript function evaluates to `undefined`. The
+    // value-less return terminator used to emit `SmeltUnknown::Null`, and at an
+    // erased return type that difference is observable — which is what broke the
+    // customizer protocol es-toolkit's `cloneDeepWith` uses: it treats
+    // `undefined` as "no custom value, keep cloning" and anything else, `null`
+    // included, as the replacement. A fall-through customizer therefore replaced
+    // the whole clone with `null` on its first call.
+    //
+    // The `apply` helper below is that protocol in miniature. An explicit
+    // `return null` must stay `null`, so both spellings are asserted together.
+    //
+    // The null-returning customizer is spelled with an explicit `: any` return
+    // annotation on purpose. A bare `(v) => null` infers `Type::None`, which HIR
+    // still conflates with `void`, so the callback adapter drops the value and
+    // substitutes `undefined` — a separate, pre-existing gap (the `null`/`void`
+    // conflation tracked by `specs/distinct-undefined.md`), not this fix.
+    let source = r#"
+import { test, expect } from "vitest";
+function apply(value: any, customize: (v: any) => any): any {
+  const custom = customize(value);
+  if (custom !== undefined) {
+    return custom;
+  }
+  return value;
+}
+test("a fall-through customizer defers instead of replacing", () => {
+  const doubleNumbers = (v: any) => {
+    if (typeof v === "number") {
+      return v * 2;
+    }
+  };
+  expect(apply(3, doubleNumbers)).toBe(6);
+  expect(apply("keep", doubleNumbers)).toBe("keep");
+});
+test("an explicit null still replaces", () => {
+  const nullify = (v: any): any => {
+    return null;
+  };
+  expect(apply("gone", nullify)).toBe(null);
+});
+test("a bare return and a missing return both read as undefined", () => {
+  const bare = (v: any) => {
+    return;
+  };
+  const empty = (v: any) => {};
+  expect(bare(1)).toBe(undefined);
+  expect(empty(1)).toBe(undefined);
+  expect(bare(1)).not.toBe(null);
+});
+"#;
+    run_fixture(source, "smelt_valueless_return_is_undefined");
+}
