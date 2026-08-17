@@ -206,7 +206,7 @@ impl FunctionEmitter<'_> {
             && let Some(Type::Class { name, .. }) = self.mir.types.get(self.operand_ty(operand)?)
             && self.is_regexp_class_symbol(*name)?
         {
-            return Ok(format!("{}.source.clone()", self.operand_text(operand)?));
+            return Ok(Self::regexp_literal_text(&self.operand_text(operand)?));
         }
         if self.is_match_fn_result_type(self.operand_ty(operand)?)?
             && !self.is_match_fn_result_class_type(target)?

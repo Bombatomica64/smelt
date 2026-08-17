@@ -2522,6 +2522,17 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Render conversion from a JavaScript property-key value to an owned Rust string.
+    /// A `RegExp` rendered the way JavaScript stringifies one: `/source/flags`.
+    ///
+    /// `String(/foo/u)` and `/foo/u.toString()` are `"/foo/u"`, not the bare
+    /// pattern. Every RegExp-to-string coercion routes through here so the typed
+    /// and erased paths cannot drift: remeda's `isDeepEqual` compares two regexes
+    /// with `data.toString() === other.toString()`, and when one side was narrowed
+    /// from `unknown` while the other was cast, the two renderings disagreed.
+    pub(super) fn regexp_literal_text(receiver_text: &str) -> String {
+        format!("format!(\"/{{}}/{{}}\", {receiver_text}.source, {receiver_text}.flags)")
+    }
+
     pub(super) fn property_key_to_string_text(
         &self,
         value_text: &str,
@@ -2537,7 +2548,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 ))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
-                Ok(format!("{value_text}.source.clone()"))
+                Ok(Self::regexp_literal_text(value_text))
             }
             Some(Type::List(item_ty)) => {
                 let item_text = self.property_key_to_string_text("value", *item_ty)?;

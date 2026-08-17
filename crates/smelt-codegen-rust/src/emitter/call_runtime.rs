@@ -958,7 +958,7 @@ impl FunctionEmitter<'_> {
                 if self.is_regexp_class_symbol(*class)?
                     && matches!(self.mir.types.get(dest_ty), Some(Type::String))
                 {
-                    Ok(format!("{text}.source.clone()"))
+                    Ok(Self::regexp_literal_text(&text))
                 } else {
                     Ok(text)
                 }

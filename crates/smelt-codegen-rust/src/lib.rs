@@ -1130,6 +1130,25 @@ fn emit_source_with_free_function_router(
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
         writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        // `for...in` walks the PROTOTYPE CHAIN; `Object.keys` does not. The two
+        // therefore cannot share one key list. Inherited members live behind the
+        // `__smelt_proto:` prefix, which the own-key filters above exclude — right
+        // for `Object.keys`, wrong for `for...in`. remeda's `isEmptyish` reads
+        // exactly that difference: it uses `for (const _ in data) return false`, so
+        // `Object.create(Object.create({ a: 123 }))` must report a key even though
+        // it has no OWN key.
+        //
+        // Own keys come first and shadow an inherited member of the same name,
+        // matching JavaScript's enumeration order and its shadowing rule.
+        writer.line("/// Every key JavaScript `for...in` yields for an erased object, prototype chain included.");
+        writer.line("fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in map.keys() { if key.starts_with(\"__smelt_proto:\") { continue; } if smelt_is_for_in_object_key(map, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }");
+        writer.blank_line();
+        writer.line("/// Every key JavaScript `for...in` yields for a typed record, prototype chain included.");
+        writer.line("fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in record.keys() { if key.starts_with(\"__smelt_proto:\") { continue; } if smelt_is_for_in_record_key(record, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in record.keys() { if let Some(inherited) = key.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }");
+        writer.blank_line();
+        writer.line("/// Stringify a marker-bearing erased RegExp as JavaScript does: `/source/flags`.");
+        writer.line("fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.get(\"source\") { Some(SmeltUnknown::String(source)) => source, _ => String::new() }; let flags = match map.get(\"flags\") { Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }; format!(\"/{source}/{flags}\") }");
+        writer.blank_line();
         writer.line("/// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.");
         writer.line(
             "/// Class instances carry a hidden `__smelt_class` marker and map to a distinct",

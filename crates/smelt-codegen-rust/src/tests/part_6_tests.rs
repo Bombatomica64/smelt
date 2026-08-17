@@ -1823,8 +1823,13 @@ console.log(ok);
     );
     // Both the object-key walk (then-branch, the diverging region) and the
     // array index walk (the continuation) must survive.
+    // Anchored on the `for...in` key projection. `smelt_for_in_record_keys`
+    // replaced an inline `smelt_is_for_in_record_key` filter once `for...in` had
+    // to walk the prototype chain (which `Object.keys` must not), so the marker
+    // moved; what this test checks — that the diverging then-branch's for-in
+    // region survives and precedes the array continuation — is unchanged.
     let for_in = body
-        .find("smelt_is_for_in_record_key")
+        .find("smelt_for_in_record_keys")
         .expect("object-key (for-in) loop of the diverging then-branch preserved");
     let array_guard = body
         .rfind("if !(")

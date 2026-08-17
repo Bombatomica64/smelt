@@ -566,7 +566,7 @@ impl FunctionEmitter<'_> {
     /// coercion; structured values use the platform object placeholder.
     pub(super) fn js_string_coercion_match_text(scrutinee_text: &str) -> String {
         format!(
-            "match {scrutinee_text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+            "match {scrutinee_text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
         )
     }
 
@@ -595,7 +595,7 @@ impl FunctionEmitter<'_> {
                 Ok(Self::js_string_coercion_match_text(&text))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
-                Ok(format!("{}.source.clone()", self.operand_text(operand)?))
+                Ok(Self::regexp_literal_text(&self.operand_text(operand)?))
             }
             Some(Type::None | Type::Never) => Ok("String::new()".to_owned()),
             Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {

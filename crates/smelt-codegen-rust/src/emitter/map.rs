@@ -690,7 +690,7 @@ impl FunctionEmitter<'_> {
                     "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect(), _ => Vec::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::ForInKeys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter(|key| smelt_is_for_in_object_key(&map, key)).collect(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => smelt_for_in_object_keys(&map), _ => Vec::new() }}"
                 )),
                 // `Object.getOwnPropertySymbols` yields symbol VALUES. The stored
                 // key is `__smelt_symbol:<description>`; handing back the bare
@@ -768,11 +768,11 @@ impl FunctionEmitter<'_> {
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
-                            "{dict_text}.keys().filter(|key| smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
+                            "smelt_for_in_record_keys(&{dict_text})"
                         ))
                     } else {
                         Ok(format!(
-                            "{dict_text}.keys().filter(|key| smelt_is_for_in_record_key(&{dict_text}, key)).cloned().collect::<Vec<_>>()"
+                            "smelt_for_in_record_keys(&{dict_text})"
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
