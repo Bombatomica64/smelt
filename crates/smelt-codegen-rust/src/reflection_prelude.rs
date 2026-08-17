@@ -68,6 +68,33 @@ const REFLECTED_MARKERS: &[(&str, &str, &str)] = &[
     ("__smelt_boolean", "boolean", "Boolean"),
 ];
 
+/// [`REFLECTED_MARKERS`] plus one entry per typed-array view.
+///
+/// The eleven views join the reflected-prototype set for the same reason Node's
+/// `Buffer` is in the const list above: the lodash-compatible clone of a typed
+/// array is `new (Object.getPrototypeOf(view).constructor)(view.buffer.slice(0),
+/// view.byteOffset, view.length)`, so the view's prototype has to expose a
+/// constructor that rebuilds a view of that same identity. They are derived from
+/// the registry rather than restated so a new view cannot be added in one place
+/// and forgotten in the other.
+fn reflected_markers() -> Vec<(&'static str, &'static str, &'static str)> {
+    REFLECTED_MARKERS
+        .iter()
+        .copied()
+        .chain(
+            smelt_stdlib::HOST_OBJECTS
+                .iter()
+                .filter(|entry| smelt_stdlib::is_typed_array_class_name(entry.class_name))
+                .filter_map(|entry| {
+                    entry
+                        .marker
+                        .strip_prefix("__smelt_")
+                        .map(|kind| (entry.marker, kind, entry.class_name))
+                }),
+        )
+        .collect()
+}
+
 /// Non-registry markers whose records answer a `.constructor` read.
 ///
 /// The registry markers are appended to these; see
@@ -128,7 +155,7 @@ pub fn emit(writer: &mut CodeWriter) {
 /// Emit the marker→kind discriminator for prototype reflection.
 fn emit_marker_kind(writer: &mut CodeWriter) {
     let table = pair_array(
-        &REFLECTED_MARKERS
+        &reflected_markers()
             .iter()
             .map(|(marker, kind, _class)| (*marker, *kind))
             .collect::<Vec<_>>(),
@@ -158,22 +185,20 @@ fn emit_constructor_class(writer: &mut CodeWriter) {
 
 /// Emit the single host constructor shared by direct and reflected construction.
 fn emit_construct(writer: &mut CodeWriter) {
-    // `DataView` builds a window over a *separate* storage buffer, so it is
-    // excluded from the uniform byte-buffer arm and handled on its own below.
-    let storage_kinds = smelt_stdlib::byte_buffer_host_objects()
-        .filter_map(|(marker, _role)| {
-            marker
-                .strip_prefix("__smelt_")
-                .filter(|kind| *kind != "dataview")
-                .map(|kind| (kind, marker))
-        })
+    // Every byte-backed identity — the storage buffers, the eleven typed-array
+    // views, Node `Buffer`, and `DataView` — is built by the one byte-buffer
+    // constructor, which resolves the element type from the marker. `DataView`
+    // used to need its own arm only because that constructor could not yet
+    // window a separate storage buffer or record a `buffer`/`byteOffset`.
+    let byte_kinds = smelt_stdlib::byte_buffer_host_objects()
+        .filter_map(|(marker, _role)| marker.strip_prefix("__smelt_").map(|kind| (kind, marker)))
         .collect::<Vec<_>>();
-    let plain_byte_kinds = storage_kinds
+    let plain_byte_kinds = byte_kinds
         .iter()
         .map(|(kind, _marker)| format!("{kind:?}"))
         .collect::<Vec<_>>()
         .join(" | ");
-    let kind_marker_table = pair_array(&storage_kinds);
+    let kind_marker_table = pair_array(&byte_kinds);
 
     writer.line("/// Build a modeled host instance of `kind` from constructor arguments.");
     writer.line("///");
@@ -197,10 +222,9 @@ fn emit_construct(writer: &mut CodeWriter) {
     writer.line("        \"error\" => { let mut fields = ::std::collections::HashMap::new(); fields.insert(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.insert(\"message\".to_owned(), message); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get(\"cause\") { fields.insert(\"cause\".to_owned(), cause); } } SmeltUnknown::Object(SmeltObject::new(fields)) }");
     // Byte buffers: length | byte-backed source | element array.
     writer.line(format!(
-        "        {plain_byte_kinds} => {{ let marker = {kind_marker_table}.into_iter().find(|(entry, _)| *entry == kind).map_or(\"__smelt_arraybuffer\", |(_, marker)| marker); let bytes = smelt_host_buffer_construct_bytes(args.into_iter().next()); smelt_host_buffer_record(marker, bytes) }}"
+        "        {plain_byte_kinds} => {{ let marker = {kind_marker_table}.into_iter().find(|(entry, _)| *entry == kind).map_or(\"__smelt_arraybuffer\", |(_, marker)| marker); {construct}(marker, args) }}",
+        construct = byte_buffer::CONSTRUCT,
     ));
-    // DataView: a window over a separate storage buffer.
-    writer.line("        \"dataview\" => { let mut it = args.into_iter(); let buffer = it.next().unwrap_or(SmeltUnknown::Undefined); let storage = smelt_host_buffer_construct_bytes(Some(buffer.clone())); let offset = smelt_unknown_byte_count(it.next()).unwrap_or(0); let length = smelt_unknown_byte_count(it.next()).unwrap_or_else(|| storage.len().saturating_sub(offset)); let window = storage.into_iter().skip(offset).take(length).collect::<Vec<_>>(); let count = window.len() as f64; let fields = ::std::collections::HashMap::from([(\"__smelt_dataview\".to_owned(), SmeltUnknown::Bool(true)), (\"buffer\".to_owned(), buffer), (\"byteOffset\".to_owned(), SmeltUnknown::Number(offset as f64)), (\"byteLength\".to_owned(), SmeltUnknown::Number(count)), (\"bytes\".to_owned(), SmeltUnknown::Array(SmeltArray::new(window)))]); SmeltUnknown::Object(SmeltObject::new(fields)) }");
     // Blob / File: `new Blob(parts, { type })`, `new File(parts, name, { type, lastModified })`.
     writer.line(format!(
         "        \"blob\" | \"file\" => {{ let mut it = args.into_iter(); let parts = it.next().unwrap_or(SmeltUnknown::Undefined); let (name, options) = if kind == \"file\" {{ let name = it.next().map(|value| value.to_string()); (name, it.next()) }} else {{ (None, it.next()) }}; let option_field = |field: &str| match &options {{ Some(SmeltUnknown::Object(map)) => map.get(field), _ => None }}; let blob_type = match option_field(\"type\") {{ Some(SmeltUnknown::String(text)) => text, _ => String::new() }}; let last_modified = match option_field(\"lastModified\") {{ Some(SmeltUnknown::Number(value)) => Some(value), _ => None }}; {blob}(parts, blob_type, name, last_modified) }}",
@@ -210,25 +234,12 @@ fn emit_construct(writer: &mut CodeWriter) {
     writer.line("    }");
     writer.line("}");
 
-    writer.line("/// Resolve a byte-buffer constructor argument to the bytes it should hold.");
-    writer.line("///");
-    writer.line("/// `new ArrayBuffer(8)` allocates eight zero bytes; `new Ctor(otherBuffer)`");
-    writer.line("/// copies the source buffer's bytes; `new Ctor([1, 2, 3])` takes the elements.");
-    writer.line("/// Anything else (a string, `undefined`) yields empty storage, matching the");
-    writer.line("/// zero-length buffer a bare `new ArrayBuffer()` produces.");
-    writer.line(format!(
-        "fn smelt_host_buffer_construct_bytes(argument: Option<SmeltUnknown>) -> Vec<SmeltUnknown> {{ match argument {{ Some(SmeltUnknown::Number(length)) => vec![SmeltUnknown::Number(0.0); length.max(0.0) as usize], Some(SmeltUnknown::Array(values)) => values.into_vec(), Some(ref value) => {elements}(value).unwrap_or_default(), None => Vec::new() }} }}",
-        elements = byte_buffer::ELEMENTS,
-    ));
-
-    writer.line("/// Read an optional numeric byte count (`byteOffset`, `byteLength`) argument.");
-    writer.line("fn smelt_unknown_byte_count(argument: Option<SmeltUnknown>) -> Option<usize> { match argument { Some(SmeltUnknown::Number(value)) if value >= 0.0 => Some(value as usize), _ => None } }");
 }
 
 /// Emit the cached per-kind prototype object.
 fn emit_prototype(writer: &mut CodeWriter) {
     let table = pair_array(
-        &REFLECTED_MARKERS
+        &reflected_markers()
             .iter()
             .map(|(_marker, kind, class)| (*kind, *class))
             .collect::<Vec<_>>(),
@@ -258,7 +269,7 @@ fn emit_builtin_namespace(writer: &mut CodeWriter) {
                 .map(|kind| format!("({class:?}, {kind:?})", class = entry.class_name))
         })
         .chain(
-            REFLECTED_MARKERS
+            reflected_markers()
                 .iter()
                 .filter(|(_marker, _kind, class)| {
                     smelt_stdlib::host_object_by_class(class).is_none()

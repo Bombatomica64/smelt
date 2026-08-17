@@ -57,14 +57,14 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
 /// The JavaScript typed-array view constructor names, in a stable order.
 ///
 /// These are the eleven `TypedArray` element-view classes (`Uint8Array`,
-/// `Int8Array`, ..., `BigInt64Array`, `BigUint64Array`). Smelt models a typed
-/// array as a plain numeric list (so `.length`, integer indexing, iteration and
-/// value-equality reuse the list machinery), while this shared name list is the
-/// single source of truth every frontend/codegen site consults to decide
-/// whether a constructor / bare identifier / `instanceof` target names a typed
-/// array. Keeping the set here — rather than re-spelling the `matches!(...)` arm
-/// in each site — stops the construction side, the value-resolution side, and
-/// the `instanceof` side from drifting apart.
+/// `Int8Array`, ..., `BigInt64Array`, `BigUint64Array`). Each has a full
+/// [`crate::host_object`] registry entry — its own identity marker, spec tag, and
+/// element type — and this shared name list is the single source of truth every
+/// frontend/codegen site consults to decide whether a constructor / bare
+/// identifier / `instanceof` target names a typed array. Keeping the set here —
+/// rather than re-spelling the `matches!(...)` arm in each site — stops the
+/// construction side, the value-resolution side, and the `instanceof` side from
+/// drifting apart.
 pub const TYPED_ARRAY_CLASS_NAMES: [&str; 11] = [
     "Int8Array",
     "Uint8Array",
@@ -84,9 +84,10 @@ pub const TYPED_ARRAY_CLASS_NAMES: [&str; 11] = [
 /// Consulted by the TypeScript frontend (constructor lowering, bare-value
 /// resolution, `instanceof` targeting) and codegen so the eleven typed-array
 /// names are recognized from one place. `BigInt64Array` / `BigUint64Array` are
-/// included even though their elements are `BigInt` values: Smelt's minimum-viable
-/// typed array model backs every view with the same numeric list, so they share
-/// the recognizer with the numeric views.
+/// included even though their elements are `BigInt` values: they are eight-byte
+/// integer views like any other, and Smelt models a JavaScript `BigInt` as a
+/// number, so they share both the recognizer and the element codec with the
+/// numeric views.
 #[must_use]
 pub fn is_typed_array_class_name(name: &str) -> bool {
     TYPED_ARRAY_CLASS_NAMES.contains(&name)

@@ -1001,10 +1001,22 @@ return_ty: string_ty,
             ));
         };
         let output = self.argument(argument, body)?;
-        if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, output)),
-            Some(Type::List(item)) if matches!(self.ctx.krate.types.get(*item), Some(Type::Float | Type::Int))
-        ) {
+        let output_ty = self.type_param_constraint_or_self(Self::expr_ty(body, output));
+        let accepts = match self.ctx.krate.types.get(output_ty) {
+            // A concrete numeric list, the shape a hand-written `number[]` has.
+            Some(Type::List(item)) => matches!(
+                self.ctx.krate.types.get(*item),
+                Some(Type::Float | Type::Int)
+            ),
+            // A typed array — the argument the platform API actually takes — is a
+            // byte-backed host-object record, so its static type is the erased
+            // dynamic one. Accepting it here is what keeps
+            // `crypto.getRandomValues(new Uint8Array(n))` lowering after the views
+            // gained real view identity.
+            Some(Type::Unknown | Type::Union(_)) => true,
+            _ => false,
+        };
+        if !accepts {
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "crypto.getRandomValues requires a numeric typed array",

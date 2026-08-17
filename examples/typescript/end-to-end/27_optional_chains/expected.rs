@@ -352,50 +352,175 @@ impl SmeltObject {
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
-fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_request", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
-fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_request", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.contains_key(*marker)) }
+fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_request", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
+fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool { ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_request", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.contains_key(*marker)) }
 /// Return the byte-backed host marker a record carries, if any.
 ///
 /// The marker doubles as the record's identity, so a slice can rebuild a fresh
-/// record of the *same* host kind rather than degrading to a plain object.
-fn smelt_host_buffer_marker(map: &SmeltObject) -> Option<&'static str> { ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_buffer", "__smelt_dataview"].into_iter().find(|marker| map.contains_key(marker)) }
-/// Return a byte-backed host record's storage as an element vector.
+/// record of the *same* host kind rather than degrading to a plain object, and
+/// the element codec can find the record's element type without being told.
+fn smelt_host_buffer_marker(map: &SmeltObject) -> Option<&'static str> { ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview"].into_iter().find(|marker| map.contains_key(marker)) }
+/// Whether an erased value is a *view* over byte storage (`ArrayBuffer.isView`).
 ///
-/// `None` for any other value, so callers can fall through to their existing
-/// array/string/iterator handling. Backs `new Uint8Array(arrayBuffer)`: a typed
-/// array over byte storage sees exactly those bytes.
-fn smelt_host_buffer_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { let SmeltUnknown::Object(map) = value else { return None; }; smelt_host_buffer_marker(map)?; match map.get("bytes") { Some(SmeltUnknown::Array(values)) => Some(values.into_vec()), _ => Some(Vec::new()) } }
+/// `true` for the view kinds (the typed arrays, `DataView`, Node `Buffer`) and
+/// `false` for the storage kinds (`ArrayBuffer`, `SharedArrayBuffer`), exactly
+/// as the platform predicate answers.
+fn smelt_host_buffer_is_view(value: &SmeltUnknown) -> bool { let SmeltUnknown::Object(map) = value else { return false; }; ["__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview"].into_iter().any(|marker| map.contains_key(marker)) }
+/// Whether a byte-backed marker names a *view* rather than byte storage.
+///
+/// A view in JavaScript is always a window onto an `ArrayBuffer`, so this is
+/// what decides whether a freshly built record also gets `buffer`/`byteOffset`.
+fn smelt_host_buffer_is_view_marker(marker: &str) -> bool { ["__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview"].into_iter().any(|entry| entry == marker) }
+/// The element tag and byte stride of a byte-backed marker's view.
+///
+/// `None` for the byte-addressed kinds (`ArrayBuffer`, `SharedArrayBuffer`,
+/// `DataView`), whose bytes carry no single element type; callers then treat
+/// the storage as a stride-one byte sequence.
+fn smelt_host_buffer_element_kind(marker: &str) -> Option<(&'static str, usize)> { [("__smelt_int8array", "int8", 1), ("__smelt_uint8array", "uint8", 1), ("__smelt_uint8clampedarray", "uint8clamped", 1), ("__smelt_int16array", "int16", 2), ("__smelt_uint16array", "uint16", 2), ("__smelt_int32array", "int32", 4), ("__smelt_uint32array", "uint32", 4), ("__smelt_float32array", "float32", 4), ("__smelt_float64array", "float64", 8), ("__smelt_bigint64array", "bigint64", 8), ("__smelt_biguint64array", "biguint64", 8), ("__smelt_buffer", "uint8", 1)].into_iter().find(|(entry, _, _)| *entry == marker).map(|(_, tag, width)| (tag, width)) }
+/// The byte stride of a byte-backed marker: its `BYTES_PER_ELEMENT`, or 1.
+fn smelt_host_buffer_stride(marker: &str) -> usize { smelt_host_buffer_element_kind(marker).map_or(1, |(_, width)| width) }
+/// Read one raw byte out of a `bytes` storage list, zero past the end.
+fn smelt_host_buffer_raw_byte(bytes: &[SmeltUnknown], index: usize) -> u8 { match bytes.get(index) { Some(SmeltUnknown::Number(value)) if value.is_finite() => *value as i64 as u8, _ => 0 } }
+/// Coerce a JavaScript number to the integer an integer view stores.
+///
+/// Truncates toward zero and maps the non-finite values to `0`, matching
+/// ECMAScript `ToIntegerOrInfinity` followed by the modulo-2^n wrap that the
+/// caller's `as i8`/`as u16`/... cast performs.
+fn smelt_host_buffer_to_integer(value: f64) -> i64 { if value.is_finite() { value.trunc() as i64 } else { 0 } }
+/// Decode the element of type `kind` starting at byte `offset`.
+///
+/// Little-endian, and signed for the signed views: byte `0xff` decodes to
+/// `255` through `uint8` and `-1` through `int8`. Bytes past the end read as
+/// zero, so a truncated final element decodes rather than panicking.
+fn smelt_host_buffer_decode_element(kind: &str, bytes: &[SmeltUnknown], offset: usize) -> SmeltUnknown { let mut raw = [0u8; 8]; let width = smelt_host_buffer_kind_width(kind); for index in 0..width { raw[index] = smelt_host_buffer_raw_byte(bytes, offset + index); } SmeltUnknown::Number(match kind { "int8" => i8::from_le_bytes([raw[0]]) as f64, "uint8" => raw[0] as f64, "uint8clamped" => raw[0] as f64, "int16" => i16::from_le_bytes([raw[0], raw[1]]) as f64, "uint16" => u16::from_le_bytes([raw[0], raw[1]]) as f64, "int32" => i32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as f64, "uint32" => u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as f64, "float32" => f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as f64, "float64" => f64::from_le_bytes(raw), "bigint64" => i64::from_le_bytes(raw) as f64, "biguint64" => u64::from_le_bytes(raw) as f64, _ => raw[0] as f64 }) }
+/// The byte width of an element tag, for the decode buffer above.
+fn smelt_host_buffer_kind_width(kind: &str) -> usize { match kind { "int8" => 1, "uint8" => 1, "uint8clamped" => 1, "int16" => 2, "uint16" => 2, "int32" => 4, "uint32" => 4, "float32" => 4, "float64" => 8, "bigint64" => 8, "biguint64" => 8, _ => 1 } }
+/// Encode one JavaScript value as the bytes of an element of type `kind`.
+///
+/// Integer views wrap modulo their width (ECMAScript `ToInt8`/`ToUint16`/...),
+/// which is why an `Int8Array` holding `-1` and a `Uint8Array` holding `255`
+/// have byte-identical buffers. `Uint8ClampedArray` saturates instead.
+fn smelt_host_buffer_encode_element(kind: &str, value: &SmeltUnknown) -> Vec<SmeltUnknown> { let number = match value { SmeltUnknown::Number(value) => *value, SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 }, SmeltUnknown::String(text) => text.trim().parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Null => 0.0, _ => f64::NAN }; let raw: Vec<u8> = match kind { "int8" => vec![smelt_host_buffer_to_integer(number) as i8 as u8], "uint8" => vec![smelt_host_buffer_to_integer(number) as u8], "uint8clamped" => vec![if number.is_nan() { 0u8 } else { number.round_ties_even().clamp(0.0, 255.0) as u8 }], "int16" => (smelt_host_buffer_to_integer(number) as i16).to_le_bytes().to_vec(), "uint16" => (smelt_host_buffer_to_integer(number) as u16).to_le_bytes().to_vec(), "int32" => (smelt_host_buffer_to_integer(number) as i32).to_le_bytes().to_vec(), "uint32" => (smelt_host_buffer_to_integer(number) as u32).to_le_bytes().to_vec(), "float32" => (number as f32).to_le_bytes().to_vec(), "float64" => number.to_le_bytes().to_vec(), "bigint64" => smelt_host_buffer_to_integer(number).to_le_bytes().to_vec(), "biguint64" => (smelt_host_buffer_to_integer(number) as u64).to_le_bytes().to_vec(), _ => vec![smelt_host_buffer_to_integer(number) as u8] }; raw.into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect() }
 /// Build a byte-backed host record of `marker` identity over `bytes`.
 ///
-/// `byteLength` and `length` are derived from the byte count so a sliced
-/// buffer never reports its source's size. The record gets a fresh object id,
-/// which is what `clone(buf) !== buf` depends on.
-fn smelt_host_buffer_record(marker: &'static str, bytes: Vec<SmeltUnknown>) -> SmeltUnknown { let count = bytes.len() as f64; let mut fields = ::std::collections::HashMap::new(); fields.insert(marker.to_owned(), SmeltUnknown::Bool(true)); fields.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); fields.insert("byteLength".to_owned(), SmeltUnknown::Number(count)); fields.insert("length".to_owned(), SmeltUnknown::Number(count)); SmeltUnknown::Object(SmeltObject::new(fields)) }
+/// `byteLength` is the byte count and `length` is the *element* count, so a
+/// `Float64Array` over eight bytes reports length 1 while a `Uint8Array` over
+/// the same bytes reports 8. An element-typed view is always a window onto an
+/// `ArrayBuffer` in JavaScript, so it also gets `byteOffset` and a `buffer`
+/// storage record. The record gets a fresh object id, which is what
+/// `clone(buf) !== buf` depends on.
+fn smelt_host_buffer_record(marker: &'static str, bytes: Vec<SmeltUnknown>) -> SmeltUnknown { let buffer = smelt_host_buffer_is_view_marker(marker).then(|| smelt_host_buffer_storage_record(bytes.clone())); smelt_host_buffer_view_record(marker, bytes, buffer, 0) }
+/// Build a fresh `ArrayBuffer` record over `bytes`.
+///
+/// Backs `typedArray.buffer` for a view that was not built from an existing
+/// buffer (`new Uint8Array([1, 2, 3]).buffer`). `ArrayBuffer` is byte-addressed,
+/// so this never recurses into a nested buffer of its own.
+fn smelt_host_buffer_storage_record(bytes: Vec<SmeltUnknown>) -> SmeltUnknown { smelt_host_buffer_view_record("__smelt_arraybuffer", bytes, None, 0) }
+/// Build a byte-backed host record, optionally sharing an existing `buffer`.
+///
+/// Passing the *same* storage record two views were built from is what makes
+/// `view.buffer === buffer` hold, which lodash-compatible clone specs assert on
+/// a cloned view.
+fn smelt_host_buffer_view_record(marker: &'static str, bytes: Vec<SmeltUnknown>, buffer: Option<SmeltUnknown>, byte_offset: usize) -> SmeltUnknown { let byte_length = bytes.len(); let stride = smelt_host_buffer_stride(marker); let mut fields = ::std::collections::HashMap::new(); fields.insert(marker.to_owned(), SmeltUnknown::Bool(true)); fields.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); fields.insert("byteLength".to_owned(), SmeltUnknown::Number(byte_length as f64)); fields.insert("length".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64)); if let Some(buffer) = buffer { fields.insert("buffer".to_owned(), buffer); fields.insert("byteOffset".to_owned(), SmeltUnknown::Number(byte_offset as f64)); } SmeltUnknown::Object(SmeltObject::new(fields)) }
+/// Return a byte-backed host record's raw storage bytes, or `None`.
+///
+/// This is the *byte* view of the record, which is what
+/// `new Float32Array(arrayBuffer)` re-interprets and what `DataView` windows.
+fn smelt_host_buffer_raw_bytes(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { let SmeltUnknown::Object(map) = value else { return None; }; smelt_host_buffer_marker(map)?; Some(match map.get("bytes") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }) }
+/// Return a byte-backed host record's storage decoded as its *elements*.
+///
+/// `None` for any other value, so callers can fall through to their existing
+/// array/string/iterator handling. This is the array-like face of a typed
+/// array: iteration, spread and `Array.from` all see decoded elements at the
+/// view's own width, not its raw bytes. Byte-addressed storage decodes as its
+/// bytes, which is what `new Uint8Array(dataView)` wants.
+fn smelt_host_buffer_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { let SmeltUnknown::Object(map) = value else { return None; }; let marker = smelt_host_buffer_marker(map)?; let bytes = smelt_host_buffer_raw_bytes(value)?; let Some((kind, width)) = smelt_host_buffer_element_kind(marker) else { return Some(bytes); }; Some((0..bytes.len() / width).map(|index| smelt_host_buffer_decode_element(kind, &bytes, index * width)).collect()) }
+/// A byte-backed host record's own enumerable keys: its element indices.
+///
+/// `None` for values that are not byte-backed. A typed array's own properties
+/// are exactly its indexed elements — `length`, `byteLength`, `byteOffset` and
+/// `buffer` are prototype accessors and never enumerate — so
+/// `Object.keys(new Uint8Array(1))` is `['0']` and a deep-equality walk over
+/// two views compares elements rather than internal storage keys.
+fn smelt_host_buffer_index_keys(value: &SmeltUnknown) -> Option<Vec<String>> { let count = smelt_host_buffer_elements(value)?.len(); Some((0..count).map(|index| index.to_string()).collect()) }
+/// The same own-key set, for a byte-backed record reached through the
+/// structural `SmeltRecord` ABI rather than as a tagged `SmeltUnknown`.
+///
+/// An erased object crossing into a `Record<string, unknown>` parameter is
+/// re-materialized as a `SmeltRecord`, so `Object.keys` on that side needs the
+/// same index-key answer — remeda's `isShallowEqual` reads exactly that path.
+fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<String>> { smelt_host_buffer_index_keys(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
+/// The decoded elements of a byte-backed record reached through the
+/// structural `SmeltRecord` ABI. Backs `Object.values`/`Object.entries` over a
+/// view, which pair with the index keys above.
+fn smelt_host_buffer_record_elements(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> { smelt_host_buffer_elements(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
 /// Slice a byte-backed host record into a fresh record of the same host kind.
 ///
 /// `None` for values that are not byte-backed, so `.slice()`/`.subarray()` on
-/// an erased receiver keeps its array/string behavior. Negative bounds count
-/// back from the end and both bounds clamp, matching
+/// an erased receiver keeps its array/string behavior. Bounds are *element*
+/// indices for an element-typed view and byte indices for byte-addressed
+/// storage — one code path once the stride comes from the registry. Negative
+/// bounds count back from the end and both bounds clamp, matching
 /// `ArrayBuffer.prototype.slice` and `TypedArray.prototype.subarray`.
-fn smelt_host_buffer_slice(value: &SmeltUnknown, start: i64, end: Option<i64>) -> Option<SmeltUnknown> { let SmeltUnknown::Object(map) = value else { return None; }; let marker = smelt_host_buffer_marker(map)?; let bytes = match map.get("bytes") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; let len = bytes.len() as i64; let from = (if start < 0 { len + start } else { start }).clamp(0, len); let to = end.map_or(len, |end| if end < 0 { len + end } else { end }).clamp(0, len); let take = to.saturating_sub(from) as usize; Some(smelt_host_buffer_record(marker, bytes.into_iter().skip(from as usize).take(take).collect())) }
-/// Read one indexed element (`buffer[1]`) of a byte-backed host record.
+fn smelt_host_buffer_slice(value: &SmeltUnknown, start: i64, end: Option<i64>) -> Option<SmeltUnknown> { let SmeltUnknown::Object(map) = value else { return None; }; let marker = smelt_host_buffer_marker(map)?; let bytes = smelt_host_buffer_raw_bytes(value)?; let stride = smelt_host_buffer_stride(marker); let len = (bytes.len() / stride) as i64; let from = (if start < 0 { len + start } else { start }).clamp(0, len); let to = end.map_or(len, |end| if end < 0 { len + end } else { end }).clamp(0, len); let take = to.saturating_sub(from) as usize; Some(smelt_host_buffer_record(marker, bytes.into_iter().skip(from as usize * stride).take(take * stride).collect())) }
+/// Read one indexed element (`view[1]`) of a byte-backed host record.
 ///
 /// `None` when the receiver is not byte-backed or the key is not an array
 /// index, so ordinary erased field/index reads are untouched. An in-range
-/// index of a byte buffer is a byte, never `undefined`.
-fn smelt_host_buffer_element(map: &SmeltObject, key: &str) -> Option<SmeltUnknown> { smelt_host_buffer_marker(map)?; let index = key.parse::<usize>().ok()?; match map.get("bytes") { Some(SmeltUnknown::Array(values)) => values.into_vec().get(index).cloned(), _ => None } }
-/// Write one indexed element (`view[i] = byte`) of a byte-backed host record.
+/// index of a view decodes at the element's own width and signedness; past the
+/// end it answers `undefined`, as a typed array does.
+fn smelt_host_buffer_element(map: &SmeltObject, key: &str) -> Option<SmeltUnknown> { let marker = smelt_host_buffer_marker(map)?; let index = key.parse::<usize>().ok()?; let bytes = match map.get("bytes") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; let (kind, width) = smelt_host_buffer_element_kind(marker).unwrap_or(("uint8", 1)); if (index + 1) * width > bytes.len() { return None; } Some(smelt_host_buffer_decode_element(kind, &bytes, index * width)) }
+/// Write one indexed element (`view[i] = value`) of a byte-backed host record.
 ///
 /// Returns whether the write was absorbed by the byte storage; `false` leaves
-/// the caller's ordinary record insert in charge. Writes past the end are
-/// absorbed and dropped, matching a typed array's fixed-length storage.
-fn smelt_host_buffer_set_element(map: &SmeltObject, key: &str, value: SmeltUnknown) -> bool { if smelt_host_buffer_marker(map).is_none() { return false; } let Ok(index) = key.parse::<usize>() else { return false; }; let Some(SmeltUnknown::Array(values)) = map.get("bytes") else { return false; }; let mut bytes = values.into_vec(); if index < bytes.len() { bytes[index] = value; map.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); } true }
-/// Whether an erased value is a *view* over byte storage (`ArrayBuffer.isView`).
+/// the caller's ordinary record insert in charge. The value is encoded into
+/// exactly the element's bytes, so `int8View[0] = -1` stores the byte `255`.
+/// Writes past the end are absorbed and dropped, matching a typed array's
+/// fixed-length storage. The write also lands in the view's backing `buffer`
+/// record *in place*, so `view[0] = 1` is visible through `view.buffer` and the
+/// buffer keeps its object identity (`view.buffer === buffer` still holds).
+fn smelt_host_buffer_set_element(map: &SmeltObject, key: &str, value: SmeltUnknown) -> bool { let Some(marker) = smelt_host_buffer_marker(map) else { return false; }; let Ok(index) = key.parse::<usize>() else { return false; }; let Some(SmeltUnknown::Array(values)) = map.get("bytes") else { return false; }; let mut bytes = values.into_vec(); let (kind, width) = smelt_host_buffer_element_kind(marker).unwrap_or(("uint8", 1)); let offset = index * width; if offset + width <= bytes.len() { let encoded = smelt_host_buffer_encode_element(kind, &value); for (step, byte) in encoded.iter().enumerate() { bytes[offset + step] = byte.clone(); } map.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); smelt_host_buffer_write_through(map, offset, &encoded); } true }
+/// Mirror an element write into the view's backing `buffer` storage record.
 ///
-/// `true` for the view kinds (`DataView`, Node `Buffer`) and `false` for the
-/// storage kinds (`ArrayBuffer`, `SharedArrayBuffer`), exactly as the platform
-/// predicate answers.
-fn smelt_host_buffer_is_view(value: &SmeltUnknown) -> bool { let SmeltUnknown::Object(map) = value else { return false; }; ["__smelt_buffer", "__smelt_dataview"].into_iter().any(|marker| map.contains_key(marker)) }
+/// A typed array is a window onto an `ArrayBuffer`, so a write through the view
+/// is a write to the buffer — `new Uint8Array(buf)[0] = 1` then shows up in
+/// `buf`. `SmeltObject` has interior mutability, so the storage record is updated
+/// in place rather than replaced: replacing it would mint a new object id and
+/// break `view.buffer === buf`. `byteOffset` places the window inside the
+/// buffer. A no-op for the byte-addressed kinds, which have no backing buffer.
+fn smelt_host_buffer_write_through(map: &SmeltObject, offset: usize, encoded: &[SmeltUnknown]) { let Some(SmeltUnknown::Object(storage)) = map.get("buffer") else { return; }; let base = match map.get("byteOffset") { Some(SmeltUnknown::Number(value)) if value >= 0.0 => value as usize, _ => 0 }; let Some(SmeltUnknown::Array(values)) = storage.get("bytes") else { return; }; let mut bytes = values.into_vec(); for (step, byte) in encoded.iter().enumerate() { let at = base + offset + step; if at < bytes.len() { bytes[at] = byte.clone(); } } storage.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); }
+/// Whether an erased value is byte *storage* (an `ArrayBuffer`), not a view.
+///
+/// This is the distinction that decides what `new Float32Array(source)` means:
+/// over storage it re-*views* the bytes (eight bytes become two elements), over
+/// a view or an array it *converts* the elements one by one.
+fn smelt_host_buffer_is_storage(value: &SmeltUnknown) -> bool { let SmeltUnknown::Object(map) = value else { return false; }; ["__smelt_arraybuffer", "__smelt_sharedarraybuffer"].into_iter().any(|marker| map.contains_key(marker)) }
+/// Read an optional non-negative numeric constructor argument.
+fn smelt_host_buffer_count_argument(argument: Option<&SmeltUnknown>) -> Option<usize> { match argument { Some(SmeltUnknown::Number(value)) if *value >= 0.0 => Some(*value as usize), _ => None } }
+/// Build a byte-backed host record of `marker` identity from `new X(...)` args.
+///
+/// The four JavaScript constructor forms, all resolved from the registry rather
+/// than per call site:
+///
+/// * `new X(n)` — `n` *elements* of zeroes (`new Float64Array(2)` is 16 bytes);
+/// * `new X(arrayBuffer[, byteOffset[, length]])` — a **view** over that
+///   storage's bytes, sharing the buffer record so `view.buffer === buffer`;
+/// * `new X(otherView)` / `new X([...])` — an element-by-element **conversion**,
+///   so `new Uint8Array(new Int8Array([-1]))` holds `255`;
+/// * `new X()` — empty storage.
+///
+/// Byte-addressed targets (`ArrayBuffer`, `SharedArrayBuffer`) have stride one
+/// and no element codec, so the same code gives them their platform behavior.
+fn smelt_host_buffer_construct(marker: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
+    let element = smelt_host_buffer_element_kind(marker);
+    let stride = element.map_or(1, |(_, width)| width);
+    let source = args.first();
+    match source {
+        Some(value) if smelt_host_buffer_is_storage(value) => { let storage = smelt_host_buffer_raw_bytes(value).unwrap_or_default(); let offset = smelt_host_buffer_count_argument(args.get(1)).unwrap_or(0).min(storage.len()); let available = storage.len() - offset; let take = smelt_host_buffer_count_argument(args.get(2)).map_or(available, |count| (count * stride).min(available)); let window = storage.into_iter().skip(offset).take(take).collect::<Vec<_>>(); let buffer = smelt_host_buffer_is_view_marker(marker).then(|| value.clone()); smelt_host_buffer_view_record(marker, window, buffer, offset) }
+        Some(value) => { let source_elements = match value { SmeltUnknown::Array(values) => Some(values.clone().into_vec()), _ => smelt_host_buffer_elements(value) }; match source_elements { Some(source_elements) => match element { Some((kind, _)) => smelt_host_buffer_record(marker, source_elements.iter().flat_map(|item| smelt_host_buffer_encode_element(kind, item)).collect()), None => smelt_host_buffer_record(marker, source_elements) }, None => match smelt_host_buffer_count_argument(Some(value)) { Some(count) => smelt_host_buffer_record(marker, vec![SmeltUnknown::Number(0.0); count * stride]), None => smelt_host_buffer_record(marker, Vec::new()) } } }
+        None => smelt_host_buffer_record(marker, Vec::new()),
+    }
+}
 /// Build the array-like `arguments` object from a function's parameters.
 ///
 /// Positional parameters lead; the rest parameter's list is flattened onto
@@ -429,14 +554,14 @@ fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.ge
 /// Discriminate the host-marker kind whose prototype exposes a reflected
 /// constructor. `None` for plain objects, arrays and class instances, which
 /// keep their opaque `"__smelt_proto:*"` string sentinels.
-fn smelt_reflected_marker_kind(map: &SmeltObject) -> Option<&'static str> { [("__smelt_date", "date"), ("__smelt_map", "map"), ("__smelt_set", "set"), ("__smelt_regexp", "regexp"), ("__smelt_dataview", "dataview"), ("__smelt_buffer", "buffer"), ("__smelt_error", "error"), ("__smelt_file", "file"), ("__smelt_number", "number"), ("__smelt_boolean", "boolean")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, kind)| kind) }
+fn smelt_reflected_marker_kind(map: &SmeltObject) -> Option<&'static str> { [("__smelt_date", "date"), ("__smelt_map", "map"), ("__smelt_set", "set"), ("__smelt_regexp", "regexp"), ("__smelt_dataview", "dataview"), ("__smelt_buffer", "buffer"), ("__smelt_error", "error"), ("__smelt_file", "file"), ("__smelt_number", "number"), ("__smelt_boolean", "boolean"), ("__smelt_int8array", "int8array"), ("__smelt_uint8array", "uint8array"), ("__smelt_uint8clampedarray", "uint8clampedarray"), ("__smelt_int16array", "int16array"), ("__smelt_uint16array", "uint16array"), ("__smelt_int32array", "int32array"), ("__smelt_uint32array", "uint32array"), ("__smelt_float32array", "float32array"), ("__smelt_float64array", "float64array"), ("__smelt_bigint64array", "bigint64array"), ("__smelt_biguint64array", "biguint64array")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, kind)| kind) }
 /// The class name a marker-bearing record's `.constructor` read resolves to.
 ///
 /// `blob.constructor === Blob` holds in JavaScript, and es-toolkit's clone
 /// specs assert exactly that on a cloned host object. Unmarked records answer
 /// `None`, so a plain object's `.constructor` stays `undefined` — which is what
 /// makes two plain objects compare as equal instances.
-fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> { [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_error", "Error"), ("__smelt_arraybuffer", "ArrayBuffer"), ("__smelt_sharedarraybuffer", "SharedArrayBuffer"), ("__smelt_buffer", "Buffer"), ("__smelt_dataview", "DataView"), ("__smelt_weakmap", "WeakMap"), ("__smelt_weakset", "WeakSet"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_request", "Request"), ("__smelt_domexception", "DOMException"), ("__smelt_intl_collator", "Intl.Collator"), ("__smelt_intl_displaynames", "Intl.DisplayNames"), ("__smelt_intl_durationformat", "Intl.DurationFormat"), ("__smelt_intl_listformat", "Intl.ListFormat"), ("__smelt_intl_locale", "Intl.Locale"), ("__smelt_intl_numberformat", "Intl.NumberFormat"), ("__smelt_intl_pluralrules", "Intl.PluralRules"), ("__smelt_intl_segmenter", "Intl.Segmenter"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_string", "String"), ("__smelt_symbol", "Symbol")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, class)| class) }
+fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> { [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_error", "Error"), ("__smelt_arraybuffer", "ArrayBuffer"), ("__smelt_sharedarraybuffer", "SharedArrayBuffer"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array"), ("__smelt_buffer", "Buffer"), ("__smelt_dataview", "DataView"), ("__smelt_weakmap", "WeakMap"), ("__smelt_weakset", "WeakSet"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_request", "Request"), ("__smelt_domexception", "DOMException"), ("__smelt_intl_collator", "Intl.Collator"), ("__smelt_intl_displaynames", "Intl.DisplayNames"), ("__smelt_intl_durationformat", "Intl.DurationFormat"), ("__smelt_intl_listformat", "Intl.ListFormat"), ("__smelt_intl_locale", "Intl.Locale"), ("__smelt_intl_numberformat", "Intl.NumberFormat"), ("__smelt_intl_pluralrules", "Intl.PluralRules"), ("__smelt_intl_segmenter", "Intl.Segmenter"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_string", "String"), ("__smelt_symbol", "Symbol")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, class)| class) }
 /// Build a modeled host instance of `kind` from constructor arguments.
 ///
 /// This is the one constructor for a host identity: the direct `new X(...)`
@@ -453,23 +578,13 @@ fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> { [
 fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     match kind {
         "error" => { let mut fields = ::std::collections::HashMap::new(); fields.insert("__smelt_error".to_owned(), SmeltUnknown::String("Error".to_owned())); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.insert("message".to_owned(), message); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get("cause") { fields.insert("cause".to_owned(), cause); } } SmeltUnknown::Object(SmeltObject::new(fields)) }
-        "arraybuffer" | "sharedarraybuffer" | "buffer" => { let marker = [("arraybuffer", "__smelt_arraybuffer"), ("sharedarraybuffer", "__smelt_sharedarraybuffer"), ("buffer", "__smelt_buffer")].into_iter().find(|(entry, _)| *entry == kind).map_or("__smelt_arraybuffer", |(_, marker)| marker); let bytes = smelt_host_buffer_construct_bytes(args.into_iter().next()); smelt_host_buffer_record(marker, bytes) }
-        "dataview" => { let mut it = args.into_iter(); let buffer = it.next().unwrap_or(SmeltUnknown::Undefined); let storage = smelt_host_buffer_construct_bytes(Some(buffer.clone())); let offset = smelt_unknown_byte_count(it.next()).unwrap_or(0); let length = smelt_unknown_byte_count(it.next()).unwrap_or_else(|| storage.len().saturating_sub(offset)); let window = storage.into_iter().skip(offset).take(length).collect::<Vec<_>>(); let count = window.len() as f64; let fields = ::std::collections::HashMap::from([("__smelt_dataview".to_owned(), SmeltUnknown::Bool(true)), ("buffer".to_owned(), buffer), ("byteOffset".to_owned(), SmeltUnknown::Number(offset as f64)), ("byteLength".to_owned(), SmeltUnknown::Number(count)), ("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(window)))]); SmeltUnknown::Object(SmeltObject::new(fields)) }
+        "arraybuffer" | "sharedarraybuffer" | "int8array" | "uint8array" | "uint8clampedarray" | "int16array" | "uint16array" | "int32array" | "uint32array" | "float32array" | "float64array" | "bigint64array" | "biguint64array" | "buffer" | "dataview" => { let marker = [("arraybuffer", "__smelt_arraybuffer"), ("sharedarraybuffer", "__smelt_sharedarraybuffer"), ("int8array", "__smelt_int8array"), ("uint8array", "__smelt_uint8array"), ("uint8clampedarray", "__smelt_uint8clampedarray"), ("int16array", "__smelt_int16array"), ("uint16array", "__smelt_uint16array"), ("int32array", "__smelt_int32array"), ("uint32array", "__smelt_uint32array"), ("float32array", "__smelt_float32array"), ("float64array", "__smelt_float64array"), ("bigint64array", "__smelt_bigint64array"), ("biguint64array", "__smelt_biguint64array"), ("buffer", "__smelt_buffer"), ("dataview", "__smelt_dataview")].into_iter().find(|(entry, _)| *entry == kind).map_or("__smelt_arraybuffer", |(_, marker)| marker); smelt_host_buffer_construct(marker, args) }
         "blob" | "file" => { let mut it = args.into_iter(); let parts = it.next().unwrap_or(SmeltUnknown::Undefined); let (name, options) = if kind == "file" { let name = it.next().map(|value| value.to_string()); (name, it.next()) } else { (None, it.next()) }; let option_field = |field: &str| match &options { Some(SmeltUnknown::Object(map)) => map.get(field), _ => None }; let blob_type = match option_field("type") { Some(SmeltUnknown::String(text)) => text, _ => String::new() }; let last_modified = match option_field("lastModified") { Some(SmeltUnknown::Number(value)) => Some(value), _ => None }; smelt_blob_record_from_parts(parts, blob_type, name, last_modified) }
         _ => smelt_fresh_identity(args.into_iter().next().unwrap_or(SmeltUnknown::Undefined)),
     }
 }
-/// Resolve a byte-buffer constructor argument to the bytes it should hold.
-///
-/// `new ArrayBuffer(8)` allocates eight zero bytes; `new Ctor(otherBuffer)`
-/// copies the source buffer's bytes; `new Ctor([1, 2, 3])` takes the elements.
-/// Anything else (a string, `undefined`) yields empty storage, matching the
-/// zero-length buffer a bare `new ArrayBuffer()` produces.
-fn smelt_host_buffer_construct_bytes(argument: Option<SmeltUnknown>) -> Vec<SmeltUnknown> { match argument { Some(SmeltUnknown::Number(length)) => vec![SmeltUnknown::Number(0.0); length.max(0.0) as usize], Some(SmeltUnknown::Array(values)) => values.into_vec(), Some(ref value) => smelt_host_buffer_elements(value).unwrap_or_default(), None => Vec::new() } }
-/// Read an optional numeric byte count (`byteOffset`, `byteLength`) argument.
-fn smelt_unknown_byte_count(argument: Option<SmeltUnknown>) -> Option<usize> { match argument { Some(SmeltUnknown::Number(value)) if value >= 0.0 => Some(value as usize), _ => None } }
 /// The class name behind a reflected-prototype kind.
-fn smelt_reflected_kind_class(kind: &str) -> &'static str { [("date", "Date"), ("map", "Map"), ("set", "Set"), ("regexp", "RegExp"), ("dataview", "DataView"), ("buffer", "Buffer"), ("error", "Error"), ("file", "File"), ("number", "Number"), ("boolean", "Boolean")].into_iter().find(|(entry, _)| *entry == kind).map_or("Object", |(_, class)| class) }
+fn smelt_reflected_kind_class(kind: &str) -> &'static str { [("date", "Date"), ("map", "Map"), ("set", "Set"), ("regexp", "RegExp"), ("dataview", "DataView"), ("buffer", "Buffer"), ("error", "Error"), ("file", "File"), ("number", "Number"), ("boolean", "Boolean"), ("int8array", "Int8Array"), ("uint8array", "Uint8Array"), ("uint8clampedarray", "Uint8ClampedArray"), ("int16array", "Int16Array"), ("uint16array", "Uint16Array"), ("int32array", "Int32Array"), ("uint32array", "Uint32Array"), ("float32array", "Float32Array"), ("float64array", "Float64Array"), ("bigint64array", "BigInt64Array"), ("biguint64array", "BigUint64Array")].into_iter().find(|(entry, _)| *entry == kind).map_or("Object", |(_, class)| class) }
 /// One cached prototype object per marker kind, so
 /// `Object.getPrototypeOf(a) === Object.getPrototypeOf(b)` holds for two values
 /// of the same kind (`SmeltObject` `===` compares the stable `id`). Its
@@ -479,7 +594,7 @@ thread_local! { static SMELT_MARKER_PROTOS: ::std::cell::RefCell<::std::collecti
 fn smelt_reflected_prototype(kind: &'static str) -> SmeltUnknown { SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(kind).or_insert_with(|| { let ctor = smelt_builtin_namespace(smelt_reflected_kind_class(kind)); SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([("constructor".to_owned(), ctor)]))) }).clone()) }
 /// The kind a global constructor name constructs, when it names a modeled host
 /// identity. `None` for pure namespaces (`Math`, `JSON`), which are not callable.
-fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBuffer", "arraybuffer"), ("SharedArrayBuffer", "sharedarraybuffer"), ("Buffer", "buffer"), ("DataView", "dataview"), ("WeakMap", "weakmap"), ("WeakSet", "weakset"), ("File", "file"), ("Blob", "blob"), ("Request", "request"), ("DOMException", "domexception"), ("Intl.Collator", "intl_collator"), ("Intl.DisplayNames", "intl_displaynames"), ("Intl.DurationFormat", "intl_durationformat"), ("Intl.ListFormat", "intl_listformat"), ("Intl.Locale", "intl_locale"), ("Intl.NumberFormat", "intl_numberformat"), ("Intl.PluralRules", "intl_pluralrules"), ("Intl.Segmenter", "intl_segmenter"), ("Number", "number"), ("Boolean", "boolean"), ("String", "string"), ("Symbol", "symbol"), ("Date", "date"), ("Map", "map"), ("Set", "set"), ("RegExp", "regexp"), ("Error", "error")].into_iter().find(|(class, _)| *class == name).map(|(_, kind)| kind) }
+fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBuffer", "arraybuffer"), ("SharedArrayBuffer", "sharedarraybuffer"), ("Int8Array", "int8array"), ("Uint8Array", "uint8array"), ("Uint8ClampedArray", "uint8clampedarray"), ("Int16Array", "int16array"), ("Uint16Array", "uint16array"), ("Int32Array", "int32array"), ("Uint32Array", "uint32array"), ("Float32Array", "float32array"), ("Float64Array", "float64array"), ("BigInt64Array", "bigint64array"), ("BigUint64Array", "biguint64array"), ("Buffer", "buffer"), ("DataView", "dataview"), ("WeakMap", "weakmap"), ("WeakSet", "weakset"), ("File", "file"), ("Blob", "blob"), ("Request", "request"), ("DOMException", "domexception"), ("Intl.Collator", "intl_collator"), ("Intl.DisplayNames", "intl_displaynames"), ("Intl.DurationFormat", "intl_durationformat"), ("Intl.ListFormat", "intl_listformat"), ("Intl.Locale", "intl_locale"), ("Intl.NumberFormat", "intl_numberformat"), ("Intl.PluralRules", "intl_pluralrules"), ("Intl.Segmenter", "intl_segmenter"), ("Number", "number"), ("Boolean", "boolean"), ("String", "string"), ("Symbol", "symbol"), ("Date", "date"), ("Map", "map"), ("Set", "set"), ("RegExp", "regexp"), ("Error", "error")].into_iter().find(|(class, _)| *class == name).map(|(_, kind)| kind) }
 /// The interned value for a global builtin *name* used as a value.
 ///
 /// JavaScript exposes one object per global name, so `Blob === Blob` and
@@ -504,7 +619,7 @@ fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value 
 /// `@@toStringTag`-bearing `name` becomes the tag, matching `[object JSON]` /
 /// `[object Math]`). Class instances and unmarked records are plain
 /// `[object Object]`, exactly like JavaScript objects without a custom tag.
-fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
+fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
 impl Eq for SmeltObject {}

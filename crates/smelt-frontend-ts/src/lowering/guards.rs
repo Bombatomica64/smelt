@@ -49,33 +49,11 @@ impl ModuleBuilder<'_> {
             ));
         };
         let class_text = class_ident.name.as_str();
-        // `x instanceof Uint8Array` (any typed-array view). Smelt models a typed
-        // array as a plain numeric list, so identity is only recoverable from the
-        // static type: a list-typed operand *is* a typed array in this model and
-        // folds to `true`, while any other concrete or erased operand carries no
-        // typed-array identity and folds to `false`. This deliberately cannot
-        // distinguish a typed array from a plain `number[]` — the numeric-list
-        // representation erases that distinction — but it keeps the check honest
-        // for the common concrete cases and never aborts the build. A
-        // user-declared class of the same name owns the name and is handled by
-        // the ordinary class path below.
-        if smelt_stdlib::is_typed_array_class_name(class_text)
-            && !self.classes.contains_key(class_text)
-        {
-            let result = matches!(
-                self.ctx
-                    .krate
-                    .types
-                    .get(self.type_param_constraint_or_self(value_ty)),
-                Some(Type::List(_))
-            );
-            let ty = self.ctx.krate.types.intern(Type::Bool);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Bool(result)),
-                ty,
-                span: self.span(binary.span.start, binary.span.end),
-            }));
-        }
+        // `x instanceof Uint8Array` (any typed-array view) resolves through the
+        // view's registry marker, like every other byte-backed host object — the
+        // typed arrays are no longer numeric lists whose identity had to be
+        // guessed from the static type, so this needs no fold of its own and falls
+        // through to the `InstanceOf` path below.
         // `x instanceof Array`. Smelt backs a JavaScript array with a plain list,
         // so this folds exactly like `Array.isArray(x)` (see `array_is_array_call`):
         // a list/tuple-typed operand *is* an array and folds to `true`, an erased
@@ -215,11 +193,9 @@ impl ModuleBuilder<'_> {
     /// Return true when an expression is a built-in constructor target.
     pub(super) fn instanceof_builtin_target(target: &str) -> bool {
         smelt_stdlib::typescript_stdlib_class(target).is_some()
-            // Typed-array views (`x instanceof Uint8Array`). Smelt backs a typed
-            // array with a plain numeric list, so a *concrete* list-typed operand
-            // resolves through the list check below and an erased/other operand
-            // folds to `false` (see `instanceof_fold_false_builtin_target`) —
-            // either way the target is recognized instead of aborting the build.
+            // Typed-array views (`x instanceof Uint8Array`) are byte-backed host
+            // objects, so they are already covered by the `byte_buffer_role`
+            // clause below; naming them here too keeps the recognizer readable.
             || smelt_stdlib::is_typed_array_class_name(target)
             || Self::marker_only_builtin_marker(target).is_some()
             // The byte-backed host objects (`ArrayBuffer`, `SharedArrayBuffer`,
