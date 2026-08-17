@@ -9366,3 +9366,88 @@ export function f(a: number, b: number): any {
         "`length` must stay out of an `arguments` object's own-key enumeration:\n{generated}"
     );
 }
+
+/// A `return` inside a `try` that has a `finally` must still run the finalizer.
+///
+/// MIR made the finalizer the *fall-through* exit of the `try` body, so a
+/// `Return` terminator bypassed it and the cleanup vanished from the generated
+/// Rust altogether. es-toolkit's `areObjectsEqual` clears its recursion `Map` in
+/// exactly that shape, and the leaked entries made
+/// `isEqualWith({ constructor: [1] }, { constructor: ['1'] })` answer `true`.
+/// `lower_return` now re-lowers the finalizer inline ahead of the return, so the
+/// cleanup has to appear on the return path.
+#[test]
+fn finally_body_is_emitted_on_the_return_path() {
+    let source = source_for(
+        r#"
+export function cleanupOnReturn(seen: Map<string, number>): number {
+  seen.set("a", 1);
+  try {
+    return 7;
+  } finally {
+    seen.delete("a");
+  }
+}
+const out = cleanupOnReturn(new Map<string, number>());
+console.log(out);
+"#,
+    );
+
+    let start = source
+        .find("fn cleanup_on_return")
+        .expect("cleanupOnReturn present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("cleanupOnReturn closing brace");
+    let body = &after[..end];
+
+    // The `seen.delete("a")` cleanup must survive on the return path. Before the
+    // fix the function body contained no removal at all.
+    assert!(
+        body.contains(".remove("),
+        "the finalizer's Map delete must be emitted, got:\n{body}"
+    );
+    assert!(
+        body.contains("7"),
+        "the try body's return value must survive the finalizer, got:\n{body}"
+    );
+}
+
+/// Nested finalizers unwind inner-to-outer ahead of the return.
+///
+/// The inline duplication has to walk the whole lexical finalizer stack in
+/// JavaScript's unwind order, not just the innermost clause.
+#[test]
+fn nested_finally_bodies_are_emitted_inner_to_outer() {
+    let source = source_for(
+        r#"
+export function nestedCleanup(log: string[]): string {
+  try {
+    try {
+      return "value";
+    } finally {
+      log.push("inner");
+    }
+  } finally {
+    log.push("outer");
+  }
+}
+const out = nestedCleanup([]);
+console.log(out);
+"#,
+    );
+
+    let start = source
+        .find("fn nested_cleanup")
+        .expect("nestedCleanup present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("nestedCleanup closing brace");
+    let body = &after[..end];
+
+    let inner = body.find("\"inner\"").expect("inner finalizer emitted");
+    let outer = body.find("\"outer\"").expect("outer finalizer emitted");
+    assert!(
+        inner < outer,
+        "the inner finalizer must be emitted before the outer one on the return \
+         path (inner={inner}, outer={outer}):\n{body}"
+    );
+}
