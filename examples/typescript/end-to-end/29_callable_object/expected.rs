@@ -618,6 +618,20 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     if field == "name" && map.contains_key("__smelt_error") && !map.contains_key("name") { return SmeltUnknown::String("Error".to_owned()); }
     if field == "size" && let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); }
     if field == "size" && let Some(SmeltUnknown::Array(members)) = map.get("__smelt_set") { return SmeltUnknown::Number(members.len() as f64); }
+    if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") {
+        let pairs = pairs.into_vec();
+        let entry_at = |pair: &SmeltUnknown| -> Option<(SmeltUnknown, SmeltUnknown)> { let SmeltUnknown::Array(entry) = pair else { return None }; let mut entry = entry.clone().into_vec().into_iter(); match (entry.next(), entry.next()) { (Some(key), Some(value)) => Some((key, value)), _ => None } };
+        let entries = pairs.iter().filter_map(entry_at).collect::<Vec<_>>();
+        match field {
+            "keys" => { let keys = entries.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(keys.clone().into())))); }
+            "values" => { let values = entries.iter().map(|(_, value)| value.clone()).collect::<Vec<_>>(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(values.clone().into())))); }
+            "entries" => { let pairs = pairs.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(pairs.clone().into())))); }
+            "get" => { let entries = entries.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(entries.iter().find(|(key, _)| key.same_js_key(&needle)).map_or(SmeltUnknown::Undefined, |(_, value)| value.clone())) })); }
+            "has" => { let entries = entries.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(SmeltUnknown::Bool(entries.iter().any(|(key, _)| key.same_js_key(&needle)))) })); }
+            "forEach" => { let entries = entries.clone(); let receiver = SmeltUnknown::Object(map.clone()); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(callback)) = args.into_iter().next() { for (key, value) in entries.clone() { callback(vec![value, key, receiver.clone()])?; } } Ok(SmeltUnknown::Undefined) })); }
+            _ => {}
+        }
+    }
     if let Some(SmeltUnknown::Array(members)) = map.get("__smelt_set") {
         let members = members.into_vec();
         match field {

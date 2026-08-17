@@ -1880,6 +1880,44 @@ fn emit_source_with_free_function_router(
         // real Sets expose `.size` through `Set.prototype`, absent from the marker
         // object's own fields, so derive it from the member count.
         writer.line("    if field == \"size\" && let Some(SmeltUnknown::Array(members)) = map.get(\"__smelt_set\") { return SmeltUnknown::Number(members.len() as f64); }");
+        // Erased `Map` prototype methods, the exact counterpart of the erased-Set
+        // block below. Only `.size` used to be synthesized, so every other
+        // `Map.prototype` read on an erased Map answered `undefined` — and a
+        // *call* of that `undefined` collapsed to a null callback rather than
+        // failing, which made the miss silent. es-toolkit `isEqualWith` walks a
+        // Map with `for (const [key, value] of a.entries())` after checking
+        // `a.size !== b.size`: with `entries()` yielding nothing, the loop body
+        // never ran and two same-size Maps with completely different contents
+        // compared EQUAL.
+        //
+        // Entries are read from the `{ __smelt_map: [[k, v], ...] }` marker array.
+        // `get`/`has` apply SameValueZero (`same_js_key`) and take the FIRST
+        // matching pair, which is the only one a Map can hold. `forEach` invokes
+        // the callback with `(value, key, map)` per JS semantics — note the
+        // argument order is the reverse of the stored pair. As in the erased-Set
+        // block, the direct `m.forEach(cb)` spelling never reaches here: the
+        // erased-iterable coercion claims it first and walks the marker array,
+        // handing the callback `(entry, index)`. The arm covers the spellings that
+        // do go through a field read (`m["forEach"]`, a detached method value).
+        //
+        // The mutators (`set`/`delete`/`clear`) are deliberately absent, matching
+        // the erased-Set block: source code that mutates a Map holds it at the
+        // typed `SmeltJsMap`, whose own methods already mutate the shared
+        // storage. Only *reads* reach an erased receiver.
+        writer.line("    if let Some(SmeltUnknown::Array(pairs)) = map.get(\"__smelt_map\") {");
+        writer.line("        let pairs = pairs.into_vec();");
+        writer.line("        let entry_at = |pair: &SmeltUnknown| -> Option<(SmeltUnknown, SmeltUnknown)> { let SmeltUnknown::Array(entry) = pair else { return None }; let mut entry = entry.clone().into_vec().into_iter(); match (entry.next(), entry.next()) { (Some(key), Some(value)) => Some((key, value)), _ => None } };");
+        writer.line("        let entries = pairs.iter().filter_map(entry_at).collect::<Vec<_>>();");
+        writer.line("        match field {");
+        writer.line("            \"keys\" => { let keys = entries.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(keys.clone().into())))); }");
+        writer.line("            \"values\" => { let values = entries.iter().map(|(_, value)| value.clone()).collect::<Vec<_>>(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(values.clone().into())))); }");
+        writer.line("            \"entries\" => { let pairs = pairs.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(pairs.clone().into())))); }");
+        writer.line("            \"get\" => { let entries = entries.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(entries.iter().find(|(key, _)| key.same_js_key(&needle)).map_or(SmeltUnknown::Undefined, |(_, value)| value.clone())) })); }");
+        writer.line("            \"has\" => { let entries = entries.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(SmeltUnknown::Bool(entries.iter().any(|(key, _)| key.same_js_key(&needle)))) })); }");
+        writer.line("            \"forEach\" => { let entries = entries.clone(); let receiver = SmeltUnknown::Object(map.clone()); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(callback)) = args.into_iter().next() { for (key, value) in entries.clone() { callback(vec![value, key, receiver.clone()])?; } } Ok(SmeltUnknown::Undefined) })); }");
+        writer.line("            _ => {}");
+        writer.line("        }");
+        writer.line("    }");
         // Erased `Set` prototype methods. A real Set exposes
         // `values`/`keys`/`entries`/`has`/`forEach` through `Set.prototype`, which
         // the `{ __smelt_set: [...] }` marker object does not store as own fields.
