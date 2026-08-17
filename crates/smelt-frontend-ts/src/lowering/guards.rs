@@ -222,15 +222,13 @@ impl ModuleBuilder<'_> {
             // either way the target is recognized instead of aborting the build.
             || smelt_stdlib::is_typed_array_class_name(target)
             || Self::marker_only_builtin_marker(target).is_some()
+            // The byte-backed host objects (`ArrayBuffer`, `SharedArrayBuffer`,
+            // `Buffer`, `DataView`) all carry a registry marker their `instanceof`
+            // resolves through.
+            || smelt_stdlib::byte_buffer_role(target).is_some()
             || matches!(
                 target,
                 "Promise"
-                    | "ArrayBuffer"
-                    // Node `Buffer`: `new Buffer(...)`/`Buffer.from`/`alloc`/
-                    // `concat` erase to a `__smelt_buffer` record (see
-                    // `buffer_record_from_bytes`), and `value instanceof Buffer`
-                    // resolves through that marker in `instance_of_text`.
-                    | "Buffer"
                     | "Blob"
                     // `File` records stamp `__smelt_file` on top of
                     // `__smelt_blob` (see `file_constructor_expression`), so
@@ -278,13 +276,15 @@ impl ModuleBuilder<'_> {
     ///
     /// The set must stay in lock-step with what codegen actually models: each
     /// name here has a concrete constructor lowering and a working `instanceof`
-    /// path (the marker-only host builtins plus `Blob`/`ArrayBuffer`). Folding a
-    /// presence guard `true` for a name whose positive branch the runtime cannot
-    /// satisfy would reintroduce the erased-vs-runtime disagreement the globals
-    /// plan warns against, so unmodeled host globals are deliberately excluded.
+    /// path (the marker-only host builtins, the byte-backed host objects, and
+    /// `Blob`/`File`). Folding a presence guard `true` for a name whose positive
+    /// branch the runtime cannot satisfy would reintroduce the erased-vs-runtime
+    /// disagreement the globals plan warns against, so unmodeled host globals are
+    /// deliberately excluded.
     pub(super) fn is_known_defined_global_constructor(name: &str) -> bool {
-        matches!(name, "Blob" | "File" | "ArrayBuffer" | "Buffer")
+        matches!(name, "Blob" | "File")
             || Self::marker_only_builtin_marker(name).is_some()
+            || smelt_stdlib::byte_buffer_role(name).is_some()
     }
 
     /// Return true for builtin targets represented by non-class HIR values today.

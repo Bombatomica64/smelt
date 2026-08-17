@@ -298,8 +298,12 @@ impl ModuleBuilder<'_> {
         let expr = match name {
             "Blob" => self.blob_constructor_expression(new_expr, body)?,
             "File" => self.file_constructor_expression(new_expr, body)?,
-            "ArrayBuffer" => self.arraybuffer_constructor_expression(new_expr, body)?,
             "Buffer" => self.buffer_constructor_expression(new_expr, body)?,
+            // The byte-backed host objects other than `Buffer` construct through
+            // the shared host constructor (`ExprKind::HostConstruct`).
+            _ if smelt_stdlib::byte_buffer_role(name).is_some() => {
+                self.byte_buffer_constructor_expression(new_expr, name, body)?
+            }
             _ => {
                 let Some(marker) = Self::marker_only_builtin_marker(name) else {
                     return Ok(None);

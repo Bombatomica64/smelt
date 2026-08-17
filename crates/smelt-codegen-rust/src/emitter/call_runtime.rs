@@ -1700,6 +1700,13 @@ impl FunctionEmitter<'_> {
                         smelt_stdlib::runtime_symbols::host::BLOB_RECORD_FROM_PARTS,
                 ))
             }
+            Rvalue::HostConstruct { class_name, args } => {
+                self.host_construct_text(class_name, args, dest_ty)
+            }
+            Rvalue::BuiltinNamespace { name } => self.builtin_namespace_text(name, dest_ty),
+            Rvalue::ArgumentsObject { fixed, rest } => {
+                self.arguments_object_text(fixed, rest.as_ref(), dest_ty)
+            }
             Rvalue::HostGlobalRead { class } => self.host_global_read_text(*class, dest_ty),
             Rvalue::HostGlobalWrite {
                 class,

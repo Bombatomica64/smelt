@@ -25,7 +25,8 @@ pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use fields::{FieldRule, typescript_field_rule};
 pub use globals::{GlobalPresence, global_member_presence, is_javascript_global_builtin};
 pub use host_object::{
-    HOST_OBJECTS, HostObject, host_object_by_class, host_object_marker, host_object_markers,
+    ByteBufferRole, HOST_OBJECTS, HostObject, byte_buffer_host_objects, byte_buffer_role,
+    host_object_by_class, host_object_marker, host_object_markers,
 };
 pub use recognition::{
     CallRecognition, MethodRecognition, TYPESCRIPT_CALLS, TYPESCRIPT_METHODS,

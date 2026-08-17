@@ -80,9 +80,11 @@ use std::{
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirFunction, Rvalue};
 
+mod byte_buffer_prelude;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod deps;
+mod reflection_prelude;
 pub mod rust;
 pub(crate) mod stdlib;
 pub(crate) mod thrown;
@@ -384,7 +386,6 @@ fn emit_source_with_free_function_router(
     let needs_erased_function = needs_erased_function_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
     let needs_date_timezone_offset = stdlib::needs_date_timezone_offset_runtime(mir);
-    let needs_blob_record = stdlib::needs_blob_record_runtime(mir);
     let needs_vitest_mock = stdlib::needs_vitest_mock_runtime(mir);
     let needs_structured_clone = stdlib::rvalues(mir)
         .any(|rvalue| matches!(rvalue, Rvalue::StructuredClone { .. }));
@@ -1055,13 +1056,31 @@ fn emit_source_with_free_function_router(
         let host_marker_array = host_marker_registry_array();
         writer.line(format!("fn smelt_object_has_host_marker(object: &SmeltObject) -> bool {{ {host_marker_array}.iter().any(|marker| object.contains_key(marker)) }}"));
         writer.line(format!("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool {{ {host_marker_array}.iter().any(|marker| record.contains_key(*marker)) }}"));
+        byte_buffer_prelude::emit(&mut writer);
+        // The `arguments` exotic object. Its indexed elements are enumerable own
+        // properties but its `length` is not, which is what makes
+        // `isEqual(toArgs([1, 2, 3]), { 0: 1, 1: 2, 2: 3 })` hold: both sides
+        // enumerate exactly `["0", "1", "2"]`. The enumeration filters below carry
+        // the `length` exception, in the same shape as the `__smelt_regexp` and
+        // `__smelt_error` field exceptions.
+        writer.line("/// Build the array-like `arguments` object from a function's parameters.");
+        writer.line("///");
+        writer.line("/// Positional parameters lead; the rest parameter's list is flattened onto");
+        writer.line("/// the end, recovering the original call's argument vector. Elements are");
+        writer.line("/// stored under index keys and `length` is stored but hidden from own-key");
+        writer.line("/// enumeration, matching the exotic object's property attributes.");
+        writer.line(format!(
+            "fn {helper}(fixed: Vec<SmeltUnknown>, rest: Option<SmeltUnknown>) -> SmeltUnknown {{ let mut smelt_elements = fixed; if let Some(SmeltUnknown::Array(items)) = rest {{ smelt_elements.extend(items.into_vec()); }} let mut fields = ::std::collections::HashMap::new(); fields.insert(\"{marker}\".to_owned(), SmeltUnknown::Bool(true)); for (index, value) in smelt_elements.iter().enumerate() {{ fields.insert(index.to_string(), value.clone()); }} fields.insert(\"length\".to_owned(), SmeltUnknown::Number(smelt_elements.len() as f64)); SmeltUnknown::Object(SmeltObject::new(fields)) }}",
+            helper = smelt_stdlib::runtime_symbols::host::ARGUMENTS_OBJECT,
+            marker = smelt_stdlib::runtime_symbols::host::ARGUMENTS_MARKER,
+        ));
         // `__smelt_proto:`-prefixed entries hold members INHERITED from a
         // prototype (`Object.create(proto)`), so they are never own keys — JS
         // `Object.keys` / `for...in` own-key enumeration must skip them.
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")) }");
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
-        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")) }");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         writer.line("/// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.");
         writer.line(
             "/// Class instances carry a hidden `__smelt_class` marker and map to a distinct",
@@ -1086,9 +1105,12 @@ fn emit_source_with_free_function_router(
         // `new Date(d)` copy their argument. Plain objects, arrays, promises and
         // class instances keep their string sentinels (their `.constructor` reads as
         // `undefined`, matching the existing Object-assign clone path).
-        // Discriminate the host-marker kind whose prototype exposes a reflected
-        // constructor. `None` for plain objects/arrays/classes.
-        writer.line("fn smelt_reflected_marker_kind(map: &SmeltObject) -> Option<&'static str> { if map.contains_key(\"__smelt_date\") { Some(\"date\") } else if map.contains_key(\"__smelt_map\") { Some(\"map\") } else if map.contains_key(\"__smelt_set\") { Some(\"set\") } else if map.contains_key(\"__smelt_regexp\") { Some(\"regexp\") } else if map.contains_key(\"__smelt_dataview\") { Some(\"dataview\") } else if map.contains_key(\"__smelt_error\") { Some(\"error\") } else if map.contains_key(\"__smelt_file\") { Some(\"file\") } else if map.contains_key(\"__smelt_number\") { Some(\"number\") } else if map.contains_key(\"__smelt_boolean\") { Some(\"boolean\") } else { None } }");
+        //
+        // The marker→kind discriminator, the single host constructor that both the
+        // direct and the reflected construction path call, the cached per-kind
+        // prototype, and the interned per-name constructor value all live in
+        // `reflection_prelude`, which derives them from the shared host registry.
+        reflection_prelude::emit(&mut writer);
         // Rebuild a marker object/array with a FRESH identity while keeping its
         // fields (shallow, matching `new Ctor(obj)` which copies the top level and
         // shares nested references). `SmeltObject`/`SmeltArray` clones share the
@@ -1102,18 +1124,6 @@ fn emit_source_with_free_function_router(
         if needs_structured_clone {
             writer.line("fn smelt_structured_clone(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { let cloned: ::std::collections::HashMap<String, SmeltUnknown> = map.values.borrow().iter().map(|(key, field)| (key.clone(), smelt_structured_clone(field.clone()))).collect(); SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), cloned)) }, SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.into_vec().into_iter().map(smelt_structured_clone).collect())), other => other } }");
         }
-        // Reconstruct a marker instance for `new Constructor(...)`. es-toolkit
-        // `clone` passes the original object for Date/Map/Set/RegExp/DataView/File/
-        // boxed (a fresh-identity shallow copy is faithful), but for Error it passes
-        // `(message, { cause })`, so rebuild the `__smelt_error` shape from the args
-        // (`.name` is synthesized by `smelt_get_object_field`).
-        writer.line("fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown { if kind == \"error\" { let mut fields = ::std::collections::HashMap::new(); fields.insert(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.insert(\"message\".to_owned(), message); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get(\"cause\") { fields.insert(\"cause\".to_owned(), cause); } } SmeltUnknown::Object(SmeltObject::new(fields)) } else { smelt_fresh_identity(args.into_iter().next().unwrap_or(SmeltUnknown::Undefined)) } }");
-        // One cached prototype object per marker kind, so that
-        // `Object.getPrototypeOf(a) === Object.getPrototypeOf(b)` holds for two
-        // values of the same kind (`SmeltObject` `===` compares the stable `id`).
-        // Its `constructor` slot is a real callable used by es-toolkit `clone`.
-        writer.line("thread_local! { static SMELT_MARKER_PROTOS: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
-        writer.line("fn smelt_reflected_prototype(kind: &'static str) -> SmeltUnknown { SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(kind).or_insert_with(|| { let ctor = SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_reflected_construct(kind, args)))); SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"constructor\".to_owned(), ctor)]))) }).clone()) }");
         // `Object.create(proto)` must mint a FRESH object. Two failure modes make
         // "just return the prototype" wrong: a concrete prototype object would be
         // aliased (so the `Object.assign(Object.create(p), o)` clone idiom mutates
@@ -1147,13 +1157,13 @@ fn emit_source_with_free_function_router(
                         arms,
                         "if map.contains_key(\"{marker}\") {{ return \"[object {tag}]\".to_owned(); }} ",
                         marker = entry.marker,
-                        tag = entry.class_name,
+                        tag = entry.to_string_tag,
                     );
                     arms
                 },
             );
             writer.line(format!(
-                "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String {{ match value {{ SmeltUnknown::Null => \"[object Null]\".to_owned(), SmeltUnknown::Undefined => \"[object Undefined]\".to_owned(), SmeltUnknown::Bool(_) => \"[object Boolean]\".to_owned(), SmeltUnknown::Number(_) => \"[object Number]\".to_owned(), SmeltUnknown::String(_) => \"[object String]\".to_owned(), SmeltUnknown::Symbol(_) => \"[object Symbol]\".to_owned(), SmeltUnknown::Array(_) => \"[object Array]\".to_owned(), SmeltUnknown::Function(_) => \"[object Function]\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned(), SmeltUnknown::Object(map) => {{ if map.contains_key(\"__smelt_date\") {{ return \"[object Date]\".to_owned(); }} if map.contains_key(\"__smelt_regexp\") {{ return \"[object RegExp]\".to_owned(); }} if map.contains_key(\"__smelt_error\") {{ return \"[object Error]\".to_owned(); }} if map.contains_key(\"__smelt_global_object\") {{ return \"[object global]\".to_owned(); }} if map.contains_key(\"__smelt_abortcontroller\") {{ return \"[object AbortController]\".to_owned(); }} if map.contains_key(\"__smelt_abortsignal\") {{ return \"[object AbortSignal]\".to_owned(); }} if map.contains_key(\"__smelt_map\") {{ return \"[object Map]\".to_owned(); }} if map.contains_key(\"__smelt_set\") {{ return \"[object Set]\".to_owned(); }} {host_tag_arms}if map.contains_key(\"__smelt_builtin_namespace\") {{ if let Some(SmeltUnknown::String(name)) = map.get(\"name\") {{ return format!(\"[object {{name}}]\"); }} }} \"[object Object]\".to_owned() }} }} }}",
+                "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String {{ match value {{ SmeltUnknown::Null => \"[object Null]\".to_owned(), SmeltUnknown::Undefined => \"[object Undefined]\".to_owned(), SmeltUnknown::Bool(_) => \"[object Boolean]\".to_owned(), SmeltUnknown::Number(_) => \"[object Number]\".to_owned(), SmeltUnknown::String(_) => \"[object String]\".to_owned(), SmeltUnknown::Symbol(_) => \"[object Symbol]\".to_owned(), SmeltUnknown::Array(_) => \"[object Array]\".to_owned(), SmeltUnknown::Function(_) => \"[object Function]\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned(), SmeltUnknown::Object(map) => {{ if map.contains_key(\"__smelt_date\") {{ return \"[object Date]\".to_owned(); }} if map.contains_key(\"__smelt_regexp\") {{ return \"[object RegExp]\".to_owned(); }} if map.contains_key(\"__smelt_error\") {{ return \"[object Error]\".to_owned(); }} if map.contains_key(\"__smelt_global_object\") {{ return \"[object global]\".to_owned(); }} if map.contains_key(\"__smelt_abortcontroller\") {{ return \"[object AbortController]\".to_owned(); }} if map.contains_key(\"__smelt_abortsignal\") {{ return \"[object AbortSignal]\".to_owned(); }} if map.contains_key(\"__smelt_map\") {{ return \"[object Map]\".to_owned(); }} if map.contains_key(\"__smelt_set\") {{ return \"[object Set]\".to_owned(); }} if map.contains_key(\"__smelt_arguments\") {{ return \"[object Arguments]\".to_owned(); }} {host_tag_arms}if map.contains_key(\"__smelt_builtin_namespace\") {{ if let Some(SmeltUnknown::String(name)) = map.get(\"name\") {{ return format!(\"[object {{name}}]\"); }} }} \"[object Object]\".to_owned() }} }} }}",
             ));
         }
         writer.blank_line();
@@ -1835,7 +1845,11 @@ fn emit_source_with_free_function_router(
             writer.line("fn smelt_vitest_mock_last_resolved_with(value: &SmeltUnknown, expected: SmeltUnknown) -> bool { match smelt_vitest_mock_state(value) { Some(state) => { let last = state.borrow().results.last().cloned(); match last { Some(result) => { let resolved = match &result { SmeltUnknown::Promise(promise) => match &*promise.state.borrow() { Some(Ok(value)) => value.clone(), _ => return false }, other => other.clone() }; smelt_unknown_structural_eq(&resolved, &expected, &mut ::std::collections::HashSet::new()) }, None => false } }, None => true } }");
         }
         writer.blank_line();
-        if needs_blob_record {
+        {
+            // Unconditional: the shared host constructor
+            // (`smelt_reflected_construct`, always emitted) builds `Blob`/`File`
+            // through this helper, so it cannot be gated on the crate spelling a
+            // `new Blob(...)` itself.
             writer.line("/// Build the modeled host `Blob`/`File` record for `new Blob(...)` / `new File(...)`.");
             writer.line("///");
             writer.line("/// Concatenates BlobPart contents (strings verbatim; nested Blob/File records");
@@ -1884,6 +1898,14 @@ fn emit_source_with_free_function_router(
         // inline `match` that repeats `SmeltUnknown` at every assignment.
         writer.line("fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {");
         writer.line("    match target {");
+        // A byte-backed host object's indexed slots are its bytes, not ordinary
+        // record properties: `view[i] = byte` has to land in `bytes` so a later
+        // `view[i]` read and a `slice()` observe it. Writes to any other key, or to
+        // a record without byte storage, fall through to the property insert.
+        writer.line(format!(
+            "        SmeltUnknown::Object(map) if {set_element}(map, &key, value.clone()) => {{}}",
+            set_element = smelt_stdlib::runtime_symbols::byte_buffer::SET_ELEMENT,
+        ));
         writer.line("        SmeltUnknown::Object(map) => { map.insert(key, value); }");
         writer.line("        SmeltUnknown::Array(array) => {");
         writer.line("            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }");
@@ -1911,11 +1933,33 @@ fn emit_source_with_free_function_router(
         // count when a `.size` read reaches an erased Map. This keeps generic
         // `unknown`-typed code that probes `value.size` (e.g. `isEmptyish`)
         // correct without materializing the typed `SmeltJsMap`.
-        // Error markers do not always store `name` as an own field (the base
+        // Error markers do not store `name` as an own field (the base
         // `new Error(msg)` shape is just `{ __smelt_error, message }`). Real errors
-        // inherit `name` from their prototype (`"Error"` for the base class), so
-        // synthesize it when absent to keep `clone`/`cloneDeep` faithful.
+        // inherit `name` from their prototype, so synthesize it when absent — from
+        // the class name the marker records, which is what makes
+        // `new TypeError('t').name` read `"TypeError"` rather than `"Error"`.
         writer.line("    if field == \"name\" && !map.contains_key(\"name\") && let Some(SmeltUnknown::String(class_name)) = map.get(\"__smelt_error\") { return SmeltUnknown::String(class_name); }");
+        // Byte-backed host objects (`ArrayBuffer`, `Buffer`, `DataView`, ...) hold
+        // their storage in a `bytes` list, so an indexed read (`buffer[1]`, and the
+        // `a[i]` walk es-toolkit's `isEqualWith` runs over a typed-array-tagged
+        // value) must resolve against those bytes rather than answering
+        // `undefined`. Non-index fields and non-byte-backed records are untouched.
+        writer.line(format!(
+            "    if let Some(element) = {element}(map, field) {{ return element; }}",
+            element = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENT,
+        ));
+        // `blob.constructor === Blob` holds in JavaScript, and the clone specs
+        // assert it on a cloned host object. A marker-bearing record therefore
+        // answers `.constructor` with the interned constructor value for its
+        // identity — the very object a bare `Blob` reference evaluates to. An own
+        // `constructor` field still wins (source code can assign one), and an
+        // unmarked record keeps `undefined`, which is what makes two plain objects
+        // compare as equal instances.
+        writer.line(format!(
+            "    if field == \"constructor\" && !map.contains_key(\"constructor\") && let Some(class) = {class_of}(map) {{ return {namespace}(class); }}",
+            class_of = smelt_stdlib::runtime_symbols::host::MARKER_CONSTRUCTOR_CLASS,
+            namespace = smelt_stdlib::runtime_symbols::host::BUILTIN_NAMESPACE,
+        ));
         writer.line("    if field == \"size\" && let Some(SmeltUnknown::Array(pairs)) = map.get(\"__smelt_map\") { return SmeltUnknown::Number(pairs.len() as f64); }");
         // Same synthesis for an erased `Set` (`{ __smelt_set: [members...] }`):
         // real Sets expose `.size` through `Set.prototype`, absent from the marker

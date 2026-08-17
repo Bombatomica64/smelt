@@ -794,6 +794,19 @@ fn rewrite_rvalue(
                     rewrite_operand_except(last_modified_operand, aliases, dest)
                 })
         }
+        Rvalue::HostConstruct { args, .. } => args.iter_mut().fold(false, |changed, arg| {
+            rewrite_operand_except(arg, aliases, dest) | changed
+        }),
+        Rvalue::BuiltinNamespace { .. } => false,
+        Rvalue::ArgumentsObject { fixed, rest } => {
+            let fixed_changed = fixed.iter_mut().fold(false, |changed, value| {
+                rewrite_operand_except(value, aliases, dest) | changed
+            });
+            let rest_changed = rest
+                .as_mut()
+                .is_some_and(|rest_operand| rewrite_operand_except(rest_operand, aliases, dest));
+            fixed_changed || rest_changed
+        }
         Rvalue::NumericExtrema { args, spread, .. } => {
             let mut changed = args.iter_mut().fold(false, |changed, arg| {
                 rewrite_operand_except(arg, aliases, dest) | changed

@@ -1685,6 +1685,38 @@ pub enum Rvalue {
         /// `File` options `lastModified` milliseconds, when spelled.
         last_modified: Option<Operand>,
     },
+    /// Construct a modeled host object of a registry identity from its
+    /// constructor arguments, through the *same* runtime constructor the
+    /// reflected `Object.getPrototypeOf(x).constructor` path uses.
+    ///
+    /// See `ExprKind::HostConstruct`: clone idioms reach a host constructor both
+    /// directly and reflectively, and the records must be indistinguishable.
+    HostConstruct {
+        /// Host constructor's registry class name (`"ArrayBuffer"`, `"DataView"`).
+        class_name: String,
+        /// Spelled constructor arguments, erased.
+        args: Vec<Operand>,
+    },
+    /// The single interned value for a global builtin name used as a value.
+    ///
+    /// See `ExprKind::BuiltinNamespace`: one object per global name, so
+    /// `Blob === Blob` and `blob.constructor === Blob` hold.
+    BuiltinNamespace {
+        /// The global builtin's source name (`"Blob"`, `"Math"`).
+        name: String,
+    },
+    /// The enclosing non-arrow function's `arguments` object, rebuilt from that
+    /// function's own parameters.
+    ///
+    /// See `ExprKind::ArgumentsObject`: the elements live under index keys and
+    /// `length` is non-enumerable, which is what makes an `arguments` object
+    /// compare equal to the plain object with the same indexed properties.
+    ArgumentsObject {
+        /// Positional parameter reads, in declaration order.
+        fixed: Vec<Operand>,
+        /// The rest parameter's list, flattened onto the end when present.
+        rest: Option<Operand>,
+    },
     /// Read a modeled host constructor's global override slot
     /// (`globalThis.<class>`). Yields a native-handle marker when the slot is
     /// `Native`, the stored constructor when overridden, or JS `undefined` when

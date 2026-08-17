@@ -249,6 +249,9 @@ impl LoweringCtx<'_> {
             | ExprKind::FileReadText { .. }
             | ExprKind::FileWriteText { .. }
             | ExprKind::BlobFromParts { .. }
+            | ExprKind::HostConstruct { .. }
+            | ExprKind::BuiltinNamespace { .. }
+            | ExprKind::ArgumentsObject { .. }
             | ExprKind::HostGlobalRead { .. }
             | ExprKind::HostGlobalWrite { .. }
             | ExprKind::HostGlobalPresent { .. }

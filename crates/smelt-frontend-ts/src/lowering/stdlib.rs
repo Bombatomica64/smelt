@@ -2542,6 +2542,13 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower direct TypeScript collection and string slicing calls.
+    ///
+    /// `subarray` joins `slice` here: `TypedArray.prototype.subarray` and Node's
+    /// `Buffer.prototype.subarray` take the same `(begin, end)` index arguments and
+    /// differ only in sharing the source's memory instead of copying it. Smelt
+    /// models byte buffers by value, so a copy is the faithful lowering — and it is
+    /// the *distinct object* the `isBuffer(v) ? v.subarray() : ...` clone idiom is
+    /// after. `subarray` is not a string method, so a string receiver declines.
     pub(super) fn collection_slice_call(
         &mut self,
         call: &CallExpression<'_>,
@@ -2551,13 +2558,15 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let method = member.property.name.as_str();
-        if !matches!(method, "slice" | "substring" | "substr") {
+        if !matches!(method, "slice" | "substring" | "substr" | "subarray") {
             return Ok(None);
         }
+        // `slice`-shaped methods: same index arguments, same collection dispatch.
+        let slice_like = matches!(method, "slice" | "subarray");
         if call.arguments.len() > 2 {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "slice/substring/substr currently support only omitted, start, and end arguments",
+                "slice/subarray/substring/substr currently support only omitted, start, and end arguments",
             ));
         }
         let mut operand = self.expression(&member.object, body)?;
@@ -2570,7 +2579,7 @@ impl ModuleBuilder<'_> {
         // the value tag instead of coercing the value to a string — a string
         // coercion would ToString an array receiver to "[object Object]" and
         // then char-slice that. `substring`/`substr` stay string-only.
-        let slice_erased_receiver = method == "slice"
+        let slice_erased_receiver = slice_like
             && (matches!(
                 self.ctx.krate.types.get(effective_operand_ty),
                 Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. })
@@ -2582,6 +2591,11 @@ impl ModuleBuilder<'_> {
                         Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. })
                     ))
                 ));
+        // `subarray` has no string form, so a receiver that is not a list or an
+        // erased value is not ours; decline rather than string-coercing it.
+        if method == "subarray" && !slice_erased_receiver {
+            return Ok(None);
+        }
         if !slice_erased_receiver
             && (matches!(
                 self.ctx.krate.types.get(effective_operand_ty),
@@ -2647,7 +2661,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(call.span.start, call.span.end),
                 })))
             }
-            Some(Type::List(_)) if method == "slice" => Ok(Some(body.push_expr(Expr {
+            Some(Type::List(_)) if slice_like => Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::ListSlice {
                     list: operand,
                     start,

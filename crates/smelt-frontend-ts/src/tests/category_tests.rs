@@ -41,19 +41,21 @@ fn new_unresolved_builtin_class_is_missing_stdlib() -> Result<(), String> {
     assert_category(&errors, "WeakRef", DiagnosticCategory::MissingStdlib)
 }
 
-/// `new WeakMap()` / `new WeakSet()` / `new DataView()` / `new SharedArrayBuffer()`
-/// lower to concrete marker-bearing records so `instanceof` keeps a distinct
-/// identity for each host type, rather than erasing to a shapeless
-/// `SmeltUnknown::Object` (which the `isWeakMap`/`isWeakSet`/`isTypedArray`/`clone`
-/// predicates inspect). (`File` retains structural fields now and has its own
-/// `BlobFromParts` construction; see `new_file_lowers_to_blob_from_parts_with_name`.)
+/// `new WeakMap()` / `new WeakSet()` lower to concrete marker-bearing records so
+/// `instanceof` keeps a distinct identity for each host type, rather than erasing
+/// to a shapeless `SmeltUnknown::Object` (which the `isWeakMap`/`isWeakSet`
+/// predicates inspect).
+///
+/// These are the host objects with *no* retained structural surface. The ones that
+/// do retain fields have their own construction: `File`/`Blob` through
+/// `BlobFromParts` (see `new_file_lowers_to_blob_from_parts_with_name`) and the
+/// byte buffers through `HostConstruct` (see
+/// `new_byte_buffer_host_lowers_to_the_shared_host_constructor`).
 #[test]
 fn new_marker_only_host_builtins_lower_to_concrete_marker_records() -> Result<(), String> {
     for (source, marker) in [
         ("const w = new WeakMap();", "__smelt_weakmap"),
         ("const w = new WeakSet();", "__smelt_weakset"),
-        ("const d = new DataView(new ArrayBuffer(8));", "__smelt_dataview"),
-        ("const s = new SharedArrayBuffer(8);", "__smelt_sharedarraybuffer"),
     ] {
         let mut ctx = HirCtx::new();
         let module_id = lower_ok(source, &mut ctx)?;
@@ -229,11 +231,15 @@ fn instanceof_boxed_primitive_wrapper_lowers() -> Result<(), String> {
 }
 
 /// A bare reference to a global namespace object (`Math`, `JSON`, `Reflect`,
-/// `Promise`, ...) used as a *value* lowers to a marker-bearing host-object
-/// record (`__smelt_builtin_namespace`), not an unresolved identifier and not a
-/// shapeless erased object, so `isPlainObject(JSON)` has a concrete argument.
+/// `Promise`, ...) used as a *value* lowers to the *interned* host-object value
+/// for that name, not an unresolved identifier and not a shapeless erased object,
+/// so `isPlainObject(JSON)` has a concrete argument.
+///
+/// Interning is what makes `Blob === Blob` and `blob.constructor === Blob` hold:
+/// JavaScript exposes one object per global name, whereas a record literal mints
+/// a fresh identity on every construction.
 #[test]
-fn bare_builtin_namespace_value_lowers_to_marker_record() -> Result<(), String> {
+fn bare_builtin_namespace_value_lowers_to_interned_namespace() -> Result<(), String> {
     for (source, name) in [
         ("const m = Math;", "Math"),
         ("const j = JSON;", "JSON"),
@@ -246,16 +252,9 @@ fn bare_builtin_namespace_value_lowers_to_marker_record() -> Result<(), String> 
         ensure!(
             body.exprs.iter().any(|expr| matches!(
                 &expr.kind,
-                ExprKind::Literal(Literal::String(text)) if text == "__smelt_builtin_namespace"
+                ExprKind::BuiltinNamespace { name: spelled } if spelled == name
             )),
-            "expected bare `{name}` value to carry the `__smelt_builtin_namespace` marker",
-        );
-        ensure!(
-            body.exprs.iter().any(|expr| matches!(
-                &expr.kind,
-                ExprKind::Literal(Literal::String(text)) if text == name
-            )),
-            "expected bare `{name}` value to retain its source `name`",
+            "expected bare `{name}` value to lower to the interned `{name}` namespace",
         );
     }
     Ok(())
@@ -456,30 +455,42 @@ fn new_abort_controller_lowers_to_concrete_marker_record() -> Result<(), String>
     Ok(())
 }
 
-/// `new ArrayBuffer(n)` lowers to a concrete record carrying the dedicated
-/// `__smelt_arraybuffer` marker (and `byteLength`), giving it a distinct identity
-/// for `instanceof ArrayBuffer` instead of erasing it to a shapeless value.
+/// The byte-backed host constructors (`ArrayBuffer`, `SharedArrayBuffer`,
+/// `DataView`) lower to `ExprKind::HostConstruct`, which runs the *same* runtime
+/// constructor the reflected `Object.getPrototypeOf(x).constructor` path calls.
+///
+/// A shared constructor is what makes a directly built record indistinguishable
+/// from a reflectively built one, and it is where the record gets real byte
+/// storage — an identity-only marker record could not answer `slice(0)`,
+/// `byteLength`, `byteOffset`, or an indexed element read.
 #[test]
-fn new_arraybuffer_lowers_to_concrete_marker_record() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let module_id = lower_ok(ts!("const buf = new ArrayBuffer(8);"), &mut ctx)?;
-    let module = module(&ctx, module_id)?;
-    let body = module_body(&ctx, module)?;
-    ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            (&expr.kind, ctx.krate.types.get(expr.ty)),
-            (ExprKind::DictLit(entries), Some(Type::Dict(_, _)))
-                if entries.len() == 2
-        )),
-        "expected `new ArrayBuffer(8)` to lower to a concrete record (DictLit + Dict type)",
-    );
-    ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            &expr.kind,
-            ExprKind::Literal(Literal::String(text)) if text == "__smelt_arraybuffer"
-        )),
-        "expected the ArrayBuffer record to carry the `__smelt_arraybuffer` marker key",
-    );
+fn new_byte_buffer_host_lowers_to_the_shared_host_constructor() -> Result<(), String> {
+    for (source, class_name, arg_count) in [
+        (ts!("const buf = new ArrayBuffer(8);"), "ArrayBuffer", 1),
+        (
+            ts!("const buf = new SharedArrayBuffer(8);"),
+            "SharedArrayBuffer",
+            1,
+        ),
+        (
+            ts!("const view = new DataView(new ArrayBuffer(8), 1, 2);"),
+            "DataView",
+            3,
+        ),
+    ] {
+        let mut ctx = HirCtx::new();
+        let module_id = lower_ok(source, &mut ctx)?;
+        let module = module(&ctx, module_id)?;
+        let body = module_body(&ctx, module)?;
+        ensure!(
+            body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::HostConstruct { class_name: spelled, args }
+                    if spelled == class_name && args.len() == arg_count
+            )),
+            "expected `{source}` to lower to a `{class_name}` HostConstruct with {arg_count} argument(s)",
+        );
+    }
     Ok(())
 }
 
@@ -938,12 +949,11 @@ fn bare_proxy_value_lowers_to_transparent_constructor_closure() -> Result<(), St
     Ok(())
 }
 
-/// A bare `Intl` reference used as a value lowers to the shared
-/// builtin-namespace marker record, like `Math`/`JSON`/`Reflect`, so
-/// namespace-identity probes observe a host object rather than an unresolved
-/// identifier.
+/// A bare `Intl` reference used as a value lowers to the shared interned
+/// builtin-namespace value, like `Math`/`JSON`/`Reflect`, so namespace-identity
+/// probes observe a host object rather than an unresolved identifier.
 #[test]
-fn bare_intl_namespace_value_lowers_to_marker_record() -> Result<(), String> {
+fn bare_intl_namespace_value_lowers_to_interned_namespace() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(ts!("const i = Intl;"), &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -951,9 +961,9 @@ fn bare_intl_namespace_value_lowers_to_marker_record() -> Result<(), String> {
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
-            ExprKind::Literal(Literal::String(text)) if text == "__smelt_builtin_namespace"
+            ExprKind::BuiltinNamespace { name } if name == "Intl"
         )),
-        "expected bare `Intl` value to carry the `__smelt_builtin_namespace` marker",
+        "expected bare `Intl` value to lower to the interned `Intl` namespace",
     );
     Ok(())
 }

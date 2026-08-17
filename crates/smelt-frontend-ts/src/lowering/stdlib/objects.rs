@@ -1269,12 +1269,18 @@ return_ty,
 
     /// Lower direct TypeScript `ArrayBuffer.isView` calls.
     ///
-    /// `ArrayBuffer.isView(x)` is true for typed-array views and `DataView`s.
-    /// Smelt's runtime lowers typed arrays to plain numeric lists (no view
-    /// identity survives), so the only value the check can recognize is the
-    /// marker-bearing `DataView` model: the call lowers exactly like
-    /// `x instanceof DataView`, reusing the marker-based `InstanceOf` path.
-    /// Statically concrete non-erased values fold to `false`.
+    /// `ArrayBuffer.isView(x)` is true for a *view* over byte storage and false
+    /// for the storage itself. The modeled view identities are exactly the
+    /// `ByteBufferRole::View` entries of the shared host registry (`DataView` and
+    /// Node's `Buffer`, which subclasses `Uint8Array`), so the call lowers to the
+    /// `instanceof` disjunction over those classes, reusing the marker-based
+    /// `InstanceOf` path. Deriving the set from the registry rather than naming it
+    /// here is what keeps this in step with es-toolkit's `isTypedArray`
+    /// (`ArrayBuffer.isView(x) && !(x instanceof DataView)`).
+    ///
+    /// Smelt lowers the *numeric* typed arrays to plain numeric lists, so no view
+    /// identity survives for them and they are not recognized here; statically
+    /// concrete non-erased values fold to `false`.
     pub(in crate::lowering) fn arraybuffer_is_view_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1300,21 +1306,44 @@ return_ty,
         };
         let value = self.argument(argument, body)?;
         let ty = self.ctx.krate.types.intern(Type::Bool);
+        let span = self.span(call.span.start, call.span.end);
         if matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, value)),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
-            let class = self.intern_type_name("DataView");
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::InstanceOf { value, class },
-                ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
+            let view_classes = smelt_stdlib::HOST_OBJECTS
+                .iter()
+                .filter(|entry| entry.byte_buffer == Some(smelt_stdlib::ByteBufferRole::View))
+                .map(|entry| entry.class_name)
+                .collect::<Vec<_>>();
+            let mut disjunction: Option<smelt_hir::ExprId> = None;
+            for class_name in view_classes {
+                let class = self.intern_type_name(class_name);
+                let check = body.push_expr(Expr {
+                    kind: ExprKind::InstanceOf { value, class },
+                    ty,
+                    span,
+                });
+                disjunction = Some(disjunction.map_or(check, |lhs| {
+                    body.push_expr(Expr {
+                        kind: ExprKind::BinOp {
+                            op: smelt_hir::BinOp::Or,
+                            lhs,
+                            rhs: check,
+                        },
+                        ty,
+                        span,
+                    })
+                }));
+            }
+            if let Some(expr) = disjunction {
+                return Ok(Some(expr));
+            }
         }
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Bool(false)),
             ty,
-            span: self.span(call.span.start, call.span.end),
+            span,
         })))
     }
 
