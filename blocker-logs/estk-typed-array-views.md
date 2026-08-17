@@ -289,6 +289,53 @@ between:
    lines), or
 2. re-snapshotting the baseline to accept +29 as the cost of correct view identity.
 
+### Verification of that delta after the merge, and the decision
+
+Re-measured on the merged tree, against the baseline as re-snapshotted by
+`feat(classes): lower module-scope constructor functions` (which moved avoidable
+erasure *down* to 35677):
+
+| Category | Baseline | Current | Delta |
+| --- | ---: | ---: | ---: |
+| Runtime prelude | 3014 | 3041 | +27 |
+| Legitimate boundary | 40386 | 38396 | −1990 |
+| Avoidable erasure | 35677 | 35738 | **+61** |
+
+The per-shape attribution above holds; the number is larger only because the
+baseline it is measured against is lower. Total occurrences still fall
+(79077 → 77175), and the examples-corpus hard invariant stays at avoidable == 0.
+
+**Option 1 is rejected.** The shape is
+`smelt_reflected_construct("uint8array", vec![…])` emitted for the source
+`new Uint8Array([0, 1, 2, …])` (`src/object/cloneDeep.spec.ts:234`) — a
+*statically known* class name, spelled as a literal in the emitted Rust. Nothing
+about it is dynamic, so calling it a legitimate boundary would be false. Only the
+reflected `new Object.getPrototypeOf(x).constructor(...)` path, whose class is
+known solely at runtime, belongs in that category.
+
+**The cheap version of option 3 — give the construction a concrete type — does not
+work, and this is the reason it needs the deferred `Type` variant.** Typing
+`ExprKind::HostConstruct` as `Type::Dict(String, Unknown)` (the record the value
+actually is at runtime, and the type `Buffer` carried before this change) compiles
+and lowers most of the corpus, but aborts the es-toolkit build at
+`src/compat/object/clone.ts:99`:
+
+```
+Map.set requires key and value arguments
+```
+
+`destView.set(srcView)` is `Uint8Array.prototype.set`, a typed-array method. With a
+`Dict`-typed receiver the frontend dispatches it as `Map.set` instead, because
+`Dict` is deliberately shared between source `Map` and source `Record` (see the
+"Frontend validation boundaries" rule). There is no way to separate the two method
+surfaces without a type that distinguishes a byte-backed host record from a map —
+which is exactly the deferred `Type` variant.
+
+So the honest resolution is neither reclassification nor a baseline bump: it is the
+byte-buffer `Type` variant, which retires the erasure at its source rather than
+relabelling it. Until then the +61 stands, un-laundered, and the CI ratchet flags
+it.
+
 ## Regression tests
 
 * `crates/smelt-stdlib/src/host_object.rs` — the element-type table is asserted:
