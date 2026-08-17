@@ -104,3 +104,6 @@ blocker-logs/*.md
 
 # Generated docs site output
 _site/
+
+# Agent worktrees are transient checkouts created under .claude/, never part of the tree
+.claude/worktrees/

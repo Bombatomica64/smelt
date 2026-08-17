@@ -424,7 +424,9 @@ impl FunctionEmitter<'_> {
                         let base_read = self.local_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_read}.len()"), index)?;
-                        let default_value = self.default_value(*item)?;
+                        // Growing past the end leaves JS *holes*, which read as
+                        // `undefined`, not `null` (see `array_hole_value`).
+                        let default_value = self.array_hole_value(*item)?;
                         out.push_str(&format!(
                             "    {{ let smelt_assign_index = {index_text}; if smelt_assign_index >= {base_read}.len() {{ {base_mut}.resize(smelt_assign_index.saturating_add(1), {default_value}); }} {base_mut}[smelt_assign_index] = {rendered_value}; }}\n"
                         ));

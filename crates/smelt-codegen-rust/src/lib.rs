@@ -1094,7 +1094,7 @@ fn emit_source_with_free_function_router(
         // shares nested references). `SmeltObject`/`SmeltArray` clones share the
         // underlying `Rc` (JS reference semantics), so a genuinely new instance must
         // allocate a new id over a copied entry map/vec.
-        writer.line("fn smelt_fresh_identity(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), map.values.borrow().clone())), SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.values.clone())), other => other } }");
+        writer.line("fn smelt_fresh_identity(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), map.values.borrow().clone())), SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.into_vec())), other => other } }");
         // `structuredClone(value)` deep-copies an object graph with fresh
         // identities, preserving host markers (Date/Map/Set/RegExp/Error/...). Used
         // by es-toolkit `cloneDeep` (Error) and remeda `clone` (host objects it
@@ -1162,35 +1162,76 @@ fn emit_source_with_free_function_router(
         writer.line("impl ::std::hash::Hash for SmeltObject { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_hash(self, state, &mut smelt_seen); } }");
         writer.line("impl IntoIterator for SmeltObject { type Item = (String, SmeltUnknown); type IntoIter = ::std::vec::IntoIter<(String, SmeltUnknown)>; fn into_iter(self) -> Self::IntoIter { self.iter() } }");
         writer.blank_line();
-        writer.line("#[derive(Debug)]");
+        // An erased JavaScript array is a REFERENCE, exactly like `SmeltObject`:
+        // the elements live in a shared `Rc<RefCell<Vec<_>>>` so every clone of the
+        // handle observes the same buffer. Codegen `.clone()`s erased values freely
+        // as they flow through expressions, and JS semantics require those copies to
+        // stay aliases.
+        //
+        // This used to be a plain `Vec`, which silently dropped writes. `obj.a[2] = 4`
+        // emits "read the field into a temporary, `smelt_index_assign` into the
+        // temporary" with no write-back — correct for an object payload only because
+        // `SmeltObject` already shared its `Rc`. With a copied `Vec` the array
+        // mutation went to the temporary and the parent never saw it. It also broke
+        // es-toolkit's cycle guards, which do `stack.set(a, b)` before recursing and
+        // then rely on the stored handle aliasing the array being filled in.
         writer.line("pub struct SmeltArray {");
         writer.line("    id: usize,");
-        writer.line("    values: Vec<SmeltUnknown>,");
+        writer.line(
+            "    values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>,",
+        );
         writer.line("}");
         writer.blank_line();
+        // Hand-written `Debug` rather than a derive, so the shared cell does not
+        // show up as `RefCell { value: [..] }` in output that used to read
+        // `SmeltArray { id: 1, values: [..] }`. Keeping the rendering byte-identical
+        // means the storage change is invisible to anything that formats a value.
+        writer.line("impl ::std::fmt::Debug for SmeltArray { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltArray\").field(\"id\", &self.id).field(\"values\", &*self.values.borrow()).finish() } }");
         writer.line("impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }");
         writer.line("impl SmeltArray {");
         writer.line("    /// Create an identity-bearing erased JavaScript array.");
-        writer.line("    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values } }");
+        writer.line("    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }");
         writer.line(
             "    /// Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.",
         );
         writer.line(
-            "    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values } }",
+            "    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }",
         );
         writer.line(
-            "    /// Consume an erased array when lowering back to statically typed list storage.",
+            "    /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.",
         );
-        writer.line("    fn into_vec(self) -> Vec<SmeltUnknown> { self.values }");
+        writer.line("    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values } }");
+        writer.line(
+            "    /// Snapshot the elements. This COPIES: mutating the result does not write back.",
+        );
+        writer.line("    fn into_vec(self) -> Vec<SmeltUnknown> { self.values.borrow().clone() }");
+        writer.line("    /// Element count.");
+        writer.line("    fn len(&self) -> usize { self.values.borrow().len() }");
+        writer.line("    /// Whether the array holds no elements.");
+        writer.line("    fn is_empty(&self) -> bool { self.values.borrow().is_empty() }");
+        writer.line(
+            "    /// Read one element by index, cloned out of the shared buffer (JS `arr[i]`).",
+        );
+        writer.line("    fn get(&self, index: usize) -> Option<SmeltUnknown> { self.values.borrow().get(index).cloned() }");
+        writer.line("    /// Iterate a snapshot of the elements, so the buffer is not borrowed across the loop body.");
+        writer.line("    fn iter(&self) -> ::std::vec::IntoIter<SmeltUnknown> { self.values.borrow().clone().into_iter() }");
         writer.line(
             "    /// Set the element at a numeric index, extending with `undefined` holes to match JS `arr[i] = v`.",
         );
-        writer.line("    fn set_index(&mut self, index: usize, value: SmeltUnknown) { if index >= self.values.len() { self.values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } self.values[index] = value; }");
+        writer.line("    fn set_index(&self, index: usize, value: SmeltUnknown) { let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }");
+        writer.line("    /// Append one element (JS `arr.push(v)`), through the shared buffer.");
+        writer.line("    fn push(&self, value: SmeltUnknown) { self.values.borrow_mut().push(value); }");
+        writer.line("    /// Replace every element in place, so aliases observe the new contents.");
+        writer.line("    fn replace_all(&self, values: Vec<SmeltUnknown>) { *self.values.borrow_mut() = values; }");
         writer.line("}");
         writer.line("impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }");
         writer.line("impl ::std::iter::FromIterator<SmeltUnknown> for SmeltArray { fn from_iter<T: IntoIterator<Item = SmeltUnknown>>(iter: T) -> Self { Self::new(iter.into_iter().collect()) } }");
-        writer.line("impl ::std::ops::Deref for SmeltArray { type Target = [SmeltUnknown]; fn deref(&self) -> &Self::Target { &self.values } }");
-        writer.line("impl IntoIterator for SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.values.into_iter() } }");
+        // No `Deref` to `[SmeltUnknown]`: the elements live behind a `RefCell`, so
+        // there is no `&[SmeltUnknown]` to hand out that could outlive the borrow.
+        // `len`/`is_empty`/`get`/`iter` above cover what the old deref was used for,
+        // each taking its own short-lived borrow.
+        writer.line("impl IntoIterator for SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.values.borrow().clone().into_iter() } }");
+        writer.line("impl<'smelt_array> IntoIterator for &'smelt_array SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.values.borrow().clone().into_iter() } }");
         writer.blank_line();
         // `SmeltList<T>` itself is defined in the `needs_smelt_list` block above.
         // These impls depend on `SmeltArray`/`SmeltUnknown`, so they live here.
@@ -1811,7 +1852,7 @@ fn emit_source_with_free_function_router(
             writer.line("    if let SmeltUnknown::Array(items) = parts {");
             writer.line("        for item in items.iter() {");
             writer.line("            match item {");
-            writer.line("                SmeltUnknown::String(text) => content.push_str(text),");
+            writer.line("                SmeltUnknown::String(text) => content.push_str(&text),");
             writer.line("                SmeltUnknown::Object(map) if map.contains_key(\"__smelt_blob\") => {");
             writer.line("                    if let Some(SmeltUnknown::String(text)) = map.get(\"content\") { content.push_str(&text); }");
             writer.line("                }");
@@ -1973,7 +2014,7 @@ fn emit_source_with_free_function_router(
         writer.line(
             "        (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right,",
         );
-        writer.line("        (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.len() == right.len() && left.iter().zip(right.iter()).all(|(left, right)| smelt_unknown_structural_eq(left, right, seen)),");
+        writer.line("        (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.len() == right.len() && left.iter().zip(right.iter()).all(|(left, right)| smelt_unknown_structural_eq(&left, &right, seen)),");
         writer.line("        (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => smelt_object_structural_eq(left, right, seen),");
         writer.line("        (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right),");
         writer.line("        (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id,");
@@ -2005,7 +2046,7 @@ fn emit_source_with_free_function_router(
         writer.line(
             "        SmeltUnknown::Symbol(value) => { 4_u8.hash(state); value.hash(state); }",
         );
-        writer.line("        SmeltUnknown::Array(values) => { 5_u8.hash(state); values.len().hash(state); for value in values.iter() { smelt_unknown_structural_hash(value, state, seen); } }");
+        writer.line("        SmeltUnknown::Array(values) => { 5_u8.hash(state); values.len().hash(state); for value in values.iter() { smelt_unknown_structural_hash(&value, state, seen); } }");
         writer.line("        SmeltUnknown::Object(values) => { 6_u8.hash(state); smelt_object_structural_hash(values, state, seen); }");
         writer.line("        SmeltUnknown::Function(function) => { 7_u8.hash(state); ::std::rc::Rc::as_ptr(function).hash(state); }");
         writer.line("        SmeltUnknown::Promise(promise) => { 9_u8.hash(state); promise.id.hash(state); }");
@@ -2348,7 +2389,7 @@ fn emit_source_with_free_function_router(
                     fn_writer.line("let needle = needle.into_smelt_unknown();");
                     fn_writer.block("match (self, needle)", |match_writer| {
                         match_writer.line("(Self::String(haystack), Self::String(needle)) => haystack.contains(&needle),");
-                        match_writer.line("(Self::Array(values), needle) => values.iter().any(|value| value == &needle),");
+                        match_writer.line("(Self::Array(values), needle) => values.iter().any(|value| value == needle),");
                         match_writer.line("_ => false,");
                     });
                 },
@@ -2647,7 +2688,7 @@ fn emit_source_with_free_function_router(
         // converts each element/entry through the element type's own
         // `SmeltFromUnknown`. A non-matching `SmeltUnknown` variant yields an empty
         // container (the JS-coercion fallback, matching the scalar impls above).
-        writer.line("impl<T: SmeltFromUnknown> SmeltFromUnknown for SmeltList<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => SmeltList::with_id(array.id, array.values.into_iter().map(T::smelt_from_unknown).collect()), _ => SmeltList::new(Vec::new()) } } }");
+        writer.line("impl<T: SmeltFromUnknown> SmeltFromUnknown for SmeltList<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => SmeltList::with_id(array.id, array.into_vec().into_iter().map(T::smelt_from_unknown).collect()), _ => SmeltList::new(Vec::new()) } } }");
         writer.blank_line();
         writer.line("impl<K: SmeltFromUnknown + Eq + ::std::hash::Hash + Clone, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltRecord<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => SmeltRecord::with_id_from_entries(object.id, object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key)), V::smelt_from_unknown(value)))), _ => SmeltRecord::with_id_from_entries(smelt_next_object_id(), ::std::iter::empty()) } } }");
         writer.blank_line();
@@ -3633,7 +3674,7 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     match_writer.line("Self::Number(value) => serializer.serialize_f64(*value),");
                     match_writer.line("Self::String(value) => serializer.serialize_str(value),");
                     match_writer.line("Self::Symbol(value) => serializer.serialize_str(value),");
-                    match_writer.line("Self::Array(values) => serde::Serialize::serialize(&values.values, serializer),");
+                    match_writer.line("Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),");
                     match_writer.line("Self::Object(values) => serde::Serialize::serialize(&values.iter().filter(|(key, _)| key != \"__smelt_class\").collect::<::std::collections::HashMap<_, _>>(), serializer),");
                     match_writer.line("Self::Function(_) => serializer.serialize_str(\"function () { [native code] }\"),");
                     match_writer.line("Self::Promise(_) => serializer.serialize_str(\"[object Promise]\"),");
