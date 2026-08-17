@@ -878,10 +878,15 @@ const yes = value instanceof Error;
         source.contains("value.contains_key(\"__smelt_error\")"),
         "{source}"
     );
+    // `stack` joins the hidden error keys: `Object.keys(err)` must not list it,
+    // because it is a non-enumerable own property in JavaScript. es-toolkit
+    // `clone` assigns `newError.stack = obj.stack`, which otherwise gave the clone
+    // an own `stack` key the original lacked and broke `toEqual`.
     assert!(
         source.contains("object.contains_key(\"__smelt_error\")")
-            && source
-                .contains("matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")"),
+            && source.contains(
+                "matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")"
+            ),
         "{source}"
     );
 }
@@ -7898,11 +7903,17 @@ export function run(fns: Array<() => unknown>): boolean {
 ",
     );
 
+    // The comparison goes through `smelt_same_function_identity` rather than a
+    // bare `Rc::ptr_eq`: erasing a callable builds a fresh forwarding adapter, so
+    // two handles on one source function are distinct allocations and pointer
+    // equality alone reports `f === f` as false. The operand coercion this test
+    // was written to protect is unchanged — both sides are still bound at a
+    // common dyn-Fn type before being compared.
     assert!(
-        source.contains("::std::rc::Rc::ptr_eq(&{ let smelt_lhs_fn:")
+        source.contains("smelt_same_function_identity(&{ let smelt_lhs_fn:")
             && source.contains("let smelt_rhs_fn:"),
         "function identity comparison must coerce both operands to a common \
-         dyn-Fn type before ptr_eq\n{source}"
+         dyn-Fn type before comparing identity\n{source}"
     );
 }
 

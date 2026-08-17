@@ -3289,7 +3289,11 @@ impl<'mir> FunctionEmitter<'mir> {
             // the original owned-callback code, so the emitted text is identical.
             let inner = self.erased_rest_forwarding_closure_text(source_ty)?;
             return Ok(Some(format!(
-                "{{ let smelt_callback = {function_text}.clone(); {inner} }}"
+                // Bind the source ONCE, then record which callable the adapter
+                // forwards to so JavaScript `===` can see through the wrapper
+                // (`smelt_same_erased_function`). Two erasures of one closure
+                // build two adapters; without this they compare unequal.
+                "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_erased_fn }}"
             )));
         }
         // Non-owned (function-parameter) path: invoke the callback by its operand
