@@ -101,6 +101,9 @@ blocker-logs/*.md
 # estk-clone-and-equality.md records the clone/isEqualWith campaign and clusters
 # the remaining failures by probe-confirmed root cause for follow-up agents
 !blocker-logs/estk-clone-and-equality.md
+# estk-class-identity-and-symbols.md records the class-identity / symbol-key pass
+# of that campaign, including the root causes it deliberately did not attempt
+!blocker-logs/estk-class-identity-and-symbols.md
 
 # Generated docs site output
 _site/

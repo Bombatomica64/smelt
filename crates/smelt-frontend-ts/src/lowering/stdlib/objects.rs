@@ -301,14 +301,25 @@ impl ModuleBuilder<'_> {
         };
         let key_ty = key_type;
         let value_ty = value_type;
-        let symbol_key_ty = self.ctx.krate.types.intern(Type::String);
-        let symbol_list_ty = self.ctx.krate.types.intern(Type::List(symbol_key_ty));
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
                 self.ctx.krate.types.intern(Type::List(key_ty))
             }
-            DictProjectionOp::Symbols => symbol_list_ty,
+            // A symbol-keyed property list holds symbol VALUES, not their
+            // descriptions: the property key an erased record stores is
+            // `__smelt_symbol:<description>`, so handing back the bare
+            // description made `source[sym]` miss and `target[sym] = v` write a
+            // plain string key. `Type::Unknown` is the representation a symbol
+            // already has everywhere else (`Literal::Symbol` ->
+            // `SmeltUnknown::Symbol`), and the dynamic index paths map that tag
+            // back to the prefixed key. Interned only on this arm — interning
+            // `Unknown`/`List<Unknown>` for every projection would change which
+            // record backing the other arms pick.
+            DictProjectionOp::Symbols => {
+                let symbol_key_ty = self.ctx.krate.types.intern(Type::Unknown);
+                self.ctx.krate.types.intern(Type::List(symbol_key_ty))
+            }
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
             DictProjectionOp::Entries => {
                 let entry_ty = self
@@ -374,7 +385,12 @@ impl ModuleBuilder<'_> {
             ty: target,
             span: self.span(call.span.start, call.span.end),
         });
-        let symbol_ty = self.ctx.krate.types.intern(Type::String);
+        // The elements are symbol VALUES (erased `SmeltUnknown::Symbol`), not their
+        // descriptions — see `object_projection_call`. A symbol read back out of
+        // this list has to index the receiver again (`source[symbols[i]]`), which
+        // only works if it still carries the symbol tag the property-key mapping
+        // turns into the internal `__smelt_symbol:` key.
+        let symbol_ty = self.ctx.krate.types.intern(Type::Unknown);
         let ty = self.ctx.krate.types.intern(Type::List(symbol_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DictProjection {
@@ -1002,7 +1018,7 @@ return_ty,
             return Ok(None);
         };
         if member.property.name == "call"
-            && Self::is_object_prototype_has_own_property(&member.object)
+            && Self::is_object_prototype_own_key_probe(&member.object)
         {
             let [dict_argument, key_argument] = call.arguments.as_slice() else {
                 return Err(SmeltError::unsupported(
@@ -1028,7 +1044,10 @@ return_ty,
             let key = self.argument(key_argument, body)?;
             return self.object_has_own_expr(call, body, dict, key);
         }
-        if member.property.name == "hasOwnProperty" {
+        if matches!(
+            member.property.name.as_str(),
+            "hasOwnProperty" | "propertyIsEnumerable"
+        ) {
             let [key_argument] = call.arguments.as_slice() else {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
@@ -1042,15 +1061,32 @@ return_ty,
         Ok(None)
     }
 
-    /// Return true for the canonical unbound ownership helper.
-    pub(in crate::lowering) fn is_object_prototype_has_own_property(expression: &Expression<'_>) -> bool {
-        let Expression::StaticMemberExpression(has_own_member) = expression else {
+    /// Return true for either unbound own-key probe on `Object.prototype`.
+    ///
+    /// `hasOwnProperty` and `propertyIsEnumerable` differ only for own properties
+    /// that are not enumerable, and Smelt's object model has no way to make one
+    /// from source: the only non-enumerable entries a record carries are internal
+    /// `__smelt_*` marker keys, which no source key can name and which own-key
+    /// enumeration already hides. So both spellings lower to the same own-key
+    /// check. Modeling `propertyIsEnumerable` matters because es-toolkit's
+    /// `getSymbols` gates every symbol-keyed property on it
+    /// (`getOwnPropertySymbols(o).filter(s => propertyIsEnumerable.call(o, s))`);
+    /// reading it off the opaque `Object.prototype` sentinel yielded `undefined`,
+    /// the call answered `null`, and every symbol key was filtered away.
+    fn is_object_prototype_own_key_probe(expression: &Expression<'_>) -> bool {
+        Self::is_object_prototype_method(expression, "hasOwnProperty")
+            || Self::is_object_prototype_method(expression, "propertyIsEnumerable")
+    }
+
+    /// Return true for the unshadowed `Object.prototype.<name>` member expression.
+    fn is_object_prototype_method(expression: &Expression<'_>, name: &str) -> bool {
+        let Expression::StaticMemberExpression(method_member) = expression else {
             return false;
         };
-        if has_own_member.property.name != "hasOwnProperty" {
+        if method_member.property.name != name {
             return false;
         }
-        let Expression::StaticMemberExpression(prototype_member) = &has_own_member.object else {
+        let Expression::StaticMemberExpression(prototype_member) = &method_member.object else {
             return false;
         };
         if prototype_member.property.name != "prototype" {

@@ -2553,7 +2553,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 // source already spelled as `Unknown` erases to itself.
                 let erased = self.erase_value_text(value_text, source_key)?;
                 Ok(format!(
-                    "{{ fn smelt_property_key(value: SmeltUnknown) -> String {{ match value {{ SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{{value}}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }} }} smelt_property_key({erased}) }}"
+                    "smelt_property_key({erased})"
                 ))
             }
             _ => Ok("\"[object Object]\".to_owned()".to_owned()),

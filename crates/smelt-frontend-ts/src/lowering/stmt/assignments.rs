@@ -773,9 +773,13 @@ impl ModuleBuilder<'_> {
             };
             let ty = match op {
                 DictProjectionOp::FromEntries => dict_ty,
-                DictProjectionOp::Keys
-                | DictProjectionOp::ForInKeys
-                | DictProjectionOp::Symbols => self.ctx.krate.types.intern(Type::List(string_ty)),
+                DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
+                    self.ctx.krate.types.intern(Type::List(string_ty))
+                }
+                // Symbol keys come back as erased symbol VALUES, not descriptions,
+                // so re-indexing the receiver with one still resolves to the
+                // internal `__smelt_symbol:` key. See `object_projection_call`.
+                DictProjectionOp::Symbols => self.ctx.krate.types.intern(Type::List(unknown)),
                 DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(unknown)),
                 DictProjectionOp::Entries => {
                     let entry_ty = self

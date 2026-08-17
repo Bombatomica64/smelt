@@ -9377,3 +9377,158 @@ export function f(a: number, b: number): any {
         "`length` must stay out of an `arguments` object's own-key enumeration:\n{generated}"
     );
 }
+
+/// A `return` inside a `try` that has a `finally` must still run the finalizer.
+///
+/// MIR made the finalizer the *fall-through* exit of the `try` body, so a
+/// `Return` terminator bypassed it and the cleanup vanished from the generated
+/// Rust altogether. es-toolkit's `areObjectsEqual` clears its recursion `Map` in
+/// exactly that shape, and the leaked entries made
+/// `isEqualWith({ constructor: [1] }, { constructor: ['1'] })` answer `true`.
+/// `lower_return` now re-lowers the finalizer inline ahead of the return, so the
+/// cleanup has to appear on the return path.
+#[test]
+fn finally_body_is_emitted_on_the_return_path() {
+    let source = source_for(
+        r#"
+export function cleanupOnReturn(seen: Map<string, number>): number {
+  seen.set("a", 1);
+  try {
+    return 7;
+  } finally {
+    seen.delete("a");
+  }
+}
+const out = cleanupOnReturn(new Map<string, number>());
+console.log(out);
+"#,
+    );
+
+    let start = source
+        .find("fn cleanup_on_return")
+        .expect("cleanupOnReturn present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("cleanupOnReturn closing brace");
+    let body = &after[..end];
+
+    // The `seen.delete("a")` cleanup must survive on the return path. Before the
+    // fix the function body contained no removal at all.
+    assert!(
+        body.contains(".remove("),
+        "the finalizer's Map delete must be emitted, got:\n{body}"
+    );
+    assert!(
+        body.contains("7"),
+        "the try body's return value must survive the finalizer, got:\n{body}"
+    );
+}
+
+/// Nested finalizers unwind inner-to-outer ahead of the return.
+///
+/// The inline duplication has to walk the whole lexical finalizer stack in
+/// JavaScript's unwind order, not just the innermost clause.
+#[test]
+fn nested_finally_bodies_are_emitted_inner_to_outer() {
+    let source = source_for(
+        r#"
+export function nestedCleanup(log: string[]): string {
+  try {
+    try {
+      return "value";
+    } finally {
+      log.push("inner");
+    }
+  } finally {
+    log.push("outer");
+  }
+}
+const out = nestedCleanup([]);
+console.log(out);
+"#,
+    );
+
+    let start = source
+        .find("fn nested_cleanup")
+        .expect("nestedCleanup present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("nestedCleanup closing brace");
+    let body = &after[..end];
+
+    let inner = body.find("\"inner\"").expect("inner finalizer emitted");
+    let outer = body.find("\"outer\"").expect("outer finalizer emitted");
+    assert!(
+        inner < outer,
+        "the inner finalizer must be emitted before the outer one on the return \
+         path (inner={inner}, outer={outer}):\n{body}"
+    );
+}
+
+/// `Object.getOwnPropertySymbols` yields symbol VALUES, not descriptions.
+///
+/// A symbol-keyed property is stored under `"__smelt_symbol:<description>"`, and a
+/// symbol value is `SmeltUnknown::Symbol(description)`. The projection used to
+/// strip the prefix and hand back a bare `String`, which broke both directions of
+/// the round trip: `source[symbols[i]]` looked up the *unprefixed* string key and
+/// missed, and `target[symbols[i]] = v` created a plain string property that no
+/// symbol lookup or symbol enumeration could see. Re-tagging the description keeps
+/// the property-key mapping able to rebuild the internal key.
+#[test]
+fn reflected_symbol_keys_keep_their_symbol_tag() {
+    let source = source_for(
+        r"
+export function copySymbols(source: any, target: any): void {
+  const symbols = Object.getOwnPropertySymbols(source);
+  for (let i = 0; i < symbols.length; i++) {
+    target[symbols[i]] = source[symbols[i]];
+  }
+}
+const out: any = {};
+copySymbols({}, out);
+console.log(out);
+",
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Symbol(description.to_owned())"),
+        "the symbols projection must re-tag the stripped description as a symbol \
+         value:\n{source}"
+    );
+    assert!(
+        !source.contains("strip_prefix(\"__smelt_symbol:\").map(str::to_owned)"),
+        "the symbols projection must not hand back bare descriptions:\n{source}"
+    );
+}
+
+/// A `(string | symbol)[]` key spread must keep both halves.
+///
+/// `[...Object.keys(o), ...Object.getOwnPropertySymbols(o)]` chains a
+/// `List<String>` onto a `List<Unknown>`. The concat emitter bailed out on
+/// mismatched element types and returned `Default::default()` — an EMPTY list — so
+/// es-toolkit's `copyProperties` silently copied nothing. The concrete side's
+/// elements are erased into the `SmeltUnknown` element type instead.
+#[test]
+fn mixed_string_and_symbol_key_spread_erases_instead_of_emptying() {
+    let source = source_for(
+        r"
+export function allKeys(source: any): any[] {
+  return [...Object.keys(source), ...Object.getOwnPropertySymbols(source)];
+}
+const keys = allKeys({});
+console.log(keys.length);
+",
+    );
+
+    let start = source.find("fn all_keys").expect("allKeys present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("allKeys closing brace");
+    let body = &after[..end];
+
+    assert!(
+        !body.contains("Default::default()"),
+        "a mixed string/symbol key spread must not collapse to an empty list:\n{body}"
+    );
+    assert!(
+        body.contains(".chain("),
+        "both spread halves must be chained into the result list:\n{body}"
+    );
+}

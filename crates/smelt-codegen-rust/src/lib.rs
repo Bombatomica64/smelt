@@ -1964,6 +1964,17 @@ fn emit_source_with_free_function_router(
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
+        // JavaScript property-key coercion: `obj[key]` stringifies whatever `key`
+        // is. Lives in the prelude because it was previously emitted as a full
+        // nested `fn` definition at EVERY dynamic property-key site. es-toolkit's
+        // `compat/object/mergeWith` key loop alone repeated it enough to make one
+        // generated file 2.6 MB of the crate's 14 MB.
+        //
+        // A symbol key keeps its `__smelt_symbol:` prefix, which is the storage
+        // form symbol-keyed properties use, so a symbol round-trips as a distinct
+        // key rather than colliding with its own description string.
+        writer.line("fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() } }");
+        writer.blank_line();
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
         if needs_vitest_mock {
             // Vitest exposes a `.mock` accessor on every mock function carrying
