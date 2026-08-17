@@ -31,12 +31,23 @@ impl ModuleBuilder<'_> {
         };
         let key_ty = *key_type;
         let value_ty = *value_type;
-        let symbol_key_ty = self.intern_type(Type::String);
-        let symbol_list_ty = self.intern_type(Type::List(symbol_key_ty));
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys | DictProjectionOp::ForInKeys => self.intern_type(Type::List(key_ty)),
-            DictProjectionOp::Symbols => symbol_list_ty,
+            // A symbol-keyed property list holds symbol VALUES, not their
+            // descriptions: the property key an erased record stores is
+            // `__smelt_symbol:<description>`, so handing back the bare
+            // description made `source[sym]` miss and `target[sym] = v` write a
+            // plain string key. `Type::Unknown` is the representation a symbol
+            // already has everywhere else (`Literal::Symbol` ->
+            // `SmeltUnknown::Symbol`), and the dynamic index paths map that tag
+            // back to the prefixed key. Interned only on this arm — interning
+            // `Unknown`/`List<Unknown>` for every projection would change which
+            // record backing the other arms pick.
+            DictProjectionOp::Symbols => {
+                let symbol_key_ty = self.intern_type(Type::Unknown);
+                self.intern_type(Type::List(symbol_key_ty))
+            }
             DictProjectionOp::Values => self.intern_type(Type::List(value_ty)),
             DictProjectionOp::Entries => {
                 let entry_ty = self.intern_type(Type::Tuple(vec![key_ty, value_ty]));

@@ -204,6 +204,29 @@ impl FunctionEmitter<'_> {
         let has_never_item = matches!(self.mir.types.get(*left_item), Some(Type::Never))
             || matches!(self.mir.types.get(*right_item), Some(Type::Never));
         if left_item != right_item && !has_never_item {
+            // Mixed element types. `[...Object.keys(o), ...getSymbols(o)]` is a
+            // `(string | symbol)[]`: `List<String>` chained onto `List<Unknown>`.
+            // Both sides collect into one `Vec`, so when one element type is
+            // already the erased `SmeltUnknown` the other side's elements are
+            // erased into it. The `Default::default()` fallback below produced an
+            // EMPTY list, which is how es-toolkit's `copyProperties` silently lost
+            // every string key once symbols stopped arriving as bare descriptions.
+            if let Some(unknown_ty) = self.find_type_id(&Type::Unknown) {
+                let left_text = self.operand_text(left)?;
+                let right_text = self.operand_text(right)?;
+                if *right_item == unknown_ty {
+                    let item = self.erase_value_text("item", *left_item)?;
+                    return Ok(format!(
+                        "{left_text}.iter().cloned().map(|item| {item}).chain({right_text}.iter().cloned()).collect::<Vec<_>>()"
+                    ));
+                }
+                if *left_item == unknown_ty {
+                    let item = self.erase_value_text("item", *right_item)?;
+                    return Ok(format!(
+                        "{left_text}.iter().cloned().chain({right_text}.iter().cloned().map(|item| {item})).collect::<Vec<_>>()"
+                    ));
+                }
+            }
             return Ok("Default::default()".to_owned());
         }
         Ok(format!(
