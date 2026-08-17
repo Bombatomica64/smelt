@@ -452,23 +452,36 @@ impl ModuleBuilder<'_> {
         }
         let prototype = self.argument(prototype, body)?;
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(call.span.start, call.span.end);
         if matches!(self.ctx.krate.types.get(Self::expr_ty(body, prototype)), Some(Type::None)) {
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::DictLit(Vec::new()),
                 ty: unknown_ty,
-                span: self.span(call.span.start, call.span.end),
+                span,
             })));
         }
-        if Self::expr_ty(body, prototype) == unknown_ty {
-            return Ok(Some(prototype));
-        }
+        // Any other prototype spelling goes through the runtime helper, which
+        // always mints a fresh object. Returning `prototype` itself (the previous
+        // behavior) aliased a concrete prototype and, for the opaque
+        // `"__smelt_proto:*"` sentinels `Object.getPrototypeOf` yields, handed the
+        // caller a string to assign fields onto — the shape
+        // `Object.assign(Object.create(Object.getPrototypeOf(obj)), obj)` needs.
+        let prototype = if Self::expr_ty(body, prototype) == unknown_ty {
+            prototype
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: prototype,
+                    target: unknown_ty,
+                },
+                ty: unknown_ty,
+                span,
+            })
+        };
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: prototype,
-                target: unknown_ty,
-            },
+            kind: ExprKind::ObjectFromPrototype { prototype },
             ty: unknown_ty,
-            span: self.span(call.span.start, call.span.end),
+            span,
         })))
     }
 

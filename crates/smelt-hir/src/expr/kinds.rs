@@ -787,6 +787,18 @@ pub enum ExprKind {
         /// Value whose prototype sentinel is being computed.
         value: ExprId,
     },
+    /// Create a fresh erased object from a runtime prototype value.
+    ///
+    /// Lowers to the `smelt_object_from_prototype` runtime helper. `Object.create`
+    /// must yield a NEW object, never the prototype it was handed: returning the
+    /// argument aliases the prototype (so `Object.assign(Object.create(p), o)`
+    /// would mutate `p`) and, when the prototype is one of the opaque
+    /// `"__smelt_proto:*"` sentinels produced by `PrototypeSentinel`, would hand
+    /// back a string where the source expects an object.
+    ObjectFromPrototype {
+        /// Prototype the fresh object inherits from.
+        prototype: ExprId,
+    },
     UnknownCast {
         value: ExprId,
         target: TypeId,

@@ -245,6 +245,16 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::ObjectFromPrototype { prototype } => {
+                let lowered_prototype = self.lower_expr(*prototype)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ObjectFromPrototype {
+                        prototype: lowered_prototype,
+                    },
+                )?
+            }
             ExprKind::UnknownCast { value, target } => {
                 let lowered_value = self.lower_expr(*value)?;
                 self.assign_temp(

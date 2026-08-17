@@ -708,6 +708,46 @@ function protoDepth(value: object): number {
 }
 
 #[test]
+fn object_create_mints_a_fresh_object_instead_of_aliasing_the_prototype() {
+    // Regression: `Object.create(proto)` used to lower to `proto` itself whenever
+    // the prototype was already erased. Two things broke. (1) The prototype of an
+    // erased value is an opaque `"__smelt_proto:*"` *string* sentinel, so
+    // `Object.assign(Object.create(Object.getPrototypeOf(obj)), obj)` — the
+    // es-toolkit `clone` / `cloneDeepWith` shape — assigned fields onto a string
+    // and every copied key was dropped (`Object.keys` then enumerated the
+    // string's character indices). (2) With a concrete prototype object the
+    // result ALIASED that prototype, so the assign mutated it.
+    //
+    // The lowering must route through `smelt_object_from_prototype`, which always
+    // allocates a fresh `SmeltObject`.
+    let source = source_for(
+        r"
+function shallowClone(obj: object): object {
+  const prototype = Object.getPrototypeOf(obj);
+  return Object.assign(Object.create(prototype), obj);
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_object_from_prototype("),
+        "Object.create must route through the fresh-object runtime helper: {source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Object(SmeltObject::new(fields))"),
+        "the helper must allocate a fresh object: {source}"
+    );
+    // The class-prototype sentinel keeps the hidden marker so a cloned class
+    // instance is still classified as a class instance, not a plain object.
+    assert!(
+        source.contains(
+            "SmeltUnknown::String(sentinel) if sentinel == \"__smelt_proto:class\" => { fields.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true)); }"
+        ),
+        "a class prototype must carry the class marker onto the fresh object: {source}"
+    );
+}
+
+#[test]
 fn emits_static_function_with_params_and_return_value() {
     let source = source_for(
         "function add(a: number, b: number): number {

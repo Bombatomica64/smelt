@@ -1055,10 +1055,13 @@ fn emit_source_with_free_function_router(
         let host_marker_array = host_marker_registry_array();
         writer.line(format!("fn smelt_object_has_host_marker(object: &SmeltObject) -> bool {{ {host_marker_array}.iter().any(|marker| object.contains_key(marker)) }}"));
         writer.line(format!("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool {{ {host_marker_array}.iter().any(|marker| record.contains_key(*marker)) }}"));
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")) }");
+        // `__smelt_proto:`-prefixed entries hold members INHERITED from a
+        // prototype (`Object.create(proto)`), so they are never own keys — JS
+        // `Object.keys` / `for...in` own-key enumeration must skip them.
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
-        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")) }");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\")) }");
         writer.line("/// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.");
         writer.line(
             "/// Class instances carry a hidden `__smelt_class` marker and map to a distinct",
@@ -1111,6 +1114,19 @@ fn emit_source_with_free_function_router(
         // Its `constructor` slot is a real callable used by es-toolkit `clone`.
         writer.line("thread_local! { static SMELT_MARKER_PROTOS: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
         writer.line("fn smelt_reflected_prototype(kind: &'static str) -> SmeltUnknown { SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(kind).or_insert_with(|| { let ctor = SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_reflected_construct(kind, args)))); SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"constructor\".to_owned(), ctor)]))) }).clone()) }");
+        // `Object.create(proto)` must mint a FRESH object. Two failure modes make
+        // "just return the prototype" wrong: a concrete prototype object would be
+        // aliased (so the `Object.assign(Object.create(p), o)` clone idiom mutates
+        // `p`), and an opaque `"__smelt_proto:*"` sentinel from
+        // `smelt_prototype_sentinel` is a *string*, so the caller would go on to
+        // index and assign fields on a string. Inherited members are modeled the
+        // same way the `Object.create({ ... })` literal lowering models them — the
+        // prototype's own keys are stored behind a `__smelt_proto:` prefix, which
+        // keeps them out of the created object's own-key enumeration. A class
+        // prototype keeps the hidden `__smelt_class` marker so the fresh object is
+        // still classified as a class instance rather than a plain object.
+        writer.line("/// Create a fresh erased object from a runtime prototype value (`Object.create`).");
+        writer.line("fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: ::std::collections::HashMap<String, SmeltUnknown> = ::std::collections::HashMap::new(); match prototype { SmeltUnknown::String(sentinel) if sentinel == \"__smelt_proto:class\" => { fields.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true)); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key == \"__smelt_class\" || key.starts_with(\"__smelt_proto:\") { fields.insert(key, value); } else { fields.insert(format!(\"__smelt_proto:{key}\"), value); } } }, _ => {} } SmeltUnknown::Object(SmeltObject::new(fields)) }");
         writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".to_owned()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"__smelt_proto:promise\".to_owned()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".to_owned()), SmeltUnknown::Object(map) => match smelt_reflected_marker_kind(map) { Some(kind) => smelt_reflected_prototype(kind), None => SmeltUnknown::String(\"__smelt_proto:object\".to_owned()) }, SmeltUnknown::String(marker) if marker == \"__smelt_proto:object\" => SmeltUnknown::Null, SmeltUnknown::String(marker) if marker == \"__smelt_proto:array\" || marker == \"__smelt_proto:promise\" || marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".to_owned()), _ => SmeltUnknown::String(\"__smelt_proto:object\".to_owned()) } }");
         writer.blank_line();
         writer.line("/// Resolve the JavaScript `Object.prototype.toString.call(x)` tag for an erased value.");
@@ -1851,7 +1867,11 @@ fn emit_source_with_free_function_router(
         writer.line("    }");
         writer.line("    // A missing property reads as JS `undefined`, distinct from an");
         writer.line("    // explicit `null` value (`obj.missing === undefined`, `!== null`).");
-        writer.line("    match map.get(field).unwrap_or(SmeltUnknown::Undefined) {");
+        // Prototype-chain read. `Object.create(proto)` stores the prototype's
+        // members behind a `__smelt_proto:` prefix so they stay out of own-key
+        // enumeration; an own field shadows the inherited one, exactly as in JS.
+        writer.line("    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => map.get(&format!(\"__smelt_proto:{field}\")) };");
+        writer.line("    match smelt_field_value.unwrap_or(SmeltUnknown::Undefined) {");
         writer.line("        SmeltUnknown::Object(getter) if getter.contains_key(\"__smelt_get\") => match getter.get(\"__smelt_get\") {");
         writer.line("            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{}\", error)),");
         writer.line("            _ => SmeltUnknown::Null,");

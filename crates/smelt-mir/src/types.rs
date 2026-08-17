@@ -672,6 +672,12 @@ pub enum Rvalue {
         /// Value whose prototype sentinel is being computed.
         value: Operand,
     },
+    /// Create a fresh erased object from a runtime prototype value
+    /// (`Object.create(proto)`; see the runtime `smelt_object_from_prototype`).
+    ObjectFromPrototype {
+        /// Prototype the fresh object inherits from.
+        prototype: Operand,
+    },
     /// Extract a typed value from a TypeScript `unknown` value.
     UnknownCast {
         /// Value being extracted.

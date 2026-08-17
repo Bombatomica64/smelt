@@ -260,6 +260,7 @@ impl LoweringCtx<'_> {
             | ExprKind::UnknownIs { .. }
             | ExprKind::TypeofValue { .. }
             | ExprKind::PrototypeSentinel { .. }
+            | ExprKind::ObjectFromPrototype { .. }
             | ExprKind::Block(_)
             | ExprKind::Lambda { .. }
             | ExprKind::Closure(_)

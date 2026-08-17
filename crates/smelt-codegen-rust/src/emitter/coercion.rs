@@ -1938,6 +1938,22 @@ impl FunctionEmitter<'_> {
         Ok(format!("smelt_prototype_sentinel(&({text}))"))
     }
 
+    /// Emits `Object.create(proto)` as a fresh erased object.
+    ///
+    /// Defers to the `smelt_object_from_prototype` runtime helper so the
+    /// null-prototype, opaque-`__smelt_proto:*`-sentinel and concrete-prototype
+    /// branches stay in one place. The operand goes through the erased-`unknown`
+    /// coercion seam because a prototype is typically the `SmeltUnknown` returned
+    /// by `smelt_prototype_sentinel`.
+    pub(super) fn object_from_prototype_text(
+        &self,
+        prototype: &Operand,
+    ) -> Result<String, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let text = self.value_at_type(prototype, unknown_ty)?;
+        Ok(format!("smelt_object_from_prototype({text})"))
+    }
+
     /// Emits the JavaScript `Object.prototype.toString.call(x)` tag probe.
     ///
     /// Defers the tag resolution to the `smelt_object_to_string_tag` runtime

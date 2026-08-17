@@ -109,6 +109,9 @@ impl Rvalue {
             } => {
                 visit(unknown_value);
             }
+            Self::ObjectFromPrototype { prototype } => {
+                visit(prototype);
+            }
             Self::UnknownCast {
                 value: unknown_value,
                 ..
@@ -855,6 +858,9 @@ impl Rvalue {
             }
             Self::PrototypeSentinel { value } => {
                 visit(value);
+            }
+            Self::ObjectFromPrototype { prototype } => {
+                visit(prototype);
             }
             Self::UnknownCast {
                 value: unknown_value,
