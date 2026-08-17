@@ -779,6 +779,39 @@ function unwrap(value: unknown): unknown {
 }
 
 #[test]
+fn erased_field_writes_use_the_source_property_name() {
+    // Regression: assigning a field on an erased receiver keyed the entry by the
+    // Rust-MANGLED symbol while every read used the source name, so
+    // `obj.someProp = 1; obj.someProp` read back `undefined` and
+    // `Object.keys(obj)` reported `"some_prop"`. Silent data loss for any
+    // camelCase property written to an `any`/`unknown` object.
+    //
+    // Both sides of the round trip must name the property the same way.
+    let source = source_for(
+        r"
+export function run(): unknown {
+  const obj: any = {};
+  obj.someProp = 1;
+  return obj.someProp;
+}
+",
+    );
+
+    assert!(
+        source.contains("map.insert(\"someProp\".to_owned()"),
+        "an erased field write must key on the source property name: {source}"
+    );
+    assert!(
+        !source.contains("map.insert(\"some_prop\".to_owned()"),
+        "an erased field write must not key on the Rust-mangled name: {source}"
+    );
+    assert!(
+        source.contains("smelt_get_object_field(&map, \"someProp\")"),
+        "the read side already used the source name and must keep doing so: {source}"
+    );
+}
+
+#[test]
 fn object_create_mints_a_fresh_object_instead_of_aliasing_the_prototype() {
     // Regression: `Object.create(proto)` used to lower to `proto` itself whenever
     // the prototype was already erased. Two things broke. (1) The prototype of an
