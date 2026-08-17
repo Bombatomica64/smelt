@@ -134,7 +134,7 @@ fn prepare_python(
 ) -> Result<SpecializationManifest, Box<dyn std::error::Error>> {
     let python = find_executable("python3")?;
     let runtime_version = command_version(&python, &["--version"])?;
-    let policy = sandbox_policy(project_root, false);
+    let policy = sandbox_policy(project_root, &python, false);
     let hashes = invalidation_hashes(project_root, graph, &policy)?;
     let key = SpecializationCacheKey::compute(&CacheKeyInput {
         smelt_version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -191,7 +191,7 @@ fn prepare_typescript(
     let artifact_root = project_root
         .join(".smelt")
         .join("typescript-specialization");
-    let mut policy = sandbox_policy(project_root, true);
+    let mut policy = sandbox_policy(project_root, &node, true);
     policy
         .read_only_roots
         .push(artifact_root.display().to_string());
@@ -376,20 +376,50 @@ fn hash_bytes(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
+/// The read-only root that must be bound for a host interpreter to be executable.
+///
+/// The policy cannot assume the interpreter lives under `/usr`: a Node installed
+/// at `/opt/node22/bin/node` (or `/usr/local/bin/node`) is invisible inside the
+/// sandbox, and the guest dies with `status 127` —
+/// `prlimit: failed to execute .../node: No such file or directory`. That is a
+/// silent-looking failure that only appears once a sandbox backend is actually
+/// available, so it is easy to mistake for a missing prerequisite.
+///
+/// Binds the interpreter's *install* root — the executable's grandparent, so a
+/// `bin/` layout brings its sibling `lib/` along — rather than the whole
+/// filesystem prefix. For `/usr/bin/node` that is `/usr`, which the defaults
+/// already cover, so this only widens the policy where it has to.
+fn interpreter_read_only_root(executable: &Path) -> Option<PathBuf> {
+    let canonical = executable.canonicalize().ok()?;
+    let install_root = canonical.parent()?.parent().unwrap_or_else(|| Path::new("/"));
+    if install_root == Path::new("/") {
+        return None;
+    }
+    Some(install_root.to_path_buf())
+}
+
 /// Builds the default fail-closed policy for one host batch.
-fn sandbox_policy(project_root: &Path, threaded_runtime: bool) -> SandboxPolicyRecord {
+fn sandbox_policy(
+    project_root: &Path,
+    interpreter: &Path,
+    threaded_runtime: bool,
+) -> SandboxPolicyRecord {
     let backend = default_platform_backend();
+    let interpreter_root = interpreter_read_only_root(interpreter);
     let mut read_only_roots = [
-        project_root,
-        Path::new("/usr"),
-        Path::new("/lib"),
-        Path::new("/lib64"),
+        Some(project_root.to_path_buf()),
+        interpreter_root,
+        Some(PathBuf::from("/usr")),
+        Some(PathBuf::from("/lib")),
+        Some(PathBuf::from("/lib64")),
     ]
     .into_iter()
+    .flatten()
     .filter(|path| path.exists())
     .map(|path| path.display().to_string())
     .collect::<Vec<_>>();
     read_only_roots.sort();
+    read_only_roots.dedup();
     SandboxPolicyRecord {
         backend: backend.name().to_owned(),
         network: false,

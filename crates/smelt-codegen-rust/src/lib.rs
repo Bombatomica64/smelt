@@ -1149,6 +1149,23 @@ fn emit_source_with_free_function_router(
         writer.line("/// Stringify a marker-bearing erased RegExp as JavaScript does: `/source/flags`.");
         writer.line("fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.get(\"source\") { Some(SmeltUnknown::String(source)) => source, _ => String::new() }; let flags = match map.get(\"flags\") { Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }; format!(\"/{source}/{flags}\") }");
         writer.blank_line();
+        // JavaScript exposes `instance.constructor`, and code branches on it:
+        // es-toolkit `isEqualWith` gates instance comparison on
+        // `areObjectsEqual(a.constructor, b.constructor) || (isPlainObject(a) && isPlainObject(b))`.
+        // The class marker now records the class name, so one constructor value is
+        // interned per name and every instance of a class reads back the SAME one.
+        //
+        // It is a `Function` on purpose. `areObjectsEqual` tags it `[object Function]`
+        // and that branch decides by identity (`a === b`), so two classes compare
+        // unequal and two instances of one class compare equal — without recursing
+        // into the constructor's own `.constructor`, which an object value would do.
+        // Calling it yields a fresh instance carrying the same class marker, which is
+        // what `new obj.constructor()` means.
+        writer.line("thread_local! { static SMELT_CLASS_CONSTRUCTORS: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
+        writer.blank_line();
+        writer.line("/// One interned constructor value per class name, for `instance.constructor`.");
+        writer.line("fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CONSTRUCTORS.with(|constructors| constructors.borrow_mut().entry(class_name.clone()).or_insert_with(|| { let marker = class_name.clone(); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let mut fields = ::std::collections::HashMap::new(); fields.insert(\"__smelt_class\".to_owned(), SmeltUnknown::String(marker.clone())); Ok(SmeltUnknown::Object(SmeltObject::new(fields))) })) }).clone()) }");
+        writer.blank_line();
         writer.line("/// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.");
         writer.line(
             "/// Class instances carry a hidden `__smelt_class` marker and map to a distinct",
@@ -2018,6 +2035,11 @@ fn emit_source_with_free_function_router(
         // the class name the marker records, which is what makes
         // `new TypeError('t').name` read `"TypeError"` rather than `"Error"`.
         writer.line("    if field == \"name\" && !map.contains_key(\"name\") && let Some(SmeltUnknown::String(class_name)) = map.get(\"__smelt_error\") { return SmeltUnknown::String(class_name); }");
+        // A class instance answers `.constructor` with its interned per-class value.
+        // An own `constructor` field still wins (source code can assign one), and a
+        // plain object keeps `undefined` — which is what lets two plain objects pass
+        // the `isPlainObject(a) && isPlainObject(b)` arm instead.
+        writer.line("    if field == \"constructor\" && !map.contains_key(\"constructor\") && let Some(SmeltUnknown::String(class_name)) = map.get(\"__smelt_class\") { return smelt_class_constructor(class_name); }");
         // Byte-backed host objects (`ArrayBuffer`, `Buffer`, `DataView`, ...) hold
         // their storage in a `bytes` list, so an indexed read (`buffer[1]`, and the
         // `a[i]` walk es-toolkit's `isEqualWith` runs over a typed-array-tagged

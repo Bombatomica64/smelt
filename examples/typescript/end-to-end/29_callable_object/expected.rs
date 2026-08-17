@@ -443,6 +443,11 @@ fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> {
 /// Stringify a marker-bearing erased RegExp as JavaScript does: `/source/flags`.
 fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.get("source") { Some(SmeltUnknown::String(source)) => source, _ => String::new() }; let flags = match map.get("flags") { Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }; format!("/{source}/{flags}") }
 
+thread_local! { static SMELT_CLASS_CONSTRUCTORS: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+
+/// One interned constructor value per class name, for `instance.constructor`.
+fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CONSTRUCTORS.with(|constructors| constructors.borrow_mut().entry(class_name.clone()).or_insert_with(|| { let marker = class_name.clone(); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let mut fields = ::std::collections::HashMap::new(); fields.insert("__smelt_class".to_owned(), SmeltUnknown::String(marker.clone())); Ok(SmeltUnknown::Object(SmeltObject::new(fields))) })) }).clone()) }
+
 /// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.
 /// Class instances carry a hidden `__smelt_class` marker and map to a distinct
 /// `"__smelt_proto:class"` sentinel so they are not treated as plain objects; arrays,
@@ -820,6 +825,7 @@ fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknow
 
 fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     if field == "name" && !map.contains_key("name") && let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); }
+    if field == "constructor" && !map.contains_key("constructor") && let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name); }
     if let Some(element) = smelt_host_buffer_element(map, field) { return element; }
     if field == "constructor" && !map.contains_key("constructor") && let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); }
     if field == "size" && let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); }

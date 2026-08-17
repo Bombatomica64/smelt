@@ -765,16 +765,11 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
-                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                        Ok(format!(
-                            "smelt_for_in_record_keys(&{dict_text})"
-                        ))
-                    } else {
-                        Ok(format!(
-                            "smelt_for_in_record_keys(&{dict_text})"
-                        ))
-                    }
+                    // Every string-keyed backing goes through the same helper: it
+                    // takes `&SmeltRecord<String, _>`, which each of them derefs to,
+                    // and it owns the own-key filtering plus the prototype-chain
+                    // walk that `for...in` needs (see `smelt_for_in_record_keys`).
+                    Ok(format!("smelt_for_in_record_keys(&{dict_text})"))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"

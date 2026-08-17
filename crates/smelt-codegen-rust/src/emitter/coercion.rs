@@ -1798,8 +1798,16 @@ impl FunctionEmitter<'_> {
                 "smelt_object_entries.insert(\"{marker}\".to_owned(), SmeltUnknown::Bool(true)); "
             );
         }
+        // The marker VALUE is the class name, not a bare `true`. JavaScript exposes
+        // `instance.constructor`, and es-toolkit `isEqualWith` gates instance
+        // comparison on `areObjectsEqual(a.constructor, b.constructor)` — with no
+        // name recorded, two instances of DIFFERENT classes both answered
+        // `undefined` for `.constructor`, `Object.is(undefined, undefined)` held,
+        // and they compared equal. `smelt_get_object_field` reads the name back to
+        // intern one constructor value per class.
+        let class_name = self.symbol_source_name(*name)?;
         Ok(format!(
-            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); {entries} {host_markers}smelt_object_entries.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true)); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }}"
+            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); {entries} {host_markers}smelt_object_entries.insert(\"__smelt_class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned())); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }}"
         ))
     }
 
