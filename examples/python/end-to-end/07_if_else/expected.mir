@@ -1,0 +1,32 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user x: Int
+    %1 temp: Bool
+    %2 temp: None
+    %3 temp: Bool
+    %4 temp: None
+    %5 temp: None
+  bb0:
+    %0 = 5
+    %1 = copy %0 > 10
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = call @console_log(move %0) -> bb3
+  bb2:
+    %3 = move %0 > 3
+    switch move %3 ? bb5 : bb6
+  bb3:
+    goto bb4
+  bb4:
+    return none
+  bb5:
+    %4 = call @console_log(1) -> bb7
+  bb6:
+    %5 = call @console_log(0) -> bb9
+  bb7:
+    goto bb8
+  bb8:
+    goto bb4
+  bb9:
+    goto bb8
+

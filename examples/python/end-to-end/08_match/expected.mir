@@ -1,0 +1,24 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user status: Int
+    %1 temp: None
+    %2 temp: None
+    %3 temp: None
+  bb0:
+    %0 = 2
+    match move %0 {1 => bb1, 2 => bb2, _ => bb3}
+  bb1:
+    %1 = call @console_log(100) -> bb5
+  bb2:
+    %2 = call @console_log(200) -> bb6
+  bb3:
+    %3 = call @console_log(0) -> bb7
+  bb4:
+    return none
+  bb5:
+    goto bb4
+  bb6:
+    goto bb4
+  bb7:
+    goto bb4
+

@@ -1,0 +1,25 @@
+module examples/typescript/end-to-end/22_mutating_method/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    class Counter fields [Public value: Float] constructor Some(ItemId(0)) methods [ItemId(1)] implements []
+  locals
+    %0 let counter: Counter
+  exprs
+    #0: Float = 4.0
+    #1: Counter = new Counter(#0)
+    #2: Counter = %0
+    #3: fn(Float) -> Float = #2.inc
+    #4: Counter = %0
+    #5: Float = 3.0
+    #6: Float = #4.inc(#5)
+    #7: None = @3(console_log)
+    #8: None = call #7(#6)
+  stmts
+    s0: let %0: Counter = #1
+    s1: #8
+
+interned types
+  t0 = Counter
+  t1 = Float
+  t2 = None
+  t3 = fn(Float) -> Float

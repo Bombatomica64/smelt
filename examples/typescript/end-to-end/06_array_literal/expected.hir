@@ -1,0 +1,20 @@
+module examples/typescript/end-to-end/06_array_literal/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const values: List<Float>
+  exprs
+    #0: Float = 1.0
+    #1: Float = 2.0
+    #2: Float = 3.0
+    #3: List<Float> = [#0, #1, #2]
+    #4: List<Float> = %0
+    #5: None = @0(console_log)
+    #6: None = call #5(#4)
+  stmts
+    s0: let %0: List<Float> = #3
+    s1: #6
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = None

@@ -1,0 +1,18 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user flag: Bool
+    %1 user other: Bool
+    %2 user result: Bool
+    %3 temp: Bool
+    %4 temp: Bool
+    %5 temp: None
+  bb0:
+    %0 = true
+    %1 = false
+    %3 = !move %1
+    %4 = move %0 && move %3
+    %2 = move %4
+    %5 = call @console_log(move %2) -> bb1
+  bb1:
+    return none
+

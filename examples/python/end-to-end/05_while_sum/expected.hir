@@ -1,0 +1,33 @@
+module examples/python/end-to-end/05_while_sum/input.py (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 let i: Int
+    %1 let total: Int
+  exprs
+    #0: Int = 0
+    #1: Int = 0
+    #2: Int = %0
+    #3: Int = 4
+    #4: Bool = Lt #2, #3
+    #5: Int = %1
+    #6: Int = %0
+    #7: Int = Add #5, #6
+    #8: Int = %0
+    #9: Int = 1
+    #10: Int = Add #8, #9
+    #11: None = @0(console_log)
+    #12: Int = %1
+    #13: None = call #11(#12)
+  stmts
+    s0: let %0: Int = #0
+    s1: let %1: Int = #1
+    s2: #5 = #7
+    s3: #8 = #10
+    s4: while #4 BlockId(1)
+    s5: #13
+
+interned types
+  t0 = None
+  t1 = String
+  t2 = Int
+  t3 = Bool

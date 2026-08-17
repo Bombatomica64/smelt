@@ -160,20 +160,65 @@ where
     }
 }
 
-/// Verifies the compiled output for a single end-to-end example fixture.
-pub(crate) fn verify_end_to_end_example(name: &str) -> TestResult {
-    let example = example_dir(name)?;
-    let input = example.join("input.ts");
-    let expected_mir = fs::read_to_string(example.join("expected.mir"))?;
-
+/// Verifies the HIR and MIR dumps of one example against its golden files.
+///
+/// Split out of the end-to-end verifier so the Python corpus, which has no
+/// generated-Rust or runtime tier yet, can reuse the same golden comparison.
+///
+/// The HIR golden exists because the `smelt-hir` formatter was otherwise almost
+/// unexercised: `dump-hir` ran in exactly two CLI tests, one of them over a
+/// one-line file, which left `format/call.rs` at 1.9% line coverage and
+/// `format/map.rs` at 0% while `ExprKind` carries 178 variants. The formatter is
+/// what `skills/smelt-debug-workflow` and every human or agent debugging a
+/// lowering issue reads, so a `todo!()` or a silently wrong arm in it is
+/// expensive and was invisible.
+pub(crate) fn verify_example_dumps(name: &str, example: &Path, input: &Path) -> TestResult {
     let workspace_root = workspace_root()?;
     let input_path = input.strip_prefix(workspace_root)?;
-    let actual_mir = smelt(&["dump-mir", &utf8_path(input_path)?])?;
+    let input_arg = utf8_path(input_path)?;
+
+    let expected_hir = fs::read_to_string(example.join("expected.hir"))?;
+    let actual_hir = smelt(&["dump-hir", &input_arg])?;
+    ensure_eq(
+        &actual_hir,
+        &expected_hir,
+        format!("HIR mismatch for {name}"),
+    )?;
+
+    let expected_mir = fs::read_to_string(example.join("expected.mir"))?;
+    let actual_mir = smelt(&["dump-mir", &input_arg])?;
     ensure_eq(
         &actual_mir,
         &expected_mir,
         format!("MIR mismatch for {name}"),
     )?;
+
+    Ok(())
+}
+
+/// Returns the absolute path to a Python end-to-end example fixture.
+pub(crate) fn python_example_dir(name: &str) -> TestResult<PathBuf> {
+    Ok(workspace_root()?
+        .join("examples/python/end-to-end")
+        .join(name))
+}
+
+/// Verifies the HIR and MIR dumps for a single Python end-to-end example.
+///
+/// The Python corpus shipped as fixtures that no test read, so nothing noticed
+/// if the Python frontend stopped lowering them; this is the tier that reads
+/// them.
+pub(crate) fn verify_python_end_to_end_example(name: &str) -> TestResult {
+    let example = python_example_dir(name)?;
+    let input = example.join("input.py");
+    verify_example_dumps(name, &example, &input)
+}
+
+/// Verifies the compiled output for a single end-to-end example fixture.
+pub(crate) fn verify_end_to_end_example(name: &str) -> TestResult {
+    let example = example_dir(name)?;
+    let input = example.join("input.ts");
+    verify_example_dumps(name, &example, &input)?;
 
     let project = TempProject::new()?;
     let project_path = project.path();

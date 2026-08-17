@@ -1,0 +1,31 @@
+module examples/typescript/end-to-end/13_for_of_sum/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const xs: List<Float>
+    %1 let sum: Float
+    %2 let x: Float
+  exprs
+    #0: Float = 1.0
+    #1: Float = 2.0
+    #2: Float = 3.0
+    #3: List<Float> = [#0, #1, #2]
+    #4: Float = 0.0
+    #5: List<Float> = %0
+    #6: Float = %1
+    #7: Float = %1
+    #8: Float = %2
+    #9: Float = Add #7, #8
+    #10: Float = %1
+    #11: None = @0(console_log)
+    #12: None = call #11(#10)
+  stmts
+    s0: let %0: List<Float> = #3
+    s1: let %1: Float = #4
+    s2: #6 = #9
+    s3: for %2 in #5 BlockId(1)
+    s4: #12
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = None

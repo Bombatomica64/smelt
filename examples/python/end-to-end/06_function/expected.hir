@@ -1,0 +1,23 @@
+module examples/python/end-to-end/06_function/input.py (ModuleId(0))
+  body BodyId(1)
+  items
+    fn add owner Module
+  locals
+    %0 let result: Int
+  exprs
+    #0: fn(Int, Int) -> Int = @0(add)
+    #1: Int = 3
+    #2: Int = 4
+    #3: Int = call #0(#1, #2)
+    #4: None = @1(console_log)
+    #5: Int = %0
+    #6: None = call #4(#5)
+  stmts
+    s0: let %0: Int = #3
+    s1: #6
+
+interned types
+  t0 = None
+  t1 = String
+  t2 = Int
+  t3 = fn(Int, Int) -> Int

@@ -1,0 +1,31 @@
+module examples/typescript/end-to-end/16_switch_break_no_fallthrough/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const code: Float
+    %1 let label: String
+  exprs
+    #0: Float = 2.0
+    #1: String = ""
+    #2: Float = %0
+    #3: String = %1
+    #4: String = "one"
+    #5: String = %1
+    #6: String = "two"
+    #7: String = %1
+    #8: String = "other"
+    #9: String = %1
+    #10: None = @0(console_log)
+    #11: None = call #10(#9)
+  stmts
+    s0: let %0: Float = #0
+    s1: let %1: String = #1
+    s2: #3 = #4
+    s3: #5 = #6
+    s4: #7 = #8
+    s5: match #2 {1.0 => BlockId(1), 2.0 => BlockId(2)} default BlockId(3)
+    s6: #11
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = None

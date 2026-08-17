@@ -1,0 +1,22 @@
+fn add (FuncId(0)) -> Int
+  locals
+    %0 param x: Int
+    %1 param y: Int
+    %2 temp: Int
+  bb0:
+    %2 = copy %0 + copy %1
+    return move %2
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user result: Int
+    %1 temp: Int
+    %2 temp: None
+  bb0:
+    %1 = call fn0(3, 4) -> bb1
+  bb1:
+    %0 = move %1
+    %2 = call @console_log(move %0) -> bb2
+  bb2:
+    return none
+

@@ -1,0 +1,32 @@
+module examples/typescript/end-to-end/14_c_for_loop/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 let sum: Float
+    %1 let i: Float
+  exprs
+    #0: Float = 0.0
+    #1: Float = 0.0
+    #2: Float = %1
+    #3: Float = 4.0
+    #4: Bool = Lt #2, #3
+    #5: Float = %0
+    #6: Float = %1
+    #7: Float = Add #5, #6
+    #8: Float = %1
+    #9: Float = 1.0
+    #10: Float = Add #8, #9
+    #11: Float = %0
+    #12: None = @0(console_log)
+    #13: None = call #12(#11)
+  stmts
+    s0: let %0: Float = #0
+    s1: let %1: Float = #1
+    s2: #5 = #7
+    s3: #8 = #10
+    s4: while #4 BlockId(1) update-block BlockId(2)
+    s5: #13
+
+interned types
+  t0 = Float
+  t1 = Bool
+  t2 = None

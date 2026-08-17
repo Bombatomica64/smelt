@@ -1,0 +1,39 @@
+module examples/typescript/end-to-end/15_break_continue/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 let i: Float
+    %1 let sum: Float
+  exprs
+    #0: Float = 0.0
+    #1: Float = 0.0
+    #2: Float = %0
+    #3: Float = 6.0
+    #4: Bool = Lt #2, #3
+    #5: Float = %0
+    #6: Float = %0
+    #7: Float = 1.0
+    #8: Float = Add #6, #7
+    #9: Float = %0
+    #10: Float = 2.0
+    #11: Bool = JsStrictEq #9, #10
+    #12: Float = %1
+    #13: Float = %1
+    #14: Float = %0
+    #15: Float = Add #13, #14
+    #16: Float = %1
+    #17: None = @0(console_log)
+    #18: None = call #17(#16)
+  stmts
+    s0: let %0: Float = #0
+    s1: let %1: Float = #1
+    s2: #5 = #8
+    s3: continue
+    s4: if #11 then BlockId(2)
+    s5: #12 = #15
+    s6: while #4 BlockId(1)
+    s7: #18
+
+interned types
+  t0 = Float
+  t1 = Bool
+  t2 = None

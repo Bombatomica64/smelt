@@ -1,0 +1,16 @@
+module examples/typescript/end-to-end/02_string/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const message: String
+  exprs
+    #0: String = "hello smelt"
+    #1: String = %0
+    #2: None = @0(console_log)
+    #3: None = call #2(#1)
+  stmts
+    s0: let %0: String = #0
+    s1: #3
+
+interned types
+  t0 = String
+  t1 = None

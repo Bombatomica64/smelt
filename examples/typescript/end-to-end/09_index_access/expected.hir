@@ -1,0 +1,35 @@
+module examples/typescript/end-to-end/09_index_access/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const values: List<Float>
+    %1 const names: Dict<String, String>
+  exprs
+    #0: Float = 5.0
+    #1: Float = 8.0
+    #2: Float = 13.0
+    #3: List<Float> = [#0, #1, #2]
+    #4: String = "first"
+    #5: String = "Ada"
+    #6: String = "second"
+    #7: String = "Grace"
+    #8: Dict<String, String> = {#4: #5, #6: #7}
+    #9: List<Float> = %0
+    #10: Float = 1.0
+    #11: Float = #9[#10]
+    #12: Dict<String, String> = %1
+    #13: String = "second"
+    #14: String = #12[#13]
+    #15: None = @0(console_log)
+    #16: None = call #15(#11, #14)
+  stmts
+    s0: let %0: List<Float> = #3
+    s1: let %1: Dict<String, String> = #8
+    s2: #16
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = String
+  t3 = Dict<String, String>
+  t4 = List<String>
+  t5 = None

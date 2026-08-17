@@ -1,0 +1,24 @@
+module examples/typescript/end-to-end/08_record_literal/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const scores: Dict<String, Float>
+  exprs
+    #0: String = "ada"
+    #1: Float = 10.0
+    #2: String = "grace"
+    #3: Float = 20.0
+    #4: Dict<String, Float> = {#0: #1, #2: #3}
+    #5: Dict<String, Float> = %0
+    #6: Float = #5.ada
+    #7: None = @0(console_log)
+    #8: None = call #7(#6)
+  stmts
+    s0: let %0: Dict<String, Float> = #4
+    s1: #8
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = Dict<String, Float>
+  t3 = List<Float>
+  t4 = None

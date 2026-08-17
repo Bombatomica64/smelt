@@ -1,0 +1,20 @@
+module examples/typescript/end-to-end/07_tuple_literal/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const pair: (String, Float)
+  exprs
+    #0: String = "age"
+    #1: Float = 42.0
+    #2: (String, Float) = (#0, #1)
+    #3: (String, Float) = %0
+    #4: None = @0(console_log)
+    #5: None = call #4(#3)
+  stmts
+    s0: let %0: (String, Float) = #2
+    s1: #5
+
+interned types
+  t0 = String
+  t1 = Float
+  t2 = (String, Float)
+  t3 = None
