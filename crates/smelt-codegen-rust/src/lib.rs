@@ -1107,7 +1107,7 @@ fn emit_source_with_free_function_router(
         // boxed (a fresh-identity shallow copy is faithful), but for Error it passes
         // `(message, { cause })`, so rebuild the `__smelt_error` shape from the args
         // (`.name` is synthesized by `smelt_get_object_field`).
-        writer.line("fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown { if kind == \"error\" { let mut fields = ::std::collections::HashMap::new(); fields.insert(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.insert(\"message\".to_owned(), message); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get(\"cause\") { fields.insert(\"cause\".to_owned(), cause); } } SmeltUnknown::Object(SmeltObject::new(fields)) } else { smelt_fresh_identity(args.into_iter().next().unwrap_or(SmeltUnknown::Undefined)) } }");
+        writer.line("fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown { if kind == \"error\" { let mut fields = ::std::collections::HashMap::new(); fields.insert(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.insert(\"message\".to_owned(), message); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get(\"cause\") { fields.insert(\"cause\".to_owned(), cause); } } SmeltUnknown::Object(SmeltObject::new(fields)) } else { smelt_fresh_identity(args.into_iter().next().unwrap_or(SmeltUnknown::Undefined)) } }");
         // One cached prototype object per marker kind, so that
         // `Object.getPrototypeOf(a) === Object.getPrototypeOf(b)` holds for two
         // values of the same kind (`SmeltObject` `===` compares the stable `id`).
@@ -1915,7 +1915,7 @@ fn emit_source_with_free_function_router(
         // `new Error(msg)` shape is just `{ __smelt_error, message }`). Real errors
         // inherit `name` from their prototype (`"Error"` for the base class), so
         // synthesize it when absent to keep `clone`/`cloneDeep` faithful.
-        writer.line("    if field == \"name\" && map.contains_key(\"__smelt_error\") && !map.contains_key(\"name\") { return SmeltUnknown::String(\"Error\".to_owned()); }");
+        writer.line("    if field == \"name\" && !map.contains_key(\"name\") && let Some(SmeltUnknown::String(class_name)) = map.get(\"__smelt_error\") { return SmeltUnknown::String(class_name); }");
         writer.line("    if field == \"size\" && let Some(SmeltUnknown::Array(pairs)) = map.get(\"__smelt_map\") { return SmeltUnknown::Number(pairs.len() as f64); }");
         // Same synthesis for an erased `Set` (`{ __smelt_set: [members...] }`):
         // real Sets expose `.size` through `Set.prototype`, absent from the marker

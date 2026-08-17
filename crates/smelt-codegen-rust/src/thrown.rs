@@ -134,6 +134,6 @@ pub(crate) fn emit_thrown_payload_support(writer: &mut CodeWriter) {
     writer.line("/// record built from its `Display` text -- the shape a `catch` saw before the");
     writer.line("/// payload ABI existed.");
     writer.line(format!(
-        "fn {THROWN_VALUE_FN}(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown {{ if let Some(thrown) = error.downcast_ref::<{THROWN_TYPE}>() {{ return thrown.value.clone(); }} SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(error.to_string()))]))) }}"
+        "fn {THROWN_VALUE_FN}(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown {{ if let Some(thrown) = error.downcast_ref::<{THROWN_TYPE}>() {{ return thrown.value.clone(); }} SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(error.to_string()))]))) }}"
     ));
 }

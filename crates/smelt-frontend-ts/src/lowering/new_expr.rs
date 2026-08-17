@@ -579,7 +579,7 @@ impl ModuleBuilder<'_> {
             // Reuse the erased-Error record model. `new Error(message)` keeps
             // only the message argument, so pass the first closure parameter
             // through the shared error-object builder.
-            self.error_object_from_message(arg_exprs.first().copied(), span, &mut closure_body)
+            self.error_object_from_message(arg_exprs.first().copied(), name, span, &mut closure_body)
         } else {
             let class_ty = self.ctx.krate.types.intern(Type::Class {
                 name: class_symbol,
@@ -637,11 +637,11 @@ impl ModuleBuilder<'_> {
     pub(super) fn error_object_from_message(
         &mut self,
         message: Option<smelt_hir::ExprId>,
+        class_name: &str,
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let message = message.unwrap_or_else(|| {
@@ -656,9 +656,16 @@ impl ModuleBuilder<'_> {
             ty: string_ty,
             span,
         });
+        // The marker VALUE is the constructor's class name, not a bare `true`.
+        // Every error class shared one boolean marker, so `instance_of_text`
+        // could not tell them apart: `new Error('x') instanceof AggregateError`
+        // answered `true`, which sent es-toolkit `clone` down the AggregateError
+        // branch and rebuilt the error as `new Ctor(obj.errors, obj.message, ..)`
+        // — putting `errors` in the message slot and losing the message. It also
+        // makes `.name` truthful, which `smelt_get_object_field` reads back.
         let marker_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
+            kind: ExprKind::Literal(Literal::String(class_name.to_owned())),
+            ty: string_ty,
             span,
         });
         let message_key = body.push_expr(Expr {
@@ -927,18 +934,25 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let parts = self.error_constructor_parts(new_expr, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
+        // Which error class was spelled. Falls back to `Error` for a callee shape
+        // that is not a bare identifier, which is the base class anyway.
+        let class_name = match &new_expr.callee {
+            Expression::Identifier(callee) => callee.name.to_string(),
+            _ => "Error".to_owned(),
+        };
         let marker_key = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::String("__smelt_error".to_owned())),
             ty: string_ty,
             span,
         });
+        // See `error_object_from_message`: the marker value carries the class name
+        // so error subclasses stay distinguishable and `.name` reads truthfully.
         let marker_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
+            kind: ExprKind::Literal(Literal::String(class_name)),
+            ty: string_ty,
             span,
         });
         let message_key = body.push_expr(Expr {

@@ -1,10 +1,10 @@
 {
   "files_scanned": 746,
-  "total": 79283,
+  "total": 79299,
   "category_totals": {
-    "avoidable-erasure": 35680,
-    "legitimate-boundary": 40911,
-    "runtime-prelude": 2692
+    "avoidable-erasure": 35646,
+    "legitimate-boundary": 40960,
+    "runtime-prelude": 2693
   },
   "shapes": [
     {
@@ -24,15 +24,15 @@
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltUnknown;",
-      "occurrences": 1539,
+      "occurrences": 1538,
       "files": 211,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/AbortError_spec.rs:49"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltList<SmeltUnknown>;",
-      "occurrences": 828,
-      "files": 198,
+      "occurrences": 826,
+      "files": 197,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/after_spec.rs:257"
     },
     {
@@ -40,7 +40,7 @@
       "shape": "_smelt_tmp_N = match _smelt_tmp_N.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };",
       "occurrences": 730,
       "files": 8,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:472"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:481"
     },
     {
       "category": "legitimate-boundary",
@@ -275,17 +275,17 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Object(SmeltObject::from_unknown_record((_smelt_tmp_N).clone()));",
+      "occurrences": 284,
+      "files": 38,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/AbortError_spec.rs:57"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = SmeltUnknown::Null;",
       "occurrences": 283,
       "files": 19,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_spec.rs:60"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Object(SmeltObject::from_unknown_record((_smelt_tmp_N).clone()));",
-      "occurrences": 282,
-      "files": 37,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/AbortError_spec.rs:57"
     },
     {
       "category": "legitimate-boundary",
@@ -376,7 +376,7 @@
       "shape": "_smelt_tmp_N = match (_smelt_tmp_N).into_smelt_unknown() { SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() };",
       "occurrences": 198,
       "files": 22,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:88"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:89"
     },
     {
       "category": "avoidable-erasure",
@@ -820,13 +820,6 @@
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_spec.rs:130"
     },
     {
-      "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = SmeltUnknown::Array(vec![SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN)].into());",
-      "occurrences": 108,
-      "files": 17,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_spec.rs:512"
-    },
-    {
       "category": "legitimate-boundary",
       "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into({ let smelt_src = (a.clone()).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src { value.id } else { smelt_next_object_id() }; SmeltList::with_id(smelt_id, match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(pairs)) = value.get(\"S\") { pairs.into_vec().into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>() } else if let Some(SmeltUnknown::Array(members)) = value.get(\"S\") { members.into_vec().into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>() } else { match value.get(\"S\") { Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>(), _ => panic!(\"S\") } }, _ => panic!(\"S\") }) });",
       "occurrences": 106,
@@ -902,6 +895,13 @@
       "occurrences": 100,
       "files": 2,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/get.rs:105"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = SmeltUnknown::Array(vec![SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN)].into());",
+      "occurrences": 100,
+      "files": 16,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_spec.rs:512"
     },
     {
       "category": "avoidable-erasure",
@@ -1202,7 +1202,7 @@
       "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into({ let smelt_src = (value_to_clone.clone()).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src { value.id } else { smelt_next_object_id() }; SmeltList::with_id(smelt_id, match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(SmeltUnknown::Array(pairs)) = value.get(\"S\") { pairs.into_vec() } else if let Some(SmeltUnknown::Array(members)) = value.get(\"S\") { members.into_vec() } else { match value.get(\"S\") { Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)), _ => panic!(\"S\") } }, _ => panic!(\"S\") }) });",
       "occurrences": 77,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:188"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:189"
     },
     {
       "category": "legitimate-boundary",
@@ -1286,7 +1286,7 @@
       "shape": "_smelt_tmp_N = match match value_to_clone.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone().clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() };",
       "occurrences": 72,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:378"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:387"
     },
     {
       "category": "legitimate-boundary",
@@ -1412,7 +1412,7 @@
       "shape": "SmeltUnknown::Object(values) => values.get(&i_N.clone().to_string()).unwrap_or(SmeltUnknown::Null),",
       "occurrences": 66,
       "files": 3,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:330"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:339"
     },
     {
       "category": "avoidable-erasure",
@@ -1426,7 +1426,7 @@
       "shape": "_smelt_tmp_N = { let timestamp_ms = (_smelt_tmp_N) as fN; let timestamp_ms = if !timestamp_ms.is_finite() || timestamp_ms == iN::MIN as fN { fN::NAN } else { timestamp_ms }; SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"S\".to_owned(), SmeltUnknown::Number(timestamp_ms))]))) };",
       "occurrences": 66,
       "files": 13,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:224"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:225"
     },
     {
       "category": "legitimate-boundary",
@@ -1507,13 +1507,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned()))]);",
-      "occurrences": 63,
-      "files": 6,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeep_spec.rs:718"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: SmeltList<SmeltUnknown>| {",
       "occurrences": 62,
       "files": 5,
@@ -1538,7 +1531,7 @@
       "shape": "_smelt_tmp_N = match _smelt_tmp_N.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() };",
       "occurrences": 60,
       "files": 4,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:462"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:471"
     },
     {
       "category": "legitimate-boundary",
@@ -1605,17 +1598,10 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Number(N.N as fN)]; smelt_list_items }));",
-      "occurrences": 60,
-      "files": 12,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/differenceBy_spec.rs:19"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "match &mut result_N { SmeltUnknown::Object(map) => { map.insert(\"S\".to_owned(), match value_to_clone.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone()); }, other => { let mut map = ::std::collections::HashMap::new(); map.insert(\"S\".to_owned(), match value_to_clone.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone()); *other = SmeltUnknown::Object(SmeltObject::new(map)); } }",
       "occurrences": 60,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:425"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:434"
     },
     {
       "category": "avoidable-erasure",
@@ -1644,6 +1630,13 @@
       "occurrences": 57,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_spec.rs:98"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned()))]);",
+      "occurrences": 57,
+      "files": 5,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeep_spec.rs:718"
     },
     {
       "category": "legitimate-boundary",
@@ -1762,7 +1755,7 @@
       "shape": "let mut _smelt_tmp_N: SmeltRecord<String, SmeltUnknown>;",
       "occurrences": 55,
       "files": 23,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:668"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:677"
     },
     {
       "category": "runtime-prelude",
@@ -1783,7 +1776,7 @@
       "shape": "_smelt_tmp_N = { let smelt_source_value = smelt_value_of_method(value_to_clone.clone()).clone().clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_callback: ::std::rc::Rc<dyn Fn() -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn() -> SmeltUnknown>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move || -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> SmeltUnknown> = ::std::rc::Rc::new(move || -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback } } };",
       "occurrences": 54,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:436"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:445"
     },
     {
       "category": "legitimate-boundary",
@@ -1805,6 +1798,13 @@
       "occurrences": 54,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/reduceAsync_spec.rs:67"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Number(N.N as fN)]; smelt_list_items }));",
+      "occurrences": 54,
+      "files": 11,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/differenceBy_spec.rs:19"
     },
     {
       "category": "avoidable-erasure",
@@ -1902,7 +1902,7 @@
       "shape": "_smelt_tmp_N = { let smelt_source_value = match _smelt_tmp_N.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone().clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, String) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(SmeltUnknown, String) -> SmeltUnknown>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: String| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(argN); smelt_call_args.push(SmeltUnknown::String(argN)); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, String) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: String| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback } } };",
       "occurrences": 51,
       "files": 3,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:696"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:705"
     },
     {
       "category": "legitimate-boundary",
@@ -1979,7 +1979,7 @@
       "shape": "let mut _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Null;",
       "occurrences": 50,
       "files": 9,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:369"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:378"
     },
     {
       "category": "avoidable-erasure",
@@ -2000,7 +2000,7 @@
       "shape": "let _smelt_tmp_N: SmeltRecord<String, SmeltUnknown> = match (source.clone()).into_smelt_unknown() { SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() };",
       "occurrences": 49,
       "files": 5,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:679"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:688"
     },
     {
       "category": "legitimate-boundary",
@@ -2592,13 +2592,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned()))]);",
-      "occurrences": 40,
-      "files": 11,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/allKeyed_spec.rs:112"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltUnknown = smelt_vitest_mock_new(None);",
       "occurrences": 40,
       "files": 5,
@@ -2924,7 +2917,7 @@
       "shape": "let mut _smelt_tmp_N: SmeltJsMap<SmeltUnknown, SmeltUnknown>;",
       "occurrences": 36,
       "files": 7,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:73"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:74"
     },
     {
       "category": "legitimate-boundary",
@@ -3065,13 +3058,6 @@
       "occurrences": 34,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/at.rs:57"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Number(N.N as fN)]; smelt_list_items }));",
-      "occurrences": 34,
-      "files": 12,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/chunk_spec.rs:1577"
     },
     {
       "category": "avoidable-erasure",
@@ -3439,6 +3425,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Number(N.N as fN)]; smelt_list_items }));",
+      "occurrences": 30,
+      "files": 11,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/chunk_spec.rs:1577"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: iN, closure_arg_N: SmeltList<SmeltUnknown>| {",
       "occurrences": 30,
       "files": 11,
@@ -3635,13 +3628,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: bool = is_equal_with_N(_smelt_tmp_N, _smelt_tmp_N, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: SmeltUnknown, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltJsMap<SmeltUnknown, SmeltUnknown>>| None::<bool> });",
-      "occurrences": 28,
-      "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/isEqualWith_spec.rs:2547"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: bool = is_equal_with_N(arrayN, arrayN, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: SmeltUnknown, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltJsMap<SmeltUnknown, SmeltUnknown>>| None::<bool> });",
       "occurrences": 28,
       "files": 1,
@@ -3652,7 +3638,7 @@
       "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown, String) -> SmeltUnknown> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, String) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: String| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback };",
       "occurrences": 28,
       "files": 4,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:670"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:679"
     },
     {
       "category": "avoidable-erasure",
@@ -3680,7 +3666,7 @@
       "shape": "_smelt_tmp_N = matches!(_smelt_tmp_N.clone(), SmeltUnknown::Function(_));",
       "occurrences": 27,
       "files": 6,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:368"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:377"
     },
     {
       "category": "legitimate-boundary",
@@ -3922,6 +3908,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned()))]);",
+      "occurrences": 26,
+      "files": 9,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/allKeyed_spec.rs:115"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "move |closure_arg_N: SmeltList<SmeltUnknown>| {",
       "occurrences": 26,
       "files": 26,
@@ -4006,13 +3999,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN)].into());",
-      "occurrences": 25,
-      "files": 3,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/flattenObject_spec.rs:228"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "}); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_callback)(smelt_args.iter().skip(N).cloned().collect::<SmeltList<_>>())) }, length: N.N, object: None };",
       "occurrences": 25,
       "files": 23,
@@ -4024,6 +4010,13 @@
       "occurrences": 24,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeep_spec.rs:150"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "_smelt_tmp_N = SmeltRegExp::new(match match value_to_clone.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone() { SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, match match value_to_clone.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone() { SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() });",
+      "occurrences": 24,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:231"
     },
     {
       "category": "legitimate-boundary",
@@ -4730,7 +4723,7 @@
       "shape": "let _smelt_tmp_N: SmeltJsSet<SmeltUnknown>;",
       "occurrences": 21,
       "files": 13,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:76"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:77"
     },
     {
       "category": "avoidable-erasure",
@@ -4905,7 +4898,14 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = constructor.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone(), match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone(), SmeltUnknown::Object(SmeltObject::from_unknown_record((_smelt_tmp_N).clone()))]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 20,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:124"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:132"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "_smelt_tmp_N = { let smelt_function_value = constructor.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![obj.clone()]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
+      "occurrences": 20,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:110"
     },
     {
       "category": "legitimate-boundary",
@@ -5119,6 +5119,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = matches!(value_to_clone.clone().clone(), SmeltUnknown::Object(value) if value.contains_key(\"S\"));",
+      "occurrences": 20,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:222"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = { let smelt_record = (_smelt_tmp_N).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as fN))).collect())) };",
       "occurrences": 20,
       "files": 6,
@@ -5217,13 +5224,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = matches!(value_to_clone.clone().clone(), SmeltUnknown::Object(value) if value.contains_key(\"S\"));",
-      "occurrences": 19,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:221"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown, Option<SmeltUnknown>, Option<SmeltUnknown>, Option<SmeltUnknown>) -> SmeltUnknown> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown, Option<SmeltUnknown>, Option<SmeltUnknown>, Option<SmeltUnknown>) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback };",
       "occurrences": 19,
       "files": 1,
@@ -5262,14 +5262,14 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = _smelt_tmp_N.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![SmeltUnknown::Array(_smelt_tmp_N.into()), match value_to_clone.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone(), SmeltUnknown::Object(SmeltObject::from_unknown_record((_smelt_tmp_N).clone()))]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 18,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:373"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:382"
     },
     {
       "category": "legitimate-boundary",
       "shape": "_smelt_tmp_N = { let smelt_function_value = constructor.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![{ let smelt_l = _smelt_tmp_N; SmeltUnknown::Array(SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| (value).into_smelt_unknown()).collect::<Vec<_>>())) }, match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone(), SmeltUnknown::Object(SmeltObject::from_unknown_record((_smelt_tmp_N).clone()))]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 18,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:147"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:155"
     },
     {
       "category": "legitimate-boundary",
@@ -5521,7 +5521,7 @@
       "shape": "_smelt_tmp_N = (i_N.clone()) < (match match value_to_clone.clone() { SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as fN), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as fN), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Null }.clone().clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN });",
       "occurrences": 17,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:315"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:324"
     },
     {
       "category": "legitimate-boundary",
@@ -5703,7 +5703,7 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = constructor.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone(), SmeltUnknown::Object(SmeltObject::from_unknown_record((_smelt_tmp_N).clone()))]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 16,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:128"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:136"
     },
     {
       "category": "legitimate-boundary",
@@ -5868,6 +5868,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned()))]);",
+      "occurrences": 16,
+      "files": 5,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/allKeyed_spec.rs:112"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Number(N.N as fN)), (\"S\".to_owned(), SmeltUnknown::Bool(true))]);",
       "occurrences": 16,
       "files": 3,
@@ -5906,7 +5913,7 @@
       "shape": "_smelt_tmp_N = matches!(obj.clone().clone(), SmeltUnknown::Object(value) if value.contains_key(\"S\"));",
       "occurrences": 16,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:72"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:73"
     },
     {
       "category": "avoidable-erasure",
@@ -6259,6 +6266,13 @@
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/throttle_spec.rs:349"
     },
     {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN)].into());",
+      "occurrences": 15,
+      "files": 2,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/flattenObject_spec.rs:228"
+    },
+    {
       "category": "runtime-prelude",
       "shape": "fn from_smelt_unknown(value: SmeltUnknown) -> Self {",
       "occurrences": 14,
@@ -6284,7 +6298,7 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = _smelt_tmp_N.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![SmeltUnknown::Array(_smelt_tmp_N.into()), SmeltUnknown::Object(SmeltObject::from_unknown_record((_smelt_tmp_N).clone()))]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 14,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:404"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:413"
     },
     {
       "category": "legitimate-boundary",
@@ -6540,6 +6554,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: bool = is_equal_with_N(_smelt_tmp_N, _smelt_tmp_N, &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: SmeltUnknown, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltJsMap<SmeltUnknown, SmeltUnknown>>| None::<bool> });",
+      "occurrences": 14,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/isEqualWith_spec.rs:2547"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: bool = is_equal_with_N(arrayN.clone(), arrayN.clone(), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: SmeltUnknown, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltJsMap<SmeltUnknown, SmeltUnknown>>| None::<bool> });",
       "occurrences": 14,
       "files": 1,
@@ -6659,6 +6680,13 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "*result_N.last_index.borrow_mut() = (match match value_to_clone.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone().clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }) as usize;",
+      "occurrences": 13,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:233"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "SmeltUnknown::Object(values) => values.get(&{ fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"S\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\"S\"), SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() } } smelt_property_key(path.clone()) }).unwrap_or(SmeltUnknown::Null),",
       "occurrences": 13,
       "files": 1,
@@ -6690,7 +6718,7 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = match _smelt_tmp_N.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone().clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![match value_to_clone.clone() { SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as fN), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as fN), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Null }.clone()]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 13,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:310"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:319"
     },
     {
       "category": "legitimate-boundary",
@@ -6900,7 +6928,7 @@
       "shape": "_smelt_tmp_N = SmeltUnknown::Array(_smelt_tmp_N.into());",
       "occurrences": 13,
       "files": 7,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:377"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:386"
     },
     {
       "category": "avoidable-erasure",
@@ -7075,14 +7103,14 @@
       "shape": "_smelt_tmp_N = match (new_error.clone()).into_smelt_unknown() { SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() };",
       "occurrences": 12,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:132"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:140"
     },
     {
       "category": "legitimate-boundary",
       "shape": "_smelt_tmp_N = match (new_object).into_smelt_unknown() { SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() };",
       "occurrences": 12,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:155"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:163"
     },
     {
       "category": "legitimate-boundary",
@@ -7103,7 +7131,7 @@
       "shape": "_smelt_tmp_N = match match descriptor.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone().clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };",
       "occurrences": 12,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:735"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:744"
     },
     {
       "category": "legitimate-boundary",
@@ -7117,7 +7145,7 @@
       "shape": "_smelt_tmp_N = matches!(obj.clone(), SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Null | SmeltUnknown::Promise(_));",
       "occurrences": 12,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:151"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:159"
     },
     {
       "category": "legitimate-boundary",
@@ -7138,7 +7166,7 @@
       "shape": "_smelt_tmp_N = { _smelt_tmp_N.extend(match IntoSmeltUnknown::into_smelt_unknown(obj.clone().clone()) { SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter().map(|(key, value)| (key, value))), _ => SmeltRecord::new() }.iter().map(|(key, value)| (key.clone(), value.clone()))); _smelt_tmp_N.clone() };",
       "occurrences": 12,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:89"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:90"
     },
     {
       "category": "legitimate-boundary",
@@ -7152,7 +7180,7 @@
       "shape": "_smelt_tmp_N = { let smelt_slice_value = match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone(); let smelt_slice_start = N.N as iN; let smelt_slice_end = None::<fN>.map(|end| end as iN); match smelt_slice_value { SmeltUnknown::Array(values) => { let values = values.into_vec(); let smelt_slice_len = values.len() as iN; let smelt_start_index = (if smelt_slice_start < N { smelt_slice_len + smelt_slice_start } else { smelt_slice_start }).clamp(N, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < N { smelt_slice_len + end } else { end }).clamp(N, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>())) }, SmeltUnknown::String(value) => { let chars = value.chars().collect::<Vec<char>>(); let smelt_slice_len = chars.len() as iN; let smelt_start_index = (if smelt_slice_start < N { smelt_slice_len + smelt_slice_start } else { smelt_slice_start }).clamp(N, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < N { smelt_slice_len + end } else { end }).clamp(N, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::String(chars.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<String>()) }, smelt_other => smelt_other } };",
       "occurrences": 12,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:114"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:122"
     },
     {
       "category": "legitimate-boundary",
@@ -7733,7 +7761,14 @@
       "shape": "match &mut new_error { SmeltUnknown::Object(map) => { map.insert(\"S\".to_owned(), match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone()); }, other => { let mut map = ::std::collections::HashMap::new(); map.insert(\"S\".to_owned(), match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone()); *other = SmeltUnknown::Object(SmeltObject::new(map)); } }",
       "occurrences": 12,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:131"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:139"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "match &mut new_reg_exp { SmeltUnknown::Object(map) => { map.insert(\"S\".to_owned(), match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone()); }, other => { let mut map = ::std::collections::HashMap::new(); map.insert(\"S\".to_owned(), match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone()); *other = SmeltUnknown::Object(SmeltObject::new(map)); } }",
+      "occurrences": 12,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:117"
     },
     {
       "category": "avoidable-erasure",
@@ -8076,7 +8111,7 @@
       "shape": "_smelt_tmp_N = match value_to_clone.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN };",
       "occurrences": 11,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:223"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:224"
     },
     {
       "category": "legitimate-boundary",
@@ -8160,7 +8195,7 @@
       "shape": "_smelt_tmp_N = { let smelt_source_value = match value_to_clone.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone().clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_callback: ::std::rc::Rc<dyn Fn() -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn() -> SmeltUnknown>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move || -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> SmeltUnknown> = ::std::rc::Rc::new(move || -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback } } };",
       "occurrences": 11,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:302"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:311"
     },
     {
       "category": "legitimate-boundary",
@@ -8419,7 +8454,7 @@
       "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true))]);",
       "occurrences": 11,
       "files": 8,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:350"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:359"
     },
     {
       "category": "avoidable-erasure",
@@ -8538,7 +8573,7 @@
       "shape": "pub(crate) fn copy_properties(mut target: SmeltUnknown, source: SmeltUnknown, object_to_clone: Option<SmeltUnknown>, stack: Option<SmeltJsMap<SmeltUnknown, SmeltUnknown>>, clone_value: Option<::std::rc::Rc<dyn Fn(SmeltUnknown, Option<SmeltUnknown>, SmeltUnknown, SmeltJsMap<SmeltUnknown, SmeltUnknown>) -> SmeltUnknown>>) -> Result<(), Box<dyn std::error::Error>> {",
       "occurrences": 11,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:658"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:667"
     },
     {
       "category": "avoidable-erasure",
@@ -8804,14 +8839,7 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = constructor.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![_smelt_tmp_N]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 10,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:115"
-    },
-    {
-      "category": "legitimate-boundary",
-      "shape": "_smelt_tmp_N = { let smelt_function_value = constructor.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![obj.clone()]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
-      "occurrences": 10,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:109"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:123"
     },
     {
       "category": "legitimate-boundary",
@@ -9203,7 +9231,7 @@
       "shape": "_smelt_tmp_N = match _smelt_tmp_N.clone() { SmeltUnknown::Object(value) if value.contains_key(\"S\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"S\".to_owned(), SmeltUnknown::Number(value))]))), value => value };",
       "occurrences": 10,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:225"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:226"
     },
     {
       "category": "avoidable-erasure",
@@ -9406,7 +9434,7 @@
       "shape": "let mut _smelt_tmp_N: SmeltJsSet<SmeltUnknown>;",
       "occurrences": 10,
       "files": 6,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:82"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:83"
     },
     {
       "category": "avoidable-erasure",
@@ -9788,6 +9816,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned()))]);",
+      "occurrences": 9,
+      "files": 2,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/isFunction_spec.rs:12"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::Number(N.N as fN), { let smelt_record = (_smelt_tmp_N.clone()).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as fN))).collect())) }, SmeltUnknown::Number(N.N as fN), { let smelt_l = _smelt_tmp_N.clone(); SmeltUnknown::Array(SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| { let smelt_record = (value).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as fN))).collect())) }).collect::<Vec<_>>())) }].into());",
       "occurrences": 9,
       "files": 1,
@@ -9809,13 +9844,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: bool = is_equal_with_N(SmeltUnknown::Array(a.into()), SmeltUnknown::Array(b.into()), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: SmeltUnknown, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltJsMap<SmeltUnknown, SmeltUnknown>>| None::<bool> });",
-      "occurrences": 9,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:21"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: bool = is_equal_with_N(SmeltUnknown::Array(array.clone().into()), SmeltUnknown::Array(_smelt_tmp_N.into()), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: SmeltUnknown, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltJsMap<SmeltUnknown, SmeltUnknown>>| None::<bool> });",
       "occurrences": 9,
       "files": 1,
@@ -9834,13 +9862,6 @@
       "occurrences": 9,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/isEqualWith_spec.rs:1914"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: bool = is_equal_with_N(SmeltUnknown::Array(sN.into()), SmeltUnknown::Array(sN.into()), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: SmeltUnknown, argN: SmeltUnknown, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltUnknown>, argN: Option<SmeltJsMap<SmeltUnknown, SmeltUnknown>>| None::<bool> });",
-      "occurrences": 9,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:65"
     },
     {
       "category": "avoidable-erasure",
@@ -10043,21 +10064,21 @@
       "shape": "_smelt_tmp_N = matches!(value_to_clone.clone(), SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Null | SmeltUnknown::Promise(_));",
       "occurrences": 8,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:469"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:478"
     },
     {
       "category": "legitimate-boundary",
       "shape": "_smelt_tmp_N = { let smelt_slice_value = obj.clone(); let smelt_slice_start = N.N as iN; let smelt_slice_end = None::<fN>.map(|end| end as iN); match smelt_slice_value { SmeltUnknown::Array(values) => { let values = values.into_vec(); let smelt_slice_len = values.len() as iN; let smelt_start_index = (if smelt_slice_start < N { smelt_slice_len + smelt_slice_start } else { smelt_slice_start }).clamp(N, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < N { smelt_slice_len + end } else { end }).clamp(N, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>())) }, SmeltUnknown::String(value) => { let chars = value.chars().collect::<Vec<char>>(); let smelt_slice_len = chars.len() as iN; let smelt_start_index = (if smelt_slice_start < N { smelt_slice_len + smelt_slice_start } else { smelt_slice_start }).clamp(N, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < N { smelt_slice_len + end } else { end }).clamp(N, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::String(chars.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<String>()) }, smelt_other => smelt_other } };",
       "occurrences": 8,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:78"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:79"
     },
     {
       "category": "legitimate-boundary",
       "shape": "_smelt_tmp_N = { let smelt_slice_value = value_to_clone.clone(); let smelt_slice_start = N.N as iN; let smelt_slice_end = None::<fN>.map(|end| end as iN); match smelt_slice_value { SmeltUnknown::Array(values) => { let values = values.into_vec(); let smelt_slice_len = values.len() as iN; let smelt_start_index = (if smelt_slice_start < N { smelt_slice_len + smelt_slice_start } else { smelt_slice_start }).clamp(N, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < N { smelt_slice_len + end } else { end }).clamp(N, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>())) }, SmeltUnknown::String(value) => { let chars = value.chars().collect::<Vec<char>>(); let smelt_slice_len = chars.len() as iN; let smelt_start_index = (if smelt_slice_start < N { smelt_slice_len + smelt_slice_start } else { smelt_slice_start }).clamp(N, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < N { smelt_slice_len + end } else { end }).clamp(N, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::String(chars.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<String>()) }, smelt_other => smelt_other } };",
       "occurrences": 8,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:344"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:353"
     },
     {
       "category": "legitimate-boundary",
@@ -10407,7 +10428,7 @@
       "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![value_to_clone.clone()]; smelt_list_items }));",
       "occurrences": 8,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:371"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:380"
     },
     {
       "category": "avoidable-erasure",
@@ -10463,21 +10484,21 @@
       "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone()), (\"S\".to_owned(), match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone())]);",
       "occurrences": 8,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:146"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:154"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), match obj.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone())]);",
       "occurrences": 8,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:123"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:131"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), match value_to_clone.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone())]);",
       "occurrences": 8,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:372"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:381"
     },
     {
       "category": "avoidable-erasure",
@@ -10810,6 +10831,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: bool = matches!(value.clone().clone(), SmeltUnknown::Object(value) if value.contains_key(\"S\"));",
+      "occurrences": 8,
+      "files": 8,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/isArrayBuffer_1.rs:8"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: bool = value.clone().as_ref().map_or(true, |value| matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined));",
       "occurrences": 8,
       "files": 4,
@@ -10988,7 +11016,7 @@
       "shape": "match &mut result { SmeltUnknown::Object(map) => { map.insert(\"S\".to_owned(), SmeltUnknown::Null); }, other => { let mut map = ::std::collections::HashMap::new(); map.insert(\"S\".to_owned(), SmeltUnknown::Null); *other = SmeltUnknown::Object(SmeltObject::new(map)); } }",
       "occurrences": 8,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:208"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:209"
     },
     {
       "category": "avoidable-erasure",
@@ -11608,13 +11636,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: bool = matches!(value.clone().clone(), SmeltUnknown::Object(value) if value.contains_key(\"S\"));",
-      "occurrences": 7,
-      "files": 7,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/isArrayBuffer_1.rs:8"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let error: Option<SmeltUnknown>;",
       "occurrences": 7,
       "files": 2,
@@ -11779,7 +11800,7 @@
       "shape": "return SmeltUnknown::Object(SmeltObject::from_unknown_record((_smelt_tmp_N).clone()));",
       "occurrences": 7,
       "files": 4,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:90"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:91"
     },
     {
       "category": "runtime-prelude",
@@ -12430,7 +12451,7 @@
       "shape": "_smelt_tmp_N = SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([])));",
       "occurrences": 6,
       "files": 5,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:87"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:88"
     },
     {
       "category": "avoidable-erasure",
@@ -15258,7 +15279,7 @@
       "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), _smelt_tmp_N)]);",
       "occurrences": 4,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:438"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:447"
     },
     {
       "category": "avoidable-erasure",
@@ -15493,6 +15514,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = matches!(obj.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get(\"S\"), Some(SmeltUnknown::String(smelt_error_class)) if smelt_error_class == \"S\"));",
+      "occurrences": 4,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:129"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = matches!(other.clone(), SmeltUnknown::String(_));",
       "occurrences": 4,
       "files": 4,
@@ -15525,6 +15553,13 @@
       "occurrences": 4,
       "files": 4,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/forEach.rs:89"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = serde_json::to_string(&match cr.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone()).expect(\"S\");",
+      "occurrences": 4,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:35"
     },
     {
       "category": "avoidable-erasure",
@@ -15601,7 +15636,7 @@
       "shape": "constructor = match prototype.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone();",
       "occurrences": 4,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:92"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:93"
     },
     {
       "category": "avoidable-erasure",
@@ -15850,13 +15885,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned()))]);",
-      "occurrences": 4,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone_spec.rs:731"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), { let smelt_record = (_smelt_tmp_N).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as fN))).collect())) })]);",
       "occurrences": 4,
       "files": 1,
@@ -15882,6 +15910,13 @@
       "occurrences": 4,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/invert_spec.rs:135"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned()))]);",
+      "occurrences": 4,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone_spec.rs:731"
     },
     {
       "category": "avoidable-erasure",
@@ -15972,7 +16007,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Bool(is_cloneable_object_N(value_to_clone.clone()));",
       "occurrences": 4,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:471"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:480"
     },
     {
       "category": "avoidable-erasure",
@@ -16998,13 +17033,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "{ let smelt_assign_index = { let len = sN.len() as iN; let index = N.N as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }; if smelt_assign_index >= sN.len() { sN.resize(smelt_assign_index.saturating_add(N), SmeltUnknown::Undefined); } sN[smelt_assign_index] = SmeltUnknown::Number(N.N as fN); }",
-      "occurrences": 4,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:56"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "{ let smelt_value = match objectN.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone(); match &mut objectN { SmeltUnknown::Object(map) => { map.insert(\"S\".to_owned(), smelt_value); }, other => { let mut map = ::std::collections::HashMap::new(); map.insert(\"S\".to_owned(), smelt_value); *other = SmeltUnknown::Object(SmeltObject::new(map)); } } }",
       "occurrences": 4,
       "files": 1,
@@ -17705,13 +17733,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())), (\"S\".to_owned(), SmeltUnknown::Array(_smelt_tmp_N.into()))]);",
-      "occurrences": 3,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone_spec.rs:765"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), match _smelt_tmp_N.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone())]);",
       "occurrences": 3,
       "files": 1,
@@ -17758,6 +17779,13 @@
       "occurrences": 3,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/flattenObject_spec.rs:393"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())), (\"S\".to_owned(), SmeltUnknown::Array(_smelt_tmp_N.into()))]);",
+      "occurrences": 3,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone_spec.rs:765"
     },
     {
       "category": "avoidable-erasure",
@@ -18443,7 +18471,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = clone_deep_with_impl(_smelt_tmp_N.get({ let len = _smelt_tmp_N.len() as iN; let index = i.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone(), Some(SmeltUnknown::Number(i.clone() as fN)), object_to_clone.clone(), stack.clone(), clone_value.clone())?;",
       "occurrences": 3,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:197"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:198"
     },
     {
       "category": "avoidable-erasure",
@@ -19594,6 +19622,13 @@
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/invokeMap.rs:101"
     },
     {
+      "category": "avoidable-erasure",
+      "shape": "{ let smelt_value = SmeltUnknown::Number(N.N as fN); match &mut r { SmeltUnknown::Object(map) => { map.insert(\"S\".to_owned(), smelt_value); }, other => { let mut map = ::std::collections::HashMap::new(); map.insert(\"S\".to_owned(), smelt_value); *other = SmeltUnknown::Object(SmeltObject::new(map)); } } }",
+      "occurrences": 3,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:32"
+    },
+    {
       "category": "runtime-prelude",
       "shape": "(\"S\".to_owned(), SmeltUnknown::Bool(true)),",
       "occurrences": 2,
@@ -19977,6 +20012,13 @@
       "occurrences": 2,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/main.rs:4410"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "if field == \"S\" && !map.contains_key(\"S\") && let Some(SmeltUnknown::String(class_name)) = map.get(\"S\") { return SmeltUnknown::String(class_name); }",
+      "occurrences": 2,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/main.rs:3157"
     },
     {
       "category": "runtime-prelude",
@@ -20802,7 +20844,7 @@
       "shape": "__smelt_for_item = _smelt_tmp_N.get({ let len = _smelt_tmp_N.len() as iN; let index = _smelt_tmp_N.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone();",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:239"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:248"
     },
     {
       "category": "avoidable-erasure",
@@ -21236,7 +21278,7 @@
       "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![obj.clone()]; smelt_list_items }));",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:145"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:153"
     },
     {
       "category": "avoidable-erasure",
@@ -21363,13 +21405,6 @@
       "occurrences": 2,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_spec.rs:552"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())), (\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned()))]);",
-      "occurrences": 2,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/flattenObject_spec.rs:348"
     },
     {
       "category": "avoidable-erasure",
@@ -21677,14 +21712,14 @@
       "shape": "_smelt_tmp_N = matches!(prototype.clone(), SmeltUnknown::Null);",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:83"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:84"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = matches!(prototype.clone(), SmeltUnknown::Undefined);",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:84"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:85"
     },
     {
       "category": "avoidable-erasure",
@@ -21734,6 +21769,13 @@
       "occurrences": 2,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/some.rs:100"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = serde_json::to_string(&match c.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone()).expect(\"S\");",
+      "occurrences": 2,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:27"
     },
     {
       "category": "avoidable-erasure",
@@ -21986,6 +22028,20 @@
       "occurrences": 2,
       "files": 2,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial.rs:21"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _ = { println!(\"S\", \"S\".to_owned(), _smelt_tmp_N, \"S\".to_owned(), _smelt_tmp_N, \"S\".to_owned(), match cr.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone(), \"S\".to_owned(), _smelt_tmp_N); };",
+      "occurrences": 2,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:38"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _ = { println!(\"S\", \"S\".to_owned(), _smelt_tmp_N, \"S\".to_owned(), match c.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone(), \"S\".to_owned(), _smelt_tmp_N); };",
+      "occurrences": 2,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:29"
     },
     {
       "category": "avoidable-erasure",
@@ -22643,7 +22699,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = clone_deep_with_impl(match source.clone() {",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:705"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:714"
     },
     {
       "category": "avoidable-erasure",
@@ -22657,14 +22713,14 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = clone_deep_with_impl(value.clone().map_or(SmeltUnknown::Undefined, |value| value), key.clone().map(|value| value), object_to_clone.clone(), stack.clone(), clone_value.clone())?;",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:274"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:283"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltUnknown = clone_deep_with_impl(value_N, None::<SmeltUnknown>, object_to_clone.clone(), stack.clone(), clone_value.clone())?;",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:293"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:302"
     },
     {
       "category": "avoidable-erasure",
@@ -23984,13 +24040,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let mut sN: SmeltList<SmeltUnknown>;",
-      "occurrences": 2,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:30"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let mut signal: Option<SmeltUnknown> = None::<SmeltUnknown>;",
       "occurrences": 2,
       "files": 1,
@@ -24351,7 +24400,7 @@
       "shape": "new_error = SmeltUnknown::Undefined;",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:120"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:128"
     },
     {
       "category": "avoidable-erasure",
@@ -24743,7 +24792,7 @@
       "shape": "pub(crate) fn is_cloneable_object_N(object: SmeltUnknown) -> bool {",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:771"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:780"
     },
     {
       "category": "avoidable-erasure",
@@ -25510,13 +25559,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "{ let smelt_assign_index = { let len = sN.len() as iN; let index = N.N as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }; if smelt_assign_index >= sN.len() { sN.resize(smelt_assign_index.saturating_add(N), SmeltUnknown::Undefined); } sN[smelt_assign_index] = SmeltUnknown::Undefined; }",
-      "occurrences": 2,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:59"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "{ let smelt_assign_index = { let len = tuple.len() as iN; let index = j.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }; if smelt_assign_index >= tuple.len() { tuple.resize(smelt_assign_index.saturating_add(N), SmeltUnknown::Null); } tuple[smelt_assign_index] = arr.get({ let len = arr.len() as iN; let index = _smelt_tmp_N.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone(); }",
       "occurrences": 2,
       "files": 1,
@@ -25590,7 +25632,7 @@
       "shape": "}.clone(), Some(SmeltUnknown::String(key.clone())), object_to_clone_N.clone(), stack.clone().clone().unwrap_or(SmeltJsMap::new()), clone_value.clone())?;",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:724"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:733"
     },
     {
       "category": "avoidable-erasure",
@@ -26452,13 +26494,6 @@
       "occurrences": 1,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/main.rs:4401"
-    },
-    {
-      "category": "runtime-prelude",
-      "shape": "if field == \"S\" && map.contains_key(\"S\") && !map.contains_key(\"S\") { return SmeltUnknown::String(\"S\".to_owned()); }",
-      "occurrences": 1,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/main.rs:3157"
     },
     {
       "category": "runtime-prelude",
@@ -27589,6 +27624,13 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: SmeltUnknown = (clone_N(e.clone())).into_smelt_unknown();",
+      "occurrences": 1,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:25"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: SmeltUnknown = (clone_N(error.clone())).into_smelt_unknown();",
       "occurrences": 1,
       "files": 1,
@@ -27607,6 +27649,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone_spec.rs:245"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: SmeltUnknown = (clone_N(r.clone())).into_smelt_unknown();",
+      "occurrences": 1,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:33"
     },
     {
       "category": "legitimate-boundary",
@@ -28446,7 +28495,7 @@
       "shape": "_smelt_tmp_N = _smelt_tmp_N.clone().map_or(SmeltUnknown::Undefined, |value| value);",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:181"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:182"
     },
     {
       "category": "avoidable-erasure",
@@ -28586,14 +28635,14 @@
       "shape": "_smelt_tmp_N = matches!(descriptor.clone(), SmeltUnknown::Null);",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:699"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:708"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = matches!(descriptor.clone(), SmeltUnknown::Undefined);",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:700"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:709"
     },
     {
       "category": "avoidable-erasure",
@@ -28656,7 +28705,7 @@
       "shape": "_smelt_tmp_N = matches!(obj.clone(), SmeltUnknown::Array(_));",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:61"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/clone.rs:62"
     },
     {
       "category": "avoidable-erasure",
@@ -28761,7 +28810,7 @@
       "shape": "_smelt_tmp_N = matches!(value_to_clone.clone(), SmeltUnknown::Array(_));",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:184"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:185"
     },
     {
       "category": "avoidable-erasure",
@@ -29027,7 +29076,7 @@
       "shape": "_smelt_tmp_N = { result_N.insert(key.clone().unwrap_or(SmeltUnknown::Null), _smelt_tmp_N); result_N.clone() };",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:275"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:284"
     },
     {
       "category": "avoidable-erasure",
@@ -29041,7 +29090,7 @@
       "shape": "_smelt_tmp_N = { stack.insert(SmeltUnknown::Array(_smelt_tmp_N.into()), result.clone()); stack.clone() };",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:189"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:190"
     },
     {
       "category": "avoidable-erasure",
@@ -29517,7 +29566,7 @@
       "shape": "let _smelt_tmp_N: Option<SmeltUnknown> = clone_value.clone().clone().map(|smelt_function| (smelt_function)(value_to_clone.clone(), key_to_clone.clone(), object_to_clone.clone(), stack.clone()));",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:166"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:167"
     },
     {
       "category": "avoidable-erasure",
@@ -30252,7 +30301,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = clone_deep_with_impl(match value_to_clone.clone() {",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:317"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:326"
     },
     {
       "category": "avoidable-erasure",
@@ -30399,7 +30448,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = object_to_clone.clone().map_or_else(|| target.clone(), |value| value);",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:677"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:686"
     },
     {
       "category": "avoidable-erasure",
@@ -31901,20 +31950,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: fN = { let smelt_push_item = SmeltUnknown::Array(a.clone().into()); a.push(smelt_push_item); a.len() as fN };",
-      "occurrences": 1,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:13"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: fN = { let smelt_push_item = SmeltUnknown::Array(b.clone().into()); b.push(smelt_push_item); b.len() as fN };",
-      "occurrences": 1,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:16"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let a_stack: Option<SmeltUnknown>;",
       "occurrences": 1,
       "files": 1,
@@ -32062,6 +32097,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "let c: SmeltUnknown;",
+      "occurrences": 1,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:11"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "let cancel_timer: ::std::rc::Rc<dyn Fn() -> SmeltUnknown>;",
       "occurrences": 1,
       "files": 1,
@@ -32093,7 +32135,7 @@
       "shape": "let cloned: Option<SmeltUnknown> = _smelt_tmp_N;",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:167"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:168"
     },
     {
       "category": "avoidable-erasure",
@@ -32160,6 +32202,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "let cr: SmeltUnknown;",
+      "occurrences": 1,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:13"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "let ctor_N: SmeltUnknown;",
       "occurrences": 1,
       "files": 1,
@@ -32206,6 +32255,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/retry_spec.rs:195"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let e: SmeltUnknown = _smelt_tmp_N;",
+      "occurrences": 1,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:24"
     },
     {
       "category": "avoidable-erasure",
@@ -32461,13 +32517,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let mut a: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(_smelt_tmp_N);",
-      "occurrences": 1,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:12"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let mut a_prop: SmeltUnknown;",
       "occurrences": 1,
       "files": 1,
@@ -32528,13 +32577,6 @@
       "occurrences": 1,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/flattenArrayLike.rs:8"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let mut b: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(_smelt_tmp_N);",
-      "occurrences": 1,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:15"
     },
     {
       "category": "avoidable-erasure",
@@ -32611,7 +32653,7 @@
       "shape": "let mut descriptor: SmeltUnknown;",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:662"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:671"
     },
     {
       "category": "avoidable-erasure",
@@ -32892,6 +32934,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/isPlainObject.rs:10"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let mut r: SmeltUnknown;",
+      "occurrences": 1,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:12"
     },
     {
       "category": "avoidable-erasure",
@@ -33185,7 +33234,7 @@
       "shape": "let object_to_clone_N: SmeltUnknown = _smelt_tmp_N;",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:678"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:687"
     },
     {
       "category": "avoidable-erasure",
@@ -33284,6 +33333,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/create.rs:8"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let proto_r: SmeltUnknown;",
+      "occurrences": 1,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/zzprobe_spec.rs:14"
     },
     {
       "category": "avoidable-erasure",
@@ -34564,7 +34620,7 @@
       "shape": "result = SmeltUnknown::Array(_smelt_tmp_N.into());",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:187"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:188"
     },
     {
       "category": "avoidable-erasure",
@@ -34781,7 +34837,7 @@
       "shape": "value_N = _smelt_tmp_N.get({ let len = _smelt_tmp_N.len() as iN; let index = _smelt_tmp_N.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone();",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:292"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:301"
     },
     {
       "category": "avoidable-erasure",
@@ -34907,7 +34963,7 @@
       "shape": "}.clone(), Some(SmeltUnknown::Number(i_N.clone() as fN)), object_to_clone.clone(), stack.clone(), clone_value.clone())?;",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:332"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:341"
     }
   ]
 }

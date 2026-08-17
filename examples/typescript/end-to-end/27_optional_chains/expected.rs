@@ -337,7 +337,7 @@ fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> 
 /// would return `"__smelt_proto:object"` forever and never terminate.
 fn smelt_reflected_marker_kind(map: &SmeltObject) -> Option<&'static str> { if map.contains_key("__smelt_date") { Some("date") } else if map.contains_key("__smelt_map") { Some("map") } else if map.contains_key("__smelt_set") { Some("set") } else if map.contains_key("__smelt_regexp") { Some("regexp") } else if map.contains_key("__smelt_dataview") { Some("dataview") } else if map.contains_key("__smelt_error") { Some("error") } else if map.contains_key("__smelt_file") { Some("file") } else if map.contains_key("__smelt_number") { Some("number") } else if map.contains_key("__smelt_boolean") { Some("boolean") } else { None } }
 fn smelt_fresh_identity(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), map.values.borrow().clone())), SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.into_vec())), other => other } }
-fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown { if kind == "error" { let mut fields = ::std::collections::HashMap::new(); fields.insert("__smelt_error".to_owned(), SmeltUnknown::Bool(true)); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.insert("message".to_owned(), message); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get("cause") { fields.insert("cause".to_owned(), cause); } } SmeltUnknown::Object(SmeltObject::new(fields)) } else { smelt_fresh_identity(args.into_iter().next().unwrap_or(SmeltUnknown::Undefined)) } }
+fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown { if kind == "error" { let mut fields = ::std::collections::HashMap::new(); fields.insert("__smelt_error".to_owned(), SmeltUnknown::String("Error".to_owned())); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.insert("message".to_owned(), message); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get("cause") { fields.insert("cause".to_owned(), cause); } } SmeltUnknown::Object(SmeltObject::new(fields)) } else { smelt_fresh_identity(args.into_iter().next().unwrap_or(SmeltUnknown::Undefined)) } }
 thread_local! { static SMELT_MARKER_PROTOS: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 fn smelt_reflected_prototype(kind: &'static str) -> SmeltUnknown { SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(kind).or_insert_with(|| { let ctor = SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_reflected_construct(kind, args)))); SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([("constructor".to_owned(), ctor)]))) }).clone()) }
 /// Create a fresh erased object from a runtime prototype value (`Object.create`).
@@ -601,7 +601,7 @@ fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknow
 }
 
 fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
-    if field == "name" && map.contains_key("__smelt_error") && !map.contains_key("name") { return SmeltUnknown::String("Error".to_owned()); }
+    if field == "name" && !map.contains_key("name") && let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); }
     if field == "size" && let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); }
     if field == "size" && let Some(SmeltUnknown::Array(members)) = map.get("__smelt_set") { return SmeltUnknown::Number(members.len() as f64); }
     if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") {
@@ -837,7 +837,7 @@ fn smelt_throw(value: SmeltUnknown) -> Box<dyn ::std::error::Error> { Box::new(S
 /// a Smelt `throw`) has no payload, so it is presented as an erased `Error`
 /// record built from its `Display` text -- the shape a `catch` saw before the
 /// payload ABI existed.
-fn smelt_thrown_value(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown { if let Some(thrown) = error.downcast_ref::<SmeltThrown>() { return thrown.value.clone(); } SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([("__smelt_error".to_owned(), SmeltUnknown::Bool(true)), ("message".to_owned(), SmeltUnknown::String(error.to_string()))]))) }
+fn smelt_thrown_value(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown { if let Some(thrown) = error.downcast_ref::<SmeltThrown>() { return thrown.value.clone(); } SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".to_owned())), ("message".to_owned(), SmeltUnknown::String(error.to_string()))]))) }
 
 impl Eq for SmeltUnknown {}
 

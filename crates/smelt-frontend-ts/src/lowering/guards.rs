@@ -120,12 +120,36 @@ impl ModuleBuilder<'_> {
                 span: self.span(binary.span.start, binary.span.end),
             }));
         }
-        if Self::instanceof_fold_false_builtin_target(class_text)
-            && !(Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::Date)
+        // `Date` and `RegExp` both erase to marker-bearing objects
+        // (`__smelt_date` / `__smelt_regexp`), so an ERASED operand's identity is
+        // recoverable at runtime and must not be folded away — `instance_of_text`
+        // emits the marker probe. Folding `RegExp` unconditionally is what made
+        // es-toolkit `cloneDeepWithImpl` skip its `valueToClone instanceof RegExp`
+        // branch for an `unknown`-typed regex and fall through to the generic
+        // `Object.create(getPrototypeOf(x))` path, losing `source` and `flags`.
+        // Concrete operands still fold: their storage carries no marker.
+        //
+        // RegExp exempts only the fully erased types, NOT `Union`/`Optional` as
+        // Date does. A concrete union stores a tagged enum (`SmeltUnion*`), and
+        // routing one into the marker probe emits a `SmeltUnknown` match against
+        // that enum — which is what broke `truncate.rs`, where the receiver is an
+        // `Optional<Union>` separator. Date's wider set is left exactly as it was.
+        let regexp_target =
+            Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::RegExp);
+        let date_target =
+            Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::Date);
+        let operand_keeps_marker_identity = (date_target
+            && matches!(
+                self.ctx.krate.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            ))
+            || (regexp_target
                 && matches!(
                     self.ctx.krate.types.get(value_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-                ))
+                    Some(Type::Unknown | Type::TypeParam { .. })
+                ));
+        if Self::instanceof_fold_false_builtin_target(class_text)
+            && !operand_keeps_marker_identity
             && !self.instanceof_concrete_class(value_ty)
         {
             let ty = self.ctx.krate.types.intern(Type::Bool);
