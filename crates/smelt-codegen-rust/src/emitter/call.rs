@@ -58,6 +58,24 @@ struct MutListPlaceAccess {
     mut_borrow: Option<String>,
 }
 
+/// The identity markers a `value instanceof <class>` probe must accept.
+///
+/// Usually one — the class's own registry marker. It is more than one where the
+/// platform has a real subclass relation, which the registry already records in
+/// `to_string_tag`: Node's `Buffer` *is* a `Uint8Array`, reports
+/// `[object Uint8Array]`, and must satisfy `buf instanceof Uint8Array`. Deriving
+/// the set from the tag keeps the subclass relation in the registry rather than
+/// hard-coded at this call site, and returns `None` for names that are not
+/// modeled host objects so the caller falls through to its class dispatch.
+fn host_instance_markers(class_name: &str) -> Option<Vec<&'static str>> {
+    let markers = smelt_stdlib::HOST_OBJECTS
+        .iter()
+        .filter(|entry| entry.class_name == class_name || entry.to_string_tag == class_name)
+        .map(|entry| entry.marker)
+        .collect::<Vec<_>>();
+    (!markers.is_empty()).then_some(markers)
+}
+
 impl FunctionEmitter<'_> {
     /// Converts a runtime-backed async operation to Rust.
     pub(super) fn async_op_text(
@@ -2249,24 +2267,29 @@ impl FunctionEmitter<'_> {
         // branches above; sourcing them here too is harmless since those
         // short-circuit first.)
         let abort_marker = match class_name {
-            "AbortController" => Some("__smelt_abortcontroller"),
-            "AbortSignal" => Some("__smelt_abortsignal"),
-            _ => smelt_stdlib::host_object_marker(class_name),
+            "AbortController" => Some(vec!["__smelt_abortcontroller"]),
+            "AbortSignal" => Some(vec!["__smelt_abortsignal"]),
+            _ => host_instance_markers(class_name),
         };
-        if let Some(marker) = abort_marker {
+        if let Some(markers) = abort_marker {
             let value_is_dynamic = matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
             );
             if value_is_dynamic || self.is_erased_class_type(value_ty) {
                 let value_text = self.operand_text(value)?;
+                let probe = markers
+                    .iter()
+                    .map(|marker| format!("value.contains_key(\"{marker}\")"))
+                    .collect::<Vec<_>>()
+                    .join(" || ");
                 if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
                     return Ok(format!(
-                        "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{marker}\"))"
+                        "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {probe})"
                     ));
                 }
                 return Ok(format!(
-                    "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{marker}\"))"
+                    "matches!({value_text}.clone(), SmeltUnknown::Object(value) if {probe})"
                 ));
             }
         }

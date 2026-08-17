@@ -979,6 +979,13 @@ export function pick(
 
 #[test]
 fn emits_runtime_sized_numeric_typed_array_constructors() {
+    // `new Uint8Array(count)` allocates `count` *elements*. This used to emit a
+    // `vec![0.0; count]` numeric list, which is why every view reported tag
+    // `[object Array]` and a byte count for its `length`; the views are now
+    // byte-backed host objects, so the runtime length allocation moved into the
+    // one shared byte-buffer constructor (which multiplies by the element's
+    // `BYTES_PER_ELEMENT`). The assertions below track the same property — a
+    // *runtime* count, never an unrolled literal — at its new home.
     let source = source_for(
         r"
 export function make(count: number): number[] {
@@ -991,17 +998,30 @@ export function make(count: number): number[] {
 ",
     );
 
-    assert!(source.contains("vec![0.0; smelt_repeat_count]"), "{source}");
+    assert!(
+        source.contains(
+            "smelt_reflected_construct(\"uint8array\", vec![SmeltUnknown::Number(count.clone() as f64)])"
+        ),
+        "{source}"
+    );
     assert!(!source.contains("vec![0.0, 0.0, 0.0, 0.0"), "{source}");
+    // The allocation is by element count times the element stride, so a wider
+    // view over the same count is wider in bytes.
+    assert!(
+        source.contains("vec![SmeltUnknown::Number(0.0); count * stride]"),
+        "{source}"
+    );
 }
 
 #[test]
-fn emits_bigint_typed_array_constructor_as_numeric_list() {
+fn emits_bigint_typed_array_constructor_through_the_shared_host_constructor() {
     // `BigInt64Array` / `BigUint64Array` were previously omitted from the
     // typed-array recognizer, so `new BigUint64Array(...)` aborted the build as
-    // an "unresolved class". They now share the numeric-list model with the
-    // other views: the element form emits a `Vec` literal and `.length` reads a
-    // list length.
+    // an "unresolved class". They now share the byte-buffer host-object model with
+    // the other nine views — an eight-byte element type, so three elements are 24
+    // bytes and `.length` still reads 3. (The assertion moved off "emits a `Vec`
+    // literal": the element list is now an argument to the shared constructor
+    // rather than the constructed value itself.)
     let source = source_for(
         r"
 export function make(): number {
@@ -1011,14 +1031,20 @@ export function make(): number {
 ",
     );
 
-    assert!(source.contains("vec!["), "{source}");
+    assert!(
+        source.contains("smelt_reflected_construct(\"biguint64array\""),
+        "{source}"
+    );
     assert!(!source.contains("unresolved"), "{source}");
 }
 
 #[test]
-fn emits_typed_array_from_element_literal_as_vec_literal() {
-    // `new Uint8Array([1, 2, 3])` reuses the array-literal lowering, so it emits
-    // a concrete `Vec` literal that supports `.length` and integer indexing.
+fn emits_typed_array_from_element_literal_through_the_element_codec() {
+    // `new Uint8Array([1, 2, 3])` passes its element list to the shared byte-buffer
+    // constructor, which encodes each element at the view's own width; an indexed
+    // read decodes it back. It used to emit a bare `vec![10.0, 20.0, 30.0]` numeric
+    // list, which is why the view had no identity, no `.buffer`, and a byte count
+    // for its `length`.
     let source = source_for(
         r"
 export function first(): number {
@@ -1029,6 +1055,11 @@ export function first(): number {
     );
 
     assert!(source.contains("vec![10.0, 20.0, 30.0]"), "{source}");
+    assert!(
+        source.contains("smelt_reflected_construct(\"uint8array\""),
+        "{source}"
+    );
+    assert!(source.contains("smelt_host_buffer_element("), "{source}");
 }
 
 #[test]
@@ -9307,6 +9338,267 @@ fn arraybuffer_is_view_covers_every_registry_view_kind() {
     assert!(
         !generated.contains("matches!(value.clone().clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\"))"),
         "`ArrayBuffer.isView` must stay false for byte *storage*:\n{generated}"
+    );
+}
+
+#[test]
+fn typed_array_views_each_report_their_own_spec_tag() {
+    // All eleven views used to share one `Vec<f64>`, so every one of them reported
+    // `[object Array]` — the same tag a plain `number[]` reports. Two views over
+    // the same buffer were then indistinguishable, which is what makes
+    // `isEqualWith(new Float32Array(buf), new Float64Array(buf))` wrongly `true`.
+    // Length alone cannot separate them either: `Uint8Array` and
+    // `Uint8ClampedArray` over one buffer have the *same* element count, so those
+    // two need genuinely distinct tags.
+    let generated = source_for(
+        "export function f(value: any): string { return Object.prototype.toString.call(value); }",
+    );
+    for (marker, tag) in [
+        ("__smelt_int8array", "Int8Array"),
+        ("__smelt_uint8array", "Uint8Array"),
+        ("__smelt_uint8clampedarray", "Uint8ClampedArray"),
+        ("__smelt_int16array", "Int16Array"),
+        ("__smelt_uint16array", "Uint16Array"),
+        ("__smelt_int32array", "Int32Array"),
+        ("__smelt_uint32array", "Uint32Array"),
+        ("__smelt_float32array", "Float32Array"),
+        ("__smelt_float64array", "Float64Array"),
+        ("__smelt_bigint64array", "BigInt64Array"),
+        ("__smelt_biguint64array", "BigUint64Array"),
+    ] {
+        assert!(
+            generated.contains(&format!(
+                "if map.contains_key(\"{marker}\") {{ return \"[object {tag}]\""
+            )),
+            "`{marker}` must tag as `[object {tag}]`:\n{generated}"
+        );
+    }
+}
+
+#[test]
+fn typed_array_element_codec_covers_every_width_and_signedness() {
+    // The element type is the load-bearing half of a typed array: the same eight
+    // bytes are two `Float32Array` elements or one `Float64Array` element, and the
+    // same byte `0xff` is `255` through `uint8` and `-1` through `int8`. The
+    // generated codec must therefore carry one little-endian decode/encode pair per
+    // element type, at the platform's `BYTES_PER_ELEMENT`, derived from the shared
+    // registry rather than restated per call site.
+    let generated =
+        source_for("export function f(value: any): any { return (value as any)[0]; }");
+    for decode in [
+        "i8::from_le_bytes([raw[0]])",
+        "i16::from_le_bytes([raw[0], raw[1]])",
+        "u16::from_le_bytes([raw[0], raw[1]])",
+        "i32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])",
+        "u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])",
+        "f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])",
+        "f64::from_le_bytes(raw)",
+        "i64::from_le_bytes(raw)",
+        "u64::from_le_bytes(raw)",
+    ] {
+        assert!(
+            generated.contains(decode),
+            "the element codec must decode with `{decode}`:\n{generated}"
+        );
+    }
+    // `Uint8ClampedArray` is the one view that saturates and rounds half to even
+    // where the other integer views wrap modulo their width.
+    assert!(
+        generated.contains("number.round_ties_even().clamp(0.0, 255.0) as u8"),
+        "`uint8clamped` must saturate rather than wrap:\n{generated}"
+    );
+    assert!(
+        generated.contains("(number as f32).to_le_bytes().to_vec()"),
+        "`float32` must encode at single precision:\n{generated}"
+    );
+    // Widths come from the registry: `(marker, element tag, BYTES_PER_ELEMENT)`.
+    for entry in [
+        "(\"__smelt_uint8array\", \"uint8\", 1)",
+        "(\"__smelt_int16array\", \"int16\", 2)",
+        "(\"__smelt_float32array\", \"float32\", 4)",
+        "(\"__smelt_float64array\", \"float64\", 8)",
+        // Node `Buffer` subclasses `Uint8Array`, so it shares that element type.
+        "(\"__smelt_buffer\", \"uint8\", 1)",
+    ] {
+        assert!(
+            generated.contains(entry),
+            "the element-kind table must carry `{entry}`:\n{generated}"
+        );
+    }
+    // `ArrayBuffer`/`SharedArrayBuffer`/`DataView` are byte-addressed: their bytes
+    // carry no single element type, so they must stay out of the element-kind table
+    // (they do still appear in the byte-backed marker arrays and the
+    // marker-to-class table, so this inspects the table line itself).
+    let table_line = generated
+        .lines()
+        .find(|line| line.contains("fn smelt_host_buffer_element_kind("))
+        .unwrap_or_else(|| panic!("element-kind table must be emitted:\n{generated}"));
+    for absent in [
+        "__smelt_arraybuffer",
+        "__smelt_sharedarraybuffer",
+        "__smelt_dataview",
+    ] {
+        assert!(
+            !table_line.contains(absent),
+            "byte-addressed kind `{absent}` must have no element type:\n{table_line}"
+        );
+    }
+}
+
+#[test]
+fn typed_array_length_is_the_element_count_not_the_byte_count() {
+    // `new Float64Array(new ArrayBuffer(8))` has ONE element; the old numeric-list
+    // model reported 8, the byte count. The record's `length` is therefore
+    // `byteLength / BYTES_PER_ELEMENT`, and a view also records the `buffer` it
+    // windows plus its `byteOffset` — a typed array in JavaScript is always a
+    // window onto an `ArrayBuffer`.
+    let generated =
+        source_for("export function f(value: any): any { return (value as any).slice(0); }");
+    assert!(
+        generated.contains(
+            "fields.insert(\"length\".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64))"
+        ),
+        "`length` must be the element count:\n{generated}"
+    );
+    assert!(
+        generated.contains(
+            "fields.insert(\"byteLength\".to_owned(), SmeltUnknown::Number(byte_length as f64))"
+        ),
+        "`byteLength` must stay the byte count:\n{generated}"
+    );
+    assert!(
+        generated.contains("fields.insert(\"buffer\".to_owned(), buffer)")
+            && generated.contains("fields.insert(\"byteOffset\".to_owned()"),
+        "a view must record the buffer it windows and its offset:\n{generated}"
+    );
+    // `slice`/`subarray` bounds are element indices for a view and byte indices for
+    // byte-addressed storage — one code path, once the stride comes from the
+    // registry.
+    assert!(
+        generated.contains("let len = (bytes.len() / stride) as i64"),
+        "slice bounds must be scaled by the element stride:\n{generated}"
+    );
+}
+
+#[test]
+fn typed_array_construction_views_storage_but_converts_elements() {
+    // `new Float32Array(source)` has two distinct JavaScript meanings that a
+    // shapeless byte copy cannot tell apart: over an `ArrayBuffer` it re-*views*
+    // the bytes (eight bytes become two elements), and over another view or an
+    // array it *converts* the elements one by one (so
+    // `new Uint8Array(new Int8Array([-1]))` holds `255`). The role split in the
+    // shared registry is what selects between them.
+    let generated = source_for(
+        "export function f(buffer: any): any { return new Float32Array(buffer as any); }",
+    );
+    assert!(
+        generated.contains("smelt_reflected_construct(\"float32array\""),
+        "`new Float32Array(x)` must route through the shared host constructor:\n{generated}"
+    );
+    assert!(
+        generated.contains("fn smelt_host_buffer_is_storage(value: &SmeltUnknown) -> bool")
+            && generated.contains(
+                "[\"__smelt_arraybuffer\", \"__smelt_sharedarraybuffer\"].into_iter().any(|marker| map.contains_key(marker))"
+            ),
+        "the storage/view split must come from the registry roles:\n{generated}"
+    );
+    assert!(
+        generated.contains("Some(value) if smelt_host_buffer_is_storage(value) =>"),
+        "a storage source must be re-viewed byte-for-byte:\n{generated}"
+    );
+    assert!(
+        generated.contains("smelt_host_buffer_encode_element(kind, item)"),
+        "a view/array source must be converted element-by-element:\n{generated}"
+    );
+    // A numeric length allocates ELEMENTS, so a wider view over the same count is
+    // wider in bytes.
+    assert!(
+        generated.contains("vec![SmeltUnknown::Number(0.0); count * stride]"),
+        "`new Ctor(n)` must allocate `n` elements:\n{generated}"
+    );
+}
+
+#[test]
+fn typed_array_own_keys_are_its_element_indices() {
+    // A typed array's own enumerable properties are exactly its indexed elements;
+    // `length`/`byteLength`/`byteOffset`/`buffer` are prototype accessors and
+    // `bytes` is internal storage. es-toolkit's `keys(new Uint8Array(1))` asserts
+    // `['0']`, and leaking the storage keys instead would make a deep-equality walk
+    // over two views compare internal fields — and recurse through `buffer` back
+    // into the view.
+    // An erased receiver is re-materialized as a `SmeltRecord` before its keys are
+    // read, so this is the path both `any` and `Record<string, unknown>` take.
+    for source in [
+        "export function f(value: any): string[] { return Object.keys(value); }",
+        "export function f(value: Record<string, unknown>): string[] { return Object.keys(value); }",
+    ] {
+        let generated = source_for(source);
+        assert!(
+            generated.contains("smelt_host_buffer_record_index_keys(&"),
+            "`Object.keys` on a view must answer its element indices:\n{generated}"
+        );
+    }
+    // Both key helpers are emitted from one definition, so the tagged-`SmeltUnknown`
+    // projection cannot drift from the structural-record one.
+    let generated =
+        source_for("export function f(value: any): string[] { return Object.keys(value); }");
+    assert!(
+        generated.contains("fn smelt_host_buffer_index_keys(value: &SmeltUnknown)")
+            && generated.contains(
+                "fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<String>> { smelt_host_buffer_index_keys("
+            ),
+        "the record-flavored index keys must delegate to the tagged one:\n{generated}"
+    );
+    let values = source_for(
+        "export function f(value: any): unknown[] { return Object.values(value); }",
+    );
+    assert!(
+        values.contains("smelt_host_buffer_record_elements(&"),
+        "`Object.values` on a view must answer its decoded elements:\n{values}"
+    );
+    let entries = source_for(
+        "export function f(value: any): [string, unknown][] { return Object.entries(value); }",
+    );
+    assert!(
+        entries.contains("smelt_host_buffer_record_elements(&"),
+        "`Object.entries` on a view must pair indices with decoded elements:\n{entries}"
+    );
+    // A property test (`k in obj` / `Object.hasOwn`) must also see the indexed
+    // elements, which live in `bytes` rather than as record keys.
+    let has_own = source_for(
+        "export function f(value: any, key: string): boolean { return Object.hasOwn(value, key); }",
+    );
+    assert!(
+        has_own.contains("smelt_host_buffer_element(&values, &smelt_key).is_some()"),
+        "a property test on a view must see its element indices:\n{has_own}"
+    );
+}
+
+#[test]
+fn typed_array_instanceof_resolves_through_the_view_marker() {
+    // `x instanceof Uint8Array` used to fold to a constant derived from the static
+    // type — `true` for any `number[]` — because the numeric-list model left no
+    // identity to test. It is now the registry marker probe, and Node's `Buffer`
+    // satisfies `instanceof Uint8Array` because the registry records that subclass
+    // relation in its spec tag.
+    let generated = source_for(
+        "export function f(value: unknown): boolean { return value instanceof Uint8Array; }",
+    );
+    assert!(
+        generated.contains("value.contains_key(\"__smelt_uint8array\")"),
+        "`instanceof Uint8Array` must probe the view marker:\n{generated}"
+    );
+    assert!(
+        generated.contains("value.contains_key(\"__smelt_buffer\")"),
+        "Node `Buffer` subclasses `Uint8Array`, so it must satisfy the probe:\n{generated}"
+    );
+    let other = source_for(
+        "export function f(value: unknown): boolean { return value instanceof Float64Array; }",
+    );
+    assert!(
+        other.contains("value.contains_key(\"__smelt_float64array\")")
+            && !other.contains("value.contains_key(\"__smelt_uint8array\")"),
+        "each view must probe only its own marker:\n{other}"
     );
 }
 

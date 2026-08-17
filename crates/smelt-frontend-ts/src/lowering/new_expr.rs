@@ -226,10 +226,15 @@ impl ModuleBuilder<'_> {
         if callee.name == "AbortController" && !self.classes.contains_key("AbortController") {
             return self.abort_controller_constructor_expression(new_expr, body);
         }
+        // The typed-array views are byte-backed host objects: they share the one
+        // byte-buffer construction path with `ArrayBuffer`/`DataView`/`Buffer`, and
+        // their element type (resolved at runtime from the marker the class name
+        // selects) is what decides whether a source argument is re-viewed
+        // byte-for-byte or converted element-by-element.
         if Self::is_numeric_typed_array_constructor(callee.name.as_str())
             && !self.classes.contains_key(callee.name.as_str())
         {
-            return self.numeric_typed_array_constructor_expression(new_expr, body);
+            return self.byte_buffer_constructor_expression(new_expr, callee.name.as_str(), body);
         }
         if callee.name == "URLSearchParams" {
             return self.url_search_params_constructor_expression(new_expr, body);
@@ -756,8 +761,9 @@ impl ModuleBuilder<'_> {
     /// array names — including the BigInt-backed `BigInt64Array` /
     /// `BigUint64Array`, which the previous inline `matches!` omitted and which
     /// therefore aborted the es-toolkit build as an "unresolved class" — are
-    /// recognized from one registry. Smelt backs every view with the same
-    /// numeric-list model, so all eleven share this construction path.
+    /// recognized from one registry. Every view is a byte-backed host object with
+    /// its own element type, so all eleven share the one byte-buffer construction
+    /// path.
     pub(super) fn is_numeric_typed_array_constructor(name: &str) -> bool {
         smelt_stdlib::is_typed_array_class_name(name)
     }
@@ -2652,8 +2658,9 @@ impl ModuleBuilder<'_> {
     /// folds to its consequent.
     ///
     /// The set matches the constructors with a concrete construct + `instanceof`
-    /// lowering: typed-array views (backed by numeric lists),
-    /// `ArrayBuffer`/`Blob`/`File`/`Buffer`, and the marker-only host builtins.
+    /// lowering: the typed-array views and
+    /// `ArrayBuffer`/`Blob`/`File`/`Buffer`/`DataView` (all byte-backed host
+    /// objects), plus the marker-only host builtins.
     /// A local binding or user class of the same name shadows the global, so it
     /// is excluded — the guard then lowers normally.
     fn identifier_is_always_present_global_constructor(&self, name: &str) -> bool {

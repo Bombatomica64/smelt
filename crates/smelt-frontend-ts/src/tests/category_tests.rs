@@ -112,6 +112,14 @@ export function isWeakMap(value: unknown): boolean {
 /// Buffer(...)` lower to concrete marker-bearing byte-buffer records carrying the
 /// `__smelt_buffer` identity marker, so `Buffer.isBuffer` / `instanceof Buffer`
 /// resolve through that key instead of erasing the value to a shapeless dynamic.
+///
+/// The record used to be built inline as a `DictLit` here. It now goes through
+/// `HostConstruct`, the one shared byte-buffer constructor that `new Uint8Array`,
+/// `new ArrayBuffer` and the reflected `getPrototypeOf(x).constructor` path also
+/// call, so a directly-built `Buffer` and a reflectively-built clone of it are
+/// byte-for-byte the same shape — which es-toolkit's `clone`/`cloneDeep` buffer
+/// specs compare with structural equality. The marker still comes from the shared
+/// registry, keyed by the class name this node carries.
 #[test]
 fn buffer_constructors_lower_to_concrete_marker_records() -> Result<(), String> {
     for source in [
@@ -127,16 +135,13 @@ fn buffer_constructors_lower_to_concrete_marker_records() -> Result<(), String> 
         ensure!(
             body.exprs.iter().any(|expr| matches!(
                 &expr.kind,
-                ExprKind::Literal(Literal::String(text)) if text == "__smelt_buffer"
+                ExprKind::HostConstruct { class_name, .. } if class_name == "Buffer"
             )),
-            "expected `{source}` to carry the `__smelt_buffer` marker key",
+            "expected `{source}` to lower to a `Buffer` HostConstruct",
         );
         ensure!(
-            body.exprs.iter().any(|expr| matches!(
-                (&expr.kind, ctx.krate.types.get(expr.ty)),
-                (ExprKind::DictLit(_), Some(Type::Dict(_, _)))
-            )),
-            "expected `{source}` to lower to a concrete record (DictLit + Dict type)",
+            smelt_stdlib::host_object_marker("Buffer") == Some("__smelt_buffer"),
+            "the shared registry must still key `Buffer` to `__smelt_buffer`",
         );
     }
     Ok(())
@@ -808,10 +813,17 @@ export function make(): Object {
 /// Every typed-array view constructor — including the BigInt-backed
 /// `BigInt64Array` / `BigUint64Array` that the previous inline recognizer
 /// omitted and which aborted the es-toolkit build as `unresolved class
-/// BigUint64Array` — lowers without a missing-stdlib blocker. Smelt models a
-/// typed array as a plain numeric list, so the constructed value is a `List`.
+/// BigUint64Array` — lowers to the one shared byte-buffer `HostConstruct` keyed by
+/// its own class name.
+///
+/// This replaces the old numeric-list model, where all eleven views shared one
+/// `Vec<f64>`: every one of them then reported `Object.prototype.toString` tag
+/// `[object Array]` with the *byte* count as its `length`, so a `Float32Array` and
+/// a `Float64Array` over the same eight bytes were indistinguishable. Naming the
+/// class here is what lets the runtime resolve the view's marker and its element
+/// type from the shared registry.
 #[test]
-fn typed_array_constructors_lower_to_numeric_lists() -> Result<(), String> {
+fn typed_array_constructors_lower_to_byte_buffer_host_constructs() -> Result<(), String> {
     for name in smelt_stdlib::TYPED_ARRAY_CLASS_NAMES {
         let source = format!("const value = new {name}(8);");
         let mut ctx = HirCtx::new();
@@ -820,29 +832,59 @@ fn typed_array_constructors_lower_to_numeric_lists() -> Result<(), String> {
         let body = module_body(&ctx, module)?;
         ensure!(
             body.exprs.iter().any(|expr| matches!(
-                ctx.krate.types.get(expr.ty),
-                Some(Type::List(_))
+                &expr.kind,
+                ExprKind::HostConstruct { class_name, .. } if class_name == name
             )),
-            "expected `new {name}(8)` to lower to a numeric list",
+            "expected `new {name}(8)` to lower to a `{name}` HostConstruct",
+        );
+        // The registry must know the view, or the runtime cannot resolve either
+        // its identity marker or the element width that makes `length` the
+        // element count.
+        ensure!(
+            smelt_stdlib::host_object_marker(name).is_some()
+                && smelt_stdlib::typed_array_element(name).is_some(),
+            "expected `{name}` to carry a registry marker and element type",
         );
     }
     Ok(())
 }
 
-/// `new Uint8Array([1, 2, 3])` lowers to a list literal (the numeric-list
-/// model reuses the array-expression lowering for the element form).
+/// `new Uint8Array([1, 2, 3])` passes its element list straight to the shared
+/// byte-buffer constructor, which encodes each element at the view's own width.
+///
+/// The element list is still an ordinary `ListLit` — only its *destination*
+/// changed: it is now a `HostConstruct` argument rather than the constructed value
+/// itself, which is what makes `new Uint8Array([1, 2, 3]).buffer` and
+/// `Object.prototype.toString.call(...)` answer like a real view.
 #[test]
-fn typed_array_from_literal_lowers_to_list_literal() -> Result<(), String> {
+fn typed_array_from_literal_passes_its_elements_to_the_host_construct() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(ts!("const value = new Uint8Array([1, 2, 3]);"), &mut ctx)?;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
+    let host_args = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::HostConstruct { class_name, args } if class_name == "Uint8Array" => {
+                Some(args.clone())
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "expected a `Uint8Array` HostConstruct".to_owned())?;
+    let [elements] = host_args.as_slice() else {
+        return Err("expected exactly one constructor argument".to_owned());
+    };
+    let elements = body
+        .exprs
+        .get(usize::try_from(elements.0).unwrap_or(usize::MAX))
+        .ok_or_else(|| "constructor argument is missing".to_owned())?;
     ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            (&expr.kind, ctx.krate.types.get(expr.ty)),
+        matches!(
+            (&elements.kind, ctx.krate.types.get(elements.ty)),
             (ExprKind::ListLit(_), Some(Type::List(_)))
-        )),
-        "expected `new Uint8Array([1, 2, 3])` to lower to a list literal",
+        ),
+        "expected the element form to pass a list literal to the host construct",
     );
     Ok(())
 }
@@ -872,45 +914,48 @@ fn typed_array_name_resolves_as_bare_value() -> Result<(), String> {
     Ok(())
 }
 
-/// `x instanceof Uint8Array` folds to a boolean instead of aborting: a
-/// list-typed operand (a typed array in Smelt's numeric-list model) folds to
-/// `true`, while an unrelated concrete operand folds to `false`. The
-/// numeric-list model cannot distinguish a typed array from a plain `number[]`,
-/// but the check is honest for the common concrete cases and never blocks.
+/// `x instanceof Uint8Array` resolves through the view's identity marker like
+/// every other byte-backed host object.
+///
+/// It used to fold to a *constant* derived from the static type — `true` for any
+/// `number[]`, `false` for anything else — because the numeric-list model left no
+/// view identity to test at runtime, so a plain `number[]` was reported as a typed
+/// array and a real erased view was not. Now the erased operand emits a real
+/// `InstanceOf` (the marker probe), and only a statically concrete operand that
+/// cannot carry a marker still folds to `false`.
 #[test]
-fn instanceof_typed_array_folds_to_boolean() -> Result<(), String> {
-    for (source, expected) in [
-        (
-            "function check(x: number[]): boolean { return x instanceof Uint8Array; }",
-            true,
-        ),
-        (
-            "function check(x: string): boolean { return x instanceof Uint8Array; }",
-            false,
-        ),
-    ] {
-        let mut ctx = HirCtx::new();
-        let module_id = lower_ok(source, &mut ctx)?;
-        let module = module(&ctx, module_id)?;
-        let function = named_function_item(&ctx, module, "check")?;
-        let body = function_body(&ctx, function)?;
-        ensure!(
-            body.exprs.iter().any(|expr| matches!(
-                &expr.kind,
-                ExprKind::Literal(Literal::Bool(value)) if *value == expected
-            )),
-            "expected `{source}` to fold `instanceof Uint8Array` to `{expected}`",
-        );
-        ensure!(
-            !body.exprs.iter().any(|expr| matches!(
-                &expr.kind,
-                ExprKind::InstanceOf { class, .. }
-                    if ctx.krate.symbols.get(*class) == Some("Uint8Array")
-            )),
-            "expected `{source}` to fold the check instead of emitting an InstanceOf",
-        );
-    }
-    Ok(())
+fn instanceof_typed_array_resolves_through_the_view_marker() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        "function check(x: unknown): boolean { return x instanceof Uint8Array; }",
+        &mut ctx,
+    )?;
+    let erased_module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, erased_module, "check")?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::InstanceOf { class, .. }
+                if ctx.krate.symbols.get(*class) == Some("Uint8Array")
+        )),
+        "expected an erased `x instanceof Uint8Array` to emit a marker InstanceOf",
+    );
+    // A plain `number[]` used to fold to `true` here, which was simply wrong: a
+    // `number[]` is not a `Uint8Array`, and answering `true` is what made
+    // `isTypedArray([1, 2, 3])` claim a plain array was a view. A concrete
+    // non-class operand now raises the same honest blocker every other host-object
+    // `instanceof` raises, instead of inventing an answer.
+    let mut list_ctx = HirCtx::new();
+    let errors = lowering_errors(
+        "function check(x: number[]): boolean { return x instanceof Uint8Array; }",
+        &mut list_ctx,
+    )?;
+    assert_category(
+        &errors,
+        "instanceof requires a concrete class-typed left operand",
+        DiagnosticCategory::UnsupportedLowering,
+    )
 }
 
 /// The es-toolkit `isTypedArray` body (`ArrayBuffer.isView(x) && !(x instanceof
