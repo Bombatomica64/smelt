@@ -136,12 +136,9 @@ fn constructor_function_instances_compare_by_class() {
     // this shape, so the instances carry own fields — what was missing was the
     // constructor identity that distinguishes `new Foo()` from `new Bar()`.
     //
-    // The declarations sit INSIDE the test body on purpose. Constructor-function
-    // synthesis is wired for function-body scopes (`predeclare_local_function_declarations`)
-    // and test-setup scopes, not for module top level — a module-scope
-    // `function Foo(){this.a=1}` with `new Foo()` still fails to lower with
-    // "unresolved class Foo". That is a separate gap, and it is the shape
-    // build-time specialization would materialize.
+    // The declarations sit INSIDE the test body here; the module-scope spelling
+    // is covered separately by
+    // `module_scope_constructor_function_instances_compare_by_class`.
     let source = r#"
 import { test, expect } from "vitest";
 test("constructor-function instances carry their own fields", () => {
@@ -186,4 +183,58 @@ test("instances of different constructor functions are different classes", () =>
 });
 "#;
     run_fixture(source, "smelt_constructor_function_identity");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn module_scope_constructor_function_instances_compare_by_class() {
+    // The same constructor-function idiom declared at module top level, which is
+    // where real JavaScript writes it. Two things differ from the in-body
+    // spelling and both used to make the module fail to lower with "unresolved
+    // class ZzFoo": the `new ZzFoo()` site lives inside *another* top-level
+    // function's body rather than beside the declaration, and the declaration may
+    // be wrapped in `export`. Module-scope declarations are now scanned for
+    // constructor use before function items are predeclared, so `ZzFoo` becomes a
+    // real Rust struct with a `ZzFoo::new()` constructor instead of a plain
+    // function item.
+    //
+    // `exportedInstance` proves the exported spelling lowers too, and reading
+    // `.a` through the erased value proves the `this.a = 1` write reached an own
+    // field rather than being dropped.
+    let source = r#"
+import { test, expect } from "vitest";
+function ZzFoo() {
+  // @ts-ignore
+  this.a = 1;
+}
+ZzFoo.prototype.a = 1;
+export function ZzBar() {
+  // @ts-ignore
+  this.a = 1;
+}
+function makeFoo(): any {
+  // @ts-ignore
+  return new ZzFoo();
+}
+function makeBar(): any {
+  // @ts-ignore
+  return new ZzBar();
+}
+test("module-scope constructor-function instances carry their own fields", () => {
+  const instance: any = makeFoo();
+  expect(instance.a).toBe(1);
+  expect(Object.keys(instance).length).toBe(1);
+});
+test("two instances of one module-scope constructor function are the same class", () => {
+  expect(makeFoo().constructor).toBe(makeFoo().constructor);
+});
+test("module-scope constructor functions are distinct classes", () => {
+  expect(makeFoo().constructor).not.toBe(makeBar().constructor);
+});
+test("an exported module-scope constructor function constructs", () => {
+  const instance: any = makeBar();
+  expect(instance.a).toBe(1);
+});
+"#;
+    run_fixture(source, "smelt_module_constructor_function_identity");
 }

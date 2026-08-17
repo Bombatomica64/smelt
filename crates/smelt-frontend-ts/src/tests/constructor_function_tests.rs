@@ -271,3 +271,96 @@ describe('scoping', () => {
     )?;
     Ok(())
 }
+
+#[test]
+fn module_scope_constructor_function_synthesizes_class() -> Result<(), String> {
+    // Module top level is where real JavaScript writes the idiom, and it hides
+    // the `new` site from a sibling-statement scan: the construction happens
+    // inside *another* top-level function's body. Before module-scope detection
+    // this module failed to lower with "unresolved class `Foo`" because `Foo` was
+    // predeclared as a plain function item instead.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function Foo(this: any) {
+  this.a = 1;
+}
+Foo.prototype.b = function () {
+  return 2;
+};
+export function make(): unknown {
+  return new Foo();
+}
+"),
+        &mut ctx,
+    )?;
+    let class = class_by_name(&ctx, "Foo").ok_or("expected synthesized class `Foo`")?;
+    ensure!(
+        class
+            .fields
+            .iter()
+            .any(|field| ctx.krate.symbols.get(field.name) == Some("a")),
+        "module-scope constructor `this.a = 1` should become an own field `a`",
+    );
+    ensure!(
+        class.constructor.is_some(),
+        "module-scope synthesized class should have a constructor",
+    );
+    ensure!(
+        !class.methods.is_empty(),
+        "module-scope prototype method `b` should become a class method",
+    );
+    Ok(())
+}
+
+#[test]
+fn exported_module_scope_constructor_function_synthesizes_class() -> Result<(), String> {
+    // The `export function Foo(){}` spelling reaches the declaration through an
+    // `ExportNamedDeclaration` wrapper, which the shared statement scan does not
+    // traverse. The synthesized class is what the module exports under the name.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function Foo(this: any) {
+  this.a = 1;
+}
+export function make(): unknown {
+  return new Foo();
+}
+"),
+        &mut ctx,
+    )?;
+    let class = class_by_name(&ctx, "Foo").ok_or("expected synthesized class `Foo`")?;
+    ensure!(
+        class
+            .fields
+            .iter()
+            .any(|field| ctx.krate.symbols.get(field.name) == Some("a")),
+        "exported constructor `this.a = 1` should become an own field `a`",
+    );
+    Ok(())
+}
+
+#[test]
+fn module_scope_plain_function_stays_a_function() -> Result<(), String> {
+    // The detection prepass must not turn every module function into a class:
+    // a function that is only ever *called* keeps its function item, so its
+    // return value and call sites lower normally.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function helper(value: number): number {
+  return value + 1;
+}
+export function use(): number {
+  return helper(1);
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        class_by_name(&ctx, "helper").is_none(),
+        "a module function that is only called must not become a synthesized class",
+    );
+    Ok(())
+}

@@ -562,6 +562,12 @@ struct ModuleBuilder<'ctx> {
     scoped_class_type_names: HashMap<String, smelt_hir::Symbol>,
     /// Class names declared later in the current module.
     pending_class_names: HashSet<String>,
+    /// Module top-level `function Foo(){}` declarations this module uses as
+    /// JavaScript constructor functions.
+    ///
+    /// Recorded by a prepass so the declaration is synthesized into a class
+    /// rather than predeclared and lowered as a plain module function.
+    module_constructor_functions: HashSet<String>,
     /// Interface names declared in the current module, including declarations
     /// that appear after a class which implements them.
     pending_interface_names: HashSet<String>,

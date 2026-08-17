@@ -147,6 +147,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             classes,
             scoped_class_type_names: HashMap::new(),
             pending_class_names: HashSet::new(),
+            module_constructor_functions: HashSet::new(),
             pending_interface_names: HashSet::new(),
             lowered_local_interfaces: HashSet::new(),
             interfaces,
@@ -308,6 +309,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_module_globals(program);
         self.collect_mutable_globals(program, &mut module, &mut errors);
         self.pending_class_names = Self::program_class_names(program);
+        // A module top-level `function Foo(){ this.a = … }` used with `new Foo()`,
+        // `x instanceof Foo`, or `Foo.prototype.m = …` is a JavaScript
+        // constructor function, not a plain function. Record those names before
+        // any function item is predeclared so the declaration is synthesized
+        // into a class instead, and treat them as pending class names so a
+        // `new Foo()` lowered before the synthesis still resolves nominally.
+        self.module_constructor_functions = Self::module_constructor_function_names(program);
+        self.pending_class_names
+            .extend(self.module_constructor_functions.iter().cloned());
         self.pending_interface_names = Self::program_interface_names(program);
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
@@ -356,6 +366,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     continue;
                 }
                 if is_implemented_overload_signature(function, &implemented_functions) {
+                    continue;
+                }
+                if self.is_module_constructor_function(function) {
+                    if let Err(error) =
+                        self.synthesize_constructor_function_class(function, &program.body)
+                    {
+                        errors.push(error);
+                    }
                     continue;
                 }
                 match self.function_declaration(function) {
@@ -455,6 +473,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         continue;
                     }
                     if is_implemented_overload_signature(function, &implemented_functions) {
+                        continue;
+                    }
+                    if self.is_module_constructor_function(function) {
+                        // An exported constructor function is exported as the
+                        // synthesized class, so the class item joins the module's
+                        // items under the same source name.
+                        match self.synthesize_constructor_function_class(function, &program.body) {
+                            Ok(()) => {
+                                if let Some(item) = function
+                                    .id
+                                    .as_ref()
+                                    .and_then(|id| self.classes.get(id.name.as_str()))
+                                    .copied()
+                                {
+                                    module.items.push(item);
+                                }
+                            }
+                            Err(error) => errors.push(error),
+                        }
                         continue;
                     }
                     match self.function_declaration(function) {
@@ -1755,6 +1792,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             )
         })?;
         if self.local_function_items.contains_key(id.name.as_str()) {
+            return Ok(());
+        }
+        // A constructor function becomes a synthesized class, so it gets no
+        // callable function item to shadow the class binding.
+        if self.module_constructor_functions.contains(id.name.as_str()) {
             return Ok(());
         }
         let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;

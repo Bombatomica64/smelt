@@ -7,9 +7,9 @@
 //! class construction and `instanceof` lowering need no special use-site path.
 
 use crate::lowering::{
-    AssignmentTarget, BinaryOperator, BindingPattern, Body, Class, Expression, Field, Function,
-    FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig,
-    SmeltError, Span, Statement, Type, Visibility,
+    AssignmentTarget, BinaryOperator, BindingPattern, Body, Class, Declaration, Expression, Field,
+    Function, FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig,
+    Program, SmeltError, Span, Statement, Type, Visibility,
 };
 
 impl ModuleBuilder<'_> {
@@ -26,6 +26,120 @@ impl ModuleBuilder<'_> {
         statements
             .iter()
             .any(|statement| Self::statement_uses_constructor_function(name, statement))
+    }
+
+    /// Collect module top-level `function Foo(){}` declarations that this module
+    /// uses as constructor functions.
+    ///
+    /// Module scope differs from a function body in two ways, and both defeat
+    /// the plain sibling-statement scan: the declaration may be wrapped in
+    /// `export`, and the `new Foo()` use normally lives inside *another*
+    /// top-level function's body rather than beside the declaration. Names are
+    /// collected in a prepass so [`Self::synthesize_constructor_function_class`]
+    /// can run instead of ordinary function-item lowering, and so `new Foo()`
+    /// sites lowered before the synthesis still resolve nominally through
+    /// `pending_class_names`.
+    pub(in crate::lowering) fn module_constructor_function_names(
+        program: &Program<'_>,
+    ) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for function in Self::module_function_declarations(program) {
+            let Some(id) = &function.id else {
+                continue;
+            };
+            // An ambient `declare function` has no body to derive fields from.
+            if function.declare || function.body.is_none() {
+                continue;
+            }
+            let name = id.name.as_str();
+            if names.contains(name) {
+                continue;
+            }
+            if program
+                .body
+                .iter()
+                .any(|statement| Self::module_statement_uses_constructor_function(name, statement))
+            {
+                names.insert(name.to_owned());
+            }
+        }
+        names
+    }
+
+    /// Return whether a module top-level function declaration was recorded as a
+    /// constructor function by [`Self::module_constructor_function_names`].
+    pub(in crate::lowering) fn is_module_constructor_function(
+        &self,
+        function: &oxc::ast::ast::Function<'_>,
+    ) -> bool {
+        function.id.as_ref().is_some_and(|id| {
+            self.module_constructor_functions
+                .contains(id.name.as_str())
+        })
+    }
+
+    /// Iterate module top-level function declarations, including exported ones.
+    fn module_function_declarations<'a>(
+        program: &'a Program<'a>,
+    ) -> impl Iterator<Item = &'a oxc::ast::ast::Function<'a>> {
+        program.body.iter().filter_map(|statement| match statement {
+            Statement::FunctionDeclaration(function) => Some(function.as_ref()),
+            Statement::ExportNamedDeclaration(export) => match &export.declaration {
+                Some(Declaration::FunctionDeclaration(function)) => Some(function.as_ref()),
+                _ => None,
+            },
+            _ => None,
+        })
+    }
+
+    /// Scan a module top-level statement for constructor uses of `name`.
+    ///
+    /// Extends [`Self::statement_uses_constructor_function`] across the two
+    /// shapes that only occur at module scope — `export` declaration wrappers
+    /// and sibling function declarations whose bodies hold the `new` site — then
+    /// delegates to the shared scan for everything else. It is deliberately a
+    /// separate entry point: widening the shared scan would also change which
+    /// *inner-scope* functions become synthesized classes.
+    fn module_statement_uses_constructor_function(name: &str, statement: &Statement<'_>) -> bool {
+        match statement {
+            Statement::FunctionDeclaration(function) => {
+                Self::function_body_uses_constructor_function(name, function)
+            }
+            Statement::ExportNamedDeclaration(export) => match &export.declaration {
+                Some(Declaration::FunctionDeclaration(function)) => {
+                    Self::function_body_uses_constructor_function(name, function)
+                }
+                Some(Declaration::VariableDeclaration(variable)) => {
+                    variable.declarations.iter().any(|declarator| {
+                        declarator.init.as_ref().is_some_and(|init| {
+                            Self::expression_uses_constructor_function(name, init)
+                        })
+                    })
+                }
+                _ => false,
+            },
+            Statement::ExportDefaultDeclaration(export) => match &export.declaration {
+                oxc::ast::ast::ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+                    Self::function_body_uses_constructor_function(name, function)
+                }
+                other => other.as_expression().is_some_and(|expression| {
+                    Self::expression_uses_constructor_function(name, expression)
+                }),
+            },
+            other => Self::statement_uses_constructor_function(name, other),
+        }
+    }
+
+    /// Scan a function declaration's body for constructor uses of `name`.
+    fn function_body_uses_constructor_function(
+        name: &str,
+        function: &oxc::ast::ast::Function<'_>,
+    ) -> bool {
+        function.body.as_ref().is_some_and(|body| {
+            body.statements
+                .iter()
+                .any(|statement| Self::module_statement_uses_constructor_function(name, statement))
+        })
     }
 
     /// Recursively scan a statement for constructor uses of `name`.
