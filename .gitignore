@@ -108,6 +108,9 @@ blocker-logs/*.md
 # docs/architecture-plan-second-pass.md finding B: site inventory, scope cut,
 # dispatch fix, and staged checkpoints against the es-toolkit ratchet
 !blocker-logs/phase2-type-host-spec.md
+# estk-arguments-and-self-recursion.md documents the iterable-`arguments` and
+# self-recursive named-function-expression fixes
+!blocker-logs/estk-arguments-and-self-recursion.md
 
 # Generated docs site output
 _site/

@@ -3142,6 +3142,37 @@ impl ModuleBuilder<'_> {
                 "function expressions must have a body",
             ));
         };
+        // A NAMED function expression binds its own name inside its own body, and
+        // that is how JavaScript spells a self-recursive callback:
+        //
+        //     mergeWith(cloneDeep(target), source, function mergeRecursively(a, b) {
+        //       … return mergeWith(clone(a), b, mergeRecursively); …
+        //     })
+        //
+        // The closure path never bound the name, so the self-reference fell through
+        // identifier resolution to the forward-callable fallback and lowered to an
+        // EMPTY OBJECT — and calling an empty object collapses to a null callback
+        // instead of failing, so the recursion silently did nothing. All eight
+        // es-toolkit `toMerged` specs are that one defect.
+        //
+        // An inline Rust closure cannot express it either: the closure would have
+        // to capture the very binding it is being assigned to. So lift it to a
+        // module-owned function item, which is what a hand port would write —
+        // recursion becomes ordinary `fn` recursion and the value handed to the
+        // caller is the same item-closure wrapper a named top-level function
+        // reference already produces.
+        if let Some(id) = &function.id
+            && self.function_expression_is_self_recursive(function, id.name.as_str())
+            && !self.function_expression_captures_enclosing_scope(function, id.name.as_str())
+        {
+            return self.lift_self_recursive_function_expression(
+                id.name.as_str(),
+                function,
+                type_hint,
+                span,
+                outer_body,
+            );
+        }
         let hint_function = type_hint.and_then(|ty| {
             let ty = self
                 .function_member_type(ty)

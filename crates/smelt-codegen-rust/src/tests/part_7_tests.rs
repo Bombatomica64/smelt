@@ -9699,6 +9699,108 @@ export function f(a: number, b: number): unknown[] {
     );
 }
 
+#[test]
+fn a_self_recursive_named_function_expression_lifts_to_an_item() {
+    // A named function expression binds its own name inside its own body, and that
+    // is how JavaScript writes a self-recursive callback:
+    //
+    //     mergeWith(cloneDeep(target), source, function mergeRecursively(a, b) {
+    //       … return mergeWith(clone(a), b, mergeRecursively); …
+    //     })
+    //
+    // The closure path never bound the name, so the self-reference fell through
+    // identifier resolution to the forward-callable fallback and lowered to an
+    // EMPTY OBJECT — and calling an empty object collapses to a null callback
+    // rather than failing, so the recursion silently did nothing. All eight
+    // es-toolkit `toMerged` specs were that one defect.
+    //
+    // An inline Rust closure cannot express it either: it would have to capture the
+    // binding it is being assigned to. So the function is lifted to a module item
+    // and the recursion becomes ordinary `fn` recursion.
+    let generated = source_for(
+        r"
+function apply(cb: (n: number) => number, v: number): number {
+  return cb(v);
+}
+
+export function countdown(start: number): number {
+  return apply(function step(n: number): number {
+    if (n <= 0) {
+      return 0;
+    }
+    return step(n - 1) + 1;
+  }, start);
+}
+",
+    );
+    assert!(
+        generated.contains("fn step(n: f64) -> f64"),
+        "a self-recursive named function expression must lift to a function item:\n{generated}"
+    );
+    // The recursion has to be inside the lifted item itself, and it has to be a
+    // direct item call rather than a dispatch through an erased value — which is
+    // what proves the self-reference resolved to the item and not to the
+    // forward-callable fallback. Read the program section only: the runtime prelude
+    // mentions the erased-record constructors unconditionally.
+    let program = generated
+        .split_once("@smelt:prelude-end")
+        .map_or(generated.as_str(), |(_, program)| program);
+    let step_body = program
+        .split_once("fn step(n: f64) -> f64")
+        .map(|(_, rest)| rest)
+        .and_then(|rest| rest.split_once("\nfn "))
+        .map_or_else(String::new, |(body, _)| body.to_owned());
+    assert!(
+        step_body.contains("step("),
+        "the lifted item must call itself:\n{generated}"
+    );
+    assert!(
+        !step_body.contains("SmeltRecord::from([])"),
+        "the self-reference must not lower to an empty erased record:\n{generated}"
+    );
+}
+
+#[test]
+fn a_named_function_expression_name_stays_out_of_module_scope() {
+    // JavaScript scopes a named function expression's name to its own body, so the
+    // lift binds the name only while that body is lowered. A sibling reference to
+    // the same name must still resolve to whatever the module actually declares —
+    // here a top-level `step` with a different signature, which the lifted item
+    // must not have displaced.
+    let generated = source_for(
+        r#"
+function apply(cb: (n: number) => number, v: number): number {
+  return cb(v);
+}
+
+export function step(label: string): string {
+  return `${label}!`;
+}
+
+export function countdown(start: number): number {
+  return apply(function step(n: number): number {
+    if (n <= 0) {
+      return 0;
+    }
+    return step(n - 1) + 1;
+  }, start);
+}
+
+export function shout(): string {
+  return step("go");
+}
+"#,
+    );
+    assert!(
+        generated.contains("-> String") && generated.contains("fn shout()"),
+        "the module-scope `step` must keep its own signature:\n{generated}"
+    );
+    assert!(
+        generated.contains("fn step(n: f64) -> f64") || generated.contains("fn step_"),
+        "the lifted item must still exist alongside it:\n{generated}"
+    );
+}
+
 /// A `return` inside a `try` that has a `finally` must still run the finalizer.
 ///
 /// MIR made the finalizer the *fall-through* exit of the `try` body, so a
