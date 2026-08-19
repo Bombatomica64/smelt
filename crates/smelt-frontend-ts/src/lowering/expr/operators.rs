@@ -3772,7 +3772,7 @@ impl ModuleBuilder<'_> {
         if let Some(interface) = self.find_interface(*name) {
             return self.contextual_interface_fields(interface.name, &mut HashSet::new());
         }
-        self.type_alias_fields.get(name).cloned()
+        self.types.alias_fields(*name).cloned()
     }
 
     /// Collect inherited interface fields while rejecting recursive surfaces.

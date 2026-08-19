@@ -10,6 +10,7 @@ use super::support::{
 use super::state::class_registry::ClassRegistry;
 use super::state::interface_registry::InterfaceRegistry;
 use super::state::local_scope::LocalScope;
+use super::state::type_scope::TypeScope;
 use super::{
     AssertionNarrowing, ConstCollection, ConstCollectionItem, ConstCollectionValue, ConstLiteral,
     ModuleBuilder, RestParam, SpecializationData,
@@ -153,10 +154,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 interface_call_signatures,
                 interface_construct_signatures,
             ),
-            type_alias_fields,
-            callable_fields,
-            callable_object_aliases,
-            type_namespace_prefix: Vec::new(),
+            types: TypeScope::new(type_alias_fields, callable_fields, callable_object_aliases),
             current_class: None,
             current_async: false,
             current_return_ty: None,
@@ -181,8 +179,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
             const_object_value_collections,
             assertion_functions: HashMap::new(),
             predicate_functions: HashMap::new(),
-            type_param_scopes: Vec::new(),
-            type_param_constraint_scopes: Vec::new(),
             function_rests,
             forward_function_types: HashMap::new(),
             function_overloads,

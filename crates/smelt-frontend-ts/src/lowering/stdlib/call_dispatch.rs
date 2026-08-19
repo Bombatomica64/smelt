@@ -2287,7 +2287,7 @@ impl<'builder> ModuleBuilder<'builder> {
         for (order, signature) in signatures.iter().enumerate() {
             let mut substitutions = HashMap::new();
             let constraint_scope = Self::overload_type_param_constraint_scope(signature);
-            self.type_param_constraint_scopes.push(constraint_scope);
+            self.types.push_constraint_scope(constraint_scope);
             let matches = self.overload_signature_matches_args(
                 signature,
                 arguments,
@@ -2295,7 +2295,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 &mut substitutions,
             ) && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
                 && self.overload_substitutions_satisfy_constraints(signature, &substitutions);
-            self.type_param_constraint_scopes.pop();
+            self.types.pop_constraint_scope();
             if matches {
                 let score =
                     self.overload_signature_specificity_score(signature, lowered_arg_tys.len());
@@ -2353,7 +2353,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 }
                 let mut substitutions = HashMap::new();
                 let constraint_scope = Self::overload_type_param_constraint_scope(signature);
-                self.type_param_constraint_scopes.push(constraint_scope);
+                self.types.push_constraint_scope(constraint_scope);
                 let matches = self.loose_overload_signature_matches_args(
                     signature,
                     arguments,
@@ -2361,7 +2361,7 @@ impl<'builder> ModuleBuilder<'builder> {
                     &mut substitutions,
                 ) && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
                     && self.overload_substitutions_satisfy_constraints(signature, &substitutions);
-                self.type_param_constraint_scopes.pop();
+                self.types.pop_constraint_scope();
                 if !matches {
                     continue;
                 }
@@ -3282,8 +3282,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let substitutions = self
             .type_argument_substitution(&alias.type_params, args, self.span(0, 0))
             .ok()?;
-        self.type_alias_fields
-            .get(&name)
+        self.types.alias_fields(name)
             .cloned()
             .map(|fields| self.substituted_fields(&fields, &substitutions))
     }
@@ -3822,7 +3821,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// Return whether a local's structural class type is an erased callable object.
     pub(in crate::lowering) fn is_callable_object_erased_class(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Class { name, .. }) => self.callable_object_aliases.contains(name),
+            Some(Type::Class { name, .. }) => self.types.is_callable_object_alias(*name),
             _ => false,
         }
     }

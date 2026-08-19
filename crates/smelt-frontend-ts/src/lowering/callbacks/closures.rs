@@ -1186,8 +1186,8 @@ impl ModuleBuilder<'_> {
                 // `Item::TypeAlias` with this symbol identifies the alias case.
                 let predeclared_method = self.find_type_alias(*name).is_none()
                     && self
-                        .type_alias_fields
-                        .get(name)
+                        .types
+                        .alias_fields(*name)
                         .and_then(|fields| fields.iter().find(|field| field.name == method))
                         .is_some_and(|field| {
                             matches!(self.ctx.krate.types.get(field.ty), Some(Type::Function(_)))

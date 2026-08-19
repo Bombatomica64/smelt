@@ -1708,7 +1708,7 @@ impl ModuleBuilder<'_> {
                 .ok()?;
             return Some(self.substituted_fields(&interface.fields, &substitutions));
         }
-        self.type_alias_fields.get(&name).cloned()
+        self.types.alias_fields(name).cloned()
     }
 
     /// Return whether a JSON parse target is a class-like shape whose fields are erased.

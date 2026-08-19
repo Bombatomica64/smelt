@@ -20,10 +20,7 @@ use smelt_hir::{
 impl ModuleBuilder<'_> {
     /// Prefix a local type declaration with the active TypeScript namespace path.
     pub(in crate::lowering) fn qualified_type_declaration_name(&self, name: &str) -> String {
-        if self.type_namespace_prefix.is_empty() {
-            return name.to_owned();
-        }
-        format!("{}.{}", self.type_namespace_prefix.join("."), name)
+        self.types.qualify(name)
     }
 
     /// Lower a TypeScript type alias declaration to HIR.
@@ -41,13 +38,13 @@ impl ModuleBuilder<'_> {
         self.pop_type_parameter_scope();
         let ty = result?;
         if is_callable_object {
-            self.callable_object_aliases.insert(name);
+            self.types.mark_callable_object_alias(name);
             self.ctx.callable_object_aliases.insert(name);
         }
         if let Some(fields) = fields
             && !fields.is_empty()
         {
-            self.type_alias_fields.insert(name, fields.clone());
+            self.types.set_alias_fields(name, fields.clone());
             self.ctx.type_alias_fields.insert(name, fields);
         }
         let item = self
@@ -570,9 +567,9 @@ impl ModuleBuilder<'_> {
         let Some(namespace_name) = Self::type_namespace_name(&module_decl.id) else {
             return Ok(Vec::new());
         };
-        self.type_namespace_prefix.push(namespace_name);
+        self.types.push_namespace(namespace_name);
         let result = self.type_namespace_body(module_decl.body.as_ref());
-        self.type_namespace_prefix.pop();
+        self.types.pop_namespace();
         result
     }
 

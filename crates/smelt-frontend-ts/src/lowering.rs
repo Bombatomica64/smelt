@@ -564,14 +564,13 @@ struct ModuleBuilder<'ctx> {
     /// Owns the registration invariant documented on
     /// [`state::interface_registry::InterfaceRegistry`].
     interfaces: state::interface_registry::InterfaceRegistry,
-    /// Fields carried by structural type aliases.
-    type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
-    /// Fields attached to callable intersection types.
-    callable_fields: HashMap<smelt_hir::TypeId, Vec<Field>>,
-    /// Type aliases whose source surface is a callable object intersection.
-    callable_object_aliases: HashSet<smelt_hir::Symbol>,
-    /// Namespace path currently qualifying type-only declarations.
-    type_namespace_prefix: Vec<String>,
+    /// Type-level surface: structural alias fields, callable intersection
+    /// fields, callable-object aliases, the active namespace path, and the
+    /// generic type-parameter scopes.
+    ///
+    /// Owns the paired type-parameter stack invariant documented on
+    /// [`state::type_scope::TypeScope`].
+    types: state::type_scope::TypeScope,
     /// Currently processing class name, if any.
     current_class: Option<String>,
     /// Whether the current lowered function body is async.
@@ -632,10 +631,6 @@ struct ModuleBuilder<'ctx> {
     assertion_functions: HashMap<String, AssertionNarrowing>,
     /// User predicate functions declared with `value is T`.
     predicate_functions: HashMap<String, AssertionNarrowing>,
-    /// Active generic type parameter scopes.
-    type_param_scopes: Vec<HashMap<String, smelt_hir::TypeId>>,
-    /// Constraints for active generic type parameters keyed by HIR type parameter symbol.
-    type_param_constraint_scopes: Vec<HashMap<smelt_hir::Symbol, smelt_hir::TypeId>>,
     /// Rest-parameter metadata for top-level function declarations.
     function_rests: HashMap<String, RestParam>,
     /// Forward-visible function declaration signatures for hoisted callback calls.

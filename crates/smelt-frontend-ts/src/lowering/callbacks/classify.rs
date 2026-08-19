@@ -983,7 +983,7 @@ impl ModuleBuilder<'_> {
             // the whole-crate build (where the alias resolves to its union) lowers
             // the same call.
             Some(Type::Class { name, args }) => {
-                if self.callable_object_aliases.contains(&name) {
+                if self.types.is_callable_object_alias(name) {
                     return true;
                 }
                 if let Some(underlying) = self.resolve_type_alias_underlying(name, &args)

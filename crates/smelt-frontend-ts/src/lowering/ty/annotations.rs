@@ -199,7 +199,7 @@ impl ModuleBuilder<'_> {
                             })
                             .expect("function member should exist");
                         if !fields.is_empty() {
-                            self.callable_fields.insert(function_ty, fields.clone());
+                            self.types.set_callable_fields(function_ty, fields.clone());
                             self.ctx.callable_fields.insert(function_ty, fields);
                         }
                         Ok(function_ty)
@@ -470,7 +470,7 @@ return_ty: function.return_ty,
             return false;
         };
         let symbol = self.intern_type_name(name.name.as_str());
-        self.callable_object_aliases.contains(&symbol)
+        self.types.is_callable_object_alias(symbol)
     }
 
     /// Return whether a type's syntax is an intersection of callable and object surfaces.
@@ -761,13 +761,11 @@ return_ty: function.return_ty,
                 &lowered_args,
                 self.span(reference.span.start, reference.span.end),
             )?;
-            if let Some(fields) = self.type_alias_fields.get(&symbol).cloned() {
+            if let Some(fields) = self.types.alias_fields(symbol).cloned() {
                 return Ok(self.substituted_fields(&fields, &substitutions));
             }
         }
-        Ok(self
-            .type_alias_fields
-            .get(&symbol)
+        Ok(self.types.alias_fields(symbol)
             .cloned()
             .unwrap_or_default())
     }
@@ -1813,9 +1811,7 @@ return_ty: function.return_ty,
                         Some(Type::Union(_))
                     );
                     let substituted_alias_ty = self.substitute_type_params(alias.ty, &substitutions);
-                    let alias_has_fields = self
-                        .type_alias_fields
-                        .get(&symbol)
+                    let alias_has_fields = self.types.alias_fields(symbol)
                         .is_some_and(|fields| !fields.is_empty());
                     if alias_has_fields
                         && !alias_is_union
@@ -1840,11 +1836,11 @@ return_ty: function.return_ty,
                     if !alias_is_union
                         && let Some(function_ty) = self.function_member_type(substituted_alias_ty)
                     {
-                        if let Some(fields) = self.type_alias_fields.get(&symbol).cloned()
+                        if let Some(fields) = self.types.alias_fields(symbol).cloned()
                             && !fields.is_empty()
                         {
                             let fields = self.substituted_fields(&fields, &substitutions);
-                            self.callable_fields.insert(function_ty, fields.clone());
+                            self.types.set_callable_fields(function_ty, fields.clone());
                             self.ctx.callable_fields.insert(function_ty, fields);
                         }
                         return Ok(function_ty);
@@ -2160,9 +2156,7 @@ return_ty: function.return_ty,
             // instead of rejecting source that TypeScript accepts.
             Type::String => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             Type::Function(_) => {
-                if let Some(field) = self
-                    .callable_fields
-                    .get(&receiver_ty)
+                if let Some(field) = self.types.callable_fields(receiver_ty)
                     .and_then(|fields| fields.iter().find(|item| item.name == field))
                 {
                     return Ok(if field.optional {
@@ -2310,9 +2304,7 @@ return_ty: function.return_ty,
                         may_throw: false,
                     })))
                 });
-                let alias_fields = self
-                    .type_alias_fields
-                    .get(&name)
+                let alias_fields = self.types.alias_fields(name)
                     .cloned()
                     .unwrap_or_default();
                 let alias_field = if let Some(alias) = self.find_type_alias(name).cloned() {
@@ -2558,9 +2550,7 @@ return_ty: function.return_ty,
                 self.ctx.krate.types.intern(Type::Unknown)
             }
             Some(Type::Class { name, .. }) => {
-                let fields = self
-                    .type_alias_fields
-                    .get(&name)
+                let fields = self.types.alias_fields(name)
                     .cloned()
                     .unwrap_or_default();
                 let mut value_tys = Vec::new();

@@ -10,3 +10,4 @@
 pub(in crate::lowering) mod class_registry;
 pub(in crate::lowering) mod interface_registry;
 pub(in crate::lowering) mod local_scope;
+pub(in crate::lowering) mod type_scope;
