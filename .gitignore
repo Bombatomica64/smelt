@@ -104,6 +104,10 @@ blocker-logs/*.md
 # estk-class-identity-and-symbols.md records the class-identity / symbol-key pass
 # of that campaign, including the root causes it deliberately did not attempt
 !blocker-logs/estk-class-identity-and-symbols.md
+# phase2-type-host-spec.md is the Phase 2 (`Type::Host`) implementation spec from
+# docs/architecture-plan-second-pass.md finding B: site inventory, scope cut,
+# dispatch fix, and staged checkpoints against the es-toolkit ratchet
+!blocker-logs/phase2-type-host-spec.md
 
 # Generated docs site output
 _site/
