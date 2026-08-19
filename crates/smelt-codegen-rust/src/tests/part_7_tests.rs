@@ -9848,6 +9848,77 @@ export function trimIt(str: string, chars?: string | string[]): string {
     );
 }
 
+#[test]
+fn math_round_uses_the_javascript_tie_rule() {
+    // JavaScript rounds a tie toward +∞; Rust's `f64::round` rounds a tie away from
+    // zero. They disagree for every negative value whose fraction is exactly 0.5 —
+    // `Math.round(-1.5)` is `-1` in JavaScript and `-2.0` in Rust — which is what
+    // made es-toolkit's `round` specs disagree. `floor`/`ceil`/`trunc` mean the same
+    // thing in both languages and must keep mapping straight to their `f64` methods.
+    let generated = source_for("export function f(x: number): number { return Math.round(x); }");
+    assert!(
+        generated.contains("fn smelt_math_round(value: f64) -> f64"),
+        "the JavaScript rounding helper must be emitted:\n{generated}"
+    );
+    let program = generated
+        .split_once("@smelt:prelude-end")
+        .map_or(generated.as_str(), |(_, program)| program);
+    assert!(
+        program.contains("smelt_math_round("),
+        "`Math.round` must route through the helper:\n{generated}"
+    );
+    assert!(
+        !program.contains(".round()"),
+        "`Math.round` must not use Rust's tie-away-from-zero rounding:\n{generated}"
+    );
+    let floor = source_for("export function f(x: number): number { return Math.floor(x); }");
+    assert!(
+        floor.contains(".floor()") && !floor.contains("fn smelt_math_round"),
+        "`Math.floor` agrees between the languages and must not pull the helper in:\n{floor}"
+    );
+}
+
+#[test]
+fn an_assertion_overload_still_emits_its_call() {
+    // An assertion overload (`asserts condition`) returns void at runtime, and
+    // `function_declaration` records exactly that for the implementation signature.
+    // `overload_signature` lowered the annotation structurally instead and got
+    // `Bool` (a `TSTypePredicate` is boolean-shaped). The selected overload's return
+    // type is what types the call's destination, so the call site ended up with a
+    // `Bool` destination for a `None`-returning function and the emitter DROPPED the
+    // call, leaving only its arguments evaluated. es-toolkit `invariant` is that
+    // shape — two `asserts condition` overloads plus an implementation — and all
+    // four of its specs asserted against a call that never happened.
+    let generated = source_for(
+        r"
+export function invariant(condition: unknown, message: string): asserts condition;
+export function invariant(condition: unknown, error: Error): asserts condition;
+export function invariant(condition: unknown, message: string | Error): asserts condition {
+  if (condition) {
+    return;
+  }
+  throw new Error('boom');
+}
+
+export function run(): void {
+  invariant(false, 'boom');
+}
+",
+    );
+    let program = generated
+        .split_once("@smelt:prelude-end")
+        .map_or(generated.as_str(), |(_, program)| program);
+    let run_body = program
+        .split_once("fn run()")
+        .map(|(_, rest)| rest)
+        .and_then(|rest| rest.split_once("\nfn ").map_or(Some(rest), |(body, _)| Some(body)))
+        .unwrap_or_default();
+    assert!(
+        run_body.contains("invariant("),
+        "the assertion call must be emitted, not folded away:\n{generated}"
+    );
+}
+
 /// A `return` inside a `try` that has a `finally` must still run the finalizer.
 ///
 /// MIR made the finalizer the *fall-through* exit of the `try` body, so a

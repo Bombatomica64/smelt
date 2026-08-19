@@ -1,4 +1,4 @@
-# es-toolkit: iterable `arguments`, self-recursive named function expressions, and narrowed union containment
+# es-toolkit runtime pass: five general defects, 875 -> 900 passing
 
 Measured against es-toolkit at the ref pinned in `.github/compat/libraries.json`
 (`e008a281`) with the fixture manifest `.github/compat/es-toolkit/Smelt.toml`,
@@ -8,11 +8,11 @@ starting from Smelt `4d15304` (`main`, the merge of #192).
 
 | Corpus | Before | After |
 | --- | --- | --- |
-| es-toolkit | 875 passed / 184 failed | **893 passed / 166 failed** |
+| es-toolkit | 875 passed / 184 failed | **900 passed / 159 failed** |
 | es-toolkit probe blockers | 0 | 0 |
 | remeda | 1789 passed / 0 failed | **1789 passed / 0 failed** |
 
-Three independent defects, found by reading the largest failing groups rather
+Five independent defects, found by reading the largest failing groups rather
 than the individual specs. Each was a *silent wrong answer* or a panic, not a
 compile error: the generated crate builds at zero errors throughout.
 
@@ -177,6 +177,79 @@ never failed; only the emitter's operand-type test did.
 
 **Measured:** 883 → 893, 0 newly failing — the whole trim family.
 
+## Defect 4 — `Math.round` used Rust's tie rule
+
+JavaScript rounds a tie toward **+∞**; Rust's `f64::round` rounds a tie away from
+zero. `Math.round(-1.5)` is `-1` in JavaScript and `-2.0` in Rust. es-toolkit's
+`round` specs assert the JavaScript answer and say so in a source comment,
+because it surprises people.
+
+Three specs: `rounds a number to zero decimal places by default`, `handles
+negative numbers properly`, `rounds correctly with edge cases`.
+
+**Fix.** A `smelt_math_round` prelude helper, gated on the op actually appearing
+(`needs_math_round`), so a crate that never rounds emits byte-identical output.
+`floor`/`ceil`/`trunc` mean the same thing in both languages and keep mapping
+straight to their `f64` methods; the emitter's `method_name` match makes that
+split explicit by returning `None` only for `Round`.
+
+Computed as `floor(x)` plus one when the fraction reaches `0.5`, **not** as
+`floor(x + 0.5)`: the ECMA-262 note on `Math.round` calls out that the naive form
+is wrong for very large `x`, where adding `0.5` is not representable. `floor` is
+exact at those magnitudes and the fraction is then `0`, so the value passes
+through unchanged. `-0` is preserved, because `Math.round(-0.5)` is `-0` in
+JavaScript and `Object.is(-0, 0)` is `false`.
+
+Verified against Node directly:
+`Math.round(1.5) 1.4 -1.5 -1.4 -2.5 0.5 -0.5` → `2 1 -1 -1 -2 1 -0` from both.
+
+**Measured:** part of the 893 → 900 step below.
+
+## Defect 5 — a call to an assertion *overload* was dropped entirely
+
+es-toolkit `invariant` is declared as two assertion overloads plus an
+implementation:
+
+```ts
+export function invariant(condition: unknown, message: string): asserts condition;
+export function invariant(condition: unknown, error: Error): asserts condition;
+export function invariant(condition: unknown, message: string | Error): asserts condition { … }
+```
+
+All four of its specs failed, and the generated arrow body shows why — the call is
+simply **not there**:
+
+```rust
+_smelt_tmp_5 = ::std::rc::Rc::new(|| -> Result<(), Box<dyn std::error::Error>> {
+    let _smelt_tmp_0: bool = false;
+    _smelt_tmp_0.clone();
+    Ok::<(), Box<dyn std::error::Error>>(())
+});
+```
+
+`expect(() => invariant(false, 'This should throw')).toThrow(…)` evaluated the
+argument and nothing else.
+
+**Root cause.** `function_declaration` maps an assertion return (`asserts x`) to
+`Type::None`, because that is what such a function returns at runtime.
+`overload_signature` did not: it lowered the annotation structurally, and a
+`TSTypePredicate` is boolean-shaped, so the overload's `return_ty` came out
+`Bool`. The selected overload's return type is what types the call's *destination*
+— MIR shows `%0 = call fn1(false, "nope")` with `%0: Bool` against a `-> None`
+function — and codegen, unable to reconcile them, dropped the call and left the
+argument.
+
+Isolated by bisecting the shape: single-signature + `asserts` works, overloads +
+`void` works, overloads + `asserts` drops the call.
+
+**Fix.** `overload_signature` now checks `assertion_return_type` first and interns
+`Type::None` for an assertion overload, exactly as the declaration path does. A
+`value is T` *predicate* overload deliberately keeps `Bool`: a type predicate
+really does return a boolean and its callers read it.
+
+**Measured:** 893 → 900 together with defect 4 (`round` 3, `invariant` 4), 0 newly
+failing.
+
 ## Known gaps, all measured and none regressed by this pass
 
 1. **`arguments` does not see the actual argument count.** The erased-call ABI
@@ -227,6 +300,16 @@ never failed; only the emitter's operand-type test did.
   coercion consults it.
 * `array_containment_projects_an_optional_union_receiver` — the containment
   receiver projects to its list arm and compares against the projected `Vec`.
+* `math_round_uses_the_javascript_tie_rule` — the helper is emitted, `Math.round`
+  routes through it and never uses `f64::round`, and `Math.floor` neither changes
+  nor pulls the helper in. `emits_math_rounding_calls` (pre-existing) updated in
+  the same shape.
+* `an_assertion_overload_still_emits_its_call` — the call survives in the caller's
+  body instead of being folded to its arguments.
+* `tests/math_round_runtime.rs` (`#[ignore]`d runtime tier) — the tie rule in both
+  directions, non-ties, the large-magnitude pass-through, `-0` survival, and that
+  `floor`/`ceil`/`trunc` are untouched. Confirmed to actually assert by flipping
+  one expectation and watching it fail.
 * `tests/union_receiver_runtime.rs` (`#[ignore]`d runtime tier) — both switch arms
   trim correctly and a non-matching array leaves the string alone, so a projection
   that always answered `true` fails too. The golden can prove the projection is
@@ -264,6 +347,8 @@ Measured three ways against `blocker-logs/smelt-unknown-baseline-es-toolkit.json
 | after defect 1 (iterable `arguments`) | 35711 | +34 | **+0** |
 | after defect 2 (function-expression lift) | 35776 | +99 | **+65** |
 | after defect 3 (union containment) | 35776 | +99 | **+0** |
+| after defect 4 (`Math.round`) | 35776 | +99 | **+0** |
+| after defect 5 (assertion overload) | 35892 | +215 | **+116** |
 
 The **+34 is pre-existing** and documented in `estk-typed-array-views.md`: #192
 deliberately left the typed-array construction erasure un-baselined until the
@@ -285,10 +370,27 @@ had `closure_arg_N: SmeltUnknown` parameters instead. No `SmeltUnknown` appears
 at a boundary that was concrete before, and nothing was routed through a tag to
 make the generated Rust type-check.
 
+**Defect 5 contributes +116, and every one of them is a call that should always
+have existed.** `invariant` has 56 call sites in `invariant_spec.rs`; each was
+being dropped, and each now passes two erased arguments because the source's own
+signature is `invariant(condition: unknown, message: string | Error)` — a genuine
+`unknown` plus a union, erased at the call boundary. 56 × 2 plus the
+implementation's own signature is the whole delta. Isolated by reverting only
+`module_init.rs` and re-measuring: with just defects 1–4 the number is +99.
+
+This one is *not* reclassifiable. The emitted shapes are
+`SmeltUnknown::Bool(…)` / `SmeltUnknown::String(…)` argument coercions, which
+appear everywhere and cannot be labelled a legitimate boundary by
+`classify_line` without mislabelling thousands of unrelated lines. The honest
+statement is the one above: the erasure is what the source's `unknown` parameter
+demands, at calls that previously did not exist. Defect 4 contributes +0.
+
 The baseline is therefore **not** re-snapshotted, matching how #192 handled its
 own delta: laundering the number by re-snapshotting would hide both this +65 and
 the pre-existing +34. The honest reading is that the es-toolkit ratchet has been
 above its baseline since #192 and needs the `Type::Host` work
 (`blocker-logs/phase2-type-host-spec.md`) to come back down; this pass does not
-make that worse in kind, only in count. The examples-corpus hard invariant
+make that worse in kind, only in count. Whether to re-snapshot at +215 and treat
+that as the new floor is a judgement call for the reviewer, not something this
+pass should decide silently. The examples-corpus hard invariant
 (`blocker-logs/smelt-unknown-baseline.json`, avoidable == 0) is untouched.

@@ -272,3 +272,25 @@ pub mod host_override {
     /// a restore-to-`Native`.
     pub const NATIVE_CTOR_MARKER: &str = "__smelt_native_ctor";
 }
+
+/// JavaScript numeric-semantics runtime helpers.
+///
+/// Rust's `f64` inherent methods and JavaScript's `Math` functions agree almost
+/// everywhere, so the emitter maps most of them straight through. These are the
+/// ones where the two languages genuinely disagree and a helper has to carry the
+/// JavaScript rule.
+pub mod math {
+    /// JavaScript `Math.round`: ties round toward **+∞**, not away from zero.
+    ///
+    /// `Math.round(-1.5)` is `-1` in JavaScript; Rust's `f64::round` answers
+    /// `-2.0`, because it rounds half away from zero. The two differ for every
+    /// negative value whose fractional part is exactly `0.5`, which is what made
+    /// es-toolkit's `round` specs disagree.
+    ///
+    /// Computed as `floor(x)` plus one when the fraction reaches `0.5`, rather
+    /// than as `floor(x + 0.5)`: the ECMA-262 note on `Math.round` calls out that
+    /// the naive form is wrong for very large `x`, where adding `0.5` is not
+    /// representable. `floor` is exact at those magnitudes and the fraction is
+    /// then `0`, so the value passes through unchanged.
+    pub const ROUND: &str = "smelt_math_round";
+}

@@ -1508,17 +1508,39 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let rest_ty = self.ts_type_to_hir(&annotation.type_annotation)?;
                 params.push(self.type_param_constraint_or_self(rest_ty));
             }
-            let return_ty = function
+            // An ASSERTION overload (`asserts condition`) returns void at runtime,
+            // exactly as `function_declaration` records for the implementation
+            // signature. Lowering the annotation structurally instead yields `Bool`
+            // (a `TSTypePredicate` is boolean-shaped), and the selected overload's
+            // return type is what types the call's destination — so the call site
+            // ended up with a `Bool` destination for a `None`-returning function and
+            // the emitter dropped the call altogether, silently evaluating only its
+            // arguments. es-toolkit `invariant` is exactly that shape: two `asserts
+            // condition` overloads plus an implementation, and all four of its specs
+            // saw a call that never happened.
+            //
+            // A `value is T` PREDICATE overload keeps `Bool`: a type predicate really
+            // does return a boolean, and its callers read that boolean.
+            let assertion_return = function
                 .return_type
                 .as_ref()
-                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()?
-                .ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(function.span.start, function.span.end),
-                        "overload declarations must have explicit return types",
-                    )
-                })?;
+                .and_then(|annotation| self.assertion_return_type(&annotation.type_annotation))
+                .transpose()?;
+            let return_ty = if assertion_return.is_some() {
+                self.ctx.krate.types.intern(Type::None)
+            } else {
+                function
+                    .return_type
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(function.span.start, function.span.end),
+                            "overload declarations must have explicit return types",
+                        )
+                    })?
+            };
             Ok(OverloadSignature {
                 type_params,
                 params,

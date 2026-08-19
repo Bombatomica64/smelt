@@ -729,8 +729,12 @@ const trunc = Math.trunc(value);
 
     assert!(source.contains(".floor();"));
     assert!(source.contains(".ceil();"));
-    assert!(source.contains(".round();"));
     assert!(source.contains(".trunc();"));
+    // `Math.round` cannot be `f64::round`: JavaScript rounds a tie toward +∞ and
+    // Rust rounds a tie away from zero, so `Math.round(-1.5)` differs. It routes
+    // through the runtime helper instead — see
+    // `math_round_uses_the_javascript_tie_rule`.
+    assert!(source.contains("smelt_math_round("));
 }
 
 #[test]

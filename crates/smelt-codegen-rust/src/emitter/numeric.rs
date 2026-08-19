@@ -133,11 +133,17 @@ impl FunctionEmitter<'_> {
                 format!("{operand_text} as f64")
             });
         }
+        // `floor`/`ceil`/`trunc` mean the same thing in both languages and map to
+        // their `f64` methods. `Math.round` does not: JavaScript rounds a tie toward
+        // +∞ while Rust's `f64::round` rounds a tie away from zero, so
+        // `Math.round(-1.5)` is `-1` in JavaScript and `-2.0` in Rust. That one goes
+        // through the runtime helper, which carries the JavaScript rule (and the
+        // large-magnitude and `-0` edges with it).
         let method_name = match op {
-            smelt_hir::NumericRoundOp::Floor => "floor",
-            smelt_hir::NumericRoundOp::Ceil => "ceil",
-            smelt_hir::NumericRoundOp::Round => "round",
-            smelt_hir::NumericRoundOp::Trunc => "trunc",
+            smelt_hir::NumericRoundOp::Floor => Some("floor"),
+            smelt_hir::NumericRoundOp::Ceil => Some("ceil"),
+            smelt_hir::NumericRoundOp::Round => None,
+            smelt_hir::NumericRoundOp::Trunc => Some("trunc"),
         };
         let operand_text = if matches!(self.mir.types.get(operand_ty), Some(Type::Float)) {
             self.operand_text(operand)?
@@ -150,7 +156,13 @@ impl FunctionEmitter<'_> {
         } else {
             return Err(EmitError::new("numeric round operand must be numeric"));
         };
-        let text = format!("{operand_text}.{method_name}()");
+        let text = match method_name {
+            Some(method_name) => format!("{operand_text}.{method_name}()"),
+            None => format!(
+                "{helper}({operand_text})",
+                helper = smelt_stdlib::runtime_symbols::math::ROUND,
+            ),
+        };
         if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
             Ok(format!("{text} as i64"))
         } else {
