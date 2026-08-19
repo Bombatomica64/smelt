@@ -2633,6 +2633,7 @@ dependencies = [
  "smelt-frontend-ts",
  "smelt-hir",
  "smelt-mir",
+ "smelt-runtime",
  "smelt-specialize",
  "smelt-stdlib",
  "tempfile",
