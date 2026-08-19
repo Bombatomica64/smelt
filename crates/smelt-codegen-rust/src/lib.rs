@@ -970,6 +970,20 @@ fn emit_source_with_free_function_router(
             helper = smelt_stdlib::runtime_symbols::host::ARGUMENTS_OBJECT,
             marker = smelt_stdlib::runtime_symbols::host::ARGUMENTS_MARKER,
         ));
+        // An `arguments` object is iterable in JavaScript (its `Symbol.iterator`
+        // is `Array.prototype.values`), but the marker record above stores no
+        // `__smelt_symbol_iterator` slot, so the erased iterable-to-list coercion
+        // could not walk it: `Array.from(arguments)` and `[...arguments]` both
+        // panicked with "unknown is not iterable". This helper is the iteration
+        // door. It reads `length` and the index keys rather than the record's raw
+        // key order, so a caller that assigned an extra named property to the
+        // record cannot perturb the element sequence.
+        writer.line("/// Extract an `arguments` object's elements, or `None` for any other value.");
+        writer.line(format!(
+            "fn {helper}(object: &SmeltObject) -> Option<Vec<SmeltUnknown>> {{ if !object.contains_key(\"{marker}\") {{ return None; }} let length = match object.get(\"length\") {{ Some(SmeltUnknown::Number(length)) if length >= 0.0 => length as usize, _ => 0 }}; Some((0..length).map(|index| object.get(&index.to_string()).unwrap_or(SmeltUnknown::Undefined)).collect()) }}",
+            helper = smelt_stdlib::runtime_symbols::host::ARGUMENTS_ELEMENTS,
+            marker = smelt_stdlib::runtime_symbols::host::ARGUMENTS_MARKER,
+        ));
         // `__smelt_proto:`-prefixed entries hold members INHERITED from a
         // prototype (`Object.create(proto)`), so they are never own keys — JS
         // `Object.keys` / `for...in` own-key enumeration must skip them.

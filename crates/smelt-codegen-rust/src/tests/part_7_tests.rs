@@ -9670,6 +9670,35 @@ export function f(a: number, b: number): any {
     );
 }
 
+#[test]
+fn an_arguments_object_is_iterable() {
+    // A JavaScript `arguments` object is iterable — its `Symbol.iterator` is
+    // `Array.prototype.values` — so `Array.from(arguments)` and `[...arguments]`
+    // both walk its elements. Smelt models it as an array-like marker record with
+    // index keys and a hidden `length`, which carries no
+    // `__smelt_symbol_iterator` slot, so the erased iterable-to-list coercion
+    // fell straight through to `panic!("unknown is not iterable")`. Every
+    // es-toolkit spec helper that reads its own call arguments through
+    // `Array.from(arguments)` (`rest`, `ary`, `unary`, `partial`, `flow`, …) died
+    // in that panic before asserting anything.
+    let generated = source_for(
+        r"
+export function f(a: number, b: number): unknown[] {
+  const unused = a + b;
+  return Array.from(arguments as any);
+}
+",
+    );
+    assert!(
+        generated.contains("fn smelt_arguments_elements(object: &SmeltObject)"),
+        "the `arguments` iteration door must be emitted:\n{generated}"
+    );
+    assert!(
+        generated.contains("smelt_arguments_elements(&value)"),
+        "the erased iterable-to-list coercion must consult it:\n{generated}"
+    );
+}
+
 /// A `return` inside a `try` that has a `finally` must still run the finalizer.
 ///
 /// MIR made the finalizer the *fall-through* exit of the `try` body, so a
