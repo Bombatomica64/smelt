@@ -117,15 +117,47 @@ the record it already is at runtime — aborts the es-toolkit build at
 dispatches it as `Map.set`, because `Dict` is deliberately shared between
 source `Map` and source `Record`.
 
-**Proposal.** `Type::Host { class: Symbol }`, backed by the existing
-`smelt_stdlib::host_object` registry. One variant serves every value that today
-carries a `__smelt_*` marker and no static shape: byte buffers and views, boxed
-primitives (`__smelt_number` / `_string` / `_boolean`), `RegExp`, `Date`,
-`Error` subclasses, `Blob` / `File`.
+**Proposal.** `Type::Host { class: HostClass }`, backed by the existing
+`smelt_stdlib::host_object` registry — a registry-index newtype rather than a
+`Symbol`, so the 30 match arms that gain the variant do not each re-look-up a
+name. First cut is deliberately narrow: the **15 registry entries carrying
+`byte_buffer: Some(_)`** (`ArrayBuffer`, `SharedArrayBuffer`, the eleven views,
+Node `Buffer`, `DataView`) and nothing else. Boxed primitives already build a
+typed `Dict(String, Unknown)` with an explicit `UnknownCast`; `RegExp` has
+`SmeltRegExp`; `Date`, `Error`, `Blob`/`File` and `Proxy` have working dedicated
+paths a `Host` type would disturb. Marker-only entries (`WeakMap`, `Request`,
+eight `Intl.*`) carry no debt and are the natural second cut.
+
+**The variant is the enabler, not the lever — do not implement it expecting the
+number to fall.** `host_construct_text`
+(`emitter/host_interop.rs:88-91`) erases *every* argument through
+`self.erase(arg)` into `vec![SmeltUnknown…]` regardless of destination type;
+`dest_ty` only affects the outer conversion. So retyping the destination leaves
+the dominant line's token count exactly where it is. What moves the metric is
+the **typed constructor door**: 137 non-prelude construct sites carry 179
+avoidable tokens, 150 of them *inside* that argument erasure. `Type::Host` is
+what lets the frontend select a form-specific constructor from the argument's
+own HIR type (length / element-list / view-over-storage / dynamic), keeping
+`smelt_reflected_construct` only for a genuinely runtime-known class. A
+`type SmeltHostRecord = …` alias would erase ~140 tokens textually and is
+relabelling — explicitly rejected.
+
+**Two zero-copy adapters are required, not optional.** `IntoSmeltUnknown for
+SmeltRecord` and `SmeltFromUnknown for SmeltRecord` both *rebuild* the top-level
+field map (same `id`, fresh `Rc`), while `SmeltObject::from_unknown_record`
+shares it. Byte-buffer semantics depend on in-place write-through, so the `Host`
+erase must use the sharing adapter and a `SmeltRecord::from_unknown_object` must
+be added for the reverse. No string golden can catch this — only the `#[ignore]`d
+runtime tier can.
 
 **Payoff.** Retires the ratchet debt at its source instead of relabelling it,
-gives the method surfaces something to dispatch on, and is the single change
-that most directly serves the "what a skilled team would hand-write" bar.
+makes the `Uint8Array.prototype.set` / `Map.set` collision structurally
+impossible (a `Host` receiver matches none of `Dict`/`JsMap`/`Set` at
+`stdlib/collections.rs:74-76` and falls to `_ => return Ok(None)`), and is the
+change that most directly serves the "what a skilled team would hand-write" bar.
+
+Full site inventory, scope argument, staged checkpoints and regression tests:
+`blocker-logs/phase2-type-host-spec.md`.
 
 ### C · `ModuleBuilder`'s state was never split
 
@@ -203,10 +235,21 @@ flowchart LR
 | Phase | Finding | Unblocks | Blast radius | Exit criterion |
 | ---: | --- | --- | --- | --- |
 | 1 | A | All representation work | `codegen-rust/src/*prelude*`, `smelt-runtime` | Corpora byte-identical after `@smelt:prelude-end`; ≥1 unit test per emitted symbol family in `smelt-runtime` |
-| 2 | B | Typed arrays, boxed primitives, `RegExp`, `Date`, the ratchet | `smelt-hir/ty.rs`, MIR types, emitter type paths | es-toolkit avoidable ≤ 35,677 with typed arrays retained; `Uint8Array.prototype.set` dispatches without the `Map` collision; corpora ≥ current |
+| 2 | B | Typed arrays, the ratchet, host method dispatch | `smelt-hir/ty.rs`, 30 exhaustive `Type` matches, 240 erased-receiver gates, constructor doors | es-toolkit avoidable ≤ 35,677 with typed arrays retained; `Uint8Array.prototype.set` dispatches without the `Map` collision; corpora ≥ current |
 | 3 | D | Emitter correctness at scale | `codegen-rust/emitter/*` | `rendered_text_rewrite.rs` deleted; `*_text` count under 50 |
 | 4 | C | Frontend feature velocity | `frontend-ts/lowering/*` | `ModuleBuilder` at ≤ 25 direct fields; class-registry invariant enforced by construction |
 | 5 | E | Python/TypeScript parity | `smelt-stdlib`, both frontends | One rule table drives collections in both frontends; both regression suites unchanged |
+
+**Phase 2 staging.** The spec stages it so each step is falsifiable:
+(0) registry plumbing, corpora untouched; (1) variant plus 30 arms with nothing
+producing it, prelude **byte-identical**; (2) produce it behind a total
+erase-on-use fallback, avoidable **flat ±30** — a swing over 50 means the
+fallback is not total, so revert rather than patch; (3) typed constructor doors,
+where the metric is expected to move −100 to −150; (4) dispatch fix plus
+`instanceof` static folding, corpora *above* current because
+`clone.ts:99` currently no-ops; (5) re-snapshot the baseline in the same commit.
+The 240 erased-receiver gates matching `Some(Type::Unknown` cannot be sized
+without compiling — stage 2's flat-corpus gate is the mitigation.
 
 **On timing.** `CLAUDE.md` says to finish active feature phases before broad
 division refactors. Phases 1 and 2 are not that refactor — they are feature
