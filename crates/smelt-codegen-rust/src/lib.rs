@@ -85,6 +85,7 @@ pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod deps;
 mod reflection_prelude;
+pub(crate) mod runtime_prelude;
 pub mod rust;
 pub(crate) mod stdlib;
 pub(crate) mod thrown;
@@ -97,6 +98,7 @@ use classes::{
     interface_impl_generics_text, interface_type_params_text, materialized_static_value_text,
 };
 use emitter::{EmitContext, FunctionEmitter};
+use runtime_prelude::{PreludeGate, emit_gate as emit_runtime_gate};
 use rust::{CodeWriter, RustIdent};
 
 /// Sentinel comment emitted between the fixed runtime prelude and the generated
@@ -400,58 +402,15 @@ fn emit_source_with_free_function_router(
     writer.line("#![allow(dead_code, non_snake_case, unused_imports, unused_variables)]");
     writer.blank_line();
     if needs_date_now {
-        writer.line("thread_local! {");
-        writer.line("    static SMELT_DATE_NOW: ::std::cell::Cell<Option<i64>> = const { ::std::cell::Cell::new(None) };");
-        writer.line("}");
-        writer.blank_line();
+        emit_runtime_gate(&mut writer, PreludeGate::DateNow)?;
     }
     if needs_date_timezone_offset {
-        writer.line("thread_local! {");
-        writer.line("    static SMELT_DATE_TIMEZONE_OFFSET: ::std::cell::Cell<f64> = const { ::std::cell::Cell::new(0.0) };");
-        writer.line("}");
-        writer.blank_line();
+        emit_runtime_gate(&mut writer, PreludeGate::DateTimezoneOffset)?;
     }
     if needs_timer_helpers || needs_date_now {
-        // Shared monotonic clock coupling JavaScript timers and `Date.now()`.
-        //
-        // JS code routinely measures elapsed time with `Date.now()` while
-        // scheduling work with `setTimeout`, and expects the two to agree
-        // (a debounce reads `Date.now()` to size its `maxWait` timeout, then
-        // waits for that timeout to fire). Generated Rust runs deterministically
-        // on a virtual clock — `sleep`/timer draining fast-forwards time instead
-        // of really blocking — so both readings must come from one timeline.
-        //
-        // `SMELT_VIRTUAL_MS` is the accumulated fast-forward; real wall time
-        // keeps advancing on top of it so a synchronous busy-loop such as
-        // `while (Date.now() - start < 320) { ... }` (no `await` to fast-forward)
-        // still terminates on real elapsed time rather than spinning forever.
-        writer.line("thread_local! {");
-        writer.line("    static SMELT_VIRTUAL_MS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };");
-        writer.line("    static SMELT_TIMER_EPOCH: ::std::cell::Cell<Option<::std::time::Instant>> = const { ::std::cell::Cell::new(None) };");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// Monotonic virtual + wall clock (ms) shared by JS timers and `Date.now()`.");
-        writer.line("///");
-        writer.line("/// Returns real elapsed wall time since a fixed epoch plus the virtual");
-        writer.line("/// fast-forward accumulated by `sleep`/timer draining, so `setTimeout`");
-        writer.line("/// deadlines and `Date.now()` measurements share one timeline.");
-        writer.line("fn smelt_mono_ms() -> u64 {");
-        writer.line("    let epoch = SMELT_TIMER_EPOCH.with(|epoch| match epoch.get() {");
-        writer.line("        Some(instant) => instant,");
-        writer.line("        None => { let instant = ::std::time::Instant::now(); epoch.set(Some(instant)); instant }");
-        writer.line("    });");
-        writer.line("    let real_ms = ::std::time::Instant::now().saturating_duration_since(epoch).as_millis() as u64;");
-        writer.line("    real_ms.saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get))");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("/// Fast-forward the virtual clock so `smelt_mono_ms()` reaches `target_ms`.");
-        writer.line("fn smelt_virtual_advance_to(target_ms: u64) {");
-        writer.line("    let now = smelt_mono_ms();");
-        writer.line("    if target_ms > now {");
-        writer.line("        SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(virtual_ms.get().saturating_add(target_ms - now)));");
-        writer.line("    }");
-        writer.line("}");
-        writer.blank_line();
+        // The clock is one item family in `smelt-runtime` (`clock.rs`), which
+        // documents why timers and `Date.now()` must share a timeline.
+        emit_runtime_gate(&mut writer, PreludeGate::VirtualClock)?;
     }
     if needs_host_override {
         // Bounded host-global override support: a fixed override-state enum, one
@@ -517,29 +476,10 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
     }
     if needs_shared_captures {
-        writer.line("thread_local! {");
-        writer.line("    static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };");
-        writer.line("    static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("fn smelt_next_capture_scope() -> usize {");
-        writer.line("    SMELT_NEXT_CAPTURE_SCOPE.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("fn smelt_shared_capture<T: Clone + 'static>(scope: usize, slot: *mut T, initial: T) -> ::std::rc::Rc<::std::cell::RefCell<T>> {");
-        writer.line("    let key = (scope, slot as usize);");
-        writer.line("    SMELT_SHARED_CAPTURES.with(|captures| {");
-        writer.line("        let mut captures = captures.borrow_mut();");
-        writer.line("        if let Some(existing) = captures.get(&key).and_then(::std::rc::Weak::upgrade) {");
-        writer.line("            return existing.downcast::<::std::cell::RefCell<T>>().expect(\"shared capture type mismatch\");");
-        writer.line("        }");
-        writer.line("        let value: ::std::rc::Rc<::std::cell::RefCell<T>> = ::std::rc::Rc::new(::std::cell::RefCell::new(initial));");
-        writer.line("        let erased: ::std::rc::Rc<dyn ::std::any::Any> = value.clone();");
-        writer.line("        captures.insert(key, ::std::rc::Rc::downgrade(&erased));");
-        writer.line("        value");
-        writer.line("    })");
-        writer.line("}");
-        writer.blank_line();
+        emit_runtime_gate(&mut writer, PreludeGate::SharedCaptures)?;
+    }
+    if stdlib::needs_uri_encode_runtime(mir) {
+        emit_runtime_gate(&mut writer, PreludeGate::UriEncode)?;
     }
     // `smelt_next_object_id` mints fresh JavaScript object reference ids. It is
     // emitted in the `needs_smelt_list` block below (a list mints ids), but a
@@ -548,108 +488,15 @@ fn emit_source_with_free_function_router(
     // identity when later erased to `SmeltUnknown`). Emit it standalone only in
     // that regex-without-list case so list-using programs keep byte-identical
     // output. `needs_smelt_list` already subsumes `needs_unknown`.
-    if stdlib::needs_uri_encode_runtime(mir) {
-        writer.line("/// JavaScript `encodeURI`: percent-encode `value` as a full URI.");
-        writer.line("///");
-        writer.line("/// Leaves the ECMA-262 `encodeURI` unescaped set intact — ASCII alphanumerics,");
-        writer.line("/// the unreserved marks `- _ . ! ~ * ' ( )`, the URI reserved separators");
-        writer.line("/// `; / ? : @ & = + $ ,`, and `#` — and percent-encodes every other character's");
-        writer.line("/// UTF-8 bytes as uppercase `%XX` triplets. Rust `&str` is always valid UTF-8,");
-        writer.line("/// so ECMA-262's lone-surrogate `URIError` case cannot occur here.");
-        writer.line(format!(
-            "fn {encode_uri}(value: &str) -> String {{",
-            encode_uri = smelt_stdlib::runtime_symbols::strings::ENCODE_URI,
-        ));
-        writer.line("    use ::std::fmt::Write as _;");
-        writer.line("    let mut encoded = String::with_capacity(value.len());");
-        writer.line("    for ch in value.chars() {");
-        writer.line("        let unescaped = ch.is_ascii_alphanumeric()");
-        writer.line("            || matches!(ch, '-' | '_' | '.' | '!' | '~' | '*' | '\\'' | '(' | ')'");
-        writer.line("                | ';' | '/' | '?' | ':' | '@' | '&' | '=' | '+' | '$' | ',' | '#');");
-        writer.line("        if unescaped {");
-        writer.line("            encoded.push(ch);");
-        writer.line("        } else {");
-        writer.line("            let mut buffer = [0u8; 4];");
-        writer.line("            for byte in ch.encode_utf8(&mut buffer).as_bytes() {");
-        writer.line("                let _ = write!(encoded, \"%{byte:02X}\");");
-        writer.line("            }");
-        writer.line("        }");
-        writer.line("    }");
-        writer.line("    encoded");
-        writer.line("}");
-        writer.blank_line();
-    }
     if needs_regex && !needs_smelt_list {
-        writer.line("thread_local! {");
-        writer.line("    static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("#[allow(dead_code)]");
-        writer.line("fn smelt_next_object_id() -> usize {");
-        writer.line("    SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })");
-        writer.line("}");
-        writer.blank_line();
+        emit_runtime_gate(&mut writer, PreludeGate::ObjectIdentity)?;
     }
     if needs_smelt_list {
-        // Identity-bearing statically-typed list — `Type::List` lowers to this.
-        // `Deref`s to its backing `Vec<T>`; `Clone` shares the JS reference id
-        // (so internal value-copies keep identity) while deep-cloning values.
-        // Emitted whenever a list is used, independent of `SmeltUnknown`; the
-        // `SmeltUnknown`-dependent impls (erase/From<SmeltArray>/serde) live in
-        // the `needs_unknown` block. `smelt_next_object_id` lives here too because
-        // `SmeltList::new` mints a fresh id (and `needs_unknown` implies this gate).
-        writer.line("thread_local! {");
-        writer.line("    static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("#[allow(dead_code)]");
-        writer.line("fn smelt_next_object_id() -> usize {");
-        writer.line("    SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })");
-        writer.line("}");
-        writer.blank_line();
-        writer.line("pub struct SmeltList<T> {");
-        writer.line("    id: usize,");
-        writer.line("    values: Vec<T>,");
-        writer.line("}");
-        // Debug forwards to the backing Vec so `console.log([1,2,3])` prints
-        // `[1.0, 2.0, 3.0]`, not the `SmeltList { .. }` wrapper.
-        writer.line("impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltList<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.values.fmt(formatter) } }");
-        writer.line("impl<T: Clone> Clone for SmeltList<T> { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }");
-        writer.line("#[allow(dead_code)]");
-        writer.line("impl<T> SmeltList<T> {");
-        writer.line(
-            "    /// Create an identity-bearing typed list with a fresh JS reference identity.",
-        );
-        writer.line(
-            "    fn new(values: Vec<T>) -> Self { Self { id: smelt_next_object_id(), values } }",
-        );
-        writer.line("    /// Reuse a caller-supplied identity so an erase/extract round-trip stays `===` equal.");
-        writer.line("    fn with_id(id: usize, values: Vec<T>) -> Self { Self { id, values } }");
-        writer.line(
-            "    /// A JS array copy (`[...a]`, `slice`): same contents, a NEW reference identity.",
-        );
-        writer.line(
-            "    fn fresh_copy(&self) -> Self where T: Clone { Self::new(self.values.clone()) }",
-        );
-        writer.line("    /// JS reference identity of this list.");
-        writer.line("    fn id(&self) -> usize { self.id }");
-        writer.line("    /// Consume the list, yielding the backing storage.");
-        writer.line("    fn into_vec(self) -> Vec<T> { self.values }");
-        writer.line("}");
-        writer.line("impl<T> From<Vec<T>> for SmeltList<T> { fn from(values: Vec<T>) -> Self { Self::new(values) } }");
-        writer.line("impl<T> ::std::iter::FromIterator<T> for SmeltList<T> { fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self { Self::new(iter.into_iter().collect()) } }");
-        writer.line("impl<T> ::std::ops::Deref for SmeltList<T> { type Target = Vec<T>; fn deref(&self) -> &Vec<T> { &self.values } }");
-        writer.line("impl<T> ::std::ops::DerefMut for SmeltList<T> { fn deref_mut(&mut self) -> &mut Vec<T> { &mut self.values } }");
-        writer.line("impl<T> IntoIterator for SmeltList<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { self.values.into_iter() } }");
-        writer.line("impl<'smelt_list, T> IntoIterator for &'smelt_list SmeltList<T> { type Item = &'smelt_list T; type IntoIter = ::std::slice::Iter<'smelt_list, T>; fn into_iter(self) -> Self::IntoIter { self.values.iter() } }");
-        writer.line("impl<T: PartialEq> PartialEq for SmeltList<T> { fn eq(&self, other: &Self) -> bool { self.values == other.values } }");
-        writer.line("impl<T: PartialEq> Eq for SmeltList<T> {}");
-        writer.line("impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { self.values.hash(state); } }");
-        writer.line(
-            "impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }",
-        );
-        writer.line("impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.values } }");
-        writer.blank_line();
+        // `SmeltList` plus the id counter it mints from: see `smelt-runtime`'s
+        // `value` and `value::list` modules for the identity semantics. The
+        // `SmeltUnknown`-dependent impls (erase / `From<SmeltArray>` / serde) are
+        // still emitted by the `needs_unknown` block below.
+        emit_runtime_gate(&mut writer, PreludeGate::SmeltList)?;
     }
 
     if needs_unknown {

@@ -11,7 +11,68 @@ description = "Runtime helpers that Rust programs transpiled by Smelt depend on.
 keywords = ["smelt", "runtime", "transpiler"]
 categories = ["development-tools"]
 
-[lints]
-workspace = true
+# ---------------------------------------------------------------------------
+# Lint policy: deliberately NOT `workspace = true`.
+# ---------------------------------------------------------------------------
+# The marked regions in `src/**` are emitted verbatim into every generated
+# crate, so their text is generated output rather than ordinary crate-internal
+# Rust. A lint that can only be satisfied by rewriting that text would change
+# the bytes of every generated crate, which is not this crate's decision to
+# make. So the correctness-bearing groups stay denied and the style-only groups
+# are demoted to warnings, each relaxation justified below.
+#
+# Keep this table in step with `[workspace.lints]` in the root Cargo.toml when
+# that policy changes.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+# The runtime items exist to be emitted, not called from this crate, so almost
+# every one of them is dead code here. `#[allow]`/`#[expect]` attributes cannot
+# express that (they would become part of the emitted text), which is why this
+# is a lint-table entry.
+dead_code = "allow"
+# Generated crates set `#![allow(non_snake_case)]`; item text may follow source
+# spelling rather than Rust naming.
+non_snake_case = "allow"
+elided_lifetimes_in_paths = "warn"
+keyword_idents = { level = "deny", priority = -1 }
+non_ascii_idents = "deny"
+unreachable_pub = "warn"
+unused = { level = "warn", priority = -1 }
+
+[lints.clippy]
+# Correctness, suspicious, style, complexity and perf stay hard errors: these
+# are the lints that would find real bugs in a runtime helper.
+all = { level = "deny", priority = -1 }
+# Stylistic groups are warnings here. Satisfying them (e.g. `must_use`
+# attributes, doc-comment shape, `#[inline]`) would edit emitted text.
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Generated crates are compiled by the *user's* toolchain, where an `#[expect]`
+# whose lint does not fire is itself a warning. Emitted text therefore uses
+# `#[allow]`, and this crate holds that text verbatim.
+allow_attributes = "allow"
+allow_attributes_without_reason = "allow"
+# Two `clippy::all` members can only be satisfied by rewriting emitted text:
+# `type_complexity` wants a `type` alias for the shared-capture registry map, and
+# `clone_on_ref_ptr` wants `Rc::clone(&x)` spelled explicitly. Both are real
+# cleanups, and both change the bytes of every generated crate, so they belong to
+# a deliberate emitted-text change rather than to this source-of-truth move.
+type_complexity = "allow"
+clone_on_ref_ptr = "allow"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+exit = "deny"
+str_to_string = "deny"
+string_add = "deny"
+map_err_ignore = "deny"
+missing_assert_message = "deny"
+missing_errors_doc = "deny"
+missing_panics_doc = "deny"
+get_unwrap = "deny"
+panic_in_result_fn = "deny"
+unwrap_in_result = "deny"
+pub_without_shorthand = "deny"
 
 [dependencies]
