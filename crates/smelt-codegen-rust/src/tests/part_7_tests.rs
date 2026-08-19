@@ -9801,6 +9801,53 @@ export function shout(): string {
     );
 }
 
+#[test]
+fn array_containment_projects_an_optional_union_receiver() {
+    // `chars?: string | string[]` interns as `Optional(Union([String, List(String)]))`.
+    // The source narrows it with `switch (typeof chars) { case 'object': … }` and the
+    // frontend only emits `Rvalue::ListContains` after that narrowing holds, but MIR
+    // reads the value through its DECLARING local, so the operand type at emission
+    // is still the wide one. `list_contains_text` matched `Type::List` alone and
+    // answered a constant `false` for anything else, so es-toolkit's
+    // `trim`/`trimStart`/`trimEnd` array-`chars` loops never removed a character —
+    // ten specs, silently wrong rather than failing.
+    let generated = source_for(
+        r"
+export function trimIt(str: string, chars?: string | string[]): string {
+  if (chars === undefined) {
+    return str;
+  }
+  let startIndex = 0;
+  switch (typeof chars) {
+    case 'string': {
+      while (startIndex < str.length && str[startIndex] === chars) {
+        startIndex++;
+      }
+      break;
+    }
+    case 'object': {
+      while (startIndex < str.length && chars.includes(str[startIndex])) {
+        startIndex++;
+      }
+    }
+  }
+  return str.substring(startIndex);
+}
+",
+    );
+    assert!(
+        generated.contains("union guard selected an excluded member"),
+        "the containment receiver must project to its list arm:\n{generated}"
+    );
+    let program = generated
+        .split_once("@smelt:prelude-end")
+        .map_or(generated.as_str(), |(_, program)| program);
+    assert!(
+        program.contains(".contains(&str.chars().nth("),
+        "containment must compare against the projected `Vec`:\n{generated}"
+    );
+}
+
 /// A `return` inside a `try` that has a `finally` must still run the finalizer.
 ///
 /// MIR made the finalizer the *fall-through* exit of the `try` body, so a

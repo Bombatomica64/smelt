@@ -1,4 +1,4 @@
-# es-toolkit: iterable `arguments` and self-recursive named function expressions
+# es-toolkit: iterable `arguments`, self-recursive named function expressions, and narrowed union containment
 
 Measured against es-toolkit at the ref pinned in `.github/compat/libraries.json`
 (`e008a281`) with the fixture manifest `.github/compat/es-toolkit/Smelt.toml`,
@@ -8,12 +8,13 @@ starting from Smelt `4d15304` (`main`, the merge of #192).
 
 | Corpus | Before | After |
 | --- | --- | --- |
-| es-toolkit | 875 passed / 184 failed | **883 passed / 176 failed** |
+| es-toolkit | 875 passed / 184 failed | **893 passed / 166 failed** |
 | es-toolkit probe blockers | 0 | 0 |
 | remeda | 1789 passed / 0 failed | **1789 passed / 0 failed** |
 
-Two independent defects, found by reading the largest failing groups rather than
-the individual specs.
+Three independent defects, found by reading the largest failing groups rather
+than the individual specs. Each was a *silent wrong answer* or a panic, not a
+compile error: the generated crate builds at zero errors throughout.
 
 ## Defect 1 — an `arguments` object was not iterable
 
@@ -127,6 +128,55 @@ the closure path unchanged (see "Known gaps").
 Name collisions are handled by the emitter's existing suffixing (`step_2` /
 `step_4` for two same-named lifts in one crate), covered by a runtime test.
 
+## Defect 3 — containment against a narrowed union receiver folded to `false`
+
+`trim`, `trimStart` and `trimEnd` all accept `chars?: string | string[]` and
+dispatch on it:
+
+```ts
+switch (typeof chars) {
+  case 'string': { … while (str[startIndex] === chars) startIndex++; … }
+  case 'object': { while (startIndex < str.length && chars.includes(str[startIndex])) startIndex++; }
+}
+```
+
+Every array-`chars` spec answered the **untrimmed string**. Ten of them: `trim`
+(3), `trimStart` (4), `trimEnd` (3). One — "should return the string unchanged
+when none of the leading characters in the array match" — passed *vacuously*,
+which is the tell.
+
+**Root cause, and where it is not.** The frontend is right: `chars?:` interns as
+`Optional(Union([String, List(String)]))`, the `typeof` switch narrows it, and
+`list_contains_call` emits `Rvalue::ListContains` with a `List<String>` receiver.
+MIR is right too — `%14 = list_contains copy %1, copy %0[copy %2]`. But MIR reads
+the value through its **declaring local**, whose type is still
+`Optional<String | List<String>>`, so the *operand* type at emission is the wide
+one. `list_contains_text` matched `Type::List` alone:
+
+```rust
+let Some(Type::List(list_item_ty)) = self.mir.types.get(list_ty) else {
+    return Ok("false".to_owned());
+};
+```
+
+so the whole call became a literal `false`, the loop never advanced, and
+`substring(0)` returned the input.
+
+**Fix.** A `list_receiver_surface` helper projects the operand to its single list
+arm: unwrap an `Optional`, then select the one `List` member through the existing
+`project_union_value_text`. The projection is safe precisely because the frontend
+established the narrowing before emitting the rvalue, and
+`project_union_value_text` emits an `unreachable!` guard on the other arms — so a
+receiver that somehow held a different member aborts rather than answering a wrong
+`false`. A union with more than one list member stays ambiguous and still yields
+`None`.
+
+Note what was *not* changed: `list_surface_type` in the frontend already handles
+this shape, and widening it was tried and reverted as unnecessary. The narrowing
+never failed; only the emitter's operand-type test did.
+
+**Measured:** 883 → 893, 0 newly failing — the whole trim family.
+
 ## Known gaps, all measured and none regressed by this pass
 
 1. **`arguments` does not see the actual argument count.** The erased-call ABI
@@ -175,6 +225,12 @@ Name collisions are handled by the emitter's existing suffixing (`step_2` /
 
 * `an_arguments_object_is_iterable` — the iteration door is emitted and the
   coercion consults it.
+* `array_containment_projects_an_optional_union_receiver` — the containment
+  receiver projects to its list arm and compares against the projected `Vec`.
+* `tests/union_receiver_runtime.rs` (`#[ignore]`d runtime tier) — both switch arms
+  trim correctly and a non-matching array leaves the string alone, so a projection
+  that always answered `true` fails too. The golden can prove the projection is
+  emitted; only running it proves the right arm was selected.
 * `a_self_recursive_named_function_expression_lifts_to_an_item` — the item is
   emitted, the recursion is a direct item call inside it, and the body builds no
   empty erased record.
@@ -207,6 +263,7 @@ Measured three ways against `blocker-logs/smelt-unknown-baseline-es-toolkit.json
 | `4d15304` (`main`, start of this pass) | 35711 | +34 | — |
 | after defect 1 (iterable `arguments`) | 35711 | +34 | **+0** |
 | after defect 2 (function-expression lift) | 35776 | +99 | **+65** |
+| after defect 3 (union containment) | 35776 | +99 | **+0** |
 
 The **+34 is pre-existing** and documented in `estk-typed-array-views.md`: #192
 deliberately left the typed-array construction erasure un-baselined until the
