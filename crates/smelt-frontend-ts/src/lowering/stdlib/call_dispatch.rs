@@ -3860,7 +3860,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if Self::is_ts_stdlib_class_name(type_name, smelt_stdlib::StdlibClass::RegExp) {
             return false;
         }
-        !self.classes.contains(type_name) && !self.interfaces.contains_key(type_name)
+        !self.classes.contains(type_name) && !self.interfaces.contains(type_name)
     }
 
     /// Return whether a value of this type dispatches member calls through the

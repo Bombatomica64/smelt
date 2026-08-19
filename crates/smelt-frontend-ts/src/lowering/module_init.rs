@@ -8,6 +8,7 @@ use super::support::{
     is_implemented_overload_signature, item_name, module_export_name,
 };
 use super::state::class_registry::ClassRegistry;
+use super::state::interface_registry::InterfaceRegistry;
 use super::state::local_scope::LocalScope;
 use super::{
     AssertionNarrowing, ConstCollection, ConstCollectionItem, ConstCollectionValue, ConstLiteral,
@@ -145,14 +146,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             mutable_global_items: HashMap::new(),
             items,
             classes: ClassRegistry::new(classes, class_index_values),
-            pending_interface_names: HashSet::new(),
-            lowered_local_interfaces: HashSet::new(),
-            interfaces,
+            interfaces: InterfaceRegistry::new(
+                interfaces,
+                interface_extends,
+                interface_index_values,
+                interface_call_signatures,
+                interface_construct_signatures,
+            ),
             type_alias_fields,
-            interface_extends,
-            interface_index_values,
-            interface_call_signatures,
-            interface_construct_signatures,
             callable_fields,
             callable_object_aliases,
             type_namespace_prefix: Vec::new(),
@@ -308,7 +309,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Self::program_class_names(program),
             Self::module_constructor_function_names(program),
         );
-        self.pending_interface_names = Self::program_interface_names(program);
+        self.interfaces
+            .declare_module_scope(Self::program_interface_names(program));
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
@@ -2025,12 +2027,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if self.classes.has_item(item) {
                 self.classes.register(alias.clone(), item);
             }
-            if self
-                .interfaces
-                .values()
-                .any(|interface_item| *interface_item == item)
-            {
-                self.interfaces.insert(alias, item);
+            if self.interfaces.has_item(item) {
+                self.interfaces.register_alias(alias, item);
             }
         }
     }
@@ -2151,7 +2149,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     pub(super) fn import_alias_resolved(&self, local: &str) -> bool {
         self.items.contains_key(local)
             || self.classes.contains(local)
-            || self.interfaces.contains_key(local)
+            || self.interfaces.contains(local)
             || self.const_literals.contains_key(local)
             || self.const_objects.contains_key(local)
             || self.const_collections.contains_key(local)
@@ -2170,7 +2168,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.classes.register(local.to_owned(), item);
                 }
                 Item::Interface(_) => {
-                    self.interfaces.insert(local.to_owned(), item);
+                    self.interfaces.register_alias(local.to_owned(), item);
                 }
                 // Imported primitive const literals (e.g. `export const stringTag
                 // = '[object String]'`) must be foldable in the importer so they
@@ -2217,19 +2215,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for (alias, item) in qualified_class_aliases {
             self.classes.register(alias, item);
         }
-        if let Some(item) = self.interfaces.get(imported).copied() {
-            self.interfaces.insert(local.to_owned(), item);
+        if let Some(item) = self.interfaces.item(imported) {
+            self.interfaces.register_alias(local.to_owned(), item);
         }
         let qualified_interface_aliases = self
             .interfaces
-            .iter()
+            .entries()
             .filter_map(|(name, item)| {
                 let member = name.strip_prefix(&imported_prefix)?;
-                Some((format!("{local}.{member}"), *item))
+                Some((format!("{local}.{member}"), item))
             })
             .collect::<Vec<_>>();
         for (alias, item) in qualified_interface_aliases {
-            self.interfaces.insert(alias, item);
+            self.interfaces.register_alias(alias, item);
         }
         if let Some(value) = self.const_literals.get(imported).cloned() {
             self.const_literals.insert(local.to_owned(), value);

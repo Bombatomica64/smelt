@@ -1664,7 +1664,7 @@ impl ModuleBuilder<'_> {
         args: &[smelt_hir::TypeId],
         arg_count: Option<usize>,
     ) -> Option<smelt_hir::TypeId> {
-        let signatures = self.interface_call_signatures.get(&name).cloned()?;
+        let signatures = self.interfaces.call_signatures(name).cloned()?;
         let interface = self.find_interface(name).cloned();
         let type_params = interface
             .map(|interface| interface.type_params)

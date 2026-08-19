@@ -3,6 +3,7 @@
 
 use crate::SmeltError;
 use crate::lowering::support::statement_terminates;
+use crate::lowering::state::interface_registry::LoweredInterface;
 use crate::lowering::{InterfaceHeritageRef, ModuleBuilder};
 use oxc::ast::ast::{
     Argument, AssignmentTarget, BindingPattern, ChainElement, Declaration, Expression, Statement,
@@ -444,26 +445,30 @@ impl ModuleBuilder<'_> {
             fields,
             methods,
         }));
-        self.interface_extends.insert(name, heritage_refs.clone());
+        // One call records the item, the locally-lowered mark and every sidecar
+        // together; see `InterfaceRegistry` for why they cannot be split.
+        self.interfaces.register_lowered(LoweredInterface {
+            name,
+            name_text,
+            item,
+            extends: heritage_refs.clone(),
+            call_signatures: call_signatures.clone(),
+            construct_signatures: construct_signatures.clone(),
+            index_value_ty,
+        });
+        // Mirror the same facts into the shared context for later modules.
         self.ctx.interface_extends.insert(name, heritage_refs);
-        self.interface_call_signatures
-            .insert(name, call_signatures.clone());
         self.ctx
             .interface_call_signatures
             .insert(name, call_signatures);
         if !construct_signatures.is_empty() {
-            self.interface_construct_signatures
-                .insert(name, construct_signatures.clone());
             self.ctx
                 .interface_construct_signatures
                 .insert(name, construct_signatures);
         }
         if let Some(index_value_ty) = index_value_ty {
-            self.interface_index_values.insert(name, index_value_ty);
             self.ctx.interface_index_values.insert(name, index_value_ty);
         }
-        self.interfaces.insert(name_text, item);
-        self.lowered_local_interfaces.insert(name);
         Ok(item)
     }
 

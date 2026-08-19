@@ -557,30 +557,15 @@ struct ModuleBuilder<'ctx> {
     /// Owns the constructor-function invariant documented on
     /// [`state::class_registry::ClassRegistry`].
     classes: state::class_registry::ClassRegistry,
-    /// Interface names declared in the current module, including declarations
-    /// that appear after a class which implements them.
-    pending_interface_names: HashSet<String>,
-    /// Local interface symbols whose declarations have finished lowering.
-    lowered_local_interfaces: HashSet<smelt_hir::Symbol>,
-    /// Interface definitions by name.
-    interfaces: HashMap<String, smelt_hir::ItemId>,
+    /// Interface shapes visible to this module: items, heritage clauses, call and
+    /// construct signatures, index-signature value types, and the pending /
+    /// locally-lowered name sets.
+    ///
+    /// Owns the registration invariant documented on
+    /// [`state::interface_registry::InterfaceRegistry`].
+    interfaces: state::interface_registry::InterfaceRegistry,
     /// Fields carried by structural type aliases.
     type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
-    /// Interface heritage clauses for resolving fields after cyclic type imports settle.
-    interface_extends: HashMap<smelt_hir::Symbol, Vec<InterfaceHeritageRef>>,
-    /// Value types declared by interface string index signatures.
-    interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
-    /// Interface call signatures for callable interface types.
-    interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
-    /// Interface construct signatures (`new (): T`) for constructor-slot types.
-    ///
-    /// A constructor-interface such as `interface MapCacheConstructor { new
-    /// (): MapCache }` is, at runtime, an ordinary callable value: `new
-    /// value()` invokes it to produce the constructed type. Each construct
-    /// signature is stored as the equivalent [`FunctionType`] (its parameters
-    /// and constructed return type) so a reference to the interface can lower to
-    /// a typed constructor slot instead of an erased dictionary.
-    interface_construct_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Fields attached to callable intersection types.
     callable_fields: HashMap<smelt_hir::TypeId, Vec<Field>>,
     /// Type aliases whose source surface is a callable object intersection.

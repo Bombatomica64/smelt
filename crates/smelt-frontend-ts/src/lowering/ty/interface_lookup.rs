@@ -318,9 +318,7 @@ impl ModuleBuilder<'_> {
         let local_name = name.name.as_str();
         let qualified_name = self.qualified_type_declaration_name(local_name);
         let parent = self.intern_type_name(&qualified_name);
-        if !self.pending_interface_names.contains(local_name)
-            && !self.lowered_local_interfaces.contains(&parent)
-        {
+        if !self.interfaces.resolves_locally(local_name, parent) {
             return Ok(None);
         }
         let args = item
@@ -413,10 +411,7 @@ impl ModuleBuilder<'_> {
             return Ok(());
         };
         for implemented in &class.implements {
-            if !self
-                .lowered_local_interfaces
-                .contains(&implemented.parent)
-            {
+            if !self.interfaces.is_lowered_locally(implemented.parent) {
                 continue;
             }
             let Some(interface) = self.find_interface(implemented.parent).cloned() else {

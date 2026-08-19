@@ -1884,7 +1884,7 @@ return_ty: function.return_ty,
         name: smelt_hir::Symbol,
         substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> Option<smelt_hir::TypeId> {
-        let signatures = self.interface_construct_signatures.get(&name).cloned()?;
+        let signatures = self.interfaces.construct_signatures(name).cloned()?;
         let signature = signatures.first()?;
         // Only a *pure* constructor slot lowers to a callable: an interface that
         // also carries data/method fields or a call signature is a mixed
@@ -1892,9 +1892,7 @@ return_ty: function.return_ty,
         let has_other_members = self
             .find_interface(name)
             .is_some_and(|interface| !interface.fields.is_empty())
-            || self
-                .interface_call_signatures
-                .get(&name)
+            || self.interfaces.call_signatures(name)
                 .is_some_and(|call_sigs| !call_sigs.is_empty());
         if has_other_members {
             return None;
@@ -2285,7 +2283,7 @@ return_ty: function.return_ty,
                         .map(|item| (item.ty, item.optional));
                     field_data.map(|(ty, optional)| {
                         self.instantiate_field_type(ty, optional, &substitutions)
-                    }).or_else(|| self.interface_index_values.get(&name).copied())
+                    }).or_else(|| self.interfaces.index_value(name))
                 } else {
                     None
                 };
@@ -2468,7 +2466,7 @@ return_ty: function.return_ty,
         if !visited.insert(name) {
             return Ok(None);
         }
-        let Some(parents) = self.interface_extends.get(&name).cloned() else {
+        let Some(parents) = self.interfaces.extends(name).cloned() else {
             return Ok(None);
         };
         let child_params = self
@@ -2524,7 +2522,7 @@ return_ty: function.return_ty,
             .map(|item| (item.ty, item.optional));
         Ok(field_data
             .map(|(ty, optional)| self.instantiate_field_type(ty, optional, &substitutions))
-            .or_else(|| self.interface_index_values.get(&name).copied()))
+            .or_else(|| self.interfaces.index_value(name)))
     }
 
     /// Apply generic substitutions and optional wrapping for a structural field.
@@ -3300,7 +3298,7 @@ return_ty: function.return_ty,
                         .krate
                         .symbols
                         .get(*name)
-                        .is_some_and(|name| !self.classes.contains(name) && !self.interfaces.contains_key(name))
+                        .is_some_and(|name| !self.classes.contains(name) && !self.interfaces.contains(name))
             )
     }
 
