@@ -97,6 +97,45 @@ crate emissions; `SmeltList` reference semantics and byte-buffer views get a
 real test bed; clippy and rustfmt start covering 6,431 lines they have never
 seen.
 
+### STATUS 2026-08-19 — first increment landed, and the phase is not divisible
+
+Five families moved (`value.rs` with `SmeltList` and object-id minting,
+`clock.rs`, `captures.rs`, `uri.rs`): 11 named item regions, 119 `writer.line`
+calls removed, 863 lines of real tested Rust in `smelt-runtime`, and 27 unit
+tests that run in ~0.01s. Emitted bytes verified unchanged — regenerating
+es-toolkit recompiled **zero** of its 746 files, and the prelude md5 is identical.
+
+**The important finding is why the rest did not move.** The runtime cannot be
+extracted family by family. Roughly **1,193 of the ~1,577 `writer.line` calls
+are the `needs_unknown` value core** — `SmeltUnknown`, `SmeltObject`,
+`SmeltArray`, `SmeltRecord`, `SmeltJsMap`/`SmeltJsSet`, truthiness,
+`Object.prototype.toString` tags, `smelt_for_in_record_keys`, function identity,
+`smelt_class_constructor`, structured clone, generators, vitest mocks, the timer
+queue — and every one of those items references `SmeltUnknown`/`SmeltObject`/
+`SmeltArray`, so none of them compiles in `smelt-runtime` until the value core
+moves. `byte_buffer_prelude.rs`, `reflection_prelude.rs`, `thrown.rs`, the host
+override and the regexp block all sit behind that same wall.
+
+So Phase 1 is **one indivisible value-core move, then a cheap tail** — not a
+gradual family-by-family migration. What landed is precisely the subset with no
+dependency on the value core, which is what made a byte-identical first
+increment possible at all. The exit criterion "≥1 unit test per emitted symbol
+family" is therefore unreachable incrementally; it becomes meaningful only after
+the value core lands.
+
+The mechanism is reusable as-is: helpers are marked `// @smelt:item <name>` in
+the runtime source, `smelt_runtime::source` returns each region as a byte slice
+of the real file (so emitted bytes *are* the bytes on disk), and
+`runtime_prelude.rs` maps each existing `needs_*` gate to its item names, with a
+test that walks every gate × item and reports all missing pairs at once.
+
+`smelt-runtime` deliberately does not take `[lints] workspace = true`:
+`clippy::all` stays **deny** (correctness, suspicious, style, complexity, perf —
+the lints that find real bugs), while `pedantic`/`nursery` drop to warnings
+because satisfying them would edit emitted text. Two `clippy::all` members
+(`type_complexity`, `clone_on_ref_ptr`) are allowed for the same reason and are
+real deferred cleanups belonging to a deliberate byte-changing commit.
+
 ### B · The type lattice cannot name a host object
 
 `Type` has 20 variants. `JsMap` exists *solely* to preserve a source spelling,
@@ -182,6 +221,38 @@ small struct with named operations, so the invariant above becomes a method on
 Deliberately not a rewrite, and deliberately late in the sequence: every step is
 independently shippable, and none of it is blocking feature work.
 
+### STATUS 2026-08-19 — DONE, 63 → 25 fields
+
+Seven extractions, one commit each, 42 fields collapsed into 7 owned structs
+under `lowering/state/`: `ClassRegistry`, `LocalScope`, `InterfaceRegistry`,
+`TypeScope`, `ConstRegistry`, `ImportScope`, `FunctionRegistry`. All sub-fields
+private; every use site goes through a named operation. All three corpora
+unchanged (es-toolkit 875/184, remeda 1789/0, radash 3 pre-existing), workspace
+suite green, no test weakened.
+
+The class-registry invariant is now enforced by construction:
+`ClassRegistry::declare_module_scope(declared, constructor_functions)` is the
+*only* writer of both `pending_names` and `constructor_functions`, both private,
+and it unions them in one call — so "recorded as a constructor function but not
+pending" is unrepresentable. The third leg reads the same private set through the
+single `is_constructor_function`, which both the predeclaration skip and the
+synthesis dispatch call, so they cannot disagree.
+
+Four groupings in the sketch above did not survive contact with the code, and the
+corrections are worth keeping: `class_index_values` belongs to the class group;
+`TestScaffold` is not a group (`test_builtins` is its only field, and it landed
+in `ImportScope`); `ModuleGlobals` was left alone at net −2 because a consumer
+takes the map by `&mut`; and **`LocalScope` is not one frame** — the five
+per-body groups are taken in genuinely different subsets at each of the nesting
+sites, so a single `enter_body()` would have changed behaviour. Each group keeps
+its own `take_*`/`restore_*` returning a distinct opaque frame type, so a frame
+can only go back where it came from.
+
+The remaining margin is the 9-field body cursor (`current_class`,
+`current_async`, `current_return_ty`, …), which would reach ~17 but has the same
+per-site-subset problem and no invariant to enforce — only a rename of ~150 read
+sites. Left deliberately.
+
 ### D · The emitter still passes Rust as `String`
 
 284 distinct `*_text` functions. `RenderedValue` — text plus `TypeId` plus
@@ -237,7 +308,7 @@ flowchart LR
 | 1 | A | All representation work | `codegen-rust/src/*prelude*`, `smelt-runtime` | Corpora byte-identical after `@smelt:prelude-end`; ≥1 unit test per emitted symbol family in `smelt-runtime` |
 | 2 | B | Typed arrays, the ratchet, host method dispatch | `smelt-hir/ty.rs`, 30 exhaustive `Type` matches, 240 erased-receiver gates, constructor doors | es-toolkit avoidable ≤ 35,677 with typed arrays retained; `Uint8Array.prototype.set` dispatches without the `Map` collision; corpora ≥ current |
 | 3 | D | Emitter correctness at scale | `codegen-rust/emitter/*` | `rendered_text_rewrite.rs` deleted; `*_text` count under 50 |
-| 4 | C | Frontend feature velocity | `frontend-ts/lowering/*` | `ModuleBuilder` at ≤ 25 direct fields; class-registry invariant enforced by construction |
+| 4 | C | Frontend feature velocity | `frontend-ts/lowering/*` | ~~`ModuleBuilder` at ≤ 25 direct fields; class-registry invariant enforced by construction~~ **DONE 2026-08-19** |
 | 5 | E | Python/TypeScript parity | `smelt-stdlib`, both frontends | One rule table drives collections in both frontends; both regression suites unchanged |
 
 **Phase 2 staging.** The spec stages it so each step is falsifiable:
