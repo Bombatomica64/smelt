@@ -370,7 +370,7 @@ return_ty,
         }));
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
-            self.function_rests.insert(name_text.to_owned(), rest);
+            self.functions.set_rest(name_text.to_owned(), rest);
             self.ctx.function_rests.insert(name_text.to_owned(), rest);
         }
         Ok(item)

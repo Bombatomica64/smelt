@@ -636,10 +636,7 @@ impl ModuleBuilder<'_> {
                     });
                 }
                 if !self.scope.is_bound(identifier.name.as_str())
-                    && let Some((name, ty)) = self
-                        .forward_function_types
-                        .get(identifier.name.as_str())
-                        .copied()
+                    && let Some((name, ty)) = self.functions.forward_type(identifier.name.as_str())
                 {
                     return Ok(CallbackExpr {
                         kind: CallbackExprKind::Function(name),

@@ -10,6 +10,7 @@ use super::support::{
 use super::state::class_registry::ClassRegistry;
 use super::state::interface_registry::InterfaceRegistry;
 use super::state::const_registry::ConstRegistry;
+use super::state::function_registry::FunctionRegistry;
 use super::state::import_scope::ImportScope;
 use super::state::local_scope::LocalScope;
 use super::state::type_scope::TypeScope;
@@ -175,11 +176,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 const_collections,
                 const_object_value_collections,
             ),
-            assertion_functions: HashMap::new(),
-            predicate_functions: HashMap::new(),
-            function_rests,
-            forward_function_types: HashMap::new(),
-            function_overloads,
+            functions: FunctionRegistry::new(function_overloads, function_rests),
             specialization,
         }
     }
@@ -667,9 +664,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// with the same name as an imported overloaded function must not inherit
     /// that imported function's return surface.
     pub(super) fn shadow_cross_module_overloads(&mut self, implemented_functions: &HashSet<String>) {
-        for name in implemented_functions {
-            self.function_overloads.insert(name.clone(), Vec::new());
-        }
+        self.functions.shadow_implementations(implemented_functions);
     }
 
     /// Const-fold every top-level `enum` declaration so member references and
@@ -1469,10 +1464,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return;
         };
         if let Ok(signature) = self.overload_signature(function) {
-            self.function_overloads
-                .entry(id.name.to_string())
-                .or_default()
-                .push(signature.clone());
+            self.functions
+                .push_overload(id.name.to_string(), signature.clone());
             self.ctx
                 .overloads
                 .entry(id.name.to_string())
@@ -1598,10 +1591,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let result = self.forward_function_type(function, id.name.as_str());
         self.pop_type_parameter_scope();
         if let Ok((symbol, ty, rest)) = result {
-            self.forward_function_types
-                .insert(id.name.to_string(), (symbol, ty));
+            self.functions
+                .set_forward_type(id.name.to_string(), symbol, ty);
             if let Some(rest) = rest {
-                self.function_rests.insert(id.name.to_string(), rest);
+                self.functions.set_rest(id.name.to_string(), rest);
                 self.ctx.function_rests.insert(id.name.to_string(), rest);
             }
         }
@@ -1680,11 +1673,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(return_type) = &function.return_type {
             return self.ts_type_to_hir(&return_type.type_annotation).map(Some);
         }
-        if let Some(signature) = self
-            .function_overloads
-            .get(name_text)
-            .and_then(|signatures| signatures.last())
-        {
+        if let Some(signature) = self.functions.last_overload(name_text) {
             return Ok(Some(signature.return_ty));
         }
         Ok(None)
@@ -1799,7 +1788,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 )
             })
         {
-            self.predicate_functions.insert(
+            self.functions.set_predicate(
                 id.name.to_string(),
                 AssertionNarrowing {
                     param_index,
@@ -1884,7 +1873,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let index = params.len();
             rest_index = Some(index);
             let rest_param = RestParam { index, item_ty };
-            self.function_rests.insert(name_text.to_owned(), rest_param);
+            self.functions.set_rest(name_text.to_owned(), rest_param);
             self.ctx
                 .function_rests
                 .insert(name_text.to_owned(), rest_param);
@@ -1961,7 +1950,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Some(value) = self.consts.object(exported.as_str()).cloned() {
                 self.ctx.object_consts.insert(exported.clone(), value);
             }
-            if let Some(overloads) = self.function_overloads.get(&exported).cloned() {
+            if let Some(overloads) = self.functions.overloads(&exported).cloned() {
                 self.ctx.overloads.insert(exported, overloads);
             }
         }
@@ -2137,7 +2126,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             || self.interfaces.contains(local)
             || self.consts.is_folded_const(local)
             || self.object_namespaces.contains_key(local)
-            || self.function_overloads.contains_key(local)
+            || self.functions.has_overloads(local)
     }
 
     /// Add a local alias for an imported item when it is already known.
@@ -2217,15 +2206,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
             self.object_namespaces.insert(local.to_owned(), namespace);
         }
-        if let Some(overloads) = self.function_overloads.get(imported).cloned() {
-            self.function_overloads.insert(local.to_owned(), overloads);
+        if let Some(overloads) = self.functions.overloads(imported).cloned() {
+            self.functions.set_overloads(local.to_owned(), overloads);
         } else if let Some(overloads) = self.ctx.overloads.get(imported).cloned() {
-            self.function_overloads.insert(local.to_owned(), overloads);
+            self.functions.set_overloads(local.to_owned(), overloads);
         }
-        if let Some(rest) = self.function_rests.get(imported).copied() {
-            self.function_rests.insert(local.to_owned(), rest);
+        if let Some(rest) = self.functions.rest(imported) {
+            self.functions.set_rest(local.to_owned(), rest);
         } else if let Some(rest) = self.ctx.function_rests.get(imported).copied() {
-            self.function_rests.insert(local.to_owned(), rest);
+            self.functions.set_rest(local.to_owned(), rest);
         }
     }
 

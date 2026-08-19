@@ -1081,7 +1081,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return None;
         };
-        let assertion = self.assertion_functions.get(callee.name.as_str())?;
+        let assertion = self.functions.assertion(callee.name.as_str())?;
         let arg = call.arguments.get(assertion.param_index)?;
         let Argument::Identifier(identifier) = arg else {
             return None;
@@ -2087,7 +2087,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return None;
         };
-        let predicate = self.predicate_functions.get(callee.name.as_str())?;
+        let predicate = self.functions.predicate(callee.name.as_str())?;
         let arg = call.arguments.get(predicate.param_index)?;
         let Argument::Identifier(identifier) = arg else {
             return None;

@@ -399,7 +399,7 @@ impl ModuleBuilder<'_> {
         };
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
-            self.function_rests.insert(name_text.to_owned(), rest);
+            self.functions.set_rest(name_text.to_owned(), rest);
             self.ctx.function_rests.insert(name_text.to_owned(), rest);
         }
         if let Some((parameter_name, Some(target))) = assertion_return
@@ -411,7 +411,7 @@ impl ModuleBuilder<'_> {
                 )
             })
         {
-            self.assertion_functions.insert(
+            self.functions.set_assertion(
                 name_text.to_owned(),
                 AssertionNarrowing {
                     param_index,
@@ -428,7 +428,7 @@ impl ModuleBuilder<'_> {
                 )
             })
         {
-            self.predicate_functions.insert(
+            self.functions.set_predicate(
                 name_text.to_owned(),
                 AssertionNarrowing {
                     param_index,

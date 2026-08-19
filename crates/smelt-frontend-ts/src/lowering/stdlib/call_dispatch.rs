@@ -657,7 +657,7 @@ impl<'builder> ModuleBuilder<'builder> {
             };
             if rest.is_none()
                 && let Some(candidate) =
-                    self.function_rests.get(callee_ident.name.as_str()).copied()
+                    self.functions.rest(callee_ident.name.as_str())
                 && candidate.index < params.len()
                 && matches!(
                     params
@@ -2264,7 +2264,7 @@ impl<'builder> ModuleBuilder<'builder> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<Option<OverloadSignature>, SmeltError> {
-        let Some(signatures) = (if let Some(signatures) = self.function_overloads.get(name) {
+        let Some(signatures) = (if let Some(signatures) = self.functions.overloads(name) {
             Some(signatures.clone())
         } else {
             self.ctx.overloads.get(name).cloned()

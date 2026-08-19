@@ -13,7 +13,7 @@ use std::{
 };
 use support::unknown_kind_from_typeof;
 
-use crate::{HirCtx, OverloadSignature, SmeltError};
+use crate::{HirCtx, SmeltError};
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, Declaration,
@@ -605,16 +605,12 @@ struct ModuleBuilder<'ctx> {
     /// Owns the single-kind and import-rebinding invariants documented on
     /// [`state::const_registry::ConstRegistry`].
     consts: state::const_registry::ConstRegistry,
-    /// User assertion functions declared with `asserts value is T`.
-    assertion_functions: HashMap<String, AssertionNarrowing>,
-    /// User predicate functions declared with `value is T`.
-    predicate_functions: HashMap<String, AssertionNarrowing>,
-    /// Rest-parameter metadata for top-level function declarations.
-    function_rests: HashMap<String, RestParam>,
-    /// Forward-visible function declaration signatures for hoisted callback calls.
-    forward_function_types: HashMap<String, (smelt_hir::Symbol, smelt_hir::TypeId)>,
-    /// TypeScript overload signatures keyed by implementation name.
-    function_overloads: HashMap<String, Vec<OverloadSignature>>,
+    /// Named-function signature knowledge: overloads, rest parameters, hoisted
+    /// forward signatures, and the assertion / predicate narrowing tables.
+    ///
+    /// Owns the overload-ordering and implementation-shadowing invariants
+    /// documented on [`state::function_registry::FunctionRegistry`].
+    functions: state::function_registry::FunctionRegistry,
     /// Materialized final definitions for this source module.
     specialization: Option<SpecializationData>,
 }
