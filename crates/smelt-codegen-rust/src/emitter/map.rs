@@ -41,7 +41,20 @@ impl FunctionEmitter<'_> {
                 // own `size` field. Mirror the virtual `.size` synthesized in
                 // `smelt_get_object_field`.
                 return Ok(format!(
-                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key) || ((values.contains_key(\"__smelt_map\") || values.contains_key(\"__smelt_set\")) && smelt_key == \"size\"), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
+                    // A byte-backed view's indexed elements are properties too, and
+                    // they are decoded from `bytes` rather than stored as record
+                    // keys, so `'0' in new Uint8Array(1)` needs the element probe.
+                    //
+                    // The view's `length`/`byteLength`/`byteOffset`/`buffer` stay
+                    // answerable here because this one emitter serves both `k in obj`
+                    // and `Object.hasOwn(obj, k)`, and the two differ in JavaScript:
+                    // `in` walks the prototype chain, so `'length' in view` is
+                    // `true` (remeda's `isEmptyish` reads exactly that), while
+                    // `Object.hasOwn` sees only the element indices. Splitting them
+                    // is a pre-existing conflation, not part of view identity;
+                    // `Object.keys`/`Object.values`/`Object.entries` already report
+                    // the correct own-key set for these records.
+                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key) || smelt_host_buffer_element(&values, &smelt_key).is_some() || ((values.contains_key(\"__smelt_map\") || values.contains_key(\"__smelt_set\")) && smelt_key == \"size\"), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
                 ));
             }
             return Ok("false".to_owned());
@@ -59,6 +72,21 @@ impl FunctionEmitter<'_> {
             self.operand_text(dict)?,
             self.dict_key_operand_text(key, *key_ty)?
         ))
+    }
+
+    /// Whether a string-keyed dict's values are the erased dynamic type.
+    ///
+    /// The byte-buffer record helpers are defined over
+    /// `SmeltRecord<String, SmeltUnknown>` only — that is the sole shape a
+    /// marker-bearing host record can arrive as through the structural ABI — so the
+    /// projections consult this before delegating to them, and keep their ordinary
+    /// key/value filters for every concretely-typed record.
+    fn dict_holds_erased_values(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Dict(_, value_ty) | Type::JsMap(_, value_ty))
+                if self.mir.types.get(*value_ty) == Some(&Type::Unknown)
+        )
     }
 
     /// Return the string value when an operand is a constant string literal.
@@ -686,11 +714,20 @@ impl FunctionEmitter<'_> {
                 smelt_hir::DictProjectionOp::FromEntries => Ok(format!(
                     "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
                 )),
+                // A byte-backed host record's own enumerable properties are its
+                // *element indices*: `Object.keys(new Uint8Array(1))` is `['0']`,
+                // and `bytes`/`byteLength`/`length`/`byteOffset`/`buffer` are
+                // internal storage or prototype accessors that never enumerate.
+                // Leaking them would make a deep-equality walk over two views
+                // compare storage keys instead of elements, and would recurse
+                // through `buffer` back into the view.
                 smelt_hir::DictProjectionOp::Keys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect()), _ => Vec::new() }}",
+                    index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
                 )),
                 smelt_hir::DictProjectionOp::ForInKeys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => smelt_for_in_object_keys(&map), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| smelt_for_in_object_keys(&map)), _ => Vec::new() }}",
+                    index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
                 )),
                 // `Object.getOwnPropertySymbols` yields symbol VALUES. The stored
                 // key is `__smelt_symbol:<description>`; handing back the bare
@@ -702,11 +739,16 @@ impl FunctionEmitter<'_> {
                 smelt_hir::DictProjectionOp::Symbols => Ok(format!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.to_owned()))).collect(), _ => Vec::new() }}"
                 )),
+                // `Object.values`/`Object.entries` of a byte-backed view are its
+                // decoded elements, paired with their index keys — the same own-key
+                // set `Object.keys` reports above.
                 smelt_hir::DictProjectionOp::Values => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect()), _ => Vec::new() }}",
+                    elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 )),
                 smelt_hir::DictProjectionOp::Entries => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), _ => Vec::new() }}",
+                    elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 )),
             };
         }
@@ -738,6 +780,14 @@ impl FunctionEmitter<'_> {
                     // dict backings keep the symbol-only filter (they never carry
                     // internal markers, and the helper would not type-check there).
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {
+                        // A byte-backed host record's own keys are its element
+                        // indices, not the storage keys the marker filter hides.
+                        if self.dict_holds_erased_values(self.operand_ty(dict)?) {
+                            return Ok(format!(
+                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>())",
+                                helper = smelt_stdlib::runtime_symbols::byte_buffer::RECORD_INDEX_KEYS,
+                            ));
+                        }
                         Ok(format!(
                             "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
                         ))
@@ -765,16 +815,14 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
-                    || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                        Ok(format!(
-                            "smelt_for_in_record_keys(&{dict_text})"
-                        ))
-                    } else {
-                        Ok(format!(
-                            "smelt_for_in_record_keys(&{dict_text})"
-                        ))
-                    }
+                    // Every string-keyed backing goes through the same helper: it
+                    // takes `&SmeltRecord<String, _>`, which each of them derefs to,
+                    // and it owns the own-key filtering plus the prototype-chain
+                    // walk that `for...in` needs (see `smelt_for_in_record_keys`).
+                    // The `SmeltRecord` / `SmeltJsMap` / plain-dict split the
+                    // sibling `Keys` arm needs therefore does not apply here, so
+                    // this is one branch rather than three identical ones.
+                    Ok(format!("smelt_for_in_record_keys(&{dict_text})"))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(
                         "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
@@ -813,6 +861,14 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                        // A byte-backed view's values are its decoded elements, not
+                        // its internal storage fields; see the `Keys` arm above.
+                        if self.dict_holds_erased_values(self.operand_ty(dict)?) {
+                            return Ok(format!(
+                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>())",
+                                helper = smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
+                            ));
+                        }
                         Ok(format!(
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
                         ))
@@ -838,6 +894,14 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                        // A byte-backed view's entries pair its element indices with
+                        // its decoded elements; see the `Keys` arm above.
+                        if self.dict_holds_erased_values(self.operand_ty(dict)?) {
+                            return Ok(format!(
+                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>())",
+                                helper = smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
+                            ));
+                        }
                         Ok(format!(
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
                         ))

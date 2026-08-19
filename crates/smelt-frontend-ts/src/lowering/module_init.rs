@@ -7,6 +7,13 @@ use super::support::{
     const_literal_from_item, implemented_function_names, insert_visible_item,
     is_implemented_overload_signature, item_name, module_export_name,
 };
+use super::state::class_registry::ClassRegistry;
+use super::state::interface_registry::InterfaceRegistry;
+use super::state::const_registry::ConstRegistry;
+use super::state::function_registry::FunctionRegistry;
+use super::state::import_scope::ImportScope;
+use super::state::local_scope::LocalScope;
+use super::state::type_scope::TypeScope;
 use super::{
     AssertionNarrowing, ConstCollection, ConstCollectionItem, ConstCollectionValue, ConstLiteral,
     ModuleBuilder, RestParam, SpecializationData,
@@ -138,30 +145,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
             path,
             source,
             ctx,
-            locals: HashMap::new(),
-            date_value_locals: HashSet::new(),
-            explicit_any_locals: HashSet::new(),
+            scope: LocalScope::default(),
             module_globals: HashMap::new(),
             mutable_global_items: HashMap::new(),
             items,
-            classes,
-            scoped_class_type_names: HashMap::new(),
-            pending_class_names: HashSet::new(),
-            pending_interface_names: HashSet::new(),
-            lowered_local_interfaces: HashSet::new(),
-            interfaces,
-            class_fields: HashMap::new(),
-            class_methods: HashMap::new(),
-            class_bases: HashMap::new(),
-            type_alias_fields,
-            interface_extends,
-            interface_index_values,
-            class_index_values,
-            interface_call_signatures,
-            interface_construct_signatures,
-            callable_fields,
-            callable_object_aliases,
-            type_namespace_prefix: Vec::new(),
+            imports: ImportScope::default(),
+            classes: ClassRegistry::new(classes, class_index_values),
+            interfaces: InterfaceRegistry::new(
+                interfaces,
+                interface_extends,
+                interface_index_values,
+                interface_call_signatures,
+                interface_construct_signatures,
+            ),
+            types: TypeScope::new(type_alias_fields, callable_fields, callable_object_aliases),
             current_class: None,
             current_async: false,
             current_return_ty: None,
@@ -171,30 +168,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
             deferred_postfix_updates: None,
             allow_unknown_index_access,
             preserve_specialization_receiver: false,
-            test_builtins: HashSet::new(),
-            global_object_aliases: HashSet::new(),
-            namespace_imports: HashSet::new(),
-            type_only_imports: HashSet::new(),
-            value_imports: HashSet::new(),
-            date_fns_timezone_factories: HashSet::new(),
             object_namespaces,
-            const_literals,
-            enum_member_literals,
-            const_regexps: HashMap::new(),
-            const_objects,
-            const_collections,
-            const_object_value_collections,
-            assertion_functions: HashMap::new(),
-            predicate_functions: HashMap::new(),
-            narrowed_locals: Vec::new(),
-            type_param_scopes: Vec::new(),
-            type_param_constraint_scopes: Vec::new(),
-            local_callbacks: HashMap::new(),
-            callable_local_props: HashMap::new(),
-            function_rests,
-            forward_function_types: HashMap::new(),
-            local_function_items: HashMap::new(),
-            function_overloads,
+            consts: ConstRegistry::new(
+                const_literals,
+                enum_member_literals,
+                const_objects,
+                const_collections,
+                const_object_value_collections,
+            ),
+            functions: FunctionRegistry::new(function_overloads, function_rests),
             specialization,
         }
     }
@@ -307,8 +289,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_module_enums(program);
         self.collect_module_globals(program);
         self.collect_mutable_globals(program, &mut module, &mut errors);
-        self.pending_class_names = Self::program_class_names(program);
-        self.pending_interface_names = Self::program_interface_names(program);
+        // A module top-level `function Foo(){ this.a = … }` used with `new Foo()`,
+        // `x instanceof Foo`, or `Foo.prototype.m = …` is a JavaScript
+        // constructor function, not a plain function. Both name sets are handed
+        // to the registry in one call, before any function item is predeclared:
+        // it treats every constructor-function name as a pending class name so a
+        // `new Foo()` lowered before the synthesis still resolves nominally, and
+        // `predeclare_function_item` skips the names it reports.
+        self.classes.declare_module_scope(
+            Self::program_class_names(program),
+            Self::module_constructor_function_names(program),
+        );
+        self.interfaces
+            .declare_module_scope(Self::program_interface_names(program));
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
@@ -356,6 +349,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     continue;
                 }
                 if is_implemented_overload_signature(function, &implemented_functions) {
+                    continue;
+                }
+                if self.is_module_constructor_function(function) {
+                    if let Err(error) =
+                        self.synthesize_constructor_function_class(function, &program.body)
+                    {
+                        errors.push(error);
+                    }
                     continue;
                 }
                 match self.function_declaration(function) {
@@ -455,6 +456,24 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         continue;
                     }
                     if is_implemented_overload_signature(function, &implemented_functions) {
+                        continue;
+                    }
+                    if self.is_module_constructor_function(function) {
+                        // An exported constructor function is exported as the
+                        // synthesized class, so the class item joins the module's
+                        // items under the same source name.
+                        match self.synthesize_constructor_function_class(function, &program.body) {
+                            Ok(()) => {
+                                if let Some(item) = function
+                                    .id
+                                    .as_ref()
+                                    .and_then(|id| self.classes.item(id.name.as_str()))
+                                {
+                                    module.items.push(item);
+                                }
+                            }
+                            Err(error) => errors.push(error),
+                        }
                         continue;
                     }
                     match self.function_declaration(function) {
@@ -645,9 +664,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// with the same name as an imported overloaded function must not inherit
     /// that imported function's return surface.
     pub(super) fn shadow_cross_module_overloads(&mut self, implemented_functions: &HashSet<String>) {
-        for name in implemented_functions {
-            self.function_overloads.insert(name.clone(), Vec::new());
-        }
+        self.functions.shadow_implementations(implemented_functions);
     }
 
     /// Const-fold every top-level `enum` declaration so member references and
@@ -714,32 +731,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 && let Ok(value) = self.object_const_from_expression(object, None)
             {
                 if let Some(collection) = self.const_collection_from_object_const(&value) {
-                    self.const_object_value_collections
-                        .insert(binding.name.as_str().to_owned(), collection.clone());
+                    self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
                     self.ctx
                         .object_value_collections
                         .insert(binding.name.as_str().to_owned(), collection);
                 }
-                self.const_objects
-                    .insert(binding.name.as_str().to_owned(), value);
+                self.consts.set_object(binding.name.as_str().to_owned(), value);
             } else if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && let Some(init) = &declarator.init
                 && let Some(object) = Self::object_const_initializer(init)
                 && let Some(collection) = self.const_unknown_value_collection_from_object(object)
             {
-                self.const_object_value_collections
-                    .insert(binding.name.as_str().to_owned(), collection.clone());
+                self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
                 self.ctx
                     .object_value_collections
                     .insert(binding.name.as_str().to_owned(), collection);
             }
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
-                && !self.const_objects.contains_key(binding.name.as_str())
+                && !self.consts.has_object(binding.name.as_str())
                 && let Some(init) = &declarator.init
                 && let Some(map_const) = self.map_const_from_initializer(init)
             {
-                self.const_objects
-                    .insert(binding.name.as_str().to_owned(), map_const);
+                self.consts.set_object(binding.name.as_str().to_owned(), map_const);
             }
             if matches!(
                 decl.kind,
@@ -754,8 +767,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), ty);
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const {
-                    self.const_regexps
-                        .insert(binding.name.as_str().to_owned(), (pattern, flags, ty));
+                    self.consts.set_regexp(binding.name.as_str().to_owned(), (pattern, flags, ty));
                 }
             }
             if matches!(
@@ -768,8 +780,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), value.ty);
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const {
-                    self.const_literals
-                        .insert(binding.name.as_str().to_owned(), value);
+                    self.consts.set_literal(binding.name.as_str().to_owned(), value);
                 }
             }
             let Some(annotation) = &declarator.type_annotation else {
@@ -791,8 +802,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.module_globals
                         .insert(binding.name.as_str().to_owned(), ty);
                     if let Some(collection) = self.const_collection_from_initializer(init, ty) {
-                        self.const_collections
-                            .insert(binding.name.as_str().to_owned(), collection.clone());
+                        self.consts.set_collection(binding.name.as_str().to_owned(), collection.clone());
                         self.ctx
                             .const_collections
                             .insert(binding.name.as_str().to_owned(), collection);
@@ -1201,13 +1211,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             Expression::CallExpression(call) => {
                 let name = Self::object_values_identifier_argument(call)?;
-                self.const_object_value_collections.get(&name).cloned()
+                self.consts.object_value_collection(name.as_str()).cloned()
             }
             // `export const ALIAS = otherConst;` shares the referenced
             // module-level collection so nested bodies inline the alias too.
-            Expression::Identifier(identifier) => self
-                .const_collections
-                .get(identifier.name.as_str())
+            Expression::Identifier(identifier) => self.consts.collection(identifier.name.as_str())
                 .cloned(),
             Expression::TSAsExpression(as_expr) => {
                 self.const_collection_from_initializer(&as_expr.expression, ty)
@@ -1271,7 +1279,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     let Expression::Identifier(identifier) = &spread.argument else {
                         return None;
                     };
-                    let collection = self.const_collections.get(identifier.name.as_str())?;
+                    let collection = self.consts.collection(identifier.name.as_str())?;
                     items.extend(collection.items.clone());
                 }
                 ArrayExpressionElement::Elision(_) => return None,
@@ -1456,10 +1464,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return;
         };
         if let Ok(signature) = self.overload_signature(function) {
-            self.function_overloads
-                .entry(id.name.to_string())
-                .or_default()
-                .push(signature.clone());
+            self.functions
+                .push_overload(id.name.to_string(), signature.clone());
             self.ctx
                 .overloads
                 .entry(id.name.to_string())
@@ -1585,10 +1591,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let result = self.forward_function_type(function, id.name.as_str());
         self.pop_type_parameter_scope();
         if let Ok((symbol, ty, rest)) = result {
-            self.forward_function_types
-                .insert(id.name.to_string(), (symbol, ty));
+            self.functions
+                .set_forward_type(id.name.to_string(), symbol, ty);
             if let Some(rest) = rest {
-                self.function_rests.insert(id.name.to_string(), rest);
+                self.functions.set_rest(id.name.to_string(), rest);
                 self.ctx.function_rests.insert(id.name.to_string(), rest);
             }
         }
@@ -1667,11 +1673,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(return_type) = &function.return_type {
             return self.ts_type_to_hir(&return_type.type_annotation).map(Some);
         }
-        if let Some(signature) = self
-            .function_overloads
-            .get(name_text)
-            .and_then(|signatures| signatures.last())
-        {
+        if let Some(signature) = self.functions.last_overload(name_text) {
             return Ok(Some(signature.return_ty));
         }
         Ok(None)
@@ -1754,7 +1756,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "anonymous function declarations are not lowered yet",
             )
         })?;
-        if self.local_function_items.contains_key(id.name.as_str()) {
+        if self.scope.has_function_item(id.name.as_str()) {
+            return Ok(());
+        }
+        // A constructor function becomes a synthesized class, so it gets no
+        // callable function item to shadow the class binding.
+        if self.classes.is_constructor_function(id.name.as_str()) {
             return Ok(());
         }
         let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
@@ -1781,7 +1788,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 )
             })
         {
-            self.predicate_functions.insert(
+            self.functions.set_predicate(
                 id.name.to_string(),
                 AssertionNarrowing {
                     param_index,
@@ -1790,7 +1797,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             );
         }
         self.items.insert(id.name.to_string(), item);
-        self.local_function_items.insert(id.name.to_string(), item);
+        self.scope.register_function_item(id.name.to_string(), item);
         Ok(())
     }
 
@@ -1811,19 +1818,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<Function, SmeltError> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         for (index, param) in function.params.items.iter().enumerate() {
             let ty = match self.function_parameter_type(param) {
                 Ok(ty) => ty,
                 Err(error) => {
-                    self.locals = saved_locals;
+                    self.scope.restore_bindings(saved_locals);
                     return Err(error);
                 }
             };
             let local = smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX));
             let (param_name, span) =
                 if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    self.locals.insert(binding.name.to_string(), local);
+                    self.scope.bind(binding.name.to_string(), local);
                     (
                         self.intern_source_name(binding.name.as_str()),
                         self.span(binding.span.start, binding.span.end),
@@ -1841,7 +1848,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 span,
             });
         }
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         let mut rest_index = None;
         if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
@@ -1866,7 +1873,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let index = params.len();
             rest_index = Some(index);
             let rest_param = RestParam { index, item_ty };
-            self.function_rests.insert(name_text.to_owned(), rest_param);
+            self.functions.set_rest(name_text.to_owned(), rest_param);
             self.ctx
                 .function_rests
                 .insert(name_text.to_owned(), rest_param);
@@ -1940,10 +1947,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .object_namespaces
                     .insert(exported.clone(), namespace);
             }
-            if let Some(value) = self.const_objects.get(&exported).cloned() {
+            if let Some(value) = self.consts.object(exported.as_str()).cloned() {
                 self.ctx.object_consts.insert(exported.clone(), value);
             }
-            if let Some(overloads) = self.function_overloads.get(&exported).cloned() {
+            if let Some(overloads) = self.functions.overloads(&exported).cloned() {
                 self.ctx.overloads.insert(exported, overloads);
             }
         }
@@ -1991,15 +1998,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let alias = format!("{namespace}.{name}");
             self.ctx.export_aliases.insert(alias.clone(), item);
             self.items.insert(alias.clone(), item);
-            if self.classes.values().any(|class_item| *class_item == item) {
-                self.classes.insert(alias.clone(), item);
+            if self.classes.has_item(item) {
+                self.classes.register(alias.clone(), item);
             }
-            if self
-                .interfaces
-                .values()
-                .any(|interface_item| *interface_item == item)
-            {
-                self.interfaces.insert(alias, item);
+            if self.interfaces.has_item(item) {
+                self.interfaces.register_alias(alias, item);
             }
         }
     }
@@ -2068,7 +2071,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     if import.import_kind == ImportOrExportKind::Type
                         || specifier_data.import_kind == ImportOrExportKind::Type
                     {
-                        self.type_only_imports.insert(local.clone());
+                        self.imports.mark_type_only(local.clone());
                     }
                     (imported, local)
                 }
@@ -2078,20 +2081,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ),
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier_data) => {
                     let local = specifier_data.local.name.as_str().to_owned();
-                    self.namespace_imports.insert(local.clone());
+                    self.imports.mark_namespace(local.clone());
                     if import.import_kind == ImportOrExportKind::Type {
-                        self.type_only_imports.insert(local.clone());
+                        self.imports.mark_type_only(local.clone());
                     }
                     self.alias_source_exports_under_namespace(source, &local);
                     ("*".to_owned(), local)
                 }
             };
             if import.import_kind == ImportOrExportKind::Type {
-                self.type_only_imports.insert(local.clone());
+                self.imports.mark_type_only(local.clone());
             } else {
-                self.value_imports.insert(local.clone());
+                self.imports.mark_value(local.clone());
                 if source == "@date-fns/tz" && imported == "tz" {
-                    self.date_fns_timezone_factories.insert(local.clone());
+                    self.imports.mark_date_fns_timezone_factory(local.clone());
                 }
             }
             let name = self.intern_source_name(&imported);
@@ -2105,10 +2108,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if test_support::is_vitest_compatible_module(source)
                 && test_support::is_vitest_builtin_name(&imported)
             {
-                self.test_builtins.insert(local.clone());
+                self.imports.mark_test_builtin(local.clone());
             } else if imported != "*" {
                 self.alias_imported_item(source, &imported, &local);
-                if !self.type_only_imports.contains(&local) && !self.import_alias_resolved(&local) {
+                if !self.imports.is_type_only(&local) && !self.import_alias_resolved(&local) {
                     let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                     self.module_globals.insert(local.clone(), unknown_ty);
                 }
@@ -2119,13 +2122,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Return whether an imported local already resolves to concrete frontend metadata.
     pub(super) fn import_alias_resolved(&self, local: &str) -> bool {
         self.items.contains_key(local)
-            || self.classes.contains_key(local)
-            || self.interfaces.contains_key(local)
-            || self.const_literals.contains_key(local)
-            || self.const_objects.contains_key(local)
-            || self.const_collections.contains_key(local)
+            || self.classes.contains(local)
+            || self.interfaces.contains(local)
+            || self.consts.is_folded_const(local)
             || self.object_namespaces.contains_key(local)
-            || self.function_overloads.contains_key(local)
+            || self.functions.has_overloads(local)
     }
 
     /// Add a local alias for an imported item when it is already known.
@@ -2136,10 +2137,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.items.insert(local.to_owned(), item);
             match self.item_ref(item) {
                 Item::Class(_) => {
-                    self.classes.insert(local.to_owned(), item);
+                    self.classes.register(local.to_owned(), item);
                 }
                 Item::Interface(_) => {
-                    self.interfaces.insert(local.to_owned(), item);
+                    self.interfaces.register_alias(local.to_owned(), item);
                 }
                 // Imported primitive const literals (e.g. `export const stringTag
                 // = '[object String]'`) must be foldable in the importer so they
@@ -2150,7 +2151,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 // present.
                 Item::Const(const_item) => {
                     if let Some(value) = const_literal_from_item(&self.ctx.krate, const_item) {
-                        self.const_literals.insert(local.to_owned(), value);
+                        self.consts.set_literal(local.to_owned(), value);
                     }
                 }
                 _ => {}
@@ -2172,55 +2173,48 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for (alias, item) in qualified_item_aliases {
             self.items.insert(alias, item);
         }
-        if let Some(item) = self.classes.get(imported).copied() {
-            self.classes.insert(local.to_owned(), item);
+        if let Some(item) = self.classes.item(imported) {
+            self.classes.register(local.to_owned(), item);
         }
         let qualified_class_aliases = self
             .classes
-            .iter()
+            .entries()
             .filter_map(|(name, item)| {
                 let member = name.strip_prefix(&imported_prefix)?;
-                Some((format!("{local}.{member}"), *item))
+                Some((format!("{local}.{member}"), item))
             })
             .collect::<Vec<_>>();
         for (alias, item) in qualified_class_aliases {
-            self.classes.insert(alias, item);
+            self.classes.register(alias, item);
         }
-        if let Some(item) = self.interfaces.get(imported).copied() {
-            self.interfaces.insert(local.to_owned(), item);
+        if let Some(item) = self.interfaces.item(imported) {
+            self.interfaces.register_alias(local.to_owned(), item);
         }
         let qualified_interface_aliases = self
             .interfaces
-            .iter()
+            .entries()
             .filter_map(|(name, item)| {
                 let member = name.strip_prefix(&imported_prefix)?;
-                Some((format!("{local}.{member}"), *item))
+                Some((format!("{local}.{member}"), item))
             })
             .collect::<Vec<_>>();
         for (alias, item) in qualified_interface_aliases {
-            self.interfaces.insert(alias, item);
+            self.interfaces.register_alias(alias, item);
         }
-        if let Some(value) = self.const_literals.get(imported).cloned() {
-            self.const_literals.insert(local.to_owned(), value);
-        }
-        if let Some(value) = self.const_objects.get(imported).cloned() {
-            self.const_objects.insert(local.to_owned(), value);
-        }
-        if let Some(value) = self.const_collections.get(imported).cloned() {
-            self.const_collections.insert(local.to_owned(), value);
-        }
+        // One call rebinds every constant kind the imported name carries.
+        self.consts.rebind_import(local, imported);
         if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
             self.object_namespaces.insert(local.to_owned(), namespace);
         }
-        if let Some(overloads) = self.function_overloads.get(imported).cloned() {
-            self.function_overloads.insert(local.to_owned(), overloads);
+        if let Some(overloads) = self.functions.overloads(imported).cloned() {
+            self.functions.set_overloads(local.to_owned(), overloads);
         } else if let Some(overloads) = self.ctx.overloads.get(imported).cloned() {
-            self.function_overloads.insert(local.to_owned(), overloads);
+            self.functions.set_overloads(local.to_owned(), overloads);
         }
-        if let Some(rest) = self.function_rests.get(imported).copied() {
-            self.function_rests.insert(local.to_owned(), rest);
+        if let Some(rest) = self.functions.rest(imported) {
+            self.functions.set_rest(local.to_owned(), rest);
         } else if let Some(rest) = self.ctx.function_rests.get(imported).copied() {
-            self.function_rests.insert(local.to_owned(), rest);
+            self.functions.set_rest(local.to_owned(), rest);
         }
     }
 
@@ -2299,8 +2293,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     if let Some(collection) =
                         self.const_unknown_value_collection_from_object(object)
                     {
-                        self.const_object_value_collections
-                            .insert(binding.name.as_str().to_owned(), collection.clone());
+                        self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
                         self.ctx
                             .object_value_collections
                             .insert(binding.name.as_str().to_owned(), collection);
@@ -2340,7 +2333,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 continue;
             }
             if let Some(identifier) = Self::imported_value_identifier(init)
-                && self.value_imports.contains(identifier.name.as_str())
+                && self.imports.is_value(identifier.name.as_str())
             {
                 let item = self.push_expression_const_item(binding, init)?;
                 items.push(item);
@@ -2414,7 +2407,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }));
             self.items.insert(name_text.to_owned(), item);
             self.ctx.export_aliases.insert(name_text.to_owned(), item);
-            self.const_literals.insert(name_text.to_owned(), value);
+            self.consts.set_literal(name_text.to_owned(), value);
             items.push(item);
         }
         Ok(items)
@@ -2454,8 +2447,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), ty);
         if let Some(collection) = self.const_collection_from_initializer(init, ty) {
-            self.const_collections
-                .insert(name_text.to_owned(), collection.clone());
+            self.consts.set_collection(name_text.to_owned(), collection.clone());
             self.ctx
                 .const_collections
                 .insert(name_text.to_owned(), collection);
@@ -2481,9 +2473,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return false;
         };
         self.items.contains_key(root)
-            || self.const_objects.contains_key(root)
-            || self.const_collections.contains_key(root)
-            || self.const_literals.contains_key(root)
+            || self.consts.is_folded_const(root)
             || self.module_globals.contains_key(root)
     }
 
@@ -3021,14 +3011,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), value.ty);
         if let Some(collection) = self.const_collection_from_object_const(&value) {
-            self.const_object_value_collections
-                .insert(name_text.to_owned(), collection.clone());
+            self.consts.set_object_value_collection(name_text.to_owned(), collection.clone());
             self.ctx
                 .object_value_collections
                 .insert(name_text.to_owned(), collection);
         }
-        self.const_objects
-            .insert(name_text.to_owned(), value.clone());
+        self.consts.set_object(name_text.to_owned(), value.clone());
         self.ctx.object_consts.insert(name_text.to_owned(), value);
         Ok(item)
     }
@@ -3062,8 +3050,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), ty);
         if let Some(collection) = self.const_unknown_value_collection_from_object(object) {
-            self.const_object_value_collections
-                .insert(name_text.to_owned(), collection.clone());
+            self.consts.set_object_value_collection(name_text.to_owned(), collection.clone());
             self.ctx
                 .object_value_collections
                 .insert(name_text.to_owned(), collection);

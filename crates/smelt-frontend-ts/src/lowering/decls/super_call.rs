@@ -139,7 +139,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(());
         }
-        let Some((base, base_args)) = self.class_bases.get(class_text).cloned() else {
+        let Some((base, base_args)) = self.classes.base(class_text).cloned() else {
             return Ok(());
         };
         let Some(base_name) = self
@@ -398,8 +398,7 @@ impl ModuleBuilder<'_> {
         class_text: &str,
         field: smelt_hir::Symbol,
     ) -> Option<smelt_hir::TypeId> {
-        self.class_fields
-            .get(class_text)?
+        self.classes.fields(class_text)?
             .iter()
             .find(|declared| declared.name == field)
             .map(|declared| declared.ty)
@@ -423,7 +422,7 @@ impl ModuleBuilder<'_> {
             if chain.iter().any(|(visited, _, _)| visited == &name) {
                 break;
             }
-            let Some(item) = self.classes.get(&name).copied() else {
+            let Some(item) = self.classes.item(&name) else {
                 break;
             };
             let Some((fields, method_items, abstract_methods, base, class_span)) =
@@ -476,7 +475,7 @@ impl ModuleBuilder<'_> {
     ///   slot where the derived struct declares the erased one, so the field
     ///   moves would not type-check.
     fn class_is_reproducible_base(&self, class_text: &str) -> bool {
-        let Some(item) = self.classes.get(class_text).copied() else {
+        let Some(item) = self.classes.item(class_text) else {
             return false;
         };
         let index = usize::try_from(item.0).unwrap_or(usize::MAX);

@@ -6,10 +6,12 @@
 //! dynamic value — it needs a concrete representation that carries a resolvable
 //! *identity*.
 //!
-//! Smelt models a `Buffer` as a marker-bearing record
-//! `{ __smelt_buffer: true, bytes: <numeric list>, length: N, byteLength: N }`
-//! erased to `SmeltUnknown`, mirroring the `ArrayBuffer`/`Blob` host-object
-//! models (see `arraybuffer_constructor_expression`). The `__smelt_buffer`
+//! Smelt models a `Buffer` as a byte-backed host record — the same representation
+//! `ArrayBuffer`, `DataView` and the eleven typed-array views use, built by the one
+//! shared runtime constructor (`ExprKind::HostConstruct`) so a directly-built
+//! buffer and a reflectively-built clone of it are the same shape. `Buffer`
+//! subclasses `Uint8Array`, so the registry gives it that `Uint8` element type and
+//! the `[object Uint8Array]` spec tag. The `__smelt_buffer`
 //! marker is the single source of truth for `Buffer` identity: it lives in the
 //! shared `smelt_stdlib::host_object` registry so `instanceof Buffer`
 //! (`instance_of_text`) and `Buffer.isBuffer` resolve through the same key, and
@@ -25,12 +27,14 @@ use smelt_hir::{Body, Expr, ExprKind, Literal, Type};
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 
-/// The identity marker key stamped onto every modeled `Buffer` record.
+/// The JavaScript class name the shared byte-buffer constructor is keyed by.
 ///
-/// Kept in lock-step with the `smelt_stdlib::host_object` registry entry so the
-/// construction side here, the `instanceof` lowering, and the runtime for-in
-/// filter cannot drift.
-const BUFFER_MARKER: &str = "__smelt_buffer";
+/// `ExprKind::HostConstruct` names the host *class*; the shared
+/// `smelt_stdlib::host_object` registry maps that name to the `__smelt_buffer`
+/// identity marker and to `Buffer`'s `Uint8` element type, so the construction
+/// side here, the `instanceof` lowering, and the runtime for-in filter cannot
+/// drift.
+const BUFFER_CLASS_NAME: &str = "Buffer";
 
 impl ModuleBuilder<'_> {
     /// Route recognized static `Buffer.*` calls to their dedicated handlers.
@@ -58,7 +62,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a `Buffer.<member>` static call is shadowed by a
     /// user-declared `Buffer` class, so the stdlib handler must decline.
     ///
-    /// Mirrors the `!self.classes.contains_key(...)` guard the other host-object
+    /// Mirrors the `!self.classes.contains(...)` guard the other host-object
     /// statics use: a source project that declares its own `class Buffer` owns
     /// the name and its statics dispatch through the ordinary class path.
     fn buffer_static_receiver<'a>(
@@ -74,7 +78,7 @@ impl ModuleBuilder<'_> {
         };
         if object.name != "Buffer"
             || member.property.name != member_name
-            || self.classes.contains_key("Buffer")
+            || self.classes.contains("Buffer")
         {
             return None;
         }
@@ -83,6 +87,16 @@ impl ModuleBuilder<'_> {
 
     /// Build the modeled `Buffer` record from an already-lowered byte-list
     /// expression, erased to `SmeltUnknown`.
+    ///
+    /// This routes through `ExprKind::HostConstruct` — the *same* runtime
+    /// byte-buffer constructor `new Uint8Array(...)`, `new ArrayBuffer(...)` and
+    /// the reflected `new getPrototypeOf(x).constructor(...)` path all call — so a
+    /// `Buffer.from([1, 2, 3])` and a cloned `Buffer` are byte-for-byte the same
+    /// record shape. Building the record inline here instead left
+    /// `Buffer.from(...)` without the `buffer`/`byteOffset` slots the shared
+    /// constructor gives every view, and es-toolkit's `clone`/`cloneDeep` buffer
+    /// specs compare a reflectively-built clone against the directly-built
+    /// original with structural equality — so the two shapes have to agree.
     ///
     /// The record carries the `__smelt_buffer` identity marker plus the `bytes`
     /// list and its mirrored `length`/`byteLength`, so `instanceof`/`isBuffer`
@@ -94,59 +108,11 @@ impl ModuleBuilder<'_> {
         span: smelt_hir::Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let float_ty = self.ctx.krate.types.intern(Type::Float);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
-
-        let marker_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(BUFFER_MARKER.to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let marker_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
-            span,
-        });
-        // `bytes` is retained so the byte data has a concrete backing; `length`
-        // and `byteLength` mirror its length so `buf.length`/`buf.byteLength`
-        // read a real value through `smelt_get_object_field`.
-        let length = body.push_expr(Expr {
-            kind: ExprKind::Len { operand: bytes },
-            ty: float_ty,
-            span,
-        });
-        let bytes_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("bytes".to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let length_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("length".to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let byte_length_key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("byteLength".to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let object = body.push_expr(Expr {
-            kind: ExprKind::DictLit(vec![
-                (marker_key, marker_value),
-                (bytes_key, bytes),
-                (length_key, length),
-                (byte_length_key, length),
-            ]),
-            ty: dict_ty,
-            span,
-        });
         body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: object,
-                target: unknown_ty,
+            kind: ExprKind::HostConstruct {
+                class_name: BUFFER_CLASS_NAME.to_owned(),
+                args: vec![bytes],
             },
             ty: unknown_ty,
             span,

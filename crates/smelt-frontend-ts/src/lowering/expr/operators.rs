@@ -301,92 +301,6 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower `new TypedArray(length)` to a numeric list used by typed-array consumers.
-    pub(in crate::lowering) fn numeric_typed_array_constructor_expression(
-        &mut self,
-        new_expr: &oxc::ast::ast::NewExpression<'_>,
-        body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if new_expr.arguments.len() > 3 {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new TypedArray(...) supports at most three view arguments",
-            ));
-        }
-        // The `(buffer, byteOffset, length)` view form cannot share storage
-        // with Smelt's numeric-list model; the extra view arguments are
-        // lowered for their effects and dropped, and the construction follows
-        // the first argument's rules below.
-        for view_argument in new_expr.arguments.iter().skip(1) {
-            let _ = self.argument(view_argument, body)?;
-        }
-        if let Some(Argument::ArrayExpression(array)) = new_expr.arguments.first() {
-            return self.array_expression(array, body, None);
-        }
-        let item_ty = self.ctx.krate.types.intern(Type::Float);
-        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
-        let length = if let Some(argument) = new_expr.arguments.first() {
-            let value = self.argument(argument, body)?;
-            let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
-            match self.ctx.krate.types.get(value_ty) {
-                Some(Type::Int | Type::Float) => Some(value),
-                // `new Uint8Array(other)` over an existing array-like copies
-                // its elements. Typed arrays are numeric lists in Smelt, so a
-                // list argument is a list copy, and an erased surface (a
-                // tag-dispatched `any`, e.g. es-toolkit's ArrayBuffer/DataView
-                // equality path) is asserted to `number[]` at the dynamic
-                // boundary before copying.
-                Some(Type::List(_)) => {
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::ListCopy { list: value },
-                        ty,
-                        span: self.span(new_expr.span.start, new_expr.span.end),
-                    }));
-                }
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
-                    let list = body.push_expr(Expr {
-                        kind: ExprKind::TypeAssert { value },
-                        ty,
-                        span: self.span(new_expr.span.start, new_expr.span.end),
-                    });
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::ListCopy { list },
-                        ty,
-                        span: self.span(new_expr.span.start, new_expr.span.end),
-                    }));
-                }
-                _ => {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "new TypedArray(...) requires a numeric length or array-like argument",
-                    ));
-                }
-            }
-        } else {
-            None
-        };
-        let Some(length) = length else {
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::ListLit(Vec::new()),
-                ty,
-                span: self.span(new_expr.span.start, new_expr.span.end),
-            }));
-        };
-        let zero = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Float(0.0)),
-            ty: item_ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        });
-        Ok(body.push_expr(Expr {
-            kind: ExprKind::ListRepeat {
-                value: zero,
-                count: length,
-            },
-            ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        }))
-    }
-
     /// Lower supported string split calls into HIR string runtime calls.
     pub(in crate::lowering) fn string_split_call(
         &mut self,
@@ -400,8 +314,8 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         if let Expression::Identifier(object) = &member.object
-            && (self.namespace_imports.contains(object.name.as_str())
-                || self.value_imports.contains(object.name.as_str()))
+            && (self.imports.is_namespace(object.name.as_str())
+                || self.imports.is_value(object.name.as_str()))
         {
             if call.arguments.len() < 2 || call.arguments.len() > 3 {
                 return Err(SmeltError::unsupported(
@@ -2049,9 +1963,7 @@ impl ModuleBuilder<'_> {
         }
 
         if let Expression::Identifier(receiver_ident) = &binary.right
-            && let Some(object_const) = self
-                .const_objects
-                .get(receiver_ident.name.as_str())
+            && let Some(object_const) = self.consts.object(receiver_ident.name.as_str())
                 .cloned()
         {
             let mut key = self.expression(&binary.left, body)?;
@@ -3023,11 +2935,11 @@ impl ModuleBuilder<'_> {
         let cond = self.expression(&logical.left, body)?;
         let rhs_narrowing = self.guard_narrowing(&logical.left, body);
         if let Some(narrowing) = rhs_narrowing.clone() {
-            self.narrowed_locals.push(narrowing);
+            self.scope.push_narrowing_scope(narrowing);
         }
         let then_expr = self.expression_with_hint(&logical.right, body, record_ty)?;
         if rhs_narrowing.is_some() {
-            self.narrowed_locals.pop();
+            self.scope.pop_narrowing_scope();
         }
         let source_ty = Self::expr_ty(body, then_expr);
         self.accept_object_spread_source(source_ty, record_ty, span)?;
@@ -3247,11 +3159,11 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.types.intern(Type::Unknown)
         };
 
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         let saved_generator_yields = self.current_generator_yields;
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_narrowed_locals = self.scope.take_narrowings();
         // A postfix update (`x++`) is emitted into the current body's block, but a
         // variable-declaration initializer defers its postfix updates into a
         // pending list so `const y = x++;` observes the old value. That deferral
@@ -3301,7 +3213,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(binding.span.start, binding.span.end),
                 });
                 body.params.push(local);
-                self.locals.insert(binding.name.to_string(), local);
+                self.scope.bind(binding.name.to_string(), local);
                 param_names.insert(binding.name.to_string());
                 params.push(Param {
                     name: param_name,
@@ -3360,7 +3272,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(binding.span.start, binding.span.end),
                 });
                 body.params.push(local);
-                self.locals.insert(binding.name.to_string(), local);
+                self.scope.bind(binding.name.to_string(), local);
                 param_names.insert(binding.name.to_string());
                 params.push(Param {
                     name: param_name,
@@ -3387,16 +3299,16 @@ impl ModuleBuilder<'_> {
         let mut captures = Vec::new();
         if errors.is_empty() {
             let mut capture_names = Vec::new();
-            let function_locals = self.locals.clone();
-            self.locals = saved_locals.clone();
+            let function_locals = self.scope.snapshot_bindings();
+            self.scope.restore_bindings(saved_locals.clone());
             for statement in &function_body.statements {
                 self.collect_statement_capture_names(statement, &param_names, &mut capture_names);
             }
-            self.locals = function_locals;
+            self.scope.restore_bindings(function_locals);
             capture_names.sort();
             capture_names.dedup();
             for name in capture_names {
-                let Some(source_local) = saved_locals.get(name.as_str()).copied() else {
+                let Some(source_local) = saved_locals.lookup(name.as_str()) else {
                     continue;
                 };
                 let Some(source_decl) = usize::try_from(source_local.0)
@@ -3414,7 +3326,7 @@ impl ModuleBuilder<'_> {
                     mutable: source_decl.mutable,
                     span: source_decl.span,
                 });
-                self.locals.insert(name, body_local);
+                self.scope.bind(name, body_local);
                 captures.push(ClosureCapture {
                     source_local,
                     body_local: Some(body_local),
@@ -3446,11 +3358,11 @@ impl ModuleBuilder<'_> {
             body.build_async_state_machine();
         }
         self.current_arguments_arities.pop();
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
         self.current_generator_yields = saved_generator_yields;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.deferred_postfix_updates = saved_deferred_updates;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
@@ -3858,7 +3770,7 @@ impl ModuleBuilder<'_> {
         if let Some(interface) = self.find_interface(*name) {
             return self.contextual_interface_fields(interface.name, &mut HashSet::new());
         }
-        self.type_alias_fields.get(name).cloned()
+        self.types.alias_fields(*name).cloned()
     }
 
     /// Collect inherited interface fields while rejecting recursive surfaces.
@@ -3892,14 +3804,14 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
-        if let Some(value) = self.const_literals.get(member_name).cloned() {
+        if let Some(value) = self.consts.literal(member_name).cloned() {
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(value.literal),
                 ty: value.ty,
                 span,
             })));
         }
-        if let Some(value) = self.const_objects.get(member_name).cloned() {
+        if let Some(value) = self.consts.object(member_name).cloned() {
             return Ok(Some(self.object_const_expression(
                 &value,
                 member.span.start,
@@ -3914,7 +3826,7 @@ impl ModuleBuilder<'_> {
             .copied()
             .or_else(|| self.items.get(member_name).copied());
         let Some(item) = item else {
-            if self.namespace_imports.contains(namespace) {
+            if self.imports.is_namespace(namespace) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),

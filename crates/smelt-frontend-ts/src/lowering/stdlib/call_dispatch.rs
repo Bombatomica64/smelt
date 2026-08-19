@@ -408,7 +408,7 @@ impl<'builder> ModuleBuilder<'builder> {
             ) {
                 return self.error_function_call(call, body);
             }
-            if self.locals.contains_key(callee_ident.name.as_str()) {
+            if self.scope.is_bound(callee_ident.name.as_str()) {
                 let callee = self.identifier_expression(
                     callee_ident.name.as_str(),
                     callee_ident.span.start,
@@ -546,7 +546,7 @@ impl<'builder> ModuleBuilder<'builder> {
                         span: self.span(call.span.start, call.span.end),
                     }));
                 }
-                if self.value_imports.contains(callee_ident.name.as_str()) {
+                if self.imports.is_value(callee_ident.name.as_str()) {
                     for arg in &call.arguments {
                         let _ = self.argument(arg, body)?;
                     }
@@ -586,7 +586,7 @@ impl<'builder> ModuleBuilder<'builder> {
                         function.return_ty,
                         function.is_async,
                     )
-                } else if self.value_imports.contains(callee_ident.name.as_str()) {
+                } else if self.imports.is_value(callee_ident.name.as_str()) {
                     for arg in &call.arguments {
                         let _ = self.argument(arg, body)?;
                     }
@@ -657,7 +657,7 @@ impl<'builder> ModuleBuilder<'builder> {
             };
             if rest.is_none()
                 && let Some(candidate) =
-                    self.function_rests.get(callee_ident.name.as_str()).copied()
+                    self.functions.rest(callee_ident.name.as_str())
                 && candidate.index < params.len()
                 && matches!(
                     params
@@ -1346,8 +1346,8 @@ impl<'builder> ModuleBuilder<'builder> {
         };
         // A local binding or user class named `Object` shadows the builtin.
         if object.name != "Object"
-            || self.locals.contains_key("Object")
-            || self.classes.contains_key("Object")
+            || self.scope.is_bound("Object")
+            || self.classes.contains("Object")
         {
             return Ok(None);
         }
@@ -1383,7 +1383,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "encodeURI" || self.locals.contains_key(callee.name.as_str()) {
+        if callee.name != "encodeURI" || self.scope.is_bound(callee.name.as_str()) {
             return Ok(None);
         }
         let [value_arg] = call.arguments.as_slice() else {
@@ -1437,10 +1437,10 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         };
         // The receiver must be a bare class name and not shadowed by a local.
-        if self.locals.contains_key(object.name.as_str()) {
+        if self.scope.is_bound(object.name.as_str()) {
             return Ok(None);
         }
-        let Some(class_item) = self.classes.get(object.name.as_str()).copied() else {
+        let Some(class_item) = self.classes.item(object.name.as_str()) else {
             return Ok(None);
         };
         let Item::Class(class) = self.item_ref(class_item) else {
@@ -1492,10 +1492,10 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::Identifier(object) = &member.object else {
             return false;
         };
-        if self.locals.contains_key(object.name.as_str()) {
+        if self.scope.is_bound(object.name.as_str()) {
             return false;
         }
-        let Some(class_item) = self.classes.get(object.name.as_str()).copied() else {
+        let Some(class_item) = self.classes.item(object.name.as_str()) else {
             return false;
         };
         let Item::Class(class) = self.item_ref(class_item) else {
@@ -1789,7 +1789,7 @@ impl<'builder> ModuleBuilder<'builder> {
             .map(str::to_owned);
         if class_name
             .as_deref()
-            .and_then(|class_name| self.class_fields.get(class_name))
+            .and_then(|class_name| self.classes.fields(class_name))
             .and_then(|fields| fields.iter().find(|item| item.name == field))
             .is_some_and(|item| matches!(self.ctx.krate.types.get(item.ty), Some(Type::Function(_))))
         {
@@ -1801,7 +1801,7 @@ impl<'builder> ModuleBuilder<'builder> {
             .or_else(|| {
                 class_name
                     .as_deref()
-                    .and_then(|base_name| self.class_bases.get(base_name).cloned())
+                    .and_then(|base_name| self.classes.base(base_name).cloned())
             })
         else {
             return false;
@@ -2264,7 +2264,7 @@ impl<'builder> ModuleBuilder<'builder> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<Option<OverloadSignature>, SmeltError> {
-        let Some(signatures) = (if let Some(signatures) = self.function_overloads.get(name) {
+        let Some(signatures) = (if let Some(signatures) = self.functions.overloads(name) {
             Some(signatures.clone())
         } else {
             self.ctx.overloads.get(name).cloned()
@@ -2287,7 +2287,7 @@ impl<'builder> ModuleBuilder<'builder> {
         for (order, signature) in signatures.iter().enumerate() {
             let mut substitutions = HashMap::new();
             let constraint_scope = Self::overload_type_param_constraint_scope(signature);
-            self.type_param_constraint_scopes.push(constraint_scope);
+            self.types.push_constraint_scope(constraint_scope);
             let matches = self.overload_signature_matches_args(
                 signature,
                 arguments,
@@ -2295,7 +2295,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 &mut substitutions,
             ) && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
                 && self.overload_substitutions_satisfy_constraints(signature, &substitutions);
-            self.type_param_constraint_scopes.pop();
+            self.types.pop_constraint_scope();
             if matches {
                 let score =
                     self.overload_signature_specificity_score(signature, lowered_arg_tys.len());
@@ -2353,7 +2353,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 }
                 let mut substitutions = HashMap::new();
                 let constraint_scope = Self::overload_type_param_constraint_scope(signature);
-                self.type_param_constraint_scopes.push(constraint_scope);
+                self.types.push_constraint_scope(constraint_scope);
                 let matches = self.loose_overload_signature_matches_args(
                     signature,
                     arguments,
@@ -2361,7 +2361,7 @@ impl<'builder> ModuleBuilder<'builder> {
                     &mut substitutions,
                 ) && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
                     && self.overload_substitutions_satisfy_constraints(signature, &substitutions);
-                self.type_param_constraint_scopes.pop();
+                self.types.pop_constraint_scope();
                 if !matches {
                     continue;
                 }
@@ -3282,8 +3282,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let substitutions = self
             .type_argument_substitution(&alias.type_params, args, self.span(0, 0))
             .ok()?;
-        self.type_alias_fields
-            .get(&name)
+        self.types.alias_fields(name)
             .cloned()
             .map(|fields| self.substituted_fields(&fields, &substitutions))
     }
@@ -3558,7 +3557,7 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         };
         if self.items.contains_key(callee_ident.name.as_str())
-            && !self.locals.contains_key(callee_ident.name.as_str())
+            && !self.scope.is_bound(callee_ident.name.as_str())
         {
             return Ok(None);
         }
@@ -3578,9 +3577,9 @@ impl<'builder> ModuleBuilder<'builder> {
         // dynamic surface behind a function type.
         let callee_dispatches_dynamically = self.type_is_dynamic_call_surface(callee_ty)
             || self
-                .locals
-                .get(callee_ident.name.as_str())
-                .is_some_and(|&local| self.type_is_dynamic_call_surface(Self::local_ty(body, local)));
+                .scope
+                .lookup(callee_ident.name.as_str())
+                .is_some_and(|local| self.type_is_dynamic_call_surface(Self::local_ty(body, local)));
         let optional_function_ty = match self.ctx.krate.types.get(callee_ty) {
             Some(Type::Optional(inner))
                 if call.optional
@@ -3668,10 +3667,7 @@ impl<'builder> ModuleBuilder<'builder> {
             function.return_ty
         };
         let supplied_arg_count = call.arguments.len();
-        let callback_meta = self
-            .local_callbacks
-            .get(callee_ident.name.as_str())
-            .cloned();
+        let callback_meta = self.scope.callback(callee_ident.name.as_str()).cloned();
         // Dynamically dispatched callees (union/unknown/type-parameter/erased
         // callable surfaces) are invoked through the runtime `SmeltUnknown` call
         // ABI, which flattens the entire argument list. A spread must therefore
@@ -3825,7 +3821,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// Return whether a local's structural class type is an erased callable object.
     pub(in crate::lowering) fn is_callable_object_erased_class(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Class { name, .. }) => self.callable_object_aliases.contains(name),
+            Some(Type::Class { name, .. }) => self.types.is_callable_object_alias(*name),
             _ => false,
         }
     }
@@ -3863,7 +3859,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if Self::is_ts_stdlib_class_name(type_name, smelt_stdlib::StdlibClass::RegExp) {
             return false;
         }
-        !self.classes.contains_key(type_name) && !self.interfaces.contains_key(type_name)
+        !self.classes.contains(type_name) && !self.interfaces.contains(type_name)
     }
 
     /// Return whether a value of this type dispatches member calls through the
@@ -4399,7 +4395,7 @@ impl<'builder> ModuleBuilder<'builder> {
             .cloned();
         if !matches!(function_ty, Some(Type::Function(_)))
             && let Argument::Identifier(identifier) = function_arg
-            && let Some(callback) = self.local_callbacks.get(identifier.name.as_str()).cloned()
+            && let Some(callback) = self.scope.callback(identifier.name.as_str()).cloned()
         {
             callee_expr = self.callback_expr_to_closure_with_return_ty(
                 callback.return_ty,
@@ -4550,7 +4546,7 @@ impl<'builder> ModuleBuilder<'builder> {
         matches!(
             callee,
             Expression::Identifier(ident)
-                if self.test_builtins.contains(ident.name.as_str())
+                if self.imports.is_test_builtin(ident.name.as_str())
                     && test_support::is_type_test_builtin_name(ident.name.as_str())
         )
     }

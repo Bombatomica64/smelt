@@ -178,6 +178,35 @@ pub mod byte_buffer {
     /// `ArrayBuffer.isView(x)`.
     pub const IS_VIEW: &str = "smelt_host_buffer_is_view";
 
+    /// Builds a byte-backed host record of a given marker identity from
+    /// JavaScript constructor arguments (`new Float32Array(buffer, 8, 1)`).
+    ///
+    /// The one construction path shared by the direct `new X(...)` lowering and
+    /// the reflected `new getPrototypeOf(x).constructor(...)` path. It is where
+    /// the element type decides whether a source buffer is *viewed* byte-for-byte
+    /// or *converted* element-by-element.
+    pub const CONSTRUCT: &str = "smelt_host_buffer_construct";
+
+    /// A byte-backed host record's own enumerable keys — its element indices — or
+    /// `None` for values that are not byte-backed.
+    ///
+    /// A typed array's own properties are its indexed elements; `length`,
+    /// `byteLength`, `byteOffset` and `buffer` are all accessors on the
+    /// prototype and never enumerate. es-toolkit's `keys(new Uint8Array(1))`
+    /// asserts exactly `['0']`.
+    pub const INDEX_KEYS: &str = "smelt_host_buffer_index_keys";
+
+    /// [`INDEX_KEYS`] for a byte-backed record reached through the structural
+    /// `SmeltRecord<String, SmeltUnknown>` ABI instead of a tagged `SmeltUnknown`.
+    pub const RECORD_INDEX_KEYS: &str = "smelt_host_buffer_record_index_keys";
+
+    /// [`ELEMENTS`] for a byte-backed record reached through the structural
+    /// `SmeltRecord<String, SmeltUnknown>` ABI instead of a tagged `SmeltUnknown`.
+    ///
+    /// Backs `Object.values` / `Object.entries` over a view, which must answer its
+    /// decoded elements rather than its internal storage fields.
+    pub const RECORD_ELEMENTS: &str = "smelt_host_buffer_record_elements";
+
     /// The record key holding a byte-backed host object's storage.
     pub const BYTES_KEY: &str = "bytes";
 }

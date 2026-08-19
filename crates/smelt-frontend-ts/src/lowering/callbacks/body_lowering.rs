@@ -1193,7 +1193,7 @@ impl ModuleBuilder<'_> {
                     param_names.insert(binding.name.as_str().to_owned());
                     saved_locals.push((
                         binding.name.as_str().to_owned(),
-                        self.locals.insert(binding.name.as_str().to_owned(), local),
+                        self.scope.bind(binding.name.as_str().to_owned(), local),
                     ));
                 }
                 pattern => {
@@ -1201,7 +1201,7 @@ impl ModuleBuilder<'_> {
                     Self::binding_pattern_names(pattern, &mut names);
                     for name in &names {
                         param_names.insert(name.clone());
-                        saved_locals.push((name.clone(), self.locals.get(name.as_str()).copied()));
+                        saved_locals.push((name.clone(), self.scope.lookup(name.as_str())));
                     }
                     let value = closure_body.push_expr(Expr {
                         kind: ExprKind::Local(local),
@@ -1251,7 +1251,7 @@ impl ModuleBuilder<'_> {
             param_names.insert(binding.name.as_str().to_owned());
             saved_locals.push((
                 binding.name.as_str().to_owned(),
-                self.locals.insert(binding.name.as_str().to_owned(), local),
+                self.scope.bind(binding.name.as_str().to_owned(), local),
             ));
         }
 
@@ -1283,7 +1283,7 @@ impl ModuleBuilder<'_> {
             let Some(source_local) = saved_locals
                 .iter()
                 .find_map(|(saved_name, prior)| (saved_name == &name).then_some(*prior).flatten())
-                .or_else(|| self.locals.get(name.as_str()).copied())
+                .or_else(|| self.scope.lookup(name.as_str()))
             else {
                 continue;
             };
@@ -1302,7 +1302,7 @@ impl ModuleBuilder<'_> {
                 mutable: source_decl.mutable,
                 span: source_decl.span,
             });
-            saved_locals.push((name.clone(), self.locals.insert(name, body_local)));
+            saved_locals.push((name.clone(), self.scope.bind(name, body_local)));
             captures.push(ClosureCapture {
                 source_local,
                 body_local: Some(body_local),
@@ -1314,7 +1314,7 @@ impl ModuleBuilder<'_> {
 
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_narrowed_locals = self.scope.take_narrowings();
         // Postfix-update deferral must not cross this closure boundary: if this
         // closure is a variable-declaration initializer, an `x++` inside its body
         // belongs here, not the outer declaration's pending deferral list (see
@@ -1382,13 +1382,13 @@ impl ModuleBuilder<'_> {
         }
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.deferred_postfix_updates = saved_deferred_updates;
         for (name, prior) in saved_locals.into_iter().rev() {
             if let Some(local) = prior {
-                self.locals.insert(name, local);
+                self.scope.bind(name, local);
             } else {
-                self.locals.remove(name.as_str());
+                self.scope.unbind(name.as_str());
             }
         }
         lowering_result?;
@@ -1734,13 +1734,13 @@ impl ModuleBuilder<'_> {
     ) {
         match expression {
             Expression::ThisExpression(_) => {
-                if !param_names.contains("this") && self.locals.contains_key("this") {
+                if !param_names.contains("this") && self.scope.is_bound("this") {
                     captures.push("this".to_owned());
                 }
             }
             Expression::Identifier(identifier) => {
                 let name = identifier.name.as_str();
-                if !param_names.contains(name) && self.locals.contains_key(name) {
+                if !param_names.contains(name) && self.scope.is_bound(name) {
                     captures.push(name.to_owned());
                 }
             }
@@ -2004,7 +2004,7 @@ impl ModuleBuilder<'_> {
         match target {
             SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
                 let name = identifier.name.as_str();
-                if !param_names.contains(name) && self.locals.contains_key(name) {
+                if !param_names.contains(name) && self.scope.is_bound(name) {
                     captures.push(name.to_owned());
                 }
             }
@@ -2029,7 +2029,7 @@ impl ModuleBuilder<'_> {
         match target {
             AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
                 let name = identifier.name.as_str();
-                if !param_names.contains(name) && self.locals.contains_key(name) {
+                if !param_names.contains(name) && self.scope.is_bound(name) {
                     captures.push(name.to_owned());
                 }
             }

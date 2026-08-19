@@ -345,7 +345,16 @@ impl FunctionEmitter<'_> {
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
                     let base_text = self.local_mut_value_text(*base)?;
-                    let field_name = self.symbol_name(*field)?;
+                    // The SOURCE property name, not the Rust-mangled symbol. An
+                    // erased object is a keyed map whose keys are JavaScript
+                    // property names, and every read side uses
+                    // `symbol_source_name` — `smelt_get_object_field(&map, "someProp")`.
+                    // Writing through `symbol_name` stored `"some_prop"` instead, so
+                    // `obj.someProp = 1; obj.someProp` read back `undefined` and
+                    // `Object.keys(obj)` reported the mangled spelling. Every
+                    // camelCase property assigned to an `any`/`unknown` receiver was
+                    // silently lost.
+                    let field_name = self.symbol_source_name(*field)?;
                     // When the assigned value reads the receiver (e.g. JS
                     // self-aliasing `original.self = original`), evaluate it into a
                     // temporary BEFORE taking the receiver's mutable borrow. Inlining

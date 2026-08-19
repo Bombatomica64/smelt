@@ -17,8 +17,8 @@ impl ModuleBuilder<'_> {
         params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
     ) -> Result<Vec<TypeParamDef>, SmeltError> {
         let Some(params) = params else {
-            self.type_param_scopes.push(HashMap::new());
-            self.type_param_constraint_scopes.push(HashMap::new());
+            self.types.push_param_types(HashMap::new());
+            self.types.push_param_constraints(HashMap::new());
             return Ok(Vec::new());
         };
 
@@ -28,7 +28,7 @@ impl ModuleBuilder<'_> {
             let ty = self.ctx.krate.types.intern(Type::TypeParam { name });
             scope.insert(param.name.name.to_string(), ty);
         }
-        self.type_param_scopes.push(scope);
+        self.types.push_param_types(scope);
 
         let mut lowered = Vec::new();
         let mut constraints = HashMap::new();
@@ -54,22 +54,18 @@ impl ModuleBuilder<'_> {
                 span: self.span(param.span.start, param.span.end),
             });
         }
-        self.type_param_constraint_scopes.push(constraints);
+        self.types.push_param_constraints(constraints);
         Ok(lowered)
     }
 
     /// Pop the current TypeScript type parameter scope.
     pub(in crate::lowering) fn pop_type_parameter_scope(&mut self) {
-        self.type_param_scopes.pop();
-        self.type_param_constraint_scopes.pop();
+        self.types.pop_param_scope();
     }
 
     /// Resolve a type parameter by source name from innermost to outermost scope.
     pub(in crate::lowering) fn type_parameter_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
-        self.type_param_scopes
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(name).copied())
+        self.types.param_type(name)
     }
 
     /// Resolve a lowered type parameter's active constraint, if any.
@@ -77,10 +73,7 @@ impl ModuleBuilder<'_> {
         &self,
         name: smelt_hir::Symbol,
     ) -> Option<smelt_hir::TypeId> {
-        self.type_param_constraint_scopes
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(&name).copied())
+        self.types.param_constraint(name)
     }
 
     /// Builds a substitution map from generic parameter symbols to actual argument types.

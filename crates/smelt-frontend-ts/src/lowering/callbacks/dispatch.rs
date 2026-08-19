@@ -20,7 +20,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<ClosureCallback, SmeltError> {
         if let Argument::Identifier(identifier) = argument {
-            if let Some(local) = self.locals.get(identifier.name.as_str()).copied() {
+            if let Some(local) = self.scope.lookup(identifier.name.as_str()) {
                 let local_ty = Self::local_ty(body, local);
                 if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned()
                 {
@@ -113,7 +113,7 @@ impl ModuleBuilder<'_> {
             if matches!(
                 identifier.name.as_str(),
                 "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
-            ) && self.value_imports.contains(identifier.name.as_str())
+            ) && self.imports.is_value(identifier.name.as_str())
             {
                 let param_ty = expected_param_tys
                     .first()
@@ -153,7 +153,7 @@ impl ModuleBuilder<'_> {
                 )?;
                 return Ok(ClosureCallback { expr, return_ty });
             }
-            if !self.locals.contains_key(identifier.name.as_str()) {
+            if !self.scope.is_bound(identifier.name.as_str()) {
                 return Err(SmeltError::unsupported(
                     self.span(identifier.span.start, identifier.span.end),
                     format!(
@@ -162,17 +162,14 @@ impl ModuleBuilder<'_> {
                     ),
                 ));
             }
-            let Some(callback) = self.local_callbacks.get(identifier.name.as_str()).cloned() else {
+            let Some(callback) = self.scope.callback(identifier.name.as_str()).cloned() else {
                 // The name is a local holding a value but is not an inlined
                 // callback literal. If its (possibly erased) type is a callable
                 // surface — `any`/`unknown`, a type parameter, or a union that
                 // includes a function — call it through a wrapper closure that
                 // captures the local and forwards the receiver's element
                 // arguments, the same way a direct `fn(...)` call would lower.
-                let local = self
-                    .locals
-                    .get(identifier.name.as_str())
-                    .copied()
+                let local = self.scope.lookup(identifier.name.as_str())
                     .expect("local checked present above");
                 let local_ty = Self::local_ty(body, local);
                 if self.callback_local_value_is_callable_surface(local_ty) {
@@ -573,13 +570,13 @@ impl ModuleBuilder<'_> {
                         ty: self.ctx.krate.types.intern(Type::None),
                     });
                 }
-                if let Some(value) = self.const_literals.get(identifier.name.as_str()) {
+                if let Some(value) = self.consts.literal(identifier.name.as_str()) {
                     return Ok(CallbackExpr {
                         kind: CallbackExprKind::Literal(value.literal.clone()),
                         ty: value.ty,
                     });
                 }
-                if let Some(collection) = self.const_collections.get(identifier.name.as_str()) {
+                if let Some(collection) = self.consts.collection(identifier.name.as_str()) {
                     let items = collection
                         .items
                         .iter()
@@ -607,7 +604,7 @@ impl ModuleBuilder<'_> {
                 }
                 // An enclosing local is lexically nearer than an imported or
                 // module-scoped item, including when both are callable.
-                if !self.locals.contains_key(identifier.name.as_str())
+                if !self.scope.is_bound(identifier.name.as_str())
                     && let Some(item) = self.items.get(identifier.name.as_str()).copied()
                 {
                     let span = self.span(identifier.span.start, identifier.span.end);
@@ -638,18 +635,15 @@ impl ModuleBuilder<'_> {
                         ty,
                     });
                 }
-                if !self.locals.contains_key(identifier.name.as_str())
-                    && let Some((name, ty)) = self
-                        .forward_function_types
-                        .get(identifier.name.as_str())
-                        .copied()
+                if !self.scope.is_bound(identifier.name.as_str())
+                    && let Some((name, ty)) = self.functions.forward_type(identifier.name.as_str())
                 {
                     return Ok(CallbackExpr {
                         kind: CallbackExprKind::Function(name),
                         ty,
                     });
                 }
-                let Some(local) = self.locals.get(identifier.name.as_str()).copied() else {
+                let Some(local) = self.scope.lookup(identifier.name.as_str()) else {
                     if self.source_contains_forward_callable(identifier.name.as_str()) {
                         return Ok(CallbackExpr {
                             kind: CallbackExprKind::Literal(Literal::None),
@@ -759,7 +753,7 @@ impl ModuleBuilder<'_> {
                             if let Some(param) = params.get(identifier.name.as_str()).cloned() {
                                 param
                             } else if let Some(local) =
-                                self.locals.get(identifier.name.as_str()).copied()
+                                self.scope.lookup(identifier.name.as_str())
                             {
                                 let ty = Self::local_ty(body, local);
                                 CallbackExpr {
@@ -1562,7 +1556,7 @@ impl ModuleBuilder<'_> {
                         "callback parameter assignment is not supported yet",
                     ));
                 }
-                let Some(local) = self.locals.get(target.name.as_str()).copied() else {
+                let Some(local) = self.scope.lookup(target.name.as_str()) else {
                     return Err(SmeltError::for_unresolved_name(
                         self.span(target.span.start, target.span.end),
                         target.name.as_str(),
@@ -1737,9 +1731,7 @@ impl ModuleBuilder<'_> {
                         );
                     }
                     if let Expression::Identifier(receiver_ident) = &binary.right
-                        && let Some(object_const) = self
-                            .const_objects
-                            .get(receiver_ident.name.as_str())
+                        && let Some(object_const) = self.consts.object(receiver_ident.name.as_str())
                             .cloned()
                     {
                         let case_keys = object_const

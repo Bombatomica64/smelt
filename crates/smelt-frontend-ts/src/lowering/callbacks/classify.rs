@@ -597,7 +597,7 @@ impl ModuleBuilder<'_> {
                 ty: function_return_ty,
             }));
         }
-        if let Some(local) = self.locals.get(name).copied() {
+        if let Some(local) = self.scope.lookup(name) {
             let local_ty = Self::local_ty(body, local);
             if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
                 // Same arity rule as item references above: fewer declared
@@ -983,7 +983,7 @@ impl ModuleBuilder<'_> {
             // the whole-crate build (where the alias resolves to its union) lowers
             // the same call.
             Some(Type::Class { name, args }) => {
-                if self.callable_object_aliases.contains(&name) {
+                if self.types.is_callable_object_alias(name) {
                     return true;
                 }
                 if let Some(underlying) = self.resolve_type_alias_underlying(name, &args)
@@ -1127,9 +1127,9 @@ impl ModuleBuilder<'_> {
     /// being an inline arrow. The name must not shadow a local binding, because a
     /// local with the same name is lexically nearer and handled separately.
     pub(in crate::lowering) fn is_opaque_callback_value(&self, name: &str) -> bool {
-        !self.locals.contains_key(name)
+        !self.scope.is_bound(name)
             && !self.items.contains_key(name)
-            && (self.value_imports.contains(name) || self.source_contains_forward_callable(name))
+            && (self.imports.is_value(name) || self.source_contains_forward_callable(name))
     }
 
     /// Return whether an expression is an imported utility namespace/object.
@@ -1137,7 +1137,7 @@ impl ModuleBuilder<'_> {
         matches!(
             expression,
             Expression::Identifier(object)
-                if self.namespace_imports.contains(object.name.as_str())
+                if self.imports.is_namespace(object.name.as_str())
                     || self.object_namespaces.contains_key(object.name.as_str())
         )
     }
@@ -1157,9 +1157,9 @@ impl ModuleBuilder<'_> {
     /// calls). A file that genuinely calls the global has no such binding, so the
     /// interceptor keeps firing unchanged.
     pub(in crate::lowering) fn builtin_call_identifier_is_shadowed(&self, name: &str) -> bool {
-        self.locals.contains_key(name)
+        self.scope.is_bound(name)
             || self.items.contains_key(name)
-            || self.value_imports.contains(name)
+            || self.imports.is_value(name)
     }
 
     /// Lower a function-expression callback after expected parameter types are known.

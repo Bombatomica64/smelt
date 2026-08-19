@@ -151,7 +151,7 @@ impl ModuleBuilder<'_> {
         // routed through the same `ClosureCall` machinery a plain call uses. A
         // local binding that shadows a stdlib name takes priority here, matching
         // how the call-expression dispatch resolves callees.
-        if self.locals.contains_key(callee.name.as_str()) {
+        if self.scope.is_bound(callee.name.as_str()) {
             if let Some(expr) = self.new_through_value_expression(new_expr, callee, body)? {
                 return Ok(expr);
             }
@@ -179,7 +179,7 @@ impl ModuleBuilder<'_> {
         if callee.name == "String" {
             return self.string_constructor_expression(new_expr, body);
         }
-        if callee.name == "Object" && !self.classes.contains_key("Object") {
+        if callee.name == "Object" && !self.classes.contains("Object") {
             return self.object_constructor_expression(new_expr, body, type_hint);
         }
         // The byte-backed host objects other than Node's `Buffer` (which keeps its
@@ -187,21 +187,21 @@ impl ModuleBuilder<'_> {
         // shared host constructor so their records carry real byte storage.
         if callee.name != "Buffer"
             && smelt_stdlib::byte_buffer_role(callee.name.as_str()).is_some()
-            && !self.classes.contains_key(callee.name.as_str())
+            && !self.classes.contains(callee.name.as_str())
         {
             let class_name = callee.name.to_string();
             return self.byte_buffer_constructor_expression(new_expr, &class_name, body);
         }
-        if callee.name == "Buffer" && !self.classes.contains_key("Buffer") {
+        if callee.name == "Buffer" && !self.classes.contains("Buffer") {
             return self.buffer_constructor_expression(new_expr, body);
         }
-        if callee.name == "Blob" && !self.classes.contains_key("Blob") {
+        if callee.name == "Blob" && !self.classes.contains("Blob") {
             return self.blob_constructor_expression(new_expr, body);
         }
-        if callee.name == "File" && !self.classes.contains_key("File") {
+        if callee.name == "File" && !self.classes.contains("File") {
             return self.file_constructor_expression(new_expr, body);
         }
-        if callee.name == "Number" && !self.classes.contains_key("Number") {
+        if callee.name == "Number" && !self.classes.contains("Number") {
             return self.boxed_primitive_constructor_expression(
                 new_expr,
                 body,
@@ -209,7 +209,7 @@ impl ModuleBuilder<'_> {
                 Literal::Float(0.0),
             );
         }
-        if callee.name == "Boolean" && !self.classes.contains_key("Boolean") {
+        if callee.name == "Boolean" && !self.classes.contains("Boolean") {
             return self.boxed_primitive_constructor_expression(
                 new_expr,
                 body,
@@ -217,29 +217,34 @@ impl ModuleBuilder<'_> {
                 Literal::Bool(false),
             );
         }
-        if callee.name == "Proxy" && !self.classes.contains_key("Proxy") {
+        if callee.name == "Proxy" && !self.classes.contains("Proxy") {
             return self.proxy_constructor_expression(new_expr, body);
         }
-        if callee.name == "Function" && !self.classes.contains_key("Function") {
+        if callee.name == "Function" && !self.classes.contains("Function") {
             return self.function_constructor_expression(new_expr, body);
         }
-        if callee.name == "AbortController" && !self.classes.contains_key("AbortController") {
+        if callee.name == "AbortController" && !self.classes.contains("AbortController") {
             return self.abort_controller_constructor_expression(new_expr, body);
         }
+        // The typed-array views are byte-backed host objects: they share the one
+        // byte-buffer construction path with `ArrayBuffer`/`DataView`/`Buffer`, and
+        // their element type (resolved at runtime from the marker the class name
+        // selects) is what decides whether a source argument is re-viewed
+        // byte-for-byte or converted element-by-element.
         if Self::is_numeric_typed_array_constructor(callee.name.as_str())
-            && !self.classes.contains_key(callee.name.as_str())
+            && !self.classes.contains(callee.name.as_str())
         {
-            return self.numeric_typed_array_constructor_expression(new_expr, body);
+            return self.byte_buffer_constructor_expression(new_expr, callee.name.as_str(), body);
         }
         if callee.name == "URLSearchParams" {
             return self.url_search_params_constructor_expression(new_expr, body);
         }
         if let Some(marker) = Self::marker_only_builtin_marker(callee.name.as_str()) {
-            if !self.classes.contains_key(callee.name.as_str()) {
+            if !self.classes.contains(callee.name.as_str()) {
                 return self.marker_only_builtin_constructor_expression(new_expr, body, marker);
             }
         }
-        if callee.name == "DOMException" && !self.classes.contains_key("DOMException") {
+        if callee.name == "DOMException" && !self.classes.contains("DOMException") {
             return self.domexception_object_constructor_expression(new_expr, body);
         }
         if Self::is_builtin_error_constructor(callee.name.as_str()) {
@@ -251,8 +256,8 @@ impl ModuleBuilder<'_> {
         if callee.name == "URL" {
             return self.url_constructor_expression(new_expr, body);
         }
-        let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
-            if self.pending_class_names.contains(callee.name.as_str()) {
+        let Some(item) = self.classes.item(callee.name.as_str()) else {
+            if self.classes.is_pending(callee.name.as_str()) {
                 let class_name = self.intern_type_name(callee.name.as_str());
                 let args = new_expr
                     .arguments
@@ -272,7 +277,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(new_expr.span.start, new_expr.span.end),
                 }));
             }
-            if self.value_imports.contains(callee.name.as_str())
+            if self.imports.is_value(callee.name.as_str())
                 || self.module_globals.contains_key(callee.name.as_str())
                 || self.source_contains_class(callee.name.as_str())
             {
@@ -395,7 +400,7 @@ impl ModuleBuilder<'_> {
         callee: &oxc::ast::ast::IdentifierReference<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Some(local) = self.locals.get(callee.name.as_str()).copied() else {
+        let Some(local) = self.scope.lookup(callee.name.as_str()) else {
             return Ok(None);
         };
         let local_ty = Self::local_ty(body, local);
@@ -542,12 +547,12 @@ impl ModuleBuilder<'_> {
         };
         // A local binding shadowing the name is an ordinary value, not a class
         // constructor; leave it to the normal identifier path.
-        if self.locals.contains_key(name) {
+        if self.scope.is_bound(name) {
             return Ok(None);
         }
         let is_error_builtin = Self::is_builtin_error_constructor(name);
-        let is_user_class = self.classes.contains_key(name)
-            || self.pending_class_names.contains(name)
+        let is_user_class = self.classes.contains(name)
+            || self.classes.is_pending(name)
             || self.source_contains_class(name);
         if !is_error_builtin && !is_user_class {
             return Ok(None);
@@ -756,8 +761,9 @@ impl ModuleBuilder<'_> {
     /// array names — including the BigInt-backed `BigInt64Array` /
     /// `BigUint64Array`, which the previous inline `matches!` omitted and which
     /// therefore aborted the es-toolkit build as an "unresolved class" — are
-    /// recognized from one registry. Smelt backs every view with the same
-    /// numeric-list model, so all eleven share this construction path.
+    /// recognized from one registry. Every view is a byte-backed host object with
+    /// its own element type, so all eleven share the one byte-buffer construction
+    /// path.
     pub(super) fn is_numeric_typed_array_constructor(name: &str) -> bool {
         smelt_stdlib::is_typed_array_class_name(name)
     }
@@ -2068,11 +2074,11 @@ impl ModuleBuilder<'_> {
                     None
                 };
                 if let Some(narrowing) = rhs_narrowing.clone() {
-                    self.narrowed_locals.push(narrowing);
+                    self.scope.push_narrowing_scope(narrowing);
                 }
                 let rhs = self.expression(&logical.right, body)?;
                 if rhs_narrowing.is_some() {
-                    self.narrowed_locals.pop();
+                    self.scope.pop_narrowing_scope();
                 }
                 let ty = self.ctx.krate.types.intern(Type::Bool);
                 let identity = body.push_expr(Expr {
@@ -2113,24 +2119,24 @@ impl ModuleBuilder<'_> {
                 let arm_span = self.span(conditional.span.start, conditional.span.end);
                 let then_narrowing = self.guard_narrowing(&conditional.test, body);
                 if let Some(narrowing) = then_narrowing.clone() {
-                    self.narrowed_locals.push(narrowing);
+                    self.scope.push_narrowing_scope(narrowing);
                 }
                 let then_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
                     slf.expression_with_hint(&conditional.consequent, body, type_hint)
                 })?;
                 if then_narrowing.is_some() {
-                    self.narrowed_locals.pop();
+                    self.scope.pop_narrowing_scope();
                 }
                 let branch_hint = Some(Self::expr_ty(body, then_expr));
                 let else_narrowing = self.inverse_guard_narrowing(&conditional.test, body);
                 if let Some(narrowing) = else_narrowing.clone() {
-                    self.narrowed_locals.push(narrowing);
+                    self.scope.push_narrowing_scope(narrowing);
                 }
                 let else_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
                     slf.expression_with_hint(&conditional.alternate, body, branch_hint)
                 })?;
                 if else_narrowing.is_some() {
-                    self.narrowed_locals.pop();
+                    self.scope.pop_narrowing_scope();
                 }
                 let then_ty = Self::expr_ty(body, then_expr);
                 let else_ty = Self::expr_ty(body, else_expr);
@@ -2652,12 +2658,13 @@ impl ModuleBuilder<'_> {
     /// folds to its consequent.
     ///
     /// The set matches the constructors with a concrete construct + `instanceof`
-    /// lowering: typed-array views (backed by numeric lists),
-    /// `ArrayBuffer`/`Blob`/`File`/`Buffer`, and the marker-only host builtins.
+    /// lowering: the typed-array views and
+    /// `ArrayBuffer`/`Blob`/`File`/`Buffer`/`DataView` (all byte-backed host
+    /// objects), plus the marker-only host builtins.
     /// A local binding or user class of the same name shadows the global, so it
     /// is excluded — the guard then lowers normally.
     fn identifier_is_always_present_global_constructor(&self, name: &str) -> bool {
-        if self.locals.contains_key(name) || self.classes.contains_key(name) {
+        if self.scope.is_bound(name) || self.classes.contains(name) {
             return false;
         }
         smelt_stdlib::is_typed_array_class_name(name)

@@ -3,48 +3,14 @@
 
 use crate::SmeltError;
 use crate::lowering::support::sanitize_test_name;
-use crate::lowering::{MethodSig, ModuleBuilder, TableBindingValue};
+use crate::lowering::state::class_registry::{ClassNameSnapshot, ClassScopeSnapshot};
+use crate::lowering::{ModuleBuilder, TableBindingValue};
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, BindingPattern, Expression, ForStatementLeft,
     ObjectPropertyKind, PropertyKey, Statement,
 };
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Field, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type};
-use std::collections::{HashMap, HashSet};
-
-/// Class-registry names captured before a test case is lowered so that
-/// block-local synthesized constructor classes can be rolled back afterwards.
-///
-/// See [`ModuleBuilder::test_case_class_scope`] for why per-case class scoping
-/// is needed even though `self.locals` is already saved and restored.
-struct TestCaseClassScope {
-    /// Names present in the `classes` registry on entry to the test case.
-    classes: HashSet<String>,
-    /// Names present in the `class_fields` registry on entry to the test case.
-    fields: HashSet<String>,
-    /// Names present in the `class_methods` registry on entry to the test case.
-    methods: HashSet<String>,
-}
-
-/// Class lookup state saved while lowering one lexical test-suite body.
-///
-/// Suite-local classes stay visible to tests and nested suites in their
-/// declaring callback, then disappear before a sibling suite is lowered. The
-/// emitted HIR items remain in the crate; only source-name lookup is restored.
-struct TestSuiteClassScope {
-    /// Source class bindings visible before entering the suite.
-    classes: HashMap<String, smelt_hir::ItemId>,
-    /// Class-field sidecars visible before entering the suite.
-    fields: HashMap<String, Vec<Field>>,
-    /// Class-method sidecars visible before entering the suite.
-    methods: HashMap<String, Vec<MethodSig>>,
-    /// Class inheritance metadata visible before entering the suite.
-    bases: HashMap<String, (smelt_hir::Symbol, Vec<smelt_hir::TypeId>)>,
-    /// Active source binding to internal type-symbol mappings.
-    type_names: HashMap<String, smelt_hir::Symbol>,
-    /// Class index-signature metadata visible before entering the suite.
-    index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
-}
+use smelt_hir::{Body, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type};
 
 impl ModuleBuilder<'_> {
     /// Lower a `describe` test-suite declaration and its inherited hooks.
@@ -245,15 +211,8 @@ impl ModuleBuilder<'_> {
     fn enter_test_suite_class_scope(
         &mut self,
         statements: &oxc::allocator::Vec<'_, Statement<'_>>,
-    ) -> TestSuiteClassScope {
-        let scope = TestSuiteClassScope {
-            classes: self.classes.clone(),
-            fields: self.class_fields.clone(),
-            methods: self.class_methods.clone(),
-            bases: self.class_bases.clone(),
-            type_names: self.scoped_class_type_names.clone(),
-            index_values: self.class_index_values.clone(),
-        };
+    ) -> ClassScopeSnapshot {
+        let scope = self.classes.snapshot_scope();
         for statement in statements {
             let Statement::ClassDeclaration(class) = statement else {
                 continue;
@@ -266,20 +225,14 @@ impl ModuleBuilder<'_> {
                 id.name, self.file_id.0, class.span.start,
             );
             let symbol = self.intern_type_name(&internal_name);
-            self.scoped_class_type_names
-                .insert(id.name.to_string(), symbol);
+            self.classes.bind_scoped_type_name(id.name.to_string(), symbol);
         }
         scope
     }
 
     /// Restore the enclosing lexical class lookup after a suite body.
-    fn restore_test_suite_class_scope(&mut self, scope: TestSuiteClassScope) {
-        self.classes = scope.classes;
-        self.class_fields = scope.fields;
-        self.class_methods = scope.methods;
-        self.class_bases = scope.bases;
-        self.scoped_class_type_names = scope.type_names;
-        self.class_index_values = scope.index_values;
+    fn restore_test_suite_class_scope(&mut self, scope: ClassScopeSnapshot) {
+        self.classes.restore_scope(scope);
     }
 
     /// Expand a comma expression made entirely of test registrations.
@@ -589,7 +542,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return false;
         };
-        if self.test_builtins.contains(callee.name.as_str()) || call.arguments.len() < 2 {
+        if self.imports.is_test_builtin(callee.name.as_str()) || call.arguments.len() < 2 {
             return false;
         }
         call.arguments.get(1).is_some_and(|argument| {
@@ -658,22 +611,14 @@ impl ModuleBuilder<'_> {
     /// registry is not. Pairing this snapshot with
     /// [`Self::restore_test_case_class_scope`] drops any class added during the
     /// case while preserving module-level and imported classes.
-    fn test_case_class_scope(&self) -> TestCaseClassScope {
-        TestCaseClassScope {
-            classes: self.classes.keys().cloned().collect(),
-            fields: self.class_fields.keys().cloned().collect(),
-            methods: self.class_methods.keys().cloned().collect(),
-        }
+    fn test_case_class_scope(&self) -> ClassNameSnapshot {
+        self.classes.snapshot_names()
     }
 
     /// Drop class-registry entries added while lowering a test case, restoring
     /// the block-local class scope captured by [`Self::test_case_class_scope`].
-    fn restore_test_case_class_scope(&mut self, scope: &TestCaseClassScope) {
-        self.classes.retain(|name, _| scope.classes.contains(name));
-        self.class_fields
-            .retain(|name, _| scope.fields.contains(name));
-        self.class_methods
-            .retain(|name, _| scope.methods.contains(name));
+    fn restore_test_case_class_scope(&mut self, scope: &ClassNameSnapshot) {
+        self.classes.retain_names(scope);
     }
 
     /// Lower a prepared test callback into an HIR test function.
@@ -687,17 +632,17 @@ impl ModuleBuilder<'_> {
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let saved_locals = std::mem::take(&mut self.locals);
-        let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
-        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
-        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
+        let saved_locals = self.scope.take_bindings();
+        let saved_date_value_locals = self.scope.take_date_values();
+        let saved_callable_local_props = self.scope.take_callable_prop_writes();
+        let saved_explicit_any_locals = self.scope.take_explicit_any();
         // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
         // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
         // must not leak into a sibling test that declares its own same-named
         // binding — a stale optional narrowing would turn its indexed writes
         // into non-assignable optional projections. Scope them per test case
         // exactly like `self.locals`.
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_narrowed_locals = self.scope.take_narrowings();
         let saved_async = self.current_async;
         let class_scope = self.test_case_class_scope();
         self.current_async = arrow.r#async;
@@ -746,11 +691,11 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
-        self.locals = saved_locals;
-        self.date_value_locals = saved_date_value_locals;
-        self.callable_local_props = saved_callable_local_props;
-        self.explicit_any_locals = saved_explicit_any_locals;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_bindings(saved_locals);
+        self.scope.restore_date_values(saved_date_value_locals);
+        self.scope.restore_callable_prop_writes(saved_callable_local_props);
+        self.scope.restore_explicit_any(saved_explicit_any_locals);
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.current_async = saved_async;
         self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {
@@ -811,17 +756,17 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = std::mem::take(&mut self.locals);
-        let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
-        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
-        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
+        let saved_locals = self.scope.take_bindings();
+        let saved_date_value_locals = self.scope.take_date_values();
+        let saved_callable_local_props = self.scope.take_callable_prop_writes();
+        let saved_explicit_any_locals = self.scope.take_explicit_any();
         // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
         // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
         // must not leak into a sibling test that declares its own same-named
         // binding — a stale optional narrowing would turn its indexed writes
         // into non-assignable optional projections. Scope them per test case
         // exactly like `self.locals`.
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_narrowed_locals = self.scope.take_narrowings();
         let saved_async = self.current_async;
         let class_scope = self.test_case_class_scope();
         self.current_async = function.r#async;
@@ -882,11 +827,11 @@ impl ModuleBuilder<'_> {
             }
         }
         self.current_arguments_arities.pop();
-        self.locals = saved_locals;
-        self.date_value_locals = saved_date_value_locals;
-        self.callable_local_props = saved_callable_local_props;
-        self.explicit_any_locals = saved_explicit_any_locals;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_bindings(saved_locals);
+        self.scope.restore_date_values(saved_date_value_locals);
+        self.scope.restore_callable_prop_writes(saved_callable_local_props);
+        self.scope.restore_explicit_any(saved_explicit_any_locals);
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.current_async = saved_async;
         self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {
@@ -1176,7 +1121,7 @@ impl ModuleBuilder<'_> {
             mutable: false,
             span: self.span(span.start, span.end),
         });
-        self.locals.insert(name.to_owned(), local);
+        self.scope.bind(name.to_owned(), local);
         let pat = body.push_pattern(Pattern::Binding(local));
         body.push_stmt(Stmt::Let {
             pat,

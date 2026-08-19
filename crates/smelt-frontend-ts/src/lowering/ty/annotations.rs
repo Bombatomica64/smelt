@@ -199,7 +199,7 @@ impl ModuleBuilder<'_> {
                             })
                             .expect("function member should exist");
                         if !fields.is_empty() {
-                            self.callable_fields.insert(function_ty, fields.clone());
+                            self.types.set_callable_fields(function_ty, fields.clone());
                             self.ctx.callable_fields.insert(function_ty, fields);
                         }
                         Ok(function_ty)
@@ -313,10 +313,7 @@ impl ModuleBuilder<'_> {
                 // lowered inline without a forward-declaration pass. The interned
                 // symbol matches the class item's name because both come from
                 // `intern_type_name(class_text)`.
-                let name = self
-                    .classes
-                    .get(&class_name)
-                    .copied()
+                let name = self.classes.item(&class_name)
                     .and_then(|class_item| match self.item_ref(class_item) {
                         Item::Class(class) => Some(class.name),
                         _ => None,
@@ -473,7 +470,7 @@ return_ty: function.return_ty,
             return false;
         };
         let symbol = self.intern_type_name(name.name.as_str());
-        self.callable_object_aliases.contains(&symbol)
+        self.types.is_callable_object_alias(symbol)
     }
 
     /// Return whether a type's syntax is an intersection of callable and object surfaces.
@@ -764,13 +761,11 @@ return_ty: function.return_ty,
                 &lowered_args,
                 self.span(reference.span.start, reference.span.end),
             )?;
-            if let Some(fields) = self.type_alias_fields.get(&symbol).cloned() {
+            if let Some(fields) = self.types.alias_fields(symbol).cloned() {
                 return Ok(self.substituted_fields(&fields, &substitutions));
             }
         }
-        Ok(self
-            .type_alias_fields
-            .get(&symbol)
+        Ok(self.types.alias_fields(symbol)
             .cloned()
             .unwrap_or_default())
     }
@@ -1816,9 +1811,7 @@ return_ty: function.return_ty,
                         Some(Type::Union(_))
                     );
                     let substituted_alias_ty = self.substitute_type_params(alias.ty, &substitutions);
-                    let alias_has_fields = self
-                        .type_alias_fields
-                        .get(&symbol)
+                    let alias_has_fields = self.types.alias_fields(symbol)
                         .is_some_and(|fields| !fields.is_empty());
                     if alias_has_fields
                         && !alias_is_union
@@ -1843,11 +1836,11 @@ return_ty: function.return_ty,
                     if !alias_is_union
                         && let Some(function_ty) = self.function_member_type(substituted_alias_ty)
                     {
-                        if let Some(fields) = self.type_alias_fields.get(&symbol).cloned()
+                        if let Some(fields) = self.types.alias_fields(symbol).cloned()
                             && !fields.is_empty()
                         {
                             let fields = self.substituted_fields(&fields, &substitutions);
-                            self.callable_fields.insert(function_ty, fields.clone());
+                            self.types.set_callable_fields(function_ty, fields.clone());
                             self.ctx.callable_fields.insert(function_ty, fields);
                         }
                         return Ok(function_ty);
@@ -1887,7 +1880,7 @@ return_ty: function.return_ty,
         name: smelt_hir::Symbol,
         substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> Option<smelt_hir::TypeId> {
-        let signatures = self.interface_construct_signatures.get(&name).cloned()?;
+        let signatures = self.interfaces.construct_signatures(name).cloned()?;
         let signature = signatures.first()?;
         // Only a *pure* constructor slot lowers to a callable: an interface that
         // also carries data/method fields or a call signature is a mixed
@@ -1895,9 +1888,7 @@ return_ty: function.return_ty,
         let has_other_members = self
             .find_interface(name)
             .is_some_and(|interface| !interface.fields.is_empty())
-            || self
-                .interface_call_signatures
-                .get(&name)
+            || self.interfaces.call_signatures(name)
                 .is_some_and(|call_sigs| !call_sigs.is_empty());
         if has_other_members {
             return None;
@@ -1939,7 +1930,7 @@ return_ty: function.return_ty,
         if self.find_type_alias(direct_symbol).is_some() {
             return direct_symbol;
         }
-        if let Some(symbol) = self.scoped_class_type_names.get(name_text).copied() {
+        if let Some(symbol) = self.classes.scoped_type_name(name_text) {
             return symbol;
         }
         if let Some(item) = self.items.get(name_text).copied() {
@@ -2165,9 +2156,7 @@ return_ty: function.return_ty,
             // instead of rejecting source that TypeScript accepts.
             Type::String => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             Type::Function(_) => {
-                if let Some(field) = self
-                    .callable_fields
-                    .get(&receiver_ty)
+                if let Some(field) = self.types.callable_fields(receiver_ty)
                     .and_then(|fields| fields.iter().find(|item| item.name == field))
                 {
                     return Ok(if field.optional {
@@ -2250,7 +2239,7 @@ return_ty: function.return_ty,
                     .or_else(|| self.ctx.krate.symbols.get(name))
                     .map(str::to_owned);
                 let sidecar_field = class_name.as_deref().and_then(|class_name| {
-                    self.class_fields.get(class_name).and_then(|fields| {
+                    self.classes.fields(class_name).and_then(|fields| {
                         fields
                             .iter()
                             .find(|item| item.name == field)
@@ -2258,9 +2247,7 @@ return_ty: function.return_ty,
                     })
                 });
                 let sidecar_method = class_name.as_deref().and_then(|class_name| {
-                    let method = self
-                        .class_methods
-                        .get(class_name)?
+                    let method = self.classes.methods(class_name)?
                         .iter()
                         .find(|item| item.name == field)?;
                     let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
@@ -2290,7 +2277,7 @@ return_ty: function.return_ty,
                         .map(|item| (item.ty, item.optional));
                     field_data.map(|(ty, optional)| {
                         self.instantiate_field_type(ty, optional, &substitutions)
-                    }).or_else(|| self.interface_index_values.get(&name).copied())
+                    }).or_else(|| self.interfaces.index_value(name))
                 } else {
                     None
                 };
@@ -2317,9 +2304,7 @@ return_ty: function.return_ty,
                         may_throw: false,
                     })))
                 });
-                let alias_fields = self
-                    .type_alias_fields
-                    .get(&name)
+                let alias_fields = self.types.alias_fields(name)
                     .cloned()
                     .unwrap_or_default();
                 let alias_field = if let Some(alias) = self.find_type_alias(name).cloned() {
@@ -2348,7 +2333,7 @@ return_ty: function.return_ty,
                 // index signature's value type instead of erasing it. Named
                 // members are tried first (above) so declared fields keep their
                 // concrete types; this is only the dynamic-keyed fallback.
-                let class_index_field = self.class_index_values.get(&name).copied();
+                let class_index_field = self.classes.index_value(name);
                 if let Some(ty) = class_field
                     .or(sidecar_field)
                     .or(sidecar_method)
@@ -2367,7 +2352,7 @@ return_ty: function.return_ty,
                     .or_else(|| {
                         class_name
                             .as_deref()
-                            .and_then(|class_name| self.class_bases.get(class_name).cloned())
+                            .and_then(|class_name| self.classes.base(class_name).cloned())
                     })
                 {
                     let substitutions = self.type_argument_substitution(
@@ -2442,7 +2427,7 @@ return_ty: function.return_ty,
             .get(class_name)
             .or_else(|| self.ctx.krate.symbols.get(class_name))
             .map(str::to_owned)?;
-        let methods = self.class_methods.get(&class_text).cloned()?;
+        let methods = self.classes.methods(&class_text).cloned()?;
         let method = methods.into_iter().find(|item| item.name == method_name)?;
         let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
         let mutable_params =
@@ -2473,7 +2458,7 @@ return_ty: function.return_ty,
         if !visited.insert(name) {
             return Ok(None);
         }
-        let Some(parents) = self.interface_extends.get(&name).cloned() else {
+        let Some(parents) = self.interfaces.extends(name).cloned() else {
             return Ok(None);
         };
         let child_params = self
@@ -2529,7 +2514,7 @@ return_ty: function.return_ty,
             .map(|item| (item.ty, item.optional));
         Ok(field_data
             .map(|(ty, optional)| self.instantiate_field_type(ty, optional, &substitutions))
-            .or_else(|| self.interface_index_values.get(&name).copied()))
+            .or_else(|| self.interfaces.index_value(name)))
     }
 
     /// Apply generic substitutions and optional wrapping for a structural field.
@@ -2565,9 +2550,7 @@ return_ty: function.return_ty,
                 self.ctx.krate.types.intern(Type::Unknown)
             }
             Some(Type::Class { name, .. }) => {
-                let fields = self
-                    .type_alias_fields
-                    .get(&name)
+                let fields = self.types.alias_fields(name)
                     .cloned()
                     .unwrap_or_default();
                 let mut value_tys = Vec::new();
@@ -2865,7 +2848,7 @@ return_ty: function.return_ty,
         else {
             return Ok(None);
         };
-        let Some(methods) = self.class_methods.get(&class_name).cloned() else {
+        let Some(methods) = self.classes.methods(&class_name).cloned() else {
             return Ok(None);
         };
         let Some(signature) = methods.into_iter().find(|item| item.name == method) else {
@@ -2911,12 +2894,9 @@ return_ty: function.return_ty,
             // `Optional<T>` rather than the erased `Unknown` boundary. Classes with
             // no index signature still fall through to `Unknown` below.
             Some(Type::Class { name, .. })
-                if self.class_index_values.contains_key(name) =>
+                if self.classes.has_index_value(*name) =>
             {
-                let value_ty = self
-                    .class_index_values
-                    .get(name)
-                    .copied()
+                let value_ty = self.classes.index_value(*name)
                     .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
                 Ok(self.optional_chain_result_type(value_ty))
             }
@@ -3308,7 +3288,7 @@ return_ty: function.return_ty,
                         .krate
                         .symbols
                         .get(*name)
-                        .is_some_and(|name| !self.classes.contains_key(name) && !self.interfaces.contains_key(name))
+                        .is_some_and(|name| !self.classes.contains(name) && !self.interfaces.contains(name))
             )
     }
 

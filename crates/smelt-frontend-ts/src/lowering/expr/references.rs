@@ -86,11 +86,8 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
-        if self.classes.contains_key(name) {
-            let symbol = self
-                .classes
-                .get(name)
-                .copied()
+        if self.classes.contains(name) {
+            let symbol = self.classes.item(name)
                 .and_then(|item| match self.item_ref(item) {
                     Item::Class(class) => Some(class.name),
                     _ => None,
@@ -141,8 +138,8 @@ impl ModuleBuilder<'_> {
         // body (for example `next` closing over `itemsByIndex`) instead of the
         // nested body's remapped local for `next` itself.
         if let (Some(local), Some(callback)) = (
-            self.locals.get(name).copied(),
-            self.local_callbacks.get(name),
+            self.scope.lookup(name),
+            self.scope.callback(name),
         ) && body.blocks.first().map(|block| block.span) != callback.defining_body_span
             && usize::try_from(local.0)
                 .ok()
@@ -158,7 +155,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
-        if let Some(callback) = self.local_callbacks.get(name).cloned() {
+        if let Some(callback) = self.scope.callback(name).cloned() {
             return self.callback_expr_to_closure_with_return_ty(
                 callback.return_ty,
                 &callback.callback,
@@ -169,7 +166,7 @@ impl ModuleBuilder<'_> {
                 body,
             );
         }
-        let Some(local) = self.locals.get(name).copied() else {
+        let Some(local) = self.scope.lookup(name) else {
             // A module-level `let`/`var` binding lifted to a mutable global (and
             // not shadowed by a local) reads through `GlobalGet`, never the
             // const-inline path. This also resolves imported mutated bindings,
@@ -185,7 +182,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
-            if let Some((pattern, flags, ty)) = self.const_regexps.get(name).cloned() {
+            if let Some((pattern, flags, ty)) = self.consts.regexp(name).cloned() {
                 let span = self.span(start, end);
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 let pattern = body.push_expr(Expr {
@@ -207,14 +204,14 @@ impl ModuleBuilder<'_> {
                     span,
                 }));
             }
-            if let Some(value) = self.const_literals.get(name) {
+            if let Some(value) = self.consts.literal(name) {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(value.literal.clone()),
                     ty: value.ty,
                     span: self.span(start, end),
                 }));
             }
-            if let Some(value) = self.const_objects.get(name).cloned() {
+            if let Some(value) = self.consts.object(name).cloned() {
                 return Ok(self.object_const_expression(&value, start, end, body));
             }
             if let Some(item) = self.items.get(name).copied()
@@ -280,7 +277,7 @@ impl ModuleBuilder<'_> {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);
             }
-            if self.value_imports.contains(name) {
+            if self.imports.is_value(name) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);
             }
@@ -319,10 +316,10 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
-            if let Some(value) = self.const_objects.get(name).cloned() {
+            if let Some(value) = self.consts.object(name).cloned() {
                 return Ok(self.object_const_expression(&value, start, end, body));
             }
-            if let Some(value) = self.const_literals.get(name) {
+            if let Some(value) = self.consts.literal(name) {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(value.literal.clone()),
                     ty: value.ty,
@@ -341,9 +338,7 @@ impl ModuleBuilder<'_> {
         // coercion is intercepted before this path (and removes the entry), so
         // reaching here with a live entry means the value flowed out as a bare
         // callable; a later property write onto it is then a documented punt.
-        if let Some(state) = self.callable_local_props.get_mut(&local) {
-            state.escaped = true;
-        }
+        self.scope.mark_callable_local_escaped(local);
         let base_ty = Self::local_ty(body, local);
         let ty = self.narrowed_type(name).unwrap_or(base_ty);
         let local_expr = body.push_expr(Expr {
@@ -1283,7 +1278,7 @@ impl ModuleBuilder<'_> {
         end: u32,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if let Some(collection) = self.const_collections.get(name).cloned() {
+        if let Some(collection) = self.consts.collection(name).cloned() {
             let span = self.span(start, end);
             let items = collection
                 .items

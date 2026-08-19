@@ -46,6 +46,92 @@ pub enum ByteBufferRole {
     View,
 }
 
+/// The element type a typed-array view reads out of its byte storage.
+///
+/// A JavaScript typed array is *bytes plus an element type*: the same eight bytes
+/// are two `Float32Array` elements, one `Float64Array` element, or eight
+/// `Uint8Array` elements, and the same byte `0xff` reads as `255` through a
+/// `Uint8Array` and `-1` through an `Int8Array`. Modeling the views without the
+/// element type is what made every one of them report
+/// `Object.prototype.toString` tag `[object Array]` with the *byte* count as its
+/// `length`.
+///
+/// This enum is the real element typing: [`Self::byte_width`] gives the stride
+/// that turns a byte count into an element count, and the runtime byte-buffer
+/// prelude derives its little-endian decode/encode pair from the variant. It is
+/// deliberately a closed set — the eleven views JavaScript defines — so a view's
+/// identity is resolved statically at its construction site rather than guessed
+/// from a value at runtime.
+// Deliberately exhaustive (no `#[non_exhaustive]`): JavaScript defines exactly
+// these eleven element types, and the codegen crate matches on the variant to
+// derive its decode/encode pair — a wildcard arm there would silently emit a
+// byte-wide codec for a newly added width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypedArrayElement {
+    /// Signed 8-bit integer (`Int8Array`).
+    Int8,
+    /// Unsigned 8-bit integer (`Uint8Array`, Node `Buffer`).
+    Uint8,
+    /// Unsigned 8-bit integer with saturating (not wrapping) writes
+    /// (`Uint8ClampedArray`).
+    Uint8Clamped,
+    /// Signed 16-bit integer (`Int16Array`).
+    Int16,
+    /// Unsigned 16-bit integer (`Uint16Array`).
+    Uint16,
+    /// Signed 32-bit integer (`Int32Array`).
+    Int32,
+    /// Unsigned 32-bit integer (`Uint32Array`).
+    Uint32,
+    /// IEEE-754 single-precision float (`Float32Array`).
+    Float32,
+    /// IEEE-754 double-precision float (`Float64Array`).
+    Float64,
+    /// Signed 64-bit integer (`BigInt64Array`).
+    BigInt64,
+    /// Unsigned 64-bit integer (`BigUint64Array`).
+    BigUint64,
+}
+
+impl TypedArrayElement {
+    /// Bytes one element occupies — the view's `BYTES_PER_ELEMENT`.
+    ///
+    /// This is the stride that separates a typed array's `byteLength` from its
+    /// `length`: a `Float64Array` over eight bytes has one element, a
+    /// `Uint8Array` over the same eight bytes has eight.
+    #[must_use]
+    pub const fn byte_width(self) -> usize {
+        match self {
+            Self::Int8 | Self::Uint8 | Self::Uint8Clamped => 1,
+            Self::Int16 | Self::Uint16 => 2,
+            Self::Int32 | Self::Uint32 | Self::Float32 => 4,
+            Self::Float64 | Self::BigInt64 | Self::BigUint64 => 8,
+        }
+    }
+
+    /// A stable lowercase tag naming this element type.
+    ///
+    /// The generated runtime dispatches its decode/encode on this string, so the
+    /// emitter and the emitted code share one spelling rather than each
+    /// re-deriving one from the variant.
+    #[must_use]
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::Int8 => "int8",
+            Self::Uint8 => "uint8",
+            Self::Uint8Clamped => "uint8clamped",
+            Self::Int16 => "int16",
+            Self::Uint16 => "uint16",
+            Self::Int32 => "int32",
+            Self::Uint32 => "uint32",
+            Self::Float32 => "float32",
+            Self::Float64 => "float64",
+            Self::BigInt64 => "bigint64",
+            Self::BigUint64 => "biguint64",
+        }
+    }
+}
+
 /// A single host-object identity: the JavaScript constructor name, the dedicated
 /// identity marker key stamped onto the constructed record, and whether the
 /// identity denotes a boxed primitive wrapper.
@@ -82,6 +168,19 @@ pub struct HostObject {
     /// `None` for the identity-only host objects (`WeakMap`, `Intl.*`, the boxed
     /// wrappers, ...) that have no byte surface.
     pub byte_buffer: Option<ByteBufferRole>,
+    /// The element type this view reads out of its bytes, for the typed arrays.
+    ///
+    /// `Some` for the eleven typed-array views and for Node's `Buffer` (a
+    /// `Uint8Array` subclass). `None` for `ArrayBuffer`/`SharedArrayBuffer`, which
+    /// own bytes without interpreting them, for `DataView`, whose element type is
+    /// chosen per `getFloat32`/`setInt16`/... call rather than by the view, and for
+    /// every host object with no byte surface at all.
+    ///
+    /// A `Some` entry is what makes `length` the element count, an indexed read
+    /// decode at the right width and signedness, and
+    /// `new Float32Array(arrayBuffer)` see two elements where
+    /// `new Uint8Array(arrayBuffer)` sees eight.
+    pub element: Option<TypedArrayElement>,
 }
 
 /// Concise constructor for a host-object registry entry.
@@ -92,6 +191,7 @@ const fn host(class_name: &'static str, marker: &'static str) -> HostObject {
         is_boxed_primitive: false,
         to_string_tag: class_name,
         byte_buffer: None,
+        element: None,
     }
 }
 
@@ -105,6 +205,7 @@ const fn byte_buffer(
     marker: &'static str,
     to_string_tag: &'static str,
     role: ByteBufferRole,
+    element: Option<TypedArrayElement>,
 ) -> HostObject {
     HostObject {
         class_name,
@@ -112,6 +213,28 @@ const fn byte_buffer(
         is_boxed_primitive: false,
         to_string_tag,
         byte_buffer: Some(role),
+        element,
+    }
+}
+
+/// Concise constructor for one of the eleven typed-array view registry entries.
+///
+/// Every typed array is a [`ByteBufferRole::View`] whose spec tag *is* its
+/// constructor name (`[object Float32Array]`), so the only thing that varies
+/// between them is the element type — which is exactly the distinction the old
+/// shared-numeric-list model erased.
+const fn typed_array(
+    class_name: &'static str,
+    marker: &'static str,
+    element: TypedArrayElement,
+) -> HostObject {
+    HostObject {
+        class_name,
+        marker,
+        is_boxed_primitive: false,
+        to_string_tag: class_name,
+        byte_buffer: Some(ByteBufferRole::View),
+        element: Some(element),
     }
 }
 
@@ -123,6 +246,7 @@ const fn boxed(class_name: &'static str, marker: &'static str) -> HostObject {
         is_boxed_primitive: true,
         to_string_tag: class_name,
         byte_buffer: None,
+        element: None,
     }
 }
 
@@ -138,12 +262,61 @@ pub const HOST_OBJECTS: &[HostObject] = &[
         "__smelt_arraybuffer",
         "ArrayBuffer",
         ByteBufferRole::Storage,
+        None,
     ),
     byte_buffer(
         "SharedArrayBuffer",
         "__smelt_sharedarraybuffer",
         "SharedArrayBuffer",
         ByteBufferRole::Storage,
+        None,
+    ),
+    // The eleven `TypedArray` views. Each is a real *view identity*: its own
+    // marker (so `Object.prototype.toString` reports `[object Float32Array]` and
+    // two views over the same buffer are distinguishable), `ByteBufferRole::View`
+    // (so `ArrayBuffer.isView`/`isTypedArray` answer `true`), and its own element
+    // type (so `length` is the element count and an indexed read decodes at the
+    // right width and signedness). Before these entries existed all eleven shared
+    // one `Vec<f64>`, which reported tag `[object Array]` and the *byte* count as
+    // `length` — indistinguishable from each other and from a plain `number[]`.
+    typed_array("Int8Array", "__smelt_int8array", TypedArrayElement::Int8),
+    typed_array("Uint8Array", "__smelt_uint8array", TypedArrayElement::Uint8),
+    typed_array(
+        "Uint8ClampedArray",
+        "__smelt_uint8clampedarray",
+        TypedArrayElement::Uint8Clamped,
+    ),
+    typed_array("Int16Array", "__smelt_int16array", TypedArrayElement::Int16),
+    typed_array(
+        "Uint16Array",
+        "__smelt_uint16array",
+        TypedArrayElement::Uint16,
+    ),
+    typed_array("Int32Array", "__smelt_int32array", TypedArrayElement::Int32),
+    typed_array(
+        "Uint32Array",
+        "__smelt_uint32array",
+        TypedArrayElement::Uint32,
+    ),
+    typed_array(
+        "Float32Array",
+        "__smelt_float32array",
+        TypedArrayElement::Float32,
+    ),
+    typed_array(
+        "Float64Array",
+        "__smelt_float64array",
+        TypedArrayElement::Float64,
+    ),
+    typed_array(
+        "BigInt64Array",
+        "__smelt_bigint64array",
+        TypedArrayElement::BigInt64,
+    ),
+    typed_array(
+        "BigUint64Array",
+        "__smelt_biguint64array",
+        TypedArrayElement::BigUint64,
     ),
     // Node's `Buffer` byte-buffer host object. es-toolkit constructs it
     // (`Buffer.from`/`Buffer.alloc`/`Buffer.concat`) and inspects it via
@@ -157,12 +330,17 @@ pub const HOST_OBJECTS: &[HostObject] = &[
         "__smelt_buffer",
         "Uint8Array",
         ByteBufferRole::View,
+        Some(TypedArrayElement::Uint8),
     ),
+    // `DataView` is byte-addressed on purpose: its element type is chosen per
+    // `getFloat32`/`setInt16`/... call, not by the view, so it has no single
+    // element type and its `length` is its byte length.
     byte_buffer(
         "DataView",
         "__smelt_dataview",
         "DataView",
         ByteBufferRole::View,
+        None,
     ),
     host("WeakMap", "__smelt_weakmap"),
     host("WeakSet", "__smelt_weakset"),
@@ -247,6 +425,29 @@ pub fn byte_buffer_role(class_name: &str) -> Option<ByteBufferRole> {
     host_object_by_class(class_name).and_then(|entry| entry.byte_buffer)
 }
 
+/// Every byte-backed host object that reads its bytes through a fixed element
+/// type, as `(marker, element)`.
+///
+/// This is the table the runtime element codec is generated from: one
+/// little-endian decode/encode pair per element type, selected by the record's
+/// own marker. Driving it from the registry is what keeps "how wide is a
+/// `Float64Array` element" from being restated in the `length` computation, the
+/// indexed read, the indexed write, and the constructor.
+pub fn typed_array_host_objects() -> impl Iterator<Item = (&'static str, TypedArrayElement)> {
+    HOST_OBJECTS
+        .iter()
+        .filter_map(|entry| entry.element.map(|element| (entry.marker, element)))
+}
+
+/// Return the fixed element type of a host constructor's view, or `None`.
+///
+/// `None` covers both the non-byte-backed host objects and the byte-addressed
+/// ones (`ArrayBuffer`, `DataView`), whose bytes carry no single element type.
+#[must_use]
+pub fn typed_array_element(class_name: &str) -> Option<TypedArrayElement> {
+    host_object_by_class(class_name).and_then(|entry| entry.element)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,12 +520,83 @@ mod tests {
             }
         }
         assert_eq!(storage, ["ArrayBuffer", "SharedArrayBuffer"]);
-        assert_eq!(views, ["Buffer", "DataView"]);
+        assert_eq!(
+            views,
+            [
+                "Int8Array",
+                "Uint8Array",
+                "Uint8ClampedArray",
+                "Int16Array",
+                "Uint16Array",
+                "Int32Array",
+                "Uint32Array",
+                "Float32Array",
+                "Float64Array",
+                "BigInt64Array",
+                "BigUint64Array",
+                "Buffer",
+                "DataView",
+            ],
+        );
         assert_eq!(byte_buffer_role("ArrayBuffer"), Some(ByteBufferRole::Storage));
         assert_eq!(byte_buffer_role("Buffer"), Some(ByteBufferRole::View));
+        assert_eq!(byte_buffer_role("Float32Array"), Some(ByteBufferRole::View));
         assert_eq!(byte_buffer_role("WeakMap"), None);
         assert_eq!(byte_buffer_role("NotAHostObject"), None);
-        assert_eq!(byte_buffer_host_objects().count(), 4);
+        assert_eq!(byte_buffer_host_objects().count(), 15);
+    }
+
+    /// Every typed-array view carries its own element type and its own marker, so
+    /// two views over the same bytes are distinguishable and each reports the
+    /// element count — not the byte count — as its `length`. `Buffer` shares
+    /// `Uint8`'s element type because it subclasses `Uint8Array`, while
+    /// `ArrayBuffer` and `DataView` stay byte-addressed.
+    #[test]
+    fn typed_array_views_carry_their_element_type() {
+        let elements = typed_array_host_objects().collect::<Vec<_>>();
+        assert_eq!(elements.len(), 12, "eleven views plus Node `Buffer`");
+        assert_eq!(
+            typed_array_element("Float32Array"),
+            Some(TypedArrayElement::Float32),
+        );
+        assert_eq!(
+            typed_array_element("Uint8ClampedArray"),
+            Some(TypedArrayElement::Uint8Clamped),
+        );
+        assert_eq!(typed_array_element("Buffer"), Some(TypedArrayElement::Uint8));
+        assert_eq!(typed_array_element("ArrayBuffer"), None);
+        assert_eq!(typed_array_element("DataView"), None);
+        assert_eq!(typed_array_element("WeakMap"), None);
+        // Byte widths are the platform's `BYTES_PER_ELEMENT`; these are what turn
+        // a byte count into an element count.
+        assert_eq!(TypedArrayElement::Int8.byte_width(), 1);
+        assert_eq!(TypedArrayElement::Uint16.byte_width(), 2);
+        assert_eq!(TypedArrayElement::Float32.byte_width(), 4);
+        assert_eq!(TypedArrayElement::Float64.byte_width(), 8);
+        assert_eq!(TypedArrayElement::BigUint64.byte_width(), 8);
+        // Element tags are distinct, since the generated codec dispatches on them.
+        let tags = elements
+            .iter()
+            .map(|(_marker, element)| element.tag())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(tags.len(), 11, "one tag per element type, `Buffer` reusing `uint8`");
+    }
+
+    /// Every typed-array class name in the shared frontend list has a registry
+    /// entry, so the construction side, the `instanceof` side, and the runtime
+    /// element codec cannot recognize different sets of views.
+    #[test]
+    fn typed_array_class_names_all_have_registry_entries() {
+        for name in crate::TYPED_ARRAY_CLASS_NAMES {
+            let entry = host_object_by_class(name)
+                .unwrap_or_else(|| panic!("`{name}` must have a host-object registry entry"));
+            assert_eq!(entry.byte_buffer, Some(ByteBufferRole::View));
+            assert!(
+                entry.element.is_some(),
+                "`{name}` must carry an element type",
+            );
+            assert_eq!(entry.to_string_tag, name);
+        }
     }
 
     /// Only Node's `Buffer` reports a spec tag that differs from its constructor

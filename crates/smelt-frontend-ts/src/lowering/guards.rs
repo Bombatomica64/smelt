@@ -29,10 +29,10 @@ impl ModuleBuilder<'_> {
         if let Expression::StaticMemberExpression(member) = &binary.right
             && (self
                 .namespace_member_name(member)
-                .is_some_and(|(namespace, _)| self.namespace_imports.contains(namespace))
+                .is_some_and(|(namespace, _)| self.imports.is_namespace(namespace))
                 || matches!(
                     &member.object,
-                    Expression::Identifier(object) if self.value_imports.contains(object.name.as_str())
+                    Expression::Identifier(object) if self.imports.is_value(object.name.as_str())
                 ))
         {
             let ty = self.ctx.krate.types.intern(Type::Bool);
@@ -49,33 +49,11 @@ impl ModuleBuilder<'_> {
             ));
         };
         let class_text = class_ident.name.as_str();
-        // `x instanceof Uint8Array` (any typed-array view). Smelt models a typed
-        // array as a plain numeric list, so identity is only recoverable from the
-        // static type: a list-typed operand *is* a typed array in this model and
-        // folds to `true`, while any other concrete or erased operand carries no
-        // typed-array identity and folds to `false`. This deliberately cannot
-        // distinguish a typed array from a plain `number[]` — the numeric-list
-        // representation erases that distinction — but it keeps the check honest
-        // for the common concrete cases and never aborts the build. A
-        // user-declared class of the same name owns the name and is handled by
-        // the ordinary class path below.
-        if smelt_stdlib::is_typed_array_class_name(class_text)
-            && !self.classes.contains_key(class_text)
-        {
-            let result = matches!(
-                self.ctx
-                    .krate
-                    .types
-                    .get(self.type_param_constraint_or_self(value_ty)),
-                Some(Type::List(_))
-            );
-            let ty = self.ctx.krate.types.intern(Type::Bool);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Bool(result)),
-                ty,
-                span: self.span(binary.span.start, binary.span.end),
-            }));
-        }
+        // `x instanceof Uint8Array` (any typed-array view) resolves through the
+        // view's registry marker, like every other byte-backed host object — the
+        // typed arrays are no longer numeric lists whose identity had to be
+        // guessed from the static type, so this needs no fold of its own and falls
+        // through to the `InstanceOf` path below.
         // `x instanceof Array`. Smelt backs a JavaScript array with a plain list,
         // so this folds exactly like `Array.isArray(x)` (see `array_is_array_call`):
         // a list/tuple-typed operand *is* an array and folds to `true`, an erased
@@ -83,7 +61,7 @@ impl ModuleBuilder<'_> {
         // probe `UnknownIs { Array }`, and any other concrete type carries no array
         // identity and folds to `false`. A user-declared `class Array` owns the
         // name and falls through to the ordinary class path below.
-        if class_text == "Array" && !self.classes.contains_key("Array") {
+        if class_text == "Array" && !self.classes.contains("Array") {
             let operand_ty = self.type_param_constraint_or_self(value_ty);
             if matches!(
                 self.ctx.krate.types.get(operand_ty),
@@ -167,13 +145,13 @@ impl ModuleBuilder<'_> {
             ));
         }
         if !builtin_target
-            && !self.classes.contains_key(class_text)
+            && !self.classes.contains(class_text)
             // Module class names are collected before any class body is
             // lowered. A class currently under construction is therefore a
             // valid nominal target even though its final HIR item is inserted
             // only after all of its methods have been emitted.
-            && !self.pending_class_names.contains(class_text)
-            && !self.value_imports.contains(class_text)
+            && !self.classes.is_pending(class_text)
+            && !self.imports.is_value(class_text)
         {
             // `this instanceof bound` against a *function* value (the JS
             // constructor-function idiom for detecting `new`-invocation, as in
@@ -183,8 +161,8 @@ impl ModuleBuilder<'_> {
             // Classes are not first-class values in Smelt, so a target that
             // resolves to a local binding or function item can only be a
             // function value, never a constructible class.
-            let target_is_function_value = self.locals.contains_key(class_text)
-                || self.local_callbacks.contains_key(class_text)
+            let target_is_function_value = self.scope.is_bound(class_text)
+                || self.scope.has_callback(class_text)
                 || self
                     .items
                     .get(class_text)
@@ -215,11 +193,9 @@ impl ModuleBuilder<'_> {
     /// Return true when an expression is a built-in constructor target.
     pub(super) fn instanceof_builtin_target(target: &str) -> bool {
         smelt_stdlib::typescript_stdlib_class(target).is_some()
-            // Typed-array views (`x instanceof Uint8Array`). Smelt backs a typed
-            // array with a plain numeric list, so a *concrete* list-typed operand
-            // resolves through the list check below and an erased/other operand
-            // folds to `false` (see `instanceof_fold_false_builtin_target`) —
-            // either way the target is recognized instead of aborting the build.
+            // Typed-array views (`x instanceof Uint8Array`) are byte-backed host
+            // objects, so they are already covered by the `byte_buffer_role`
+            // clause below; naming them here too keeps the recognizer readable.
             || smelt_stdlib::is_typed_array_class_name(target)
             || Self::marker_only_builtin_marker(target).is_some()
             // The byte-backed host objects (`ArrayBuffer`, `SharedArrayBuffer`,
@@ -353,7 +329,7 @@ impl ModuleBuilder<'_> {
         }
         match &expr.kind {
             ExprKind::DateFromParts { .. } | ExprKind::DateFromValue { .. } => true,
-            ExprKind::Local(local) => self.date_value_locals.contains(local),
+            ExprKind::Local(local) => self.scope.is_date_value(*local),
             ExprKind::TypeAssert { value: asserted_value } => {
                 self.expression_is_known_date_value(*asserted_value, body)
             }
@@ -681,21 +657,19 @@ impl ModuleBuilder<'_> {
     /// must not be normalized or erased. A name explicitly recorded as a
     /// `const g = globalThis;` alias always counts.
     pub(super) fn is_ambient_global_alias(&self, name: &str) -> bool {
-        if self.global_object_aliases.contains(name) {
+        if self.imports.is_global_object_alias(name) {
             return true;
         }
         if !ambient_globals::is_global_alias_name(name) {
             return false;
         }
         // Shadowed by a local binding/import/item -> not the ambient global.
-        !(self.locals.contains_key(name)
-            || self.value_imports.contains(name)
-            || self.type_only_imports.contains(name)
-            || self.namespace_imports.contains(name)
+        !(self.scope.is_bound(name)
+            || self.imports.is_imported_binding(name)
             || self.items.contains_key(name)
             || self.module_globals.contains_key(name)
-            || self.const_literals.contains_key(name)
-            || self.const_objects.contains_key(name))
+            || self.consts.has_literal(name)
+            || self.consts.has_object(name))
     }
 
     /// Return whether an expression refers to the ambient global object.
@@ -2203,7 +2177,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(receiver) = &member.object else {
             return false;
         };
-        let Some(local) = self.locals.get(receiver.name.as_str()) else {
+        let Some(local) = self.scope.lookup(receiver.name.as_str()) else {
             return false;
         };
         let Some(decl) = usize::try_from(local.0)
@@ -2228,7 +2202,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &new_expr.callee else {
             return Ok(None);
         };
-        if callee.name != "constructor" || !self.locals.contains_key(callee.name.as_str()) {
+        if callee.name != "constructor" || !self.scope.is_bound(callee.name.as_str()) {
             return Ok(None);
         }
         let [value] = new_expr.arguments.as_slice() else {
@@ -2410,7 +2384,7 @@ impl ModuleBuilder<'_> {
                 ));
             };
             if let Expression::Identifier(identifier) = &member.object
-                && let Some(local) = self.locals.get(identifier.name.as_str()).copied()
+                && let Some(local) = self.scope.lookup(identifier.name.as_str())
             {
                 let target = body.push_expr(Expr {
                     kind: ExprKind::Local(local),
@@ -2523,7 +2497,7 @@ impl ModuleBuilder<'_> {
             span: self.span(call.span.start, call.span.end),
         });
         if let Expression::Identifier(identifier) = &member.object
-            && let Some(local) = self.locals.get(identifier.name.as_str()).copied()
+            && let Some(local) = self.scope.lookup(identifier.name.as_str())
         {
             let target = body.push_expr(Expr {
                 kind: ExprKind::Local(local),

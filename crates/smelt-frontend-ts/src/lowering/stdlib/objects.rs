@@ -463,8 +463,8 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         if callee.name != "Object"
-            || self.classes.contains_key("Object")
-            || self.value_imports.contains("Object")
+            || self.classes.contains("Object")
+            || self.imports.is_value("Object")
         {
             return Ok(None);
         }
@@ -714,7 +714,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "negate" || !self.value_imports.contains("negate") {
+        if callee.name != "negate" || !self.imports.is_value("negate") {
             return Ok(None);
         }
         let [predicate] = call.arguments.as_slice() else {
@@ -757,7 +757,7 @@ return_ty,
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "_" || !self.value_imports.contains("_") {
+        if object.name != "_" || !self.imports.is_value("_") {
             return Ok(None);
         }
         let [target, path] = call.arguments.as_slice() else {
@@ -788,7 +788,7 @@ return_ty,
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "fp" || !self.value_imports.contains("fp") {
+        if object.name != "fp" || !self.imports.is_value("fp") {
             return Ok(None);
         }
         if !matches!(
@@ -839,7 +839,7 @@ return_ty,
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "path" || !self.value_imports.contains("path") {
+        if object.name != "path" || !self.imports.is_value("path") {
             return Ok(None);
         }
         if !matches!(member.property.name.as_str(), "join" | "resolve") {
@@ -1307,16 +1307,15 @@ return_ty,
     ///
     /// `ArrayBuffer.isView(x)` is true for a *view* over byte storage and false
     /// for the storage itself. The modeled view identities are exactly the
-    /// `ByteBufferRole::View` entries of the shared host registry (`DataView` and
-    /// Node's `Buffer`, which subclasses `Uint8Array`), so the call lowers to the
-    /// `instanceof` disjunction over those classes, reusing the marker-based
-    /// `InstanceOf` path. Deriving the set from the registry rather than naming it
-    /// here is what keeps this in step with es-toolkit's `isTypedArray`
-    /// (`ArrayBuffer.isView(x) && !(x instanceof DataView)`).
+    /// `ByteBufferRole::View` entries of the shared host registry — the eleven
+    /// typed arrays, `DataView`, and Node's `Buffer` (a `Uint8Array` subclass) — so
+    /// the call lowers to the `instanceof` disjunction over those classes, reusing
+    /// the marker-based `InstanceOf` path. Deriving the set from the registry
+    /// rather than naming it here is what keeps this in step with es-toolkit's
+    /// `isTypedArray` (`ArrayBuffer.isView(x) && !(x instanceof DataView)`).
     ///
-    /// Smelt lowers the *numeric* typed arrays to plain numeric lists, so no view
-    /// identity survives for them and they are not recognized here; statically
-    /// concrete non-erased values fold to `false`.
+    /// A statically concrete non-erased value carries no host marker and folds to
+    /// `false`.
     pub(in crate::lowering) fn arraybuffer_is_view_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1330,7 +1329,7 @@ return_ty,
         };
         if object.name != "ArrayBuffer"
             || member.property.name != "isView"
-            || self.classes.contains_key("ArrayBuffer")
+            || self.classes.contains("ArrayBuffer")
         {
             return Ok(None);
         }
@@ -1347,32 +1346,43 @@ return_ty,
             self.ctx.krate.types.get(Self::expr_ty(body, value)),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
-            let view_classes = smelt_stdlib::HOST_OBJECTS
+            let mut checks = Vec::new();
+            for entry in smelt_stdlib::HOST_OBJECTS
                 .iter()
                 .filter(|entry| entry.byte_buffer == Some(smelt_stdlib::ByteBufferRole::View))
-                .map(|entry| entry.class_name)
-                .collect::<Vec<_>>();
-            let mut disjunction: Option<smelt_hir::ExprId> = None;
-            for class_name in view_classes {
-                let class = self.intern_type_name(class_name);
-                let check = body.push_expr(Expr {
+            {
+                let class = self.intern_type_name(entry.class_name);
+                checks.push(body.push_expr(Expr {
                     kind: ExprKind::InstanceOf { value, class },
                     ty,
                     span,
-                });
-                disjunction = Some(disjunction.map_or(check, |lhs| {
-                    body.push_expr(Expr {
+                }));
+            }
+            // Combine the probes as a *balanced* `||` tree rather than a
+            // left-nested chain. `||` is associative over these pure marker
+            // probes, so the two shapes are semantically identical, but the
+            // nesting depth is what the short-circuit control-flow lowering
+            // recurses over: with thirteen modeled views (the eleven typed arrays,
+            // `DataView`, and Node `Buffer`) a left-nested chain nests twelve deep
+            // and overflowed the stack, where a balanced tree nests four deep.
+            while checks.len() > 1 {
+                let mut combined = Vec::with_capacity(checks.len().div_ceil(2));
+                let mut pairs = checks.chunks_exact(2);
+                for pair in &mut pairs {
+                    combined.push(body.push_expr(Expr {
                         kind: ExprKind::BinOp {
                             op: smelt_hir::BinOp::Or,
-                            lhs,
-                            rhs: check,
+                            lhs: pair[0],
+                            rhs: pair[1],
                         },
                         ty,
                         span,
-                    })
-                }));
+                    }));
+                }
+                combined.extend(pairs.remainder().iter().copied());
+                checks = combined;
             }
-            if let Some(expr) = disjunction {
+            if let Some(expr) = checks.first().copied() {
                 return Ok(Some(expr));
             }
         }

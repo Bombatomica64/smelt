@@ -50,7 +50,11 @@ impl FunctionEmitter<'_> {
             )
         {
             let base_text = self.local_mut_value_text(*base)?;
-            let field_name = self.symbol_name(*field)?;
+            // Source property name, not the Rust-mangled symbol: this reads and
+            // rewrites a field of an ERASED object, whose keys are JavaScript
+            // property names. Mangling made `obj.someList.push(x)` look up
+            // `"some_list"` and miss the array stored under `"someList"`.
+            let field_name = self.symbol_source_name(*field)?;
             let item_text = self.value_at_type(item, *item_ty)?;
             let result = if returns_length {
                 "smelt_list.len() as f64"

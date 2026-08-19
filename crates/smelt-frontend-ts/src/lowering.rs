@@ -2,6 +2,7 @@
 
 mod ambient_globals;
 mod specialization;
+mod state;
 mod stdlib;
 mod stdlib_dispatch;
 mod support;
@@ -12,7 +13,7 @@ use std::{
 };
 use support::unknown_kind_from_typeof;
 
-use crate::{HirCtx, ObjectConst, OverloadSignature, SmeltError};
+use crate::{HirCtx, SmeltError};
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, Declaration,
@@ -534,15 +535,13 @@ struct ModuleBuilder<'ctx> {
     source: String,
     /// Mutable reference to the HIR context.
     ctx: &'ctx mut HirCtx,
-    /// Local variable bindings in current scope.
-    locals: HashMap<String, smelt_hir::LocalId>,
-    /// Local values statically known to retain JavaScript `Date` identity.
-    date_value_locals: HashSet<smelt_hir::LocalId>,
-    /// Locals declared with an explicit `any` annotation. Their storage type is
-    /// the erased `Unknown` boundary by source spelling, so a later concrete
-    /// assignment must not flow-narrow them to that value's type; the source
-    /// deliberately opted out of static shape tracking.
-    explicit_any_locals: HashSet<smelt_hir::LocalId>,
+    /// Per-body local state: name bindings, `Date`-identity and explicit-`any`
+    /// facts, callable-local property writes, local callbacks, hoisted local
+    /// function items, and the flow-narrowing stack.
+    ///
+    /// Owns the body-scoping and last-write-wins invariants documented on
+    /// [`state::local_scope::LocalScope`].
+    scope: state::local_scope::LocalScope,
     /// Typed top-level mutable bindings visible from nested function bodies.
     module_globals: HashMap<String, smelt_hir::TypeId>,
     /// Module-level `let`/`var` bindings lifted to mutable globals, mapped to
@@ -551,60 +550,27 @@ struct ModuleBuilder<'ctx> {
     mutable_global_items: HashMap<String, smelt_hir::ItemId>,
     /// Declared and imported items (functions, classes, interfaces).
     items: HashMap<String, smelt_hir::ItemId>,
-    /// Class definitions by name.
-    classes: HashMap<String, smelt_hir::ItemId>,
-    /// Lexically scoped class type symbols keyed by their source binding name.
+    /// Class shapes visible to this module: items, fields, methods, bases,
+    /// index-signature value types, lexically scoped type symbols, and the
+    /// pending / constructor-function name sets.
     ///
-    /// Test suites are flattened into one Rust module, so sibling suites may
-    /// legally declare different block-local classes with the same source name.
-    /// This map preserves source lookup while giving each declaration a
-    /// distinct emitted type identity.
-    scoped_class_type_names: HashMap<String, smelt_hir::Symbol>,
-    /// Class names declared later in the current module.
-    pending_class_names: HashSet<String>,
-    /// Interface names declared in the current module, including declarations
-    /// that appear after a class which implements them.
-    pending_interface_names: HashSet<String>,
-    /// Local interface symbols whose declarations have finished lowering.
-    lowered_local_interfaces: HashSet<smelt_hir::Symbol>,
-    /// Interface definitions by name.
-    interfaces: HashMap<String, smelt_hir::ItemId>,
-    /// Fields for each class.
-    class_fields: HashMap<String, Vec<Field>>,
-    /// Method signatures for classes that are visible before their item is fully emitted.
-    class_methods: HashMap<String, Vec<MethodSig>>,
-    /// Base class metadata for the class currently being lowered.
-    class_bases: HashMap<String, (smelt_hir::Symbol, Vec<smelt_hir::TypeId>)>,
-    /// Fields carried by structural type aliases.
-    type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
-    /// Interface heritage clauses for resolving fields after cyclic type imports settle.
-    interface_extends: HashMap<smelt_hir::Symbol, Vec<InterfaceHeritageRef>>,
-    /// Value types declared by interface string index signatures.
-    interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
-    /// Value types declared by class string index signatures (`[k: string]: T`).
+    /// Owns the constructor-function invariant documented on
+    /// [`state::class_registry::ClassRegistry`].
+    classes: state::class_registry::ClassRegistry,
+    /// Interface shapes visible to this module: items, heritage clauses, call and
+    /// construct signatures, index-signature value types, and the pending /
+    /// locally-lowered name sets.
     ///
-    /// Mirrors `interface_index_values` for classes: keyed by class name symbol,
-    /// this records the value type of a class's `[key: string]: T` index
-    /// signature so member and computed access can fall back to it when no
-    /// declared named field or method matches.
-    class_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
-    /// Interface call signatures for callable interface types.
-    interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
-    /// Interface construct signatures (`new (): T`) for constructor-slot types.
+    /// Owns the registration invariant documented on
+    /// [`state::interface_registry::InterfaceRegistry`].
+    interfaces: state::interface_registry::InterfaceRegistry,
+    /// Type-level surface: structural alias fields, callable intersection
+    /// fields, callable-object aliases, the active namespace path, and the
+    /// generic type-parameter scopes.
     ///
-    /// A constructor-interface such as `interface MapCacheConstructor { new
-    /// (): MapCache }` is, at runtime, an ordinary callable value: `new
-    /// value()` invokes it to produce the constructed type. Each construct
-    /// signature is stored as the equivalent [`FunctionType`] (its parameters
-    /// and constructed return type) so a reference to the interface can lower to
-    /// a typed constructor slot instead of an erased dictionary.
-    interface_construct_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
-    /// Fields attached to callable intersection types.
-    callable_fields: HashMap<smelt_hir::TypeId, Vec<Field>>,
-    /// Type aliases whose source surface is a callable object intersection.
-    callable_object_aliases: HashSet<smelt_hir::Symbol>,
-    /// Namespace path currently qualifying type-only declarations.
-    type_namespace_prefix: Vec<String>,
+    /// Owns the paired type-parameter stack invariant documented on
+    /// [`state::type_scope::TypeScope`].
+    types: state::type_scope::TypeScope,
     /// Currently processing class name, if any.
     current_class: Option<String>,
     /// Whether the current lowered function body is async.
@@ -623,95 +589,30 @@ struct ModuleBuilder<'ctx> {
     allow_unknown_index_access: bool,
     /// Whether a lifted specialization callable keeps its concrete `this` type through assertions.
     preserve_specialization_receiver: bool,
-    /// Test-framework API names imported from Vitest-compatible modules.
-    test_builtins: HashSet<String>,
-    /// Local names statically known to alias the ambient global object.
+    /// Provenance of source names this module did not declare: value,
+    /// type-only and namespace imports, test builtins, `@date-fns/tz`
+    /// factories, and `globalThis` aliases.
     ///
-    /// Populated for `const g = globalThis;` style bindings so that global-path
-    /// normalization and feature-probe erasure recognize `g.Object.keys(x)` and
-    /// `"Map" in g` as global references. Used only for preserving known member
-    /// types and stdlib dispatch; dynamic correctness would come from a shared
-    /// runtime object if Phase 2/3 lands.
-    global_object_aliases: HashSet<String>,
-    /// Local names bound by namespace imports such as `import * as MathApi from "./math"`.
-    namespace_imports: HashSet<String>,
-    /// Local names imported only for TypeScript type positions.
-    type_only_imports: HashSet<String>,
-    /// Local names imported as runtime values.
-    value_imports: HashSet<String>,
-    /// Local names bound to `tz` from the `@date-fns/tz` package.
-    date_fns_timezone_factories: HashSet<String>,
+    /// See [`state::import_scope::ImportScope`] for what it does and does not
+    /// guarantee about those sets.
+    imports: state::import_scope::ImportScope,
     /// Object constants that act as namespace-like API surfaces.
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
-    /// Literal constant items visible from already-lowered modules.
-    const_literals: HashMap<String, ConstLiteral>,
-    /// Const-folded TypeScript `enum` member values keyed by enum name then
-    /// member name.
+    /// Folded constant values visible to this module: literals, `enum` members,
+    /// `RegExp` literals, object constants, collections and object-value
+    /// projections.
     ///
-    /// Populated from `enum` declarations in the current module and seeded from
-    /// [`HirCtx::enum_members`] for enums declared in earlier modules. Lets
-    /// `EnumName.Member` reads and `case EnumName.Member:` labels inline the
-    /// member's constant literal.
-    enum_member_literals: HashMap<String, HashMap<String, ConstLiteral>>,
-    /// `RegExp` literal constants visible from nested function bodies.
-    const_regexps: HashMap<String, (String, String, smelt_hir::TypeId)>,
-    /// Object literal constants visible from current and already-lowered modules.
-    const_objects: HashMap<String, ObjectConst>,
-    /// Array/set constants visible from nested function bodies.
-    const_collections: HashMap<String, ConstCollection>,
-    /// Object constants whose values can be projected by `Object.values`.
-    const_object_value_collections: HashMap<String, ConstCollection>,
-    /// User assertion functions declared with `asserts value is T`.
-    assertion_functions: HashMap<String, AssertionNarrowing>,
-    /// User predicate functions declared with `value is T`.
-    predicate_functions: HashMap<String, AssertionNarrowing>,
-    /// Active local narrowings from guards and assertion calls.
-    narrowed_locals: Vec<HashMap<String, smelt_hir::TypeId>>,
-    /// Active generic type parameter scopes.
-    type_param_scopes: Vec<HashMap<String, smelt_hir::TypeId>>,
-    /// Constraints for active generic type parameters keyed by HIR type parameter symbol.
-    type_param_constraint_scopes: Vec<HashMap<smelt_hir::Symbol, smelt_hir::TypeId>>,
-    /// Local closure values available to non-escaping callback consumers.
-    local_callbacks: HashMap<String, LocalCallback>,
-    /// Static-member property writes collected onto function-typed locals.
+    /// Owns the single-kind and import-rebinding invariants documented on
+    /// [`state::const_registry::ConstRegistry`].
+    consts: state::const_registry::ConstRegistry,
+    /// Named-function signature knowledge: overloads, rest parameters, hoisted
+    /// forward signatures, and the assertion / predicate narrowing tables.
     ///
-    /// Keyed by the function-typed local receiving `fn.prop = value` writes
-    /// (the `debounce`/`throttle` shape). Each entry accumulates the writes in
-    /// source order (last write wins) as `(property, value-read ExprId)` pairs,
-    /// plus an `escaped` flag that flips once the local is read for any purpose
-    /// other than being consumed at a callable-interface coercion. When the
-    /// local later coerces to a callable-interface class, these props are
-    /// synthesized into a typed [`smelt_hir::ExprKind::CallableObjectAssign`].
-    /// `LocalId`s are only unique within a body, so the map is scoped to the
-    /// currently lowering body by [`Self::with_callable_local_prop_scope`].
-    callable_local_props: HashMap<smelt_hir::LocalId, CallableLocalProps>,
-    /// Rest-parameter metadata for top-level function declarations.
-    function_rests: HashMap<String, RestParam>,
-    /// Forward-visible function declaration signatures for hoisted callback calls.
-    forward_function_types: HashMap<String, (smelt_hir::Symbol, smelt_hir::TypeId)>,
-    /// Function item slots reserved for local hoisted declarations.
-    local_function_items: HashMap<String, smelt_hir::ItemId>,
-    /// TypeScript overload signatures keyed by implementation name.
-    function_overloads: HashMap<String, Vec<OverloadSignature>>,
+    /// Owns the overload-ordering and implementation-shadowing invariants
+    /// documented on [`state::function_registry::FunctionRegistry`].
+    functions: state::function_registry::FunctionRegistry,
     /// Materialized final definitions for this source module.
     specialization: Option<SpecializationData>,
-}
-
-/// Collected static-member property writes onto a function-typed local.
-///
-/// Populated by [`ModuleBuilder::try_collect_callable_local_prop`] as it claims
-/// straight-line `fn.prop = value` writes, and consumed by the
-/// callable-interface coercion that synthesizes a
-/// [`smelt_hir::ExprKind::CallableObjectAssign`]. `props` keeps the writes in
-/// source order with last-write-wins de-duplication; `escaped` records whether
-/// the local has already been read for a purpose other than that consumption,
-/// which makes a later property write a documented (blocked) write-after-escape.
-#[derive(Debug, Clone, Default)]
-struct CallableLocalProps {
-    /// Property writes in source order (last write wins), as `(name, value)`.
-    props: Vec<(smelt_hir::Symbol, smelt_hir::ExprId)>,
-    /// Set once the local escapes via a non-consuming, non-self-call read.
-    escaped: bool,
 }
 
 /// Concrete types active while lowering a generator body.

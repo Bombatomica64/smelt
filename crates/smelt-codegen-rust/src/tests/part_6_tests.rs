@@ -779,6 +779,84 @@ function unwrap(value: unknown): unknown {
 }
 
 #[test]
+fn class_instances_expose_a_per_class_constructor_identity() {
+    // Regression: the hidden class marker was `Bool(true)` for every class, so an
+    // erased instance could not name its class and `.constructor` read `undefined`.
+    // es-toolkit `isEqualWith` gates instance comparison on
+    // `areObjectsEqual(a.constructor, b.constructor) || (isPlainObject(a) && isPlainObject(b))`
+    // — with both sides `undefined`, `Object.is(undefined, undefined)` held and two
+    // instances of DIFFERENT classes compared equal.
+    //
+    // This checks the wiring; `constructor_function_instances_compare_by_class` in
+    // `tests/class_identity_runtime.rs` proves the behavior end to end.
+    let source = source_for(
+        r"
+class Alpha { a = 1; }
+export function erase(value: Alpha): unknown {
+  return value;
+}
+",
+    );
+
+    assert!(
+        source.contains("\"__smelt_class\".to_owned(), SmeltUnknown::String(\"Alpha\".to_owned())"),
+        "an erased class instance must record its class name in the marker: {source}"
+    );
+    // The INSTANCE erasure site must name the class. One nameless marker remains
+    // by necessity: `smelt_object_from_prototype` stamps a class marker when handed
+    // the opaque `"__smelt_proto:class"` sentinel, and that sentinel carries no
+    // name, so `Object.create(Object.getPrototypeOf(instance))` cannot recover it.
+    // Threading the name through the sentinel is the remaining half of class
+    // identity and is tracked separately.
+    assert!(
+        !source.contains("smelt_object_entries.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))"),
+        "the erased-instance class marker must not be a nameless boolean: {source}"
+    );
+    // Interned by name, so two reads for one class are `===` and two classes are not.
+    assert!(
+        source.contains("fn smelt_class_constructor(class_name: String) -> SmeltUnknown"),
+        "the per-class constructor value must be interned by name: {source}"
+    );
+    assert!(
+        source.contains("if field == \"constructor\" && !map.contains_key(\"constructor\")"),
+        "`.constructor` must resolve from the class marker without shadowing an own field: {source}"
+    );
+}
+
+#[test]
+fn erased_field_writes_use_the_source_property_name() {
+    // Regression: assigning a field on an erased receiver keyed the entry by the
+    // Rust-MANGLED symbol while every read used the source name, so
+    // `obj.someProp = 1; obj.someProp` read back `undefined` and
+    // `Object.keys(obj)` reported `"some_prop"`. Silent data loss for any
+    // camelCase property written to an `any`/`unknown` object.
+    //
+    // Both sides of the round trip must name the property the same way.
+    let source = source_for(
+        r"
+export function run(): unknown {
+  const obj: any = {};
+  obj.someProp = 1;
+  return obj.someProp;
+}
+",
+    );
+
+    assert!(
+        source.contains("map.insert(\"someProp\".to_owned()"),
+        "an erased field write must key on the source property name: {source}"
+    );
+    assert!(
+        !source.contains("map.insert(\"some_prop\".to_owned()"),
+        "an erased field write must not key on the Rust-mangled name: {source}"
+    );
+    assert!(
+        source.contains("smelt_get_object_field(&map, \"someProp\")"),
+        "the read side already used the source name and must keep doing so: {source}"
+    );
+}
+
+#[test]
 fn object_create_mints_a_fresh_object_instead_of_aliasing_the_prototype() {
     // Regression: `Object.create(proto)` used to lower to `proto` itself whenever
     // the prototype was already erased. Two things broke. (1) The prototype of an

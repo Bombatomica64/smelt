@@ -1174,7 +1174,7 @@ impl ModuleBuilder<'_> {
                     .names
                     .get(*name)
                     .or_else(|| self.ctx.krate.symbols.get(*name))
-                    .and_then(|class_name| self.class_methods.get(class_name))
+                    .and_then(|class_name| self.classes.methods(class_name))
                     .is_some_and(|methods| methods.iter().any(|candidate| candidate.name == method));
                 // `type_alias_fields` mixes two producers: genuine object-type
                 // aliases (structural closure fields) and class method surfaces
@@ -1186,8 +1186,8 @@ impl ModuleBuilder<'_> {
                 // `Item::TypeAlias` with this symbol identifies the alias case.
                 let predeclared_method = self.find_type_alias(*name).is_none()
                     && self
-                        .type_alias_fields
-                        .get(name)
+                        .types
+                        .alias_fields(*name)
                         .and_then(|fields| fields.iter().find(|field| field.name == method))
                         .is_some_and(|field| {
                             matches!(self.ctx.krate.types.get(field.ty), Some(Type::Function(_)))

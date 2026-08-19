@@ -105,9 +105,9 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = std::mem::take(&mut self.locals);
-        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_locals = self.scope.take_bindings();
+        let saved_callable_local_props = self.scope.take_callable_prop_writes();
+        let saved_narrowed_locals = self.scope.take_narrowings();
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         self.current_async = arrow.r#async;
@@ -123,9 +123,9 @@ impl ModuleBuilder<'_> {
             {
                 Ok(value) => value,
                 Err(error) => {
-                    self.locals = saved_locals;
-                    self.callable_local_props = saved_callable_local_props;
-                    self.narrowed_locals = saved_narrowed_locals;
+                    self.scope.restore_bindings(saved_locals);
+                    self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                    self.scope.restore_narrowings(saved_narrowed_locals);
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
                     self.pop_type_parameter_scope();
@@ -167,7 +167,7 @@ impl ModuleBuilder<'_> {
             });
             match &param.pattern {
                 BindingPattern::BindingIdentifier(binding) => {
-                    self.locals.insert(binding.name.to_string(), local);
+                    self.scope.bind(binding.name.to_string(), local);
                 }
                 pattern => {
                     let value = body.push_expr(Expr {
@@ -189,9 +189,9 @@ impl ModuleBuilder<'_> {
         }
         let rest = if let Some(rest) = &arrow.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
-                self.locals = saved_locals;
-                self.callable_local_props = saved_callable_local_props;
-                self.narrowed_locals = saved_narrowed_locals;
+                self.scope.restore_bindings(saved_locals);
+                self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                self.scope.restore_narrowings(saved_narrowed_locals);
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
@@ -201,9 +201,9 @@ impl ModuleBuilder<'_> {
                 ));
             };
             let Some(annotation) = &rest.type_annotation else {
-                self.locals = saved_locals;
-                self.callable_local_props = saved_callable_local_props;
-                self.narrowed_locals = saved_narrowed_locals;
+                self.scope.restore_bindings(saved_locals);
+                self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                self.scope.restore_narrowings(saved_narrowed_locals);
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
@@ -215,9 +215,9 @@ impl ModuleBuilder<'_> {
             let ty = match self.ts_type_to_hir(&annotation.type_annotation) {
                 Ok(ty) => ty,
                 Err(error) => {
-                self.locals = saved_locals;
-                self.callable_local_props = saved_callable_local_props;
-                self.narrowed_locals = saved_narrowed_locals;
+                self.scope.restore_bindings(saved_locals);
+                self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                self.scope.restore_narrowings(saved_narrowed_locals);
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
@@ -225,9 +225,9 @@ impl ModuleBuilder<'_> {
                 }
             };
             let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
-                self.locals = saved_locals;
-                self.callable_local_props = saved_callable_local_props;
-                self.narrowed_locals = saved_narrowed_locals;
+                self.scope.restore_bindings(saved_locals);
+                self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                self.scope.restore_narrowings(saved_narrowed_locals);
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
@@ -245,7 +245,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             body.params.push(local);
-            self.locals.insert(binding.name.to_string(), local);
+            self.scope.bind(binding.name.to_string(), local);
             let index = params.len();
             params.push(Param {
                 name: param_name,
@@ -308,9 +308,9 @@ impl ModuleBuilder<'_> {
         if arrow.r#async {
             body.build_async_state_machine();
         }
-        self.locals = saved_locals;
-        self.callable_local_props = saved_callable_local_props;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_bindings(saved_locals);
+        self.scope.restore_callable_prop_writes(saved_callable_local_props);
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
         if let Some(error) = errors.into_iter().next() {
@@ -370,7 +370,7 @@ return_ty,
         }));
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
-            self.function_rests.insert(name_text.to_owned(), rest);
+            self.functions.set_rest(name_text.to_owned(), rest);
             self.ctx.function_rests.insert(name_text.to_owned(), rest);
         }
         Ok(item)
@@ -729,7 +729,7 @@ return_ty: target_function.return_ty,
 
     /// Resolve a bare identifier to a foldable const literal by name.
     ///
-    /// Same-module exported consts are precomputed into `const_literals`, but a
+    /// Same-module exported consts are precomputed into the constant registry, but a
     /// const imported from another module (`import { stringTag } from
     /// './tags'`) is only registered as a HIR `Item::Const` in `self.items`
     /// until it is first read. Switch case labels and exported-const
@@ -737,7 +737,7 @@ return_ty: target_function.return_ty,
     /// literal, so fall back to the lowered const item when the precomputed map
     /// misses the name.
     pub(in crate::lowering) fn resolve_const_literal_by_name(&self, name: &str) -> Option<ConstLiteral> {
-        if let Some(value) = self.const_literals.get(name) {
+        if let Some(value) = self.consts.literal(name) {
             return Some(value.clone());
         }
         let item = self.items.get(name).copied()?;
@@ -1213,7 +1213,7 @@ return_ty: target_function.return_ty,
                 let Some(ConstLiteral {
                     literal: Literal::Float(value),
                     ..
-                }) = self.const_literals.get(ident.name.as_str())
+                }) = self.consts.literal(ident.name.as_str())
                 else {
                     return Err(SmeltError::unsupported(
                         self.span(ident.span.start, ident.span.end),

@@ -111,11 +111,11 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = std::mem::take(&mut self.locals);
-        let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
-        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
-        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_locals = self.scope.take_bindings();
+        let saved_date_value_locals = self.scope.take_date_values();
+        let saved_callable_local_props = self.scope.take_callable_prop_writes();
+        let saved_explicit_any_locals = self.scope.take_explicit_any();
+        let saved_narrowed_locals = self.scope.take_narrowings();
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         let saved_generator_yields = self.current_generator_yields;
@@ -134,11 +134,11 @@ impl ModuleBuilder<'_> {
             let ty = match self.function_parameter_type(param) {
                 Ok(value) => value,
                 Err(error) => {
-                    self.locals = saved_locals;
-                    self.date_value_locals = saved_date_value_locals;
-                    self.callable_local_props = saved_callable_local_props;
-                    self.explicit_any_locals = saved_explicit_any_locals;
-                    self.narrowed_locals = saved_narrowed_locals;
+                    self.scope.restore_bindings(saved_locals);
+                    self.scope.restore_date_values(saved_date_value_locals);
+                    self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                    self.scope.restore_explicit_any(saved_explicit_any_locals);
+                    self.scope.restore_narrowings(saved_narrowed_locals);
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
                     self.current_generator_yields = saved_generator_yields;
@@ -194,10 +194,10 @@ impl ModuleBuilder<'_> {
             });
             body.params.push(local);
             if self.type_is_known_date_value(ty) {
-                self.date_value_locals.insert(local);
+                self.scope.mark_date_value(local);
             }
             if let Some(source_name) = source_name {
-                self.locals.insert(source_name.clone(), local);
+                self.scope.bind(source_name.clone(), local);
                 if let Some(initializer) = default_initializer {
                     defaulted_params.push((local, ty, &**initializer, param_name, source_name, span));
                 }
@@ -213,11 +213,11 @@ impl ModuleBuilder<'_> {
         }
         let rest = if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
-                self.locals = saved_locals;
-                self.date_value_locals = saved_date_value_locals;
-                self.callable_local_props = saved_callable_local_props;
-                self.explicit_any_locals = saved_explicit_any_locals;
-                self.narrowed_locals = saved_narrowed_locals;
+                self.scope.restore_bindings(saved_locals);
+                self.scope.restore_date_values(saved_date_value_locals);
+                self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                self.scope.restore_explicit_any(saved_explicit_any_locals);
+                self.scope.restore_narrowings(saved_narrowed_locals);
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
                 self.current_generator_yields = saved_generator_yields;
@@ -242,11 +242,11 @@ impl ModuleBuilder<'_> {
                 }) {
                 Ok(value) => value,
                 Err(error) => {
-                    self.locals = saved_locals;
-                    self.date_value_locals = saved_date_value_locals;
-                    self.callable_local_props = saved_callable_local_props;
-                    self.explicit_any_locals = saved_explicit_any_locals;
-                    self.narrowed_locals = saved_narrowed_locals;
+                    self.scope.restore_bindings(saved_locals);
+                    self.scope.restore_date_values(saved_date_value_locals);
+                    self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                    self.scope.restore_explicit_any(saved_explicit_any_locals);
+                    self.scope.restore_narrowings(saved_narrowed_locals);
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
                     self.current_generator_yields = saved_generator_yields;
@@ -255,11 +255,11 @@ impl ModuleBuilder<'_> {
                 }
             };
             let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
-                self.locals = saved_locals;
-                self.date_value_locals = saved_date_value_locals;
-                self.callable_local_props = saved_callable_local_props;
-                self.explicit_any_locals = saved_explicit_any_locals;
-                self.narrowed_locals = saved_narrowed_locals;
+                self.scope.restore_bindings(saved_locals);
+                self.scope.restore_date_values(saved_date_value_locals);
+                self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                self.scope.restore_explicit_any(saved_explicit_any_locals);
+                self.scope.restore_narrowings(saved_narrowed_locals);
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
                 self.current_generator_yields = saved_generator_yields;
@@ -277,7 +277,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(binding.span.start, binding.span.end),
             });
             body.params.push(local);
-            self.locals.insert(binding.name.to_string(), local);
+            self.scope.bind(binding.name.to_string(), local);
             let index = params.len();
             params.push(Param {
                 name: param_name,
@@ -343,11 +343,11 @@ impl ModuleBuilder<'_> {
         if function.r#async {
             body.build_async_state_machine();
         }
-        self.locals = saved_locals;
-        self.date_value_locals = saved_date_value_locals;
-        self.callable_local_props = saved_callable_local_props;
-        self.explicit_any_locals = saved_explicit_any_locals;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_bindings(saved_locals);
+        self.scope.restore_date_values(saved_date_value_locals);
+        self.scope.restore_callable_prop_writes(saved_callable_local_props);
+        self.scope.restore_explicit_any(saved_explicit_any_locals);
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
         self.current_generator_yields = saved_generator_yields;
@@ -388,7 +388,7 @@ impl ModuleBuilder<'_> {
             body: Some(body_id),
             owner: FunctionOwner::Module,
         };
-        let item = if let Some(item) = self.local_function_items.get(name_text).copied() {
+        let item = if let Some(item) = self.scope.function_item(name_text) {
             let index = usize::try_from(item.0).unwrap_or(usize::MAX);
             if let Some(slot) = self.ctx.krate.items.get_mut(index) {
                 *slot = Item::Function(function_item);
@@ -399,7 +399,7 @@ impl ModuleBuilder<'_> {
         };
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
-            self.function_rests.insert(name_text.to_owned(), rest);
+            self.functions.set_rest(name_text.to_owned(), rest);
             self.ctx.function_rests.insert(name_text.to_owned(), rest);
         }
         if let Some((parameter_name, Some(target))) = assertion_return
@@ -411,7 +411,7 @@ impl ModuleBuilder<'_> {
                 )
             })
         {
-            self.assertion_functions.insert(
+            self.functions.set_assertion(
                 name_text.to_owned(),
                 AssertionNarrowing {
                     param_index,
@@ -428,7 +428,7 @@ impl ModuleBuilder<'_> {
                 )
             })
         {
-            self.predicate_functions.insert(
+            self.functions.set_predicate(
                 name_text.to_owned(),
                 AssertionNarrowing {
                     param_index,
@@ -656,9 +656,9 @@ impl ModuleBuilder<'_> {
                 span,
             });
             if self.type_is_known_date_value(inner_ty) {
-                self.date_value_locals.insert(applied);
+                self.scope.mark_date_value(applied);
             }
-            self.locals.insert(source_name, applied);
+            self.scope.bind(source_name, applied);
             let pat = body.push_pattern(Pattern::Binding(applied));
             let root = body.root;
             body.push_stmt_to_block(
@@ -796,8 +796,8 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = std::mem::take(&mut self.locals);
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_locals = self.scope.take_bindings();
+        let saved_narrowed_locals = self.scope.take_narrowings();
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         let saved_generator_yields = self.current_generator_yields;
@@ -821,7 +821,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(function.span.start, function.span.start),
             });
             body.params.push(this_local);
-            self.locals.insert("this".to_owned(), this_local);
+            self.scope.bind("this".to_owned(), this_local);
             params.push(Param {
                 name: this_name,
                 local: this_local,
@@ -861,7 +861,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(binding.span.start, binding.span.end),
                 });
                 body.params.push(local);
-                self.locals.insert(binding.name.to_string(), local);
+                self.scope.bind(binding.name.to_string(), local);
                 params.push(Param {
                     name: param_name,
                     local,
@@ -925,8 +925,8 @@ impl ModuleBuilder<'_> {
             body.build_async_state_machine();
         }
 
-        self.locals = saved_locals;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_bindings(saved_locals);
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
         self.current_generator_yields = saved_generator_yields;
@@ -967,7 +967,7 @@ impl ModuleBuilder<'_> {
     /// Build a deterministic synthetic name for an anonymous class expression.
     ///
     /// Anonymous classes have no source identifier, but the rest of the class
-    /// lowering pipeline keys every class on a name (`self.classes`, the interned
+    /// lowering pipeline keys every class on a name (the class registry, the interned
     /// `Type::Class` symbol, field/method metadata). The class span start offset
     /// is unique within a module, so `__smelt_anon_class_<offset>` gives a stable,
     /// collision-free name without threading a mutable counter through lowering.
@@ -992,10 +992,7 @@ impl ModuleBuilder<'_> {
             || Self::anonymous_class_name(class),
             |id| id.name.to_string(),
         );
-        let class_name = self
-            .scoped_class_type_names
-            .get(&class_source_name)
-            .copied()
+        let class_name = self.classes.scoped_type_name(&class_source_name)
             .unwrap_or_else(|| self.intern_type_name(&class_source_name));
         let class_name_owned = self
             .ctx
@@ -1032,8 +1029,8 @@ impl ModuleBuilder<'_> {
         });
         let (base, base_args) = self.class_extends_clause(class)?;
         if let Some(base_name) = base {
-            self.class_bases
-                .insert(class_text.to_owned(), (base_name, base_args.clone()));
+            self.classes
+                .set_base(class_text.to_owned(), base_name, base_args.clone());
         }
         let mut fields = Vec::new();
         let mut field_initializers = Vec::new();
@@ -1312,10 +1309,8 @@ impl ModuleBuilder<'_> {
                 });
             }
         }
-        self.class_fields
-            .insert(class_text.to_owned(), fields.clone());
-        self.class_methods
-            .insert(class_text.to_owned(), method_sigs.clone());
+        self.classes.set_fields(class_text.to_owned(), fields.clone());
+        self.classes.set_methods(class_text.to_owned(), method_sigs.clone());
         // Publish the class index-signature value type (if any) so member and
         // computed access can resolve keyed reads/writes through it while the
         // class's own method bodies are still being lowered, and so later
@@ -1329,7 +1324,7 @@ impl ModuleBuilder<'_> {
         // — makes dynamic writes round-trip: codegen routes `x[k] = v` to
         // `x.__smelt_index_store.insert(k, v)` and `x[k]` to a store lookup.
         if let Some(value_ty) = class_index_value_ty {
-            self.class_index_values.insert(class_name, value_ty);
+            self.classes.set_index_value(class_name, value_ty);
             self.ctx.class_index_values.insert(class_name, value_ty);
         }
         self.add_overridden_base_method_fields(base, &method_sigs);
@@ -1638,7 +1633,7 @@ impl ModuleBuilder<'_> {
             implements,
         }));
         self.pop_type_parameter_scope();
-        self.classes.insert(class_source_name, item);
+        self.classes.register(class_source_name, item);
         self.validate_implements(item)?;
         Ok(item)
     }
@@ -1807,7 +1802,7 @@ impl ModuleBuilder<'_> {
         let Some(base_name) = self.ctx.krate.symbols.get(base).map(str::to_owned) else {
             return;
         };
-        let Some(base_methods) = self.class_methods.get(&base_name).cloned() else {
+        let Some(base_methods) = self.classes.methods(&base_name).cloned() else {
             return;
         };
         let base_method_names = base_methods
@@ -1826,9 +1821,7 @@ impl ModuleBuilder<'_> {
             return;
         }
 
-        let existing_fields = self
-            .class_fields
-            .get(&base_name)
+        let existing_fields = self.classes.fields(&base_name)
             .cloned()
             .unwrap_or_default();
         let new_fields =
@@ -1836,10 +1829,7 @@ impl ModuleBuilder<'_> {
         if new_fields.is_empty() {
             return;
         }
-        self.class_fields
-            .entry(base_name)
-            .or_default()
-            .extend(new_fields.clone());
+        self.classes.extend_fields(base_name, new_fields.clone());
         if let Some(Item::Class(class)) = self
             .ctx
             .krate
@@ -2027,7 +2017,7 @@ impl ModuleBuilder<'_> {
         field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
         span: Span,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
         let mut body = Body::new(None, span);
         let this_symbol = self.ctx.krate.symbols.intern("this");
@@ -2037,7 +2027,7 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span,
         });
-        self.locals.insert("this".to_owned(), this_local);
+        self.scope.bind("this".to_owned(), this_local);
         let params = if has_base {
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             let arg_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
@@ -2059,7 +2049,7 @@ impl ModuleBuilder<'_> {
             Vec::new()
         };
         self.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         self.current_class = saved_class;
         let body_id = self.ctx.krate.push_body(body);
         let name = self.ctx.krate.symbols.intern("new");
@@ -2224,8 +2214,8 @@ impl ModuleBuilder<'_> {
                         "class extends currently requires a direct base class identifier or imported namespace member",
                     ));
                 };
-                if !self.value_imports.contains(object.name.as_str())
-                    && !self.namespace_imports.contains(object.name.as_str())
+                if !self.imports.is_value(object.name.as_str())
+                    && !self.imports.is_namespace(object.name.as_str())
                 {
                     return Err(SmeltError::unsupported(
                         self.span(super_class.span().start, super_class.span().end),
@@ -2252,8 +2242,8 @@ impl ModuleBuilder<'_> {
         // user-declared class or value import literally named `Object` shadows
         // the global and is handled through the normal declared-base path below.
         if name == "Object"
-            && !self.classes.contains_key(name)
-            && !self.value_imports.contains(name)
+            && !self.classes.contains(name)
+            && !self.imports.is_value(name)
         {
             return Ok((None, Vec::new()));
         }
@@ -2282,8 +2272,8 @@ impl ModuleBuilder<'_> {
                     | "ReadonlySet"
             );
         if !allowed_builtin
-            && !self.classes.contains_key(name)
-            && !self.value_imports.contains(name)
+            && !self.classes.contains(name)
+            && !self.imports.is_value(name)
             && !name.contains('.')
         {
             return Err(SmeltError::unsupported(
@@ -2564,7 +2554,7 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
@@ -2588,7 +2578,7 @@ impl ModuleBuilder<'_> {
         // must not carry a receiver parameter, so it lowers to a receiver-free
         // associated function.
         if !is_static {
-            self.locals.insert("this".to_owned(), this_local);
+            self.scope.bind("this".to_owned(), this_local);
             if !is_constructor {
                 body.params.push(this_local);
                 params.push(Param {
@@ -2650,7 +2640,7 @@ impl ModuleBuilder<'_> {
             });
             body.params.push(local);
             if let Some(source_name) = source_name {
-                self.locals.insert(source_name.clone(), local);
+                self.scope.bind(source_name.clone(), local);
                 if let Some(initializer) = default_initializer {
                     defaulted_params
                         .push((local, abi_ty, &**initializer, param_name, source_name, span));
@@ -2676,10 +2666,7 @@ impl ModuleBuilder<'_> {
                     optional: false,
                     span,
                 };
-                self.class_fields
-                    .entry(class_text.to_owned())
-                    .or_default()
-                    .push(field);
+                self.classes.extend_fields(class_text.to_owned(), [field]);
                 parameter_property_initializers.push((
                     param_name,
                     binding_source_name(&param.pattern).map(str::to_owned),
@@ -2721,7 +2708,7 @@ impl ModuleBuilder<'_> {
                 .into_iter()
                 .filter_map(|(field, source_name, ty, span)| {
                     let local = source_name
-                        .and_then(|source_name| self.locals.get(&source_name).copied())?;
+                        .and_then(|source_name| self.scope.lookup(&source_name))?;
                     Some((field, local, ty, span))
                 })
                 .collect::<Vec<_>>();
@@ -2773,7 +2760,7 @@ impl ModuleBuilder<'_> {
         if method.value.r#async {
             body.build_async_state_machine();
         }
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         self.current_class = saved_class;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;

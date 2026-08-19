@@ -3,6 +3,7 @@
 
 use crate::SmeltError;
 use crate::lowering::support::statement_terminates;
+use crate::lowering::state::interface_registry::LoweredInterface;
 use crate::lowering::{InterfaceHeritageRef, ModuleBuilder};
 use oxc::ast::ast::{
     Argument, AssignmentTarget, BindingPattern, ChainElement, Declaration, Expression, Statement,
@@ -19,10 +20,7 @@ use smelt_hir::{
 impl ModuleBuilder<'_> {
     /// Prefix a local type declaration with the active TypeScript namespace path.
     pub(in crate::lowering) fn qualified_type_declaration_name(&self, name: &str) -> String {
-        if self.type_namespace_prefix.is_empty() {
-            return name.to_owned();
-        }
-        format!("{}.{}", self.type_namespace_prefix.join("."), name)
+        self.types.qualify(name)
     }
 
     /// Lower a TypeScript type alias declaration to HIR.
@@ -40,13 +38,13 @@ impl ModuleBuilder<'_> {
         self.pop_type_parameter_scope();
         let ty = result?;
         if is_callable_object {
-            self.callable_object_aliases.insert(name);
+            self.types.mark_callable_object_alias(name);
             self.ctx.callable_object_aliases.insert(name);
         }
         if let Some(fields) = fields
             && !fields.is_empty()
         {
-            self.type_alias_fields.insert(name, fields.clone());
+            self.types.set_alias_fields(name, fields.clone());
             self.ctx.type_alias_fields.insert(name, fields);
         }
         let item = self
@@ -444,26 +442,30 @@ impl ModuleBuilder<'_> {
             fields,
             methods,
         }));
-        self.interface_extends.insert(name, heritage_refs.clone());
+        // One call records the item, the locally-lowered mark and every sidecar
+        // together; see `InterfaceRegistry` for why they cannot be split.
+        self.interfaces.register_lowered(LoweredInterface {
+            name,
+            name_text,
+            item,
+            extends: heritage_refs.clone(),
+            call_signatures: call_signatures.clone(),
+            construct_signatures: construct_signatures.clone(),
+            index_value_ty,
+        });
+        // Mirror the same facts into the shared context for later modules.
         self.ctx.interface_extends.insert(name, heritage_refs);
-        self.interface_call_signatures
-            .insert(name, call_signatures.clone());
         self.ctx
             .interface_call_signatures
             .insert(name, call_signatures);
         if !construct_signatures.is_empty() {
-            self.interface_construct_signatures
-                .insert(name, construct_signatures.clone());
             self.ctx
                 .interface_construct_signatures
                 .insert(name, construct_signatures);
         }
         if let Some(index_value_ty) = index_value_ty {
-            self.interface_index_values.insert(name, index_value_ty);
             self.ctx.interface_index_values.insert(name, index_value_ty);
         }
-        self.interfaces.insert(name_text, item);
-        self.lowered_local_interfaces.insert(name);
         Ok(item)
     }
 
@@ -565,9 +567,9 @@ impl ModuleBuilder<'_> {
         let Some(namespace_name) = Self::type_namespace_name(&module_decl.id) else {
             return Ok(Vec::new());
         };
-        self.type_namespace_prefix.push(namespace_name);
+        self.types.push_namespace(namespace_name);
         let result = self.type_namespace_body(module_decl.body.as_ref());
-        self.type_namespace_prefix.pop();
+        self.types.pop_namespace();
         result
     }
 
@@ -819,16 +821,16 @@ impl ModuleBuilder<'_> {
                 let then_narrowing = self.guard_narrowing(&if_stmt.test, body);
                 // Assignments performed only within this branch are flow facts
                 // for the branch, not for statements reached from either path.
-                self.narrowed_locals
-                    .push(then_narrowing.unwrap_or_default());
+                self.scope
+                    .push_narrowing_scope(then_narrowing.unwrap_or_default());
                 let then_block = self.block_from_statement(&if_stmt.consequent, body)?;
-                self.narrowed_locals.pop();
+                self.scope.pop_narrowing_scope();
                 let else_narrowing = self.inverse_guard_narrowing(&if_stmt.test, body);
                 let else_block = if let Some(alternate) = &if_stmt.alternate {
-                    self.narrowed_locals
-                        .push(else_narrowing.unwrap_or_default());
+                    self.scope
+                        .push_narrowing_scope(else_narrowing.unwrap_or_default());
                     let else_block = self.block_from_statement(alternate, body)?;
-                    self.narrowed_locals.pop();
+                    self.scope.pop_narrowing_scope();
                     Some(else_block)
                 } else {
                     None
@@ -900,10 +902,10 @@ impl ModuleBuilder<'_> {
                 }
                 let cond = self.condition_expression(&while_stmt.test, body)?;
                 let loop_narrowing = self.guard_narrowing(&while_stmt.test, body);
-                self.narrowed_locals
-                    .push(loop_narrowing.unwrap_or_default());
+                self.scope
+                    .push_narrowing_scope(loop_narrowing.unwrap_or_default());
                 let loop_body = self.block_from_statement(&while_stmt.body, body)?;
-                self.narrowed_locals.pop();
+                self.scope.pop_narrowing_scope();
                 body.push_stmt_to_block(
                     block,
                     Stmt::While {
@@ -950,7 +952,7 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ForOfStatement(for_stmt) => {
-                let saved_locals = self.locals.clone();
+                let saved_locals = self.scope.snapshot_bindings();
                 let mut iter = self.expression(&for_stmt.right, body)?;
                 if for_stmt.r#await
                     && let Some(Type::Future(inner)) =
@@ -977,7 +979,7 @@ impl ModuleBuilder<'_> {
                     let result = self.lower_generator_for_of(
                         for_stmt, iter, yield_ty, return_ty, body, block,
                     );
-                    self.locals = saved_locals;
+                    self.scope.restore_bindings(saved_locals);
                     return result;
                 }
                 let iter = self.for_of_iterable(iter, &for_stmt.right, body);
@@ -1008,7 +1010,7 @@ impl ModuleBuilder<'_> {
                             self.block_from_statement(&for_stmt.body, body)?,
                         )
                     };
-                self.locals = saved_locals;
+                self.scope.restore_bindings(saved_locals);
                 body.push_stmt_to_block(
                     block,
                     Stmt::For {
@@ -1020,7 +1022,7 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ForInStatement(for_stmt) => {
-                let saved_locals = self.locals.clone();
+                let saved_locals = self.scope.snapshot_bindings();
                 let iter = self.for_in_iterable(&for_stmt.right, body)?;
                 let destructured =
                     self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
@@ -1049,7 +1051,7 @@ impl ModuleBuilder<'_> {
                             self.block_from_statement(&for_stmt.body, body)?,
                         )
                     };
-                self.locals = saved_locals;
+                self.scope.restore_bindings(saved_locals);
                 body.push_stmt_to_block(
                     block,
                     Stmt::For {
@@ -1174,7 +1176,7 @@ impl ModuleBuilder<'_> {
                         self.statement_in_block(case_statement, body, case_block)?;
                     }
                     if narrowing_pushed {
-                        self.narrowed_locals.pop();
+                        self.scope.pop_narrowing_scope();
                     }
                     let is_last_case = case_index + 1 == case_count;
                     if !saw_break
@@ -1257,14 +1259,14 @@ impl ModuleBuilder<'_> {
             Statement::TryStatement(try_stmt) => {
                 let try_body = self.block_from_block_statement(&try_stmt.block, body)?;
                 let (catch_binding, catch_body) = if let Some(handler) = &try_stmt.handler {
-                    let previous_locals = self.locals.clone();
+                    let previous_locals = self.scope.snapshot_bindings();
                     let catch_binding = handler
                         .param
                         .as_ref()
                         .map(|param| self.catch_binding(param, body))
                         .transpose()?;
                     let catch_body = self.block_from_block_statement(&handler.body, body)?;
-                    self.locals = previous_locals;
+                    self.scope.restore_bindings(previous_locals);
                     (catch_binding, Some(catch_body))
                 } else {
                     (None, None)
@@ -1458,7 +1460,7 @@ impl ModuleBuilder<'_> {
             }
             let saved_locals = param_names
                 .iter()
-                .map(|name| (name.clone(), self.locals.get(name).copied()))
+                .map(|name| (name.clone(), self.scope.lookup(name)))
                 .collect::<Vec<_>>();
             for (param_index, param) in arrow.params.items.iter().take(2).enumerate() {
                 // Callback order is `(value, key)`; entries are `[key, value]`.
@@ -1495,10 +1497,10 @@ impl ModuleBuilder<'_> {
             for (name, prior) in saved_locals {
                 match prior {
                     Some(local) => {
-                        self.locals.insert(name, local);
+                        self.scope.bind(name, local);
                     }
                     None => {
-                        self.locals.remove(&name);
+                        self.scope.unbind(name.as_str());
                     }
                 }
             }
@@ -1596,7 +1598,7 @@ impl ModuleBuilder<'_> {
             span: self.span(item_param.span.start, item_param.span.end),
         });
         let saved_item_local =
-            item_binding.map(|binding| self.locals.insert(binding.name.to_string(), item_local));
+            item_binding.map(|binding| self.scope.bind(binding.name.to_string(), item_local));
         let item_pat = body.push_pattern(Pattern::Binding(item_local));
         let index_binding = arrow
             .params
@@ -1702,8 +1704,7 @@ impl ModuleBuilder<'_> {
                         value: next,
                     },
                 );
-                self.locals
-                    .insert(index_binding.name.to_string(), index_local)
+                self.scope.bind(index_binding.name.to_string(), index_local)
             } else {
                 None
             };
@@ -1712,16 +1713,16 @@ impl ModuleBuilder<'_> {
         }
         if let Some(index_binding) = index_binding {
             if let Some(prior) = saved_index_local {
-                self.locals.insert(index_binding.name.to_string(), prior);
+                self.scope.bind(index_binding.name.to_string(), prior);
             } else {
-                self.locals.remove(index_binding.name.as_str());
+                self.scope.unbind(index_binding.name.as_str());
             }
         }
         if let Some(item_binding) = item_binding {
             if let Some(Some(prior)) = saved_item_local {
-                self.locals.insert(item_binding.name.to_string(), prior);
+                self.scope.bind(item_binding.name.to_string(), prior);
             } else {
-                self.locals.remove(item_binding.name.as_str());
+                self.scope.unbind(item_binding.name.as_str());
             }
         }
         body.push_stmt_to_block(
@@ -2442,7 +2443,7 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let name = callee.name.as_str();
-        (self.test_builtins.contains(name) && matches!(name, "it" | "test")).then_some(call)
+        (self.imports.is_test_builtin(name) && matches!(name, "it" | "test")).then_some(call)
     }
 
     /// Return whether an expression is a skipped Vitest test case.
@@ -2459,7 +2460,7 @@ impl ModuleBuilder<'_> {
         matches!(
             &member.object,
             Expression::Identifier(object)
-                if self.test_builtins.contains(object.name.as_str())
+                if self.imports.is_test_builtin(object.name.as_str())
                     && matches!(object.name.as_str(), "it" | "test")
         )
     }
@@ -2546,7 +2547,7 @@ impl ModuleBuilder<'_> {
         matches!(
             &member.object,
             Expression::Identifier(object)
-                if self.test_builtins.contains(object.name.as_str())
+                if self.imports.is_test_builtin(object.name.as_str())
                     && matches!(object.name.as_str(), "test" | "it" | "describe")
         )
     }
@@ -2571,7 +2572,7 @@ impl ModuleBuilder<'_> {
         matches!(
             &member.object,
             Expression::Identifier(object)
-                if self.test_builtins.contains(object.name.as_str())
+                if self.imports.is_test_builtin(object.name.as_str())
                     && matches!(object.name.as_str(), "test" | "it")
         )
         .then_some(call)
@@ -2605,7 +2606,7 @@ impl ModuleBuilder<'_> {
             return false;
         };
         let name = callee.name.as_str();
-        if !self.test_builtins.contains(name)
+        if !self.imports.is_test_builtin(name)
             || !matches!(name, "beforeAll" | "beforeEach" | "afterAll" | "afterEach")
         {
             return false;
@@ -2643,7 +2644,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(false);
         };
-        if !self.test_builtins.contains(callee.name.as_str())
+        if !self.imports.is_test_builtin(callee.name.as_str())
             || !matches!(callee.name.as_str(), "beforeAll" | "beforeEach")
         {
             return Ok(false);
@@ -2661,7 +2662,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a callee belongs to an imported test-framework API.
     pub(in crate::lowering) fn is_test_framework_callee(&self, callee: &Expression<'_>) -> bool {
         match callee {
-            Expression::Identifier(ident) => self.test_builtins.contains(ident.name.as_str()),
+            Expression::Identifier(ident) => self.imports.is_test_builtin(ident.name.as_str()),
             Expression::CallExpression(call) => self.is_test_framework_callee(&call.callee),
             Expression::StaticMemberExpression(member)
                 if member.property.name == "concurrent"
@@ -2673,7 +2674,7 @@ impl ModuleBuilder<'_> {
                 matches!(
                     &member.object,
                     Expression::Identifier(object)
-                        if self.test_builtins.contains(object.name.as_str())
+                        if self.imports.is_test_builtin(object.name.as_str())
                 )
             }
             _ => false,
@@ -2684,13 +2685,13 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn is_describe_callee(&self, callee: &Expression<'_>) -> bool {
         match callee {
             Expression::Identifier(ident) => {
-                ident.name == "describe" && self.test_builtins.contains("describe")
+                ident.name == "describe" && self.imports.is_test_builtin("describe")
             }
             Expression::StaticMemberExpression(member) if member.property.name == "concurrent" => {
                 matches!(
                     &member.object,
                     Expression::Identifier(object)
-                        if object.name == "describe" && self.test_builtins.contains("describe")
+                        if object.name == "describe" && self.imports.is_test_builtin("describe")
                 )
             }
             _ => false,

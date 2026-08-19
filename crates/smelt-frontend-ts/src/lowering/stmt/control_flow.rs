@@ -168,7 +168,7 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span: self.span(binding.span.start, binding.span.end),
         });
-        self.locals.insert(name.to_owned(), local);
+        self.scope.bind(name.to_owned(), local);
         Ok(body.push_pattern(Pattern::Binding(local)))
     }
 

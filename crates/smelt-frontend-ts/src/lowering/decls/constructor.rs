@@ -7,9 +7,9 @@
 //! class construction and `instanceof` lowering need no special use-site path.
 
 use crate::lowering::{
-    AssignmentTarget, BinaryOperator, BindingPattern, Body, Class, Expression, Field, Function,
-    FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig,
-    SmeltError, Span, Statement, Type, Visibility,
+    AssignmentTarget, BinaryOperator, BindingPattern, Body, Class, Declaration, Expression, Field,
+    Function, FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig,
+    Program, SmeltError, Span, Statement, Type, Visibility,
 };
 
 impl ModuleBuilder<'_> {
@@ -26,6 +26,119 @@ impl ModuleBuilder<'_> {
         statements
             .iter()
             .any(|statement| Self::statement_uses_constructor_function(name, statement))
+    }
+
+    /// Collect module top-level `function Foo(){}` declarations that this module
+    /// uses as constructor functions.
+    ///
+    /// Module scope differs from a function body in two ways, and both defeat
+    /// the plain sibling-statement scan: the declaration may be wrapped in
+    /// `export`, and the `new Foo()` use normally lives inside *another*
+    /// top-level function's body rather than beside the declaration. Names are
+    /// collected in a prepass so [`Self::synthesize_constructor_function_class`]
+    /// can run instead of ordinary function-item lowering, and so `new Foo()`
+    /// sites lowered before the synthesis still resolve nominally through
+    /// `pending_class_names`.
+    pub(in crate::lowering) fn module_constructor_function_names(
+        program: &Program<'_>,
+    ) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for function in Self::module_function_declarations(program) {
+            let Some(id) = &function.id else {
+                continue;
+            };
+            // An ambient `declare function` has no body to derive fields from.
+            if function.declare || function.body.is_none() {
+                continue;
+            }
+            let name = id.name.as_str();
+            if names.contains(name) {
+                continue;
+            }
+            if program
+                .body
+                .iter()
+                .any(|statement| Self::module_statement_uses_constructor_function(name, statement))
+            {
+                names.insert(name.to_owned());
+            }
+        }
+        names
+    }
+
+    /// Return whether a module top-level function declaration was recorded as a
+    /// constructor function by [`Self::module_constructor_function_names`].
+    pub(in crate::lowering) fn is_module_constructor_function(
+        &self,
+        function: &oxc::ast::ast::Function<'_>,
+    ) -> bool {
+        function.id.as_ref().is_some_and(|id| {
+            self.classes.is_constructor_function(id.name.as_str())
+        })
+    }
+
+    /// Iterate module top-level function declarations, including exported ones.
+    fn module_function_declarations<'a>(
+        program: &'a Program<'a>,
+    ) -> impl Iterator<Item = &'a oxc::ast::ast::Function<'a>> {
+        program.body.iter().filter_map(|statement| match statement {
+            Statement::FunctionDeclaration(function) => Some(function.as_ref()),
+            Statement::ExportNamedDeclaration(export) => match &export.declaration {
+                Some(Declaration::FunctionDeclaration(function)) => Some(function.as_ref()),
+                _ => None,
+            },
+            _ => None,
+        })
+    }
+
+    /// Scan a module top-level statement for constructor uses of `name`.
+    ///
+    /// Extends [`Self::statement_uses_constructor_function`] across the two
+    /// shapes that only occur at module scope — `export` declaration wrappers
+    /// and sibling function declarations whose bodies hold the `new` site — then
+    /// delegates to the shared scan for everything else. It is deliberately a
+    /// separate entry point: widening the shared scan would also change which
+    /// *inner-scope* functions become synthesized classes.
+    fn module_statement_uses_constructor_function(name: &str, statement: &Statement<'_>) -> bool {
+        match statement {
+            Statement::FunctionDeclaration(function) => {
+                Self::function_body_uses_constructor_function(name, function)
+            }
+            Statement::ExportNamedDeclaration(export) => match &export.declaration {
+                Some(Declaration::FunctionDeclaration(function)) => {
+                    Self::function_body_uses_constructor_function(name, function)
+                }
+                Some(Declaration::VariableDeclaration(variable)) => {
+                    variable.declarations.iter().any(|declarator| {
+                        declarator.init.as_ref().is_some_and(|init| {
+                            Self::expression_uses_constructor_function(name, init)
+                        })
+                    })
+                }
+                _ => false,
+            },
+            Statement::ExportDefaultDeclaration(export) => match &export.declaration {
+                oxc::ast::ast::ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+                    Self::function_body_uses_constructor_function(name, function)
+                }
+                other => other.as_expression().is_some_and(|expression| {
+                    Self::expression_uses_constructor_function(name, expression)
+                }),
+            },
+            other => Self::statement_uses_constructor_function(name, other),
+        }
+    }
+
+    /// Scan a function declaration's body for constructor uses of `name`.
+    fn function_body_uses_constructor_function(
+        name: &str,
+        function: &oxc::ast::ast::Function<'_>,
+    ) -> bool {
+        function.body.as_ref().is_some_and(|body| {
+            body.statements
+                .iter()
+                .any(|statement| Self::module_statement_uses_constructor_function(name, statement))
+        })
     }
 
     /// Recursively scan a statement for constructor uses of `name`.
@@ -207,7 +320,7 @@ impl ModuleBuilder<'_> {
             && prototype.property.name == "prototype"
             && matches!(
                 &prototype.object,
-                Expression::Identifier(object) if self.classes.contains_key(object.name.as_str())
+                Expression::Identifier(object) if self.classes.contains(object.name.as_str())
             )
         {
             return true;
@@ -216,7 +329,7 @@ impl ModuleBuilder<'_> {
         // members such as `Foo.c = function () {}`).
         matches!(
             &member.object,
-            Expression::Identifier(object) if self.classes.contains_key(object.name.as_str())
+            Expression::Identifier(object) if self.classes.contains(object.name.as_str())
         )
     }
 
@@ -281,7 +394,7 @@ impl ModuleBuilder<'_> {
                 let Some((name, function)) = Self::const_constructor_function(declarator) else {
                     continue;
                 };
-                if self.classes.contains_key(name) || self.locals.contains_key(name) {
+                if self.classes.contains(name) || self.scope.is_bound(name) {
                     continue;
                 }
                 if !Self::statements_use_function_as_constructor(name, statements) {
@@ -362,8 +475,8 @@ impl ModuleBuilder<'_> {
             let Some(id) = &function.id else {
                 continue;
             };
-            if self.classes.contains_key(id.name.as_str())
-                || self.locals.contains_key(id.name.as_str())
+            if self.classes.contains(id.name.as_str())
+                || self.scope.is_bound(id.name.as_str())
             {
                 continue;
             }
@@ -424,7 +537,7 @@ impl ModuleBuilder<'_> {
     /// constructor function body, and `prototype_methods` are the
     /// `Foo.prototype.x = function () { … }` members collected from the
     /// surrounding statement list. The class is registered into
-    /// `self.classes`/`self.class_fields`/`self.class_methods` so subsequent
+    /// class registry (item, fields and method signatures) so subsequent
     /// `new`/`instanceof`/field lookups resolve it like a declared class.
     fn synthesize_named_constructor_function_class<'a>(
         &mut self,
@@ -433,7 +546,7 @@ impl ModuleBuilder<'_> {
         prototype_methods: Vec<(String, &'a oxc::ast::ast::Function<'a>)>,
     ) -> Result<(), SmeltError> {
         let class_text = class_text.to_owned();
-        if self.classes.contains_key(class_text.as_str()) {
+        if self.classes.contains(class_text.as_str()) {
             return Ok(());
         }
         let class_name = self.intern_type_name(class_text.as_str());
@@ -472,8 +585,8 @@ impl ModuleBuilder<'_> {
 
         // Register field metadata before lowering the constructor body so that
         // `this.<field>` reads/writes resolve against the class shape.
-        self.class_fields.insert(class_text.clone(), fields.clone());
-        self.class_methods.insert(class_text.clone(), Vec::new());
+        self.classes.set_fields(class_text.clone(), fields.clone());
+        self.classes.set_methods(class_text.clone(), Vec::new());
 
         let constructor = self.synthesize_constructor_function_body(
             class_text.as_str(),
@@ -496,7 +609,7 @@ impl ModuleBuilder<'_> {
             methods.push(item);
             method_sigs.push(sig);
         }
-        self.class_methods.insert(class_text.clone(), method_sigs);
+        self.classes.set_methods(class_text.clone(), method_sigs);
 
         let item = self.ctx.krate.push_item(Item::Class(Class {
             name: class_name,
@@ -514,7 +627,7 @@ impl ModuleBuilder<'_> {
             static_fields: Vec::new(),
             descriptors: Vec::new(),
         }));
-        self.classes.insert(class_text, item);
+        self.classes.register(class_text, item);
         Ok(())
     }
 
@@ -609,7 +722,7 @@ impl ModuleBuilder<'_> {
                 "constructor functions must have a body",
             ));
         };
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
@@ -623,7 +736,7 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span,
         });
-        self.locals.insert("this".to_owned(), this_local);
+        self.scope.bind("this".to_owned(), this_local);
 
         let mut params = Vec::new();
         let mut errors = Vec::new();
@@ -657,7 +770,7 @@ impl ModuleBuilder<'_> {
             });
             body.params.push(local);
             if let Some(source_name) = source_name {
-                self.locals.insert(source_name, local);
+                self.scope.bind(source_name, local);
             }
             params.push(Param {
                 name: param_name,
@@ -683,7 +796,7 @@ impl ModuleBuilder<'_> {
             }
         }
 
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         self.current_class = saved_class;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
@@ -737,7 +850,7 @@ impl ModuleBuilder<'_> {
             .transpose()?
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
 
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
@@ -751,7 +864,7 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span,
         });
-        self.locals.insert("this".to_owned(), this_local);
+        self.scope.bind("this".to_owned(), this_local);
         body.params.push(this_local);
         let mut params = vec![Param {
             name: this_symbol,
@@ -791,7 +904,7 @@ impl ModuleBuilder<'_> {
             });
             body.params.push(local);
             if let Some(source_name) = source_name {
-                self.locals.insert(source_name, local);
+                self.scope.bind(source_name, local);
             }
             params.push(Param {
                 name: param_name,
@@ -822,7 +935,7 @@ impl ModuleBuilder<'_> {
             }
         }
 
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         self.current_class = saved_class;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
