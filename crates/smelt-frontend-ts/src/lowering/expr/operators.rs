@@ -314,8 +314,8 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         if let Expression::Identifier(object) = &member.object
-            && (self.namespace_imports.contains(object.name.as_str())
-                || self.value_imports.contains(object.name.as_str()))
+            && (self.imports.is_namespace(object.name.as_str())
+                || self.imports.is_value(object.name.as_str()))
         {
             if call.arguments.len() < 2 || call.arguments.len() > 3 {
                 return Err(SmeltError::unsupported(
@@ -3826,7 +3826,7 @@ impl ModuleBuilder<'_> {
             .copied()
             .or_else(|| self.items.get(member_name).copied());
         let Some(item) = item else {
-            if self.namespace_imports.contains(namespace) {
+            if self.imports.is_namespace(namespace) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),

@@ -2443,7 +2443,7 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let name = callee.name.as_str();
-        (self.test_builtins.contains(name) && matches!(name, "it" | "test")).then_some(call)
+        (self.imports.is_test_builtin(name) && matches!(name, "it" | "test")).then_some(call)
     }
 
     /// Return whether an expression is a skipped Vitest test case.
@@ -2460,7 +2460,7 @@ impl ModuleBuilder<'_> {
         matches!(
             &member.object,
             Expression::Identifier(object)
-                if self.test_builtins.contains(object.name.as_str())
+                if self.imports.is_test_builtin(object.name.as_str())
                     && matches!(object.name.as_str(), "it" | "test")
         )
     }
@@ -2547,7 +2547,7 @@ impl ModuleBuilder<'_> {
         matches!(
             &member.object,
             Expression::Identifier(object)
-                if self.test_builtins.contains(object.name.as_str())
+                if self.imports.is_test_builtin(object.name.as_str())
                     && matches!(object.name.as_str(), "test" | "it" | "describe")
         )
     }
@@ -2572,7 +2572,7 @@ impl ModuleBuilder<'_> {
         matches!(
             &member.object,
             Expression::Identifier(object)
-                if self.test_builtins.contains(object.name.as_str())
+                if self.imports.is_test_builtin(object.name.as_str())
                     && matches!(object.name.as_str(), "test" | "it")
         )
         .then_some(call)
@@ -2606,7 +2606,7 @@ impl ModuleBuilder<'_> {
             return false;
         };
         let name = callee.name.as_str();
-        if !self.test_builtins.contains(name)
+        if !self.imports.is_test_builtin(name)
             || !matches!(name, "beforeAll" | "beforeEach" | "afterAll" | "afterEach")
         {
             return false;
@@ -2644,7 +2644,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(false);
         };
-        if !self.test_builtins.contains(callee.name.as_str())
+        if !self.imports.is_test_builtin(callee.name.as_str())
             || !matches!(callee.name.as_str(), "beforeAll" | "beforeEach")
         {
             return Ok(false);
@@ -2662,7 +2662,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a callee belongs to an imported test-framework API.
     pub(in crate::lowering) fn is_test_framework_callee(&self, callee: &Expression<'_>) -> bool {
         match callee {
-            Expression::Identifier(ident) => self.test_builtins.contains(ident.name.as_str()),
+            Expression::Identifier(ident) => self.imports.is_test_builtin(ident.name.as_str()),
             Expression::CallExpression(call) => self.is_test_framework_callee(&call.callee),
             Expression::StaticMemberExpression(member)
                 if member.property.name == "concurrent"
@@ -2674,7 +2674,7 @@ impl ModuleBuilder<'_> {
                 matches!(
                     &member.object,
                     Expression::Identifier(object)
-                        if self.test_builtins.contains(object.name.as_str())
+                        if self.imports.is_test_builtin(object.name.as_str())
                 )
             }
             _ => false,
@@ -2685,13 +2685,13 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn is_describe_callee(&self, callee: &Expression<'_>) -> bool {
         match callee {
             Expression::Identifier(ident) => {
-                ident.name == "describe" && self.test_builtins.contains("describe")
+                ident.name == "describe" && self.imports.is_test_builtin("describe")
             }
             Expression::StaticMemberExpression(member) if member.property.name == "concurrent" => {
                 matches!(
                     &member.object,
                     Expression::Identifier(object)
-                        if object.name == "describe" && self.test_builtins.contains("describe")
+                        if object.name == "describe" && self.imports.is_test_builtin("describe")
                 )
             }
             _ => false,

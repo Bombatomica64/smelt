@@ -277,7 +277,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(new_expr.span.start, new_expr.span.end),
                 }));
             }
-            if self.value_imports.contains(callee.name.as_str())
+            if self.imports.is_value(callee.name.as_str())
                 || self.module_globals.contains_key(callee.name.as_str())
                 || self.source_contains_class(callee.name.as_str())
             {

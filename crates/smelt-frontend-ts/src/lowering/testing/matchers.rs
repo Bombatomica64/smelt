@@ -114,7 +114,7 @@ impl ModuleBuilder<'_> {
             let Expression::Identifier(expect_ident) = &expect_call.callee else {
                 return Ok(false);
             };
-            if !self.test_builtins.contains(expect_ident.name.as_str())
+            if !self.imports.is_test_builtin(expect_ident.name.as_str())
                 || expect_ident.name.as_str() != "expect"
             {
                 return Ok(false);
@@ -201,7 +201,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(expect_ident) = &expect_call.callee else {
             return Ok(false);
         };
-        if !self.test_builtins.contains(expect_ident.name.as_str())
+        if !self.imports.is_test_builtin(expect_ident.name.as_str())
             || expect_ident.name.as_str() != "expect"
         {
             return Ok(false);
@@ -360,7 +360,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(expect_ident) = &expect_call.callee else {
             return Ok(false);
         };
-        if !self.test_builtins.contains(expect_ident.name.as_str())
+        if !self.imports.is_test_builtin(expect_ident.name.as_str())
             || expect_ident.name.as_str() != "expect"
         {
             return Ok(false);
@@ -452,7 +452,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(expect_ident) = &expect_call.callee else {
             return Ok(false);
         };
-        if !self.test_builtins.contains(expect_ident.name.as_str())
+        if !self.imports.is_test_builtin(expect_ident.name.as_str())
             || expect_ident.name.as_str() != "expect"
         {
             return Ok(false);
@@ -2432,8 +2432,7 @@ impl ModuleBuilder<'_> {
                 && let Some(initializer) = &declarator.init
                 && self.expr_is_global_alias(initializer)
             {
-                self.global_object_aliases
-                    .insert(binding.name.as_str().to_owned());
+                self.imports.mark_global_object_alias(binding.name.as_str().to_owned());
                 continue;
             }
             // A `const f = (…) => …` arrow lifts to the compact callback/function
@@ -2584,7 +2583,7 @@ impl ModuleBuilder<'_> {
                 ));
             };
             self.alias_imported_item(source, imported.as_ref(), local.name.as_str());
-            self.value_imports.insert(local.name.as_str().to_owned());
+            self.imports.mark_value(local.name.as_str().to_owned());
         }
         Ok(())
     }

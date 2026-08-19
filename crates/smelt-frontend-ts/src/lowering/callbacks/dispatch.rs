@@ -113,7 +113,7 @@ impl ModuleBuilder<'_> {
             if matches!(
                 identifier.name.as_str(),
                 "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
-            ) && self.value_imports.contains(identifier.name.as_str())
+            ) && self.imports.is_value(identifier.name.as_str())
             {
                 let param_ty = expected_param_tys
                     .first()

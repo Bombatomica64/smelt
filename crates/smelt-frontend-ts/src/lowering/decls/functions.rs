@@ -2214,8 +2214,8 @@ impl ModuleBuilder<'_> {
                         "class extends currently requires a direct base class identifier or imported namespace member",
                     ));
                 };
-                if !self.value_imports.contains(object.name.as_str())
-                    && !self.namespace_imports.contains(object.name.as_str())
+                if !self.imports.is_value(object.name.as_str())
+                    && !self.imports.is_namespace(object.name.as_str())
                 {
                     return Err(SmeltError::unsupported(
                         self.span(super_class.span().start, super_class.span().end),
@@ -2243,7 +2243,7 @@ impl ModuleBuilder<'_> {
         // the global and is handled through the normal declared-base path below.
         if name == "Object"
             && !self.classes.contains(name)
-            && !self.value_imports.contains(name)
+            && !self.imports.is_value(name)
         {
             return Ok((None, Vec::new()));
         }
@@ -2273,7 +2273,7 @@ impl ModuleBuilder<'_> {
             );
         if !allowed_builtin
             && !self.classes.contains(name)
-            && !self.value_imports.contains(name)
+            && !self.imports.is_value(name)
             && !name.contains('.')
         {
             return Err(SmeltError::unsupported(

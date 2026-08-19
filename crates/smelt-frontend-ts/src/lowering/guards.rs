@@ -29,10 +29,10 @@ impl ModuleBuilder<'_> {
         if let Expression::StaticMemberExpression(member) = &binary.right
             && (self
                 .namespace_member_name(member)
-                .is_some_and(|(namespace, _)| self.namespace_imports.contains(namespace))
+                .is_some_and(|(namespace, _)| self.imports.is_namespace(namespace))
                 || matches!(
                     &member.object,
-                    Expression::Identifier(object) if self.value_imports.contains(object.name.as_str())
+                    Expression::Identifier(object) if self.imports.is_value(object.name.as_str())
                 ))
         {
             let ty = self.ctx.krate.types.intern(Type::Bool);
@@ -151,7 +151,7 @@ impl ModuleBuilder<'_> {
             // valid nominal target even though its final HIR item is inserted
             // only after all of its methods have been emitted.
             && !self.classes.is_pending(class_text)
-            && !self.value_imports.contains(class_text)
+            && !self.imports.is_value(class_text)
         {
             // `this instanceof bound` against a *function* value (the JS
             // constructor-function idiom for detecting `new`-invocation, as in
@@ -657,7 +657,7 @@ impl ModuleBuilder<'_> {
     /// must not be normalized or erased. A name explicitly recorded as a
     /// `const g = globalThis;` alias always counts.
     pub(super) fn is_ambient_global_alias(&self, name: &str) -> bool {
-        if self.global_object_aliases.contains(name) {
+        if self.imports.is_global_object_alias(name) {
             return true;
         }
         if !ambient_globals::is_global_alias_name(name) {
@@ -665,9 +665,7 @@ impl ModuleBuilder<'_> {
         }
         // Shadowed by a local binding/import/item -> not the ambient global.
         !(self.scope.is_bound(name)
-            || self.value_imports.contains(name)
-            || self.type_only_imports.contains(name)
-            || self.namespace_imports.contains(name)
+            || self.imports.is_imported_binding(name)
             || self.items.contains_key(name)
             || self.module_globals.contains_key(name)
             || self.consts.has_literal(name)

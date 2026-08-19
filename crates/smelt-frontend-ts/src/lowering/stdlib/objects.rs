@@ -464,7 +464,7 @@ impl ModuleBuilder<'_> {
         };
         if callee.name != "Object"
             || self.classes.contains("Object")
-            || self.value_imports.contains("Object")
+            || self.imports.is_value("Object")
         {
             return Ok(None);
         }
@@ -714,7 +714,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "negate" || !self.value_imports.contains("negate") {
+        if callee.name != "negate" || !self.imports.is_value("negate") {
             return Ok(None);
         }
         let [predicate] = call.arguments.as_slice() else {
@@ -757,7 +757,7 @@ return_ty,
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "_" || !self.value_imports.contains("_") {
+        if object.name != "_" || !self.imports.is_value("_") {
             return Ok(None);
         }
         let [target, path] = call.arguments.as_slice() else {
@@ -788,7 +788,7 @@ return_ty,
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "fp" || !self.value_imports.contains("fp") {
+        if object.name != "fp" || !self.imports.is_value("fp") {
             return Ok(None);
         }
         if !matches!(
@@ -839,7 +839,7 @@ return_ty,
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "path" || !self.value_imports.contains("path") {
+        if object.name != "path" || !self.imports.is_value("path") {
             return Ok(None);
         }
         if !matches!(member.property.name.as_str(), "join" | "resolve") {

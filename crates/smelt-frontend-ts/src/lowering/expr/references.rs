@@ -277,7 +277,7 @@ impl ModuleBuilder<'_> {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);
             }
-            if self.value_imports.contains(name) {
+            if self.imports.is_value(name) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);
             }

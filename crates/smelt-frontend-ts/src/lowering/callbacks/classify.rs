@@ -1129,7 +1129,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn is_opaque_callback_value(&self, name: &str) -> bool {
         !self.scope.is_bound(name)
             && !self.items.contains_key(name)
-            && (self.value_imports.contains(name) || self.source_contains_forward_callable(name))
+            && (self.imports.is_value(name) || self.source_contains_forward_callable(name))
     }
 
     /// Return whether an expression is an imported utility namespace/object.
@@ -1137,7 +1137,7 @@ impl ModuleBuilder<'_> {
         matches!(
             expression,
             Expression::Identifier(object)
-                if self.namespace_imports.contains(object.name.as_str())
+                if self.imports.is_namespace(object.name.as_str())
                     || self.object_namespaces.contains_key(object.name.as_str())
         )
     }
@@ -1159,7 +1159,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn builtin_call_identifier_is_shadowed(&self, name: &str) -> bool {
         self.scope.is_bound(name)
             || self.items.contains_key(name)
-            || self.value_imports.contains(name)
+            || self.imports.is_value(name)
     }
 
     /// Lower a function-expression callback after expected parameter types are known.

@@ -546,7 +546,7 @@ impl<'builder> ModuleBuilder<'builder> {
                         span: self.span(call.span.start, call.span.end),
                     }));
                 }
-                if self.value_imports.contains(callee_ident.name.as_str()) {
+                if self.imports.is_value(callee_ident.name.as_str()) {
                     for arg in &call.arguments {
                         let _ = self.argument(arg, body)?;
                     }
@@ -586,7 +586,7 @@ impl<'builder> ModuleBuilder<'builder> {
                         function.return_ty,
                         function.is_async,
                     )
-                } else if self.value_imports.contains(callee_ident.name.as_str()) {
+                } else if self.imports.is_value(callee_ident.name.as_str()) {
                     for arg in &call.arguments {
                         let _ = self.argument(arg, body)?;
                     }
@@ -4546,7 +4546,7 @@ impl<'builder> ModuleBuilder<'builder> {
         matches!(
             callee,
             Expression::Identifier(ident)
-                if self.test_builtins.contains(ident.name.as_str())
+                if self.imports.is_test_builtin(ident.name.as_str())
                     && test_support::is_type_test_builtin_name(ident.name.as_str())
         )
     }

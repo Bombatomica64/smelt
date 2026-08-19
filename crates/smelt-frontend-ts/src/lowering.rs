@@ -589,24 +589,13 @@ struct ModuleBuilder<'ctx> {
     allow_unknown_index_access: bool,
     /// Whether a lifted specialization callable keeps its concrete `this` type through assertions.
     preserve_specialization_receiver: bool,
-    /// Test-framework API names imported from Vitest-compatible modules.
-    test_builtins: HashSet<String>,
-    /// Local names statically known to alias the ambient global object.
+    /// Provenance of source names this module did not declare: value,
+    /// type-only and namespace imports, test builtins, `@date-fns/tz`
+    /// factories, and `globalThis` aliases.
     ///
-    /// Populated for `const g = globalThis;` style bindings so that global-path
-    /// normalization and feature-probe erasure recognize `g.Object.keys(x)` and
-    /// `"Map" in g` as global references. Used only for preserving known member
-    /// types and stdlib dispatch; dynamic correctness would come from a shared
-    /// runtime object if Phase 2/3 lands.
-    global_object_aliases: HashSet<String>,
-    /// Local names bound by namespace imports such as `import * as MathApi from "./math"`.
-    namespace_imports: HashSet<String>,
-    /// Local names imported only for TypeScript type positions.
-    type_only_imports: HashSet<String>,
-    /// Local names imported as runtime values.
-    value_imports: HashSet<String>,
-    /// Local names bound to `tz` from the `@date-fns/tz` package.
-    date_fns_timezone_factories: HashSet<String>,
+    /// See [`state::import_scope::ImportScope`] for what it does and does not
+    /// guarantee about those sets.
+    imports: state::import_scope::ImportScope,
     /// Object constants that act as namespace-like API surfaces.
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Folded constant values visible to this module: literals, `enum` members,

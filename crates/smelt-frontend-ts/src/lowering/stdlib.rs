@@ -643,9 +643,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if !self
-            .date_fns_timezone_factories
-            .contains(callee.name.as_str())
+        if !self.imports.is_date_fns_timezone_factory(callee.name.as_str())
         {
             return Ok(None);
         }
@@ -704,7 +702,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(expect_ident) = &expect_call.callee else {
             return Ok(None);
         };
-        if expect_ident.name != "expect" || !self.test_builtins.contains("expect") {
+        if expect_ident.name != "expect" || !self.imports.is_test_builtin("expect") {
             return Ok(None);
         }
         let Some(actual_arg) = expect_call.arguments.first() else {

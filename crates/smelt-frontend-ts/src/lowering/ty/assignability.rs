@@ -523,8 +523,8 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         if let Expression::Identifier(object) = &member.object
-            && (self.namespace_imports.contains(object.name.as_str())
-                || self.value_imports.contains(object.name.as_str()))
+            && (self.imports.is_namespace(object.name.as_str())
+                || self.imports.is_value(object.name.as_str()))
         {
             if call.arguments.is_empty() || call.arguments.len() > 2 {
                 return Err(SmeltError::unsupported(

@@ -54,7 +54,7 @@ impl ModuleBuilder<'_> {
             .copied()
             .or_else(|| self.items.get(member_name).copied());
         let Some(item) = item else {
-            if self.namespace_imports.contains(namespace) {
+            if self.imports.is_namespace(namespace) {
                 for arg in &call.arguments {
                     let _ = self.argument(arg, body)?;
                 }
@@ -159,7 +159,7 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let namespace = object.name.as_str();
-        (self.namespace_imports.contains(namespace)
+        (self.imports.is_namespace(namespace)
             || self.object_namespaces.contains_key(namespace))
         .then_some((namespace, member.property.name.as_str()))
     }

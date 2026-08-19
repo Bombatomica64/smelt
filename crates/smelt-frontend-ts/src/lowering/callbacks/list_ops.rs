@@ -589,7 +589,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "_" || !self.value_imports.contains("_") {
+        if object.name != "_" || !self.imports.is_value("_") {
             return Ok(None);
         }
         let [collection_arg, callback_arg] = call.arguments.as_slice() else {
@@ -676,7 +676,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "async" || !self.value_imports.contains("async") {
+        if object.name != "async" || !self.imports.is_value("async") {
             return Ok(None);
         }
         let [collection_arg, callback_arg, trailing_args @ ..] = call.arguments.as_slice() else {
@@ -756,7 +756,7 @@ impl ModuleBuilder<'_> {
         if matches!(
             &member.object,
             Expression::Identifier(object)
-                if self.namespace_imports.contains(object.name.as_str())
+                if self.imports.is_namespace(object.name.as_str())
         ) {
             return Ok(None);
         }

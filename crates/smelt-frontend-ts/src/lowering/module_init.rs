@@ -10,6 +10,7 @@ use super::support::{
 use super::state::class_registry::ClassRegistry;
 use super::state::interface_registry::InterfaceRegistry;
 use super::state::const_registry::ConstRegistry;
+use super::state::import_scope::ImportScope;
 use super::state::local_scope::LocalScope;
 use super::state::type_scope::TypeScope;
 use super::{
@@ -147,6 +148,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             module_globals: HashMap::new(),
             mutable_global_items: HashMap::new(),
             items,
+            imports: ImportScope::default(),
             classes: ClassRegistry::new(classes, class_index_values),
             interfaces: InterfaceRegistry::new(
                 interfaces,
@@ -165,12 +167,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
             deferred_postfix_updates: None,
             allow_unknown_index_access,
             preserve_specialization_receiver: false,
-            test_builtins: HashSet::new(),
-            global_object_aliases: HashSet::new(),
-            namespace_imports: HashSet::new(),
-            type_only_imports: HashSet::new(),
-            value_imports: HashSet::new(),
-            date_fns_timezone_factories: HashSet::new(),
             object_namespaces,
             consts: ConstRegistry::new(
                 const_literals,
@@ -2086,7 +2082,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     if import.import_kind == ImportOrExportKind::Type
                         || specifier_data.import_kind == ImportOrExportKind::Type
                     {
-                        self.type_only_imports.insert(local.clone());
+                        self.imports.mark_type_only(local.clone());
                     }
                     (imported, local)
                 }
@@ -2096,20 +2092,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ),
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier_data) => {
                     let local = specifier_data.local.name.as_str().to_owned();
-                    self.namespace_imports.insert(local.clone());
+                    self.imports.mark_namespace(local.clone());
                     if import.import_kind == ImportOrExportKind::Type {
-                        self.type_only_imports.insert(local.clone());
+                        self.imports.mark_type_only(local.clone());
                     }
                     self.alias_source_exports_under_namespace(source, &local);
                     ("*".to_owned(), local)
                 }
             };
             if import.import_kind == ImportOrExportKind::Type {
-                self.type_only_imports.insert(local.clone());
+                self.imports.mark_type_only(local.clone());
             } else {
-                self.value_imports.insert(local.clone());
+                self.imports.mark_value(local.clone());
                 if source == "@date-fns/tz" && imported == "tz" {
-                    self.date_fns_timezone_factories.insert(local.clone());
+                    self.imports.mark_date_fns_timezone_factory(local.clone());
                 }
             }
             let name = self.intern_source_name(&imported);
@@ -2123,10 +2119,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if test_support::is_vitest_compatible_module(source)
                 && test_support::is_vitest_builtin_name(&imported)
             {
-                self.test_builtins.insert(local.clone());
+                self.imports.mark_test_builtin(local.clone());
             } else if imported != "*" {
                 self.alias_imported_item(source, &imported, &local);
-                if !self.type_only_imports.contains(&local) && !self.import_alias_resolved(&local) {
+                if !self.imports.is_type_only(&local) && !self.import_alias_resolved(&local) {
                     let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                     self.module_globals.insert(local.clone(), unknown_ty);
                 }
@@ -2348,7 +2344,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 continue;
             }
             if let Some(identifier) = Self::imported_value_identifier(init)
-                && self.value_imports.contains(identifier.name.as_str())
+                && self.imports.is_value(identifier.name.as_str())
             {
                 let item = self.push_expression_const_item(binding, init)?;
                 items.push(item);

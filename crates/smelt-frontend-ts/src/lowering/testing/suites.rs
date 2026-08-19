@@ -542,7 +542,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return false;
         };
-        if self.test_builtins.contains(callee.name.as_str()) || call.arguments.len() < 2 {
+        if self.imports.is_test_builtin(callee.name.as_str()) || call.arguments.len() < 2 {
             return false;
         }
         call.arguments.get(1).is_some_and(|argument| {
