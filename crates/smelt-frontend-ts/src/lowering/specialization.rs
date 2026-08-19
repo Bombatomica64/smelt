@@ -368,7 +368,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(class_name) = &member.object else {
             return Ok(None);
         };
-        let Some(class_item) = self.classes.get(class_name.name.as_str()).copied() else {
+        let Some(class_item) = self.classes.item(class_name.name.as_str()) else {
             return Ok(None);
         };
         let Item::Class(class) = self.item_ref(class_item) else {

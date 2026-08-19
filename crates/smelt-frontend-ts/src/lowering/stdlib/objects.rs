@@ -463,7 +463,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         if callee.name != "Object"
-            || self.classes.contains_key("Object")
+            || self.classes.contains("Object")
             || self.value_imports.contains("Object")
         {
             return Ok(None);
@@ -1329,7 +1329,7 @@ return_ty,
         };
         if object.name != "ArrayBuffer"
             || member.property.name != "isView"
-            || self.classes.contains_key("ArrayBuffer")
+            || self.classes.contains("ArrayBuffer")
         {
             return Ok(None);
         }

@@ -1174,7 +1174,7 @@ impl ModuleBuilder<'_> {
                     .names
                     .get(*name)
                     .or_else(|| self.ctx.krate.symbols.get(*name))
-                    .and_then(|class_name| self.class_methods.get(class_name))
+                    .and_then(|class_name| self.classes.methods(class_name))
                     .is_some_and(|methods| methods.iter().any(|candidate| candidate.name == method));
                 // `type_alias_fields` mixes two producers: genuine object-type
                 // aliases (structural closure fields) and class method surfaces

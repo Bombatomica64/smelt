@@ -86,11 +86,8 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
-        if self.classes.contains_key(name) {
-            let symbol = self
-                .classes
-                .get(name)
-                .copied()
+        if self.classes.contains(name) {
+            let symbol = self.classes.item(name)
                 .and_then(|item| match self.item_ref(item) {
                     Item::Class(class) => Some(class.name),
                     _ => None,

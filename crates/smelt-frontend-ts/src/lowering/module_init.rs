@@ -7,6 +7,7 @@ use super::support::{
     const_literal_from_item, implemented_function_names, insert_visible_item,
     is_implemented_overload_signature, item_name, module_export_name,
 };
+use super::state::class_registry::ClassRegistry;
 use super::{
     AssertionNarrowing, ConstCollection, ConstCollectionItem, ConstCollectionValue, ConstLiteral,
     ModuleBuilder, RestParam, SpecializationData,
@@ -144,20 +145,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             module_globals: HashMap::new(),
             mutable_global_items: HashMap::new(),
             items,
-            classes,
-            scoped_class_type_names: HashMap::new(),
-            pending_class_names: HashSet::new(),
-            module_constructor_functions: HashSet::new(),
+            classes: ClassRegistry::new(classes, class_index_values),
             pending_interface_names: HashSet::new(),
             lowered_local_interfaces: HashSet::new(),
             interfaces,
-            class_fields: HashMap::new(),
-            class_methods: HashMap::new(),
-            class_bases: HashMap::new(),
             type_alias_fields,
             interface_extends,
             interface_index_values,
-            class_index_values,
             interface_call_signatures,
             interface_construct_signatures,
             callable_fields,
@@ -308,16 +302,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_module_enums(program);
         self.collect_module_globals(program);
         self.collect_mutable_globals(program, &mut module, &mut errors);
-        self.pending_class_names = Self::program_class_names(program);
         // A module top-level `function Foo(){ this.a = … }` used with `new Foo()`,
         // `x instanceof Foo`, or `Foo.prototype.m = …` is a JavaScript
-        // constructor function, not a plain function. Record those names before
-        // any function item is predeclared so the declaration is synthesized
-        // into a class instead, and treat them as pending class names so a
-        // `new Foo()` lowered before the synthesis still resolves nominally.
-        self.module_constructor_functions = Self::module_constructor_function_names(program);
-        self.pending_class_names
-            .extend(self.module_constructor_functions.iter().cloned());
+        // constructor function, not a plain function. Both name sets are handed
+        // to the registry in one call, before any function item is predeclared:
+        // it treats every constructor-function name as a pending class name so a
+        // `new Foo()` lowered before the synthesis still resolves nominally, and
+        // `predeclare_function_item` skips the names it reports.
+        self.classes.declare_module_scope(
+            Self::program_class_names(program),
+            Self::module_constructor_function_names(program),
+        );
         self.pending_interface_names = Self::program_interface_names(program);
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
@@ -484,8 +479,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                                 if let Some(item) = function
                                     .id
                                     .as_ref()
-                                    .and_then(|id| self.classes.get(id.name.as_str()))
-                                    .copied()
+                                    .and_then(|id| self.classes.item(id.name.as_str()))
                                 {
                                     module.items.push(item);
                                 }
@@ -1796,7 +1790,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         // A constructor function becomes a synthesized class, so it gets no
         // callable function item to shadow the class binding.
-        if self.module_constructor_functions.contains(id.name.as_str()) {
+        if self.classes.is_constructor_function(id.name.as_str()) {
             return Ok(());
         }
         let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
@@ -2033,8 +2027,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let alias = format!("{namespace}.{name}");
             self.ctx.export_aliases.insert(alias.clone(), item);
             self.items.insert(alias.clone(), item);
-            if self.classes.values().any(|class_item| *class_item == item) {
-                self.classes.insert(alias.clone(), item);
+            if self.classes.has_item(item) {
+                self.classes.register(alias.clone(), item);
             }
             if self
                 .interfaces
@@ -2161,7 +2155,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Return whether an imported local already resolves to concrete frontend metadata.
     pub(super) fn import_alias_resolved(&self, local: &str) -> bool {
         self.items.contains_key(local)
-            || self.classes.contains_key(local)
+            || self.classes.contains(local)
             || self.interfaces.contains_key(local)
             || self.const_literals.contains_key(local)
             || self.const_objects.contains_key(local)
@@ -2178,7 +2172,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.items.insert(local.to_owned(), item);
             match self.item_ref(item) {
                 Item::Class(_) => {
-                    self.classes.insert(local.to_owned(), item);
+                    self.classes.register(local.to_owned(), item);
                 }
                 Item::Interface(_) => {
                     self.interfaces.insert(local.to_owned(), item);
@@ -2214,19 +2208,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for (alias, item) in qualified_item_aliases {
             self.items.insert(alias, item);
         }
-        if let Some(item) = self.classes.get(imported).copied() {
-            self.classes.insert(local.to_owned(), item);
+        if let Some(item) = self.classes.item(imported) {
+            self.classes.register(local.to_owned(), item);
         }
         let qualified_class_aliases = self
             .classes
-            .iter()
+            .entries()
             .filter_map(|(name, item)| {
                 let member = name.strip_prefix(&imported_prefix)?;
-                Some((format!("{local}.{member}"), *item))
+                Some((format!("{local}.{member}"), item))
             })
             .collect::<Vec<_>>();
         for (alias, item) in qualified_class_aliases {
-            self.classes.insert(alias, item);
+            self.classes.register(alias, item);
         }
         if let Some(item) = self.interfaces.get(imported).copied() {
             self.interfaces.insert(local.to_owned(), item);

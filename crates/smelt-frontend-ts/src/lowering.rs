@@ -2,6 +2,7 @@
 
 mod ambient_globals;
 mod specialization;
+mod state;
 mod stdlib;
 mod stdlib_dispatch;
 mod support;
@@ -551,23 +552,13 @@ struct ModuleBuilder<'ctx> {
     mutable_global_items: HashMap<String, smelt_hir::ItemId>,
     /// Declared and imported items (functions, classes, interfaces).
     items: HashMap<String, smelt_hir::ItemId>,
-    /// Class definitions by name.
-    classes: HashMap<String, smelt_hir::ItemId>,
-    /// Lexically scoped class type symbols keyed by their source binding name.
+    /// Class shapes visible to this module: items, fields, methods, bases,
+    /// index-signature value types, lexically scoped type symbols, and the
+    /// pending / constructor-function name sets.
     ///
-    /// Test suites are flattened into one Rust module, so sibling suites may
-    /// legally declare different block-local classes with the same source name.
-    /// This map preserves source lookup while giving each declaration a
-    /// distinct emitted type identity.
-    scoped_class_type_names: HashMap<String, smelt_hir::Symbol>,
-    /// Class names declared later in the current module.
-    pending_class_names: HashSet<String>,
-    /// Module top-level `function Foo(){}` declarations this module uses as
-    /// JavaScript constructor functions.
-    ///
-    /// Recorded by a prepass so the declaration is synthesized into a class
-    /// rather than predeclared and lowered as a plain module function.
-    module_constructor_functions: HashSet<String>,
+    /// Owns the constructor-function invariant documented on
+    /// [`state::class_registry::ClassRegistry`].
+    classes: state::class_registry::ClassRegistry,
     /// Interface names declared in the current module, including declarations
     /// that appear after a class which implements them.
     pending_interface_names: HashSet<String>,
@@ -575,25 +566,12 @@ struct ModuleBuilder<'ctx> {
     lowered_local_interfaces: HashSet<smelt_hir::Symbol>,
     /// Interface definitions by name.
     interfaces: HashMap<String, smelt_hir::ItemId>,
-    /// Fields for each class.
-    class_fields: HashMap<String, Vec<Field>>,
-    /// Method signatures for classes that are visible before their item is fully emitted.
-    class_methods: HashMap<String, Vec<MethodSig>>,
-    /// Base class metadata for the class currently being lowered.
-    class_bases: HashMap<String, (smelt_hir::Symbol, Vec<smelt_hir::TypeId>)>,
     /// Fields carried by structural type aliases.
     type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
     /// Interface heritage clauses for resolving fields after cyclic type imports settle.
     interface_extends: HashMap<smelt_hir::Symbol, Vec<InterfaceHeritageRef>>,
     /// Value types declared by interface string index signatures.
     interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
-    /// Value types declared by class string index signatures (`[k: string]: T`).
-    ///
-    /// Mirrors `interface_index_values` for classes: keyed by class name symbol,
-    /// this records the value type of a class's `[key: string]: T` index
-    /// signature so member and computed access can fall back to it when no
-    /// declared named field or method matches.
-    class_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     /// Interface call signatures for callable interface types.
     interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Interface construct signatures (`new (): T`) for constructor-slot types.

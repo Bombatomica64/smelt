@@ -1347,7 +1347,7 @@ impl<'builder> ModuleBuilder<'builder> {
         // A local binding or user class named `Object` shadows the builtin.
         if object.name != "Object"
             || self.locals.contains_key("Object")
-            || self.classes.contains_key("Object")
+            || self.classes.contains("Object")
         {
             return Ok(None);
         }
@@ -1440,7 +1440,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if self.locals.contains_key(object.name.as_str()) {
             return Ok(None);
         }
-        let Some(class_item) = self.classes.get(object.name.as_str()).copied() else {
+        let Some(class_item) = self.classes.item(object.name.as_str()) else {
             return Ok(None);
         };
         let Item::Class(class) = self.item_ref(class_item) else {
@@ -1495,7 +1495,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if self.locals.contains_key(object.name.as_str()) {
             return false;
         }
-        let Some(class_item) = self.classes.get(object.name.as_str()).copied() else {
+        let Some(class_item) = self.classes.item(object.name.as_str()) else {
             return false;
         };
         let Item::Class(class) = self.item_ref(class_item) else {
@@ -1789,7 +1789,7 @@ impl<'builder> ModuleBuilder<'builder> {
             .map(str::to_owned);
         if class_name
             .as_deref()
-            .and_then(|class_name| self.class_fields.get(class_name))
+            .and_then(|class_name| self.classes.fields(class_name))
             .and_then(|fields| fields.iter().find(|item| item.name == field))
             .is_some_and(|item| matches!(self.ctx.krate.types.get(item.ty), Some(Type::Function(_))))
         {
@@ -1801,7 +1801,7 @@ impl<'builder> ModuleBuilder<'builder> {
             .or_else(|| {
                 class_name
                     .as_deref()
-                    .and_then(|base_name| self.class_bases.get(base_name).cloned())
+                    .and_then(|base_name| self.classes.base(base_name).cloned())
             })
         else {
             return false;
@@ -3863,7 +3863,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if Self::is_ts_stdlib_class_name(type_name, smelt_stdlib::StdlibClass::RegExp) {
             return false;
         }
-        !self.classes.contains_key(type_name) && !self.interfaces.contains_key(type_name)
+        !self.classes.contains(type_name) && !self.interfaces.contains_key(type_name)
     }
 
     /// Return whether a value of this type dispatches member calls through the

@@ -313,10 +313,7 @@ impl ModuleBuilder<'_> {
                 // lowered inline without a forward-declaration pass. The interned
                 // symbol matches the class item's name because both come from
                 // `intern_type_name(class_text)`.
-                let name = self
-                    .classes
-                    .get(&class_name)
-                    .copied()
+                let name = self.classes.item(&class_name)
                     .and_then(|class_item| match self.item_ref(class_item) {
                         Item::Class(class) => Some(class.name),
                         _ => None,
@@ -1939,7 +1936,7 @@ return_ty: function.return_ty,
         if self.find_type_alias(direct_symbol).is_some() {
             return direct_symbol;
         }
-        if let Some(symbol) = self.scoped_class_type_names.get(name_text).copied() {
+        if let Some(symbol) = self.classes.scoped_type_name(name_text) {
             return symbol;
         }
         if let Some(item) = self.items.get(name_text).copied() {
@@ -2250,7 +2247,7 @@ return_ty: function.return_ty,
                     .or_else(|| self.ctx.krate.symbols.get(name))
                     .map(str::to_owned);
                 let sidecar_field = class_name.as_deref().and_then(|class_name| {
-                    self.class_fields.get(class_name).and_then(|fields| {
+                    self.classes.fields(class_name).and_then(|fields| {
                         fields
                             .iter()
                             .find(|item| item.name == field)
@@ -2258,9 +2255,7 @@ return_ty: function.return_ty,
                     })
                 });
                 let sidecar_method = class_name.as_deref().and_then(|class_name| {
-                    let method = self
-                        .class_methods
-                        .get(class_name)?
+                    let method = self.classes.methods(class_name)?
                         .iter()
                         .find(|item| item.name == field)?;
                     let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
@@ -2348,7 +2343,7 @@ return_ty: function.return_ty,
                 // index signature's value type instead of erasing it. Named
                 // members are tried first (above) so declared fields keep their
                 // concrete types; this is only the dynamic-keyed fallback.
-                let class_index_field = self.class_index_values.get(&name).copied();
+                let class_index_field = self.classes.index_value(name);
                 if let Some(ty) = class_field
                     .or(sidecar_field)
                     .or(sidecar_method)
@@ -2367,7 +2362,7 @@ return_ty: function.return_ty,
                     .or_else(|| {
                         class_name
                             .as_deref()
-                            .and_then(|class_name| self.class_bases.get(class_name).cloned())
+                            .and_then(|class_name| self.classes.base(class_name).cloned())
                     })
                 {
                     let substitutions = self.type_argument_substitution(
@@ -2442,7 +2437,7 @@ return_ty: function.return_ty,
             .get(class_name)
             .or_else(|| self.ctx.krate.symbols.get(class_name))
             .map(str::to_owned)?;
-        let methods = self.class_methods.get(&class_text).cloned()?;
+        let methods = self.classes.methods(&class_text).cloned()?;
         let method = methods.into_iter().find(|item| item.name == method_name)?;
         let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
         let mutable_params =
@@ -2865,7 +2860,7 @@ return_ty: function.return_ty,
         else {
             return Ok(None);
         };
-        let Some(methods) = self.class_methods.get(&class_name).cloned() else {
+        let Some(methods) = self.classes.methods(&class_name).cloned() else {
             return Ok(None);
         };
         let Some(signature) = methods.into_iter().find(|item| item.name == method) else {
@@ -2911,12 +2906,9 @@ return_ty: function.return_ty,
             // `Optional<T>` rather than the erased `Unknown` boundary. Classes with
             // no index signature still fall through to `Unknown` below.
             Some(Type::Class { name, .. })
-                if self.class_index_values.contains_key(name) =>
+                if self.classes.has_index_value(*name) =>
             {
-                let value_ty = self
-                    .class_index_values
-                    .get(name)
-                    .copied()
+                let value_ty = self.classes.index_value(*name)
                     .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
                 Ok(self.optional_chain_result_type(value_ty))
             }
@@ -3308,7 +3300,7 @@ return_ty: function.return_ty,
                         .krate
                         .symbols
                         .get(*name)
-                        .is_some_and(|name| !self.classes.contains_key(name) && !self.interfaces.contains_key(name))
+                        .is_some_and(|name| !self.classes.contains(name) && !self.interfaces.contains_key(name))
             )
     }
 

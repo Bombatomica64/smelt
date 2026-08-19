@@ -179,7 +179,7 @@ impl ModuleBuilder<'_> {
         if callee.name == "String" {
             return self.string_constructor_expression(new_expr, body);
         }
-        if callee.name == "Object" && !self.classes.contains_key("Object") {
+        if callee.name == "Object" && !self.classes.contains("Object") {
             return self.object_constructor_expression(new_expr, body, type_hint);
         }
         // The byte-backed host objects other than Node's `Buffer` (which keeps its
@@ -187,21 +187,21 @@ impl ModuleBuilder<'_> {
         // shared host constructor so their records carry real byte storage.
         if callee.name != "Buffer"
             && smelt_stdlib::byte_buffer_role(callee.name.as_str()).is_some()
-            && !self.classes.contains_key(callee.name.as_str())
+            && !self.classes.contains(callee.name.as_str())
         {
             let class_name = callee.name.to_string();
             return self.byte_buffer_constructor_expression(new_expr, &class_name, body);
         }
-        if callee.name == "Buffer" && !self.classes.contains_key("Buffer") {
+        if callee.name == "Buffer" && !self.classes.contains("Buffer") {
             return self.buffer_constructor_expression(new_expr, body);
         }
-        if callee.name == "Blob" && !self.classes.contains_key("Blob") {
+        if callee.name == "Blob" && !self.classes.contains("Blob") {
             return self.blob_constructor_expression(new_expr, body);
         }
-        if callee.name == "File" && !self.classes.contains_key("File") {
+        if callee.name == "File" && !self.classes.contains("File") {
             return self.file_constructor_expression(new_expr, body);
         }
-        if callee.name == "Number" && !self.classes.contains_key("Number") {
+        if callee.name == "Number" && !self.classes.contains("Number") {
             return self.boxed_primitive_constructor_expression(
                 new_expr,
                 body,
@@ -209,7 +209,7 @@ impl ModuleBuilder<'_> {
                 Literal::Float(0.0),
             );
         }
-        if callee.name == "Boolean" && !self.classes.contains_key("Boolean") {
+        if callee.name == "Boolean" && !self.classes.contains("Boolean") {
             return self.boxed_primitive_constructor_expression(
                 new_expr,
                 body,
@@ -217,13 +217,13 @@ impl ModuleBuilder<'_> {
                 Literal::Bool(false),
             );
         }
-        if callee.name == "Proxy" && !self.classes.contains_key("Proxy") {
+        if callee.name == "Proxy" && !self.classes.contains("Proxy") {
             return self.proxy_constructor_expression(new_expr, body);
         }
-        if callee.name == "Function" && !self.classes.contains_key("Function") {
+        if callee.name == "Function" && !self.classes.contains("Function") {
             return self.function_constructor_expression(new_expr, body);
         }
-        if callee.name == "AbortController" && !self.classes.contains_key("AbortController") {
+        if callee.name == "AbortController" && !self.classes.contains("AbortController") {
             return self.abort_controller_constructor_expression(new_expr, body);
         }
         // The typed-array views are byte-backed host objects: they share the one
@@ -232,7 +232,7 @@ impl ModuleBuilder<'_> {
         // selects) is what decides whether a source argument is re-viewed
         // byte-for-byte or converted element-by-element.
         if Self::is_numeric_typed_array_constructor(callee.name.as_str())
-            && !self.classes.contains_key(callee.name.as_str())
+            && !self.classes.contains(callee.name.as_str())
         {
             return self.byte_buffer_constructor_expression(new_expr, callee.name.as_str(), body);
         }
@@ -240,11 +240,11 @@ impl ModuleBuilder<'_> {
             return self.url_search_params_constructor_expression(new_expr, body);
         }
         if let Some(marker) = Self::marker_only_builtin_marker(callee.name.as_str()) {
-            if !self.classes.contains_key(callee.name.as_str()) {
+            if !self.classes.contains(callee.name.as_str()) {
                 return self.marker_only_builtin_constructor_expression(new_expr, body, marker);
             }
         }
-        if callee.name == "DOMException" && !self.classes.contains_key("DOMException") {
+        if callee.name == "DOMException" && !self.classes.contains("DOMException") {
             return self.domexception_object_constructor_expression(new_expr, body);
         }
         if Self::is_builtin_error_constructor(callee.name.as_str()) {
@@ -256,8 +256,8 @@ impl ModuleBuilder<'_> {
         if callee.name == "URL" {
             return self.url_constructor_expression(new_expr, body);
         }
-        let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
-            if self.pending_class_names.contains(callee.name.as_str()) {
+        let Some(item) = self.classes.item(callee.name.as_str()) else {
+            if self.classes.is_pending(callee.name.as_str()) {
                 let class_name = self.intern_type_name(callee.name.as_str());
                 let args = new_expr
                     .arguments
@@ -551,8 +551,8 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let is_error_builtin = Self::is_builtin_error_constructor(name);
-        let is_user_class = self.classes.contains_key(name)
-            || self.pending_class_names.contains(name)
+        let is_user_class = self.classes.contains(name)
+            || self.classes.is_pending(name)
             || self.source_contains_class(name);
         if !is_error_builtin && !is_user_class {
             return Ok(None);
@@ -2664,7 +2664,7 @@ impl ModuleBuilder<'_> {
     /// A local binding or user class of the same name shadows the global, so it
     /// is excluded — the guard then lowers normally.
     fn identifier_is_always_present_global_constructor(&self, name: &str) -> bool {
-        if self.locals.contains_key(name) || self.classes.contains_key(name) {
+        if self.locals.contains_key(name) || self.classes.contains(name) {
             return false;
         }
         smelt_stdlib::is_typed_array_class_name(name)

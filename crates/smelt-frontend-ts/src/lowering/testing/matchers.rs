@@ -2333,7 +2333,7 @@ impl ModuleBuilder<'_> {
             // `Foo.prototype.x = …` in this block is a JavaScript constructor
             // function: synthesize a class for it instead of a plain local
             // function so the construction and prototype-chain sites resolve.
-            if !self.classes.contains_key(id.name.as_str())
+            if !self.classes.contains(id.name.as_str())
                 && Self::statements_use_function_as_constructor(id.name.as_str(), statements)
             {
                 self.synthesize_constructor_function_class(function, statements)?;
@@ -2415,7 +2415,7 @@ impl ModuleBuilder<'_> {
             // the block prepass; its declarator contributes no runtime binding.
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && Self::const_constructor_function(declarator).is_some()
-                && self.classes.contains_key(binding.name.as_str())
+                && self.classes.contains(binding.name.as_str())
             {
                 continue;
             }
@@ -2846,7 +2846,7 @@ impl ModuleBuilder<'_> {
         // A constructor function recognized during the block prepass was already
         // synthesized into a class; its declaration statement contributes no
         // local closure.
-        if self.classes.contains_key(id.name.as_str()) {
+        if self.classes.contains(id.name.as_str()) {
             return Ok(());
         }
         let Some(function_body) = &function.body else {

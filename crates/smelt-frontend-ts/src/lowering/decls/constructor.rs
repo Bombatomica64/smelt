@@ -73,8 +73,7 @@ impl ModuleBuilder<'_> {
         function: &oxc::ast::ast::Function<'_>,
     ) -> bool {
         function.id.as_ref().is_some_and(|id| {
-            self.module_constructor_functions
-                .contains(id.name.as_str())
+            self.classes.is_constructor_function(id.name.as_str())
         })
     }
 
@@ -321,7 +320,7 @@ impl ModuleBuilder<'_> {
             && prototype.property.name == "prototype"
             && matches!(
                 &prototype.object,
-                Expression::Identifier(object) if self.classes.contains_key(object.name.as_str())
+                Expression::Identifier(object) if self.classes.contains(object.name.as_str())
             )
         {
             return true;
@@ -330,7 +329,7 @@ impl ModuleBuilder<'_> {
         // members such as `Foo.c = function () {}`).
         matches!(
             &member.object,
-            Expression::Identifier(object) if self.classes.contains_key(object.name.as_str())
+            Expression::Identifier(object) if self.classes.contains(object.name.as_str())
         )
     }
 
@@ -395,7 +394,7 @@ impl ModuleBuilder<'_> {
                 let Some((name, function)) = Self::const_constructor_function(declarator) else {
                     continue;
                 };
-                if self.classes.contains_key(name) || self.locals.contains_key(name) {
+                if self.classes.contains(name) || self.locals.contains_key(name) {
                     continue;
                 }
                 if !Self::statements_use_function_as_constructor(name, statements) {
@@ -476,7 +475,7 @@ impl ModuleBuilder<'_> {
             let Some(id) = &function.id else {
                 continue;
             };
-            if self.classes.contains_key(id.name.as_str())
+            if self.classes.contains(id.name.as_str())
                 || self.locals.contains_key(id.name.as_str())
             {
                 continue;
@@ -538,7 +537,7 @@ impl ModuleBuilder<'_> {
     /// constructor function body, and `prototype_methods` are the
     /// `Foo.prototype.x = function () { … }` members collected from the
     /// surrounding statement list. The class is registered into
-    /// `self.classes`/`self.class_fields`/`self.class_methods` so subsequent
+    /// class registry (item, fields and method signatures) so subsequent
     /// `new`/`instanceof`/field lookups resolve it like a declared class.
     fn synthesize_named_constructor_function_class<'a>(
         &mut self,
@@ -547,7 +546,7 @@ impl ModuleBuilder<'_> {
         prototype_methods: Vec<(String, &'a oxc::ast::ast::Function<'a>)>,
     ) -> Result<(), SmeltError> {
         let class_text = class_text.to_owned();
-        if self.classes.contains_key(class_text.as_str()) {
+        if self.classes.contains(class_text.as_str()) {
             return Ok(());
         }
         let class_name = self.intern_type_name(class_text.as_str());
@@ -586,8 +585,8 @@ impl ModuleBuilder<'_> {
 
         // Register field metadata before lowering the constructor body so that
         // `this.<field>` reads/writes resolve against the class shape.
-        self.class_fields.insert(class_text.clone(), fields.clone());
-        self.class_methods.insert(class_text.clone(), Vec::new());
+        self.classes.set_fields(class_text.clone(), fields.clone());
+        self.classes.set_methods(class_text.clone(), Vec::new());
 
         let constructor = self.synthesize_constructor_function_body(
             class_text.as_str(),
@@ -610,7 +609,7 @@ impl ModuleBuilder<'_> {
             methods.push(item);
             method_sigs.push(sig);
         }
-        self.class_methods.insert(class_text.clone(), method_sigs);
+        self.classes.set_methods(class_text.clone(), method_sigs);
 
         let item = self.ctx.krate.push_item(Item::Class(Class {
             name: class_name,
@@ -628,7 +627,7 @@ impl ModuleBuilder<'_> {
             static_fields: Vec::new(),
             descriptors: Vec::new(),
         }));
-        self.classes.insert(class_text, item);
+        self.classes.register(class_text, item);
         Ok(())
     }
 

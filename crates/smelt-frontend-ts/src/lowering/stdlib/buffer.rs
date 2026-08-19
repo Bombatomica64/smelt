@@ -62,7 +62,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a `Buffer.<member>` static call is shadowed by a
     /// user-declared `Buffer` class, so the stdlib handler must decline.
     ///
-    /// Mirrors the `!self.classes.contains_key(...)` guard the other host-object
+    /// Mirrors the `!self.classes.contains(...)` guard the other host-object
     /// statics use: a source project that declares its own `class Buffer` owns
     /// the name and its statics dispatch through the ordinary class path.
     fn buffer_static_receiver<'a>(
@@ -78,7 +78,7 @@ impl ModuleBuilder<'_> {
         };
         if object.name != "Buffer"
             || member.property.name != member_name
-            || self.classes.contains_key("Buffer")
+            || self.classes.contains("Buffer")
         {
             return None;
         }

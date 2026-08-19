@@ -61,7 +61,7 @@ impl ModuleBuilder<'_> {
         // probe `UnknownIs { Array }`, and any other concrete type carries no array
         // identity and folds to `false`. A user-declared `class Array` owns the
         // name and falls through to the ordinary class path below.
-        if class_text == "Array" && !self.classes.contains_key("Array") {
+        if class_text == "Array" && !self.classes.contains("Array") {
             let operand_ty = self.type_param_constraint_or_self(value_ty);
             if matches!(
                 self.ctx.krate.types.get(operand_ty),
@@ -145,12 +145,12 @@ impl ModuleBuilder<'_> {
             ));
         }
         if !builtin_target
-            && !self.classes.contains_key(class_text)
+            && !self.classes.contains(class_text)
             // Module class names are collected before any class body is
             // lowered. A class currently under construction is therefore a
             // valid nominal target even though its final HIR item is inserted
             // only after all of its methods have been emitted.
-            && !self.pending_class_names.contains(class_text)
+            && !self.classes.is_pending(class_text)
             && !self.value_imports.contains(class_text)
         {
             // `this instanceof bound` against a *function* value (the JS
