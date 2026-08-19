@@ -161,8 +161,8 @@ impl ModuleBuilder<'_> {
             // Classes are not first-class values in Smelt, so a target that
             // resolves to a local binding or function item can only be a
             // function value, never a constructible class.
-            let target_is_function_value = self.locals.contains_key(class_text)
-                || self.local_callbacks.contains_key(class_text)
+            let target_is_function_value = self.scope.is_bound(class_text)
+                || self.scope.has_callback(class_text)
                 || self
                     .items
                     .get(class_text)
@@ -329,7 +329,7 @@ impl ModuleBuilder<'_> {
         }
         match &expr.kind {
             ExprKind::DateFromParts { .. } | ExprKind::DateFromValue { .. } => true,
-            ExprKind::Local(local) => self.date_value_locals.contains(local),
+            ExprKind::Local(local) => self.scope.is_date_value(*local),
             ExprKind::TypeAssert { value: asserted_value } => {
                 self.expression_is_known_date_value(*asserted_value, body)
             }
@@ -664,7 +664,7 @@ impl ModuleBuilder<'_> {
             return false;
         }
         // Shadowed by a local binding/import/item -> not the ambient global.
-        !(self.locals.contains_key(name)
+        !(self.scope.is_bound(name)
             || self.value_imports.contains(name)
             || self.type_only_imports.contains(name)
             || self.namespace_imports.contains(name)
@@ -2179,7 +2179,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(receiver) = &member.object else {
             return false;
         };
-        let Some(local) = self.locals.get(receiver.name.as_str()) else {
+        let Some(local) = self.scope.lookup(receiver.name.as_str()) else {
             return false;
         };
         let Some(decl) = usize::try_from(local.0)
@@ -2204,7 +2204,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &new_expr.callee else {
             return Ok(None);
         };
-        if callee.name != "constructor" || !self.locals.contains_key(callee.name.as_str()) {
+        if callee.name != "constructor" || !self.scope.is_bound(callee.name.as_str()) {
             return Ok(None);
         }
         let [value] = new_expr.arguments.as_slice() else {
@@ -2386,7 +2386,7 @@ impl ModuleBuilder<'_> {
                 ));
             };
             if let Expression::Identifier(identifier) = &member.object
-                && let Some(local) = self.locals.get(identifier.name.as_str()).copied()
+                && let Some(local) = self.scope.lookup(identifier.name.as_str())
             {
                 let target = body.push_expr(Expr {
                     kind: ExprKind::Local(local),
@@ -2499,7 +2499,7 @@ impl ModuleBuilder<'_> {
             span: self.span(call.span.start, call.span.end),
         });
         if let Expression::Identifier(identifier) = &member.object
-            && let Some(local) = self.locals.get(identifier.name.as_str()).copied()
+            && let Some(local) = self.scope.lookup(identifier.name.as_str())
         {
             let target = body.push_expr(Expr {
                 kind: ExprKind::Local(local),

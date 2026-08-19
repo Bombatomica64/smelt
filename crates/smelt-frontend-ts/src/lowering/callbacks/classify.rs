@@ -597,7 +597,7 @@ impl ModuleBuilder<'_> {
                 ty: function_return_ty,
             }));
         }
-        if let Some(local) = self.locals.get(name).copied() {
+        if let Some(local) = self.scope.lookup(name) {
             let local_ty = Self::local_ty(body, local);
             if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
                 // Same arity rule as item references above: fewer declared
@@ -1127,7 +1127,7 @@ impl ModuleBuilder<'_> {
     /// being an inline arrow. The name must not shadow a local binding, because a
     /// local with the same name is lexically nearer and handled separately.
     pub(in crate::lowering) fn is_opaque_callback_value(&self, name: &str) -> bool {
-        !self.locals.contains_key(name)
+        !self.scope.is_bound(name)
             && !self.items.contains_key(name)
             && (self.value_imports.contains(name) || self.source_contains_forward_callable(name))
     }
@@ -1157,7 +1157,7 @@ impl ModuleBuilder<'_> {
     /// calls). A file that genuinely calls the global has no such binding, so the
     /// interceptor keeps firing unchanged.
     pub(in crate::lowering) fn builtin_call_identifier_is_shadowed(&self, name: &str) -> bool {
-        self.locals.contains_key(name)
+        self.scope.is_bound(name)
             || self.items.contains_key(name)
             || self.value_imports.contains(name)
     }

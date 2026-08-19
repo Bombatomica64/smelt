@@ -2937,11 +2937,11 @@ impl ModuleBuilder<'_> {
         let cond = self.expression(&logical.left, body)?;
         let rhs_narrowing = self.guard_narrowing(&logical.left, body);
         if let Some(narrowing) = rhs_narrowing.clone() {
-            self.narrowed_locals.push(narrowing);
+            self.scope.push_narrowing_scope(narrowing);
         }
         let then_expr = self.expression_with_hint(&logical.right, body, record_ty)?;
         if rhs_narrowing.is_some() {
-            self.narrowed_locals.pop();
+            self.scope.pop_narrowing_scope();
         }
         let source_ty = Self::expr_ty(body, then_expr);
         self.accept_object_spread_source(source_ty, record_ty, span)?;
@@ -3161,11 +3161,11 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.types.intern(Type::Unknown)
         };
 
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         let saved_generator_yields = self.current_generator_yields;
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_narrowed_locals = self.scope.take_narrowings();
         // A postfix update (`x++`) is emitted into the current body's block, but a
         // variable-declaration initializer defers its postfix updates into a
         // pending list so `const y = x++;` observes the old value. That deferral
@@ -3215,7 +3215,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(binding.span.start, binding.span.end),
                 });
                 body.params.push(local);
-                self.locals.insert(binding.name.to_string(), local);
+                self.scope.bind(binding.name.to_string(), local);
                 param_names.insert(binding.name.to_string());
                 params.push(Param {
                     name: param_name,
@@ -3274,7 +3274,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(binding.span.start, binding.span.end),
                 });
                 body.params.push(local);
-                self.locals.insert(binding.name.to_string(), local);
+                self.scope.bind(binding.name.to_string(), local);
                 param_names.insert(binding.name.to_string());
                 params.push(Param {
                     name: param_name,
@@ -3301,16 +3301,16 @@ impl ModuleBuilder<'_> {
         let mut captures = Vec::new();
         if errors.is_empty() {
             let mut capture_names = Vec::new();
-            let function_locals = self.locals.clone();
-            self.locals = saved_locals.clone();
+            let function_locals = self.scope.snapshot_bindings();
+            self.scope.restore_bindings(saved_locals.clone());
             for statement in &function_body.statements {
                 self.collect_statement_capture_names(statement, &param_names, &mut capture_names);
             }
-            self.locals = function_locals;
+            self.scope.restore_bindings(function_locals);
             capture_names.sort();
             capture_names.dedup();
             for name in capture_names {
-                let Some(source_local) = saved_locals.get(name.as_str()).copied() else {
+                let Some(source_local) = saved_locals.lookup(name.as_str()) else {
                     continue;
                 };
                 let Some(source_decl) = usize::try_from(source_local.0)
@@ -3328,7 +3328,7 @@ impl ModuleBuilder<'_> {
                     mutable: source_decl.mutable,
                     span: source_decl.span,
                 });
-                self.locals.insert(name, body_local);
+                self.scope.bind(name, body_local);
                 captures.push(ClosureCapture {
                     source_local,
                     body_local: Some(body_local),
@@ -3360,11 +3360,11 @@ impl ModuleBuilder<'_> {
             body.build_async_state_machine();
         }
         self.current_arguments_arities.pop();
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
         self.current_generator_yields = saved_generator_yields;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.deferred_postfix_updates = saved_deferred_updates;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);

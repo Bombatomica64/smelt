@@ -535,15 +535,13 @@ struct ModuleBuilder<'ctx> {
     source: String,
     /// Mutable reference to the HIR context.
     ctx: &'ctx mut HirCtx,
-    /// Local variable bindings in current scope.
-    locals: HashMap<String, smelt_hir::LocalId>,
-    /// Local values statically known to retain JavaScript `Date` identity.
-    date_value_locals: HashSet<smelt_hir::LocalId>,
-    /// Locals declared with an explicit `any` annotation. Their storage type is
-    /// the erased `Unknown` boundary by source spelling, so a later concrete
-    /// assignment must not flow-narrow them to that value's type; the source
-    /// deliberately opted out of static shape tracking.
-    explicit_any_locals: HashSet<smelt_hir::LocalId>,
+    /// Per-body local state: name bindings, `Date`-identity and explicit-`any`
+    /// facts, callable-local property writes, local callbacks, hoisted local
+    /// function items, and the flow-narrowing stack.
+    ///
+    /// Owns the body-scoping and last-write-wins invariants documented on
+    /// [`state::local_scope::LocalScope`].
+    scope: state::local_scope::LocalScope,
     /// Typed top-level mutable bindings visible from nested function bodies.
     module_globals: HashMap<String, smelt_hir::TypeId>,
     /// Module-level `let`/`var` bindings lifted to mutable globals, mapped to
@@ -649,53 +647,18 @@ struct ModuleBuilder<'ctx> {
     assertion_functions: HashMap<String, AssertionNarrowing>,
     /// User predicate functions declared with `value is T`.
     predicate_functions: HashMap<String, AssertionNarrowing>,
-    /// Active local narrowings from guards and assertion calls.
-    narrowed_locals: Vec<HashMap<String, smelt_hir::TypeId>>,
     /// Active generic type parameter scopes.
     type_param_scopes: Vec<HashMap<String, smelt_hir::TypeId>>,
     /// Constraints for active generic type parameters keyed by HIR type parameter symbol.
     type_param_constraint_scopes: Vec<HashMap<smelt_hir::Symbol, smelt_hir::TypeId>>,
-    /// Local closure values available to non-escaping callback consumers.
-    local_callbacks: HashMap<String, LocalCallback>,
-    /// Static-member property writes collected onto function-typed locals.
-    ///
-    /// Keyed by the function-typed local receiving `fn.prop = value` writes
-    /// (the `debounce`/`throttle` shape). Each entry accumulates the writes in
-    /// source order (last write wins) as `(property, value-read ExprId)` pairs,
-    /// plus an `escaped` flag that flips once the local is read for any purpose
-    /// other than being consumed at a callable-interface coercion. When the
-    /// local later coerces to a callable-interface class, these props are
-    /// synthesized into a typed [`smelt_hir::ExprKind::CallableObjectAssign`].
-    /// `LocalId`s are only unique within a body, so the map is scoped to the
-    /// currently lowering body by [`Self::with_callable_local_prop_scope`].
-    callable_local_props: HashMap<smelt_hir::LocalId, CallableLocalProps>,
     /// Rest-parameter metadata for top-level function declarations.
     function_rests: HashMap<String, RestParam>,
     /// Forward-visible function declaration signatures for hoisted callback calls.
     forward_function_types: HashMap<String, (smelt_hir::Symbol, smelt_hir::TypeId)>,
-    /// Function item slots reserved for local hoisted declarations.
-    local_function_items: HashMap<String, smelt_hir::ItemId>,
     /// TypeScript overload signatures keyed by implementation name.
     function_overloads: HashMap<String, Vec<OverloadSignature>>,
     /// Materialized final definitions for this source module.
     specialization: Option<SpecializationData>,
-}
-
-/// Collected static-member property writes onto a function-typed local.
-///
-/// Populated by [`ModuleBuilder::try_collect_callable_local_prop`] as it claims
-/// straight-line `fn.prop = value` writes, and consumed by the
-/// callable-interface coercion that synthesizes a
-/// [`smelt_hir::ExprKind::CallableObjectAssign`]. `props` keeps the writes in
-/// source order with last-write-wins de-duplication; `escaped` records whether
-/// the local has already been read for a purpose other than that consumption,
-/// which makes a later property write a documented (blocked) write-after-escape.
-#[derive(Debug, Clone, Default)]
-struct CallableLocalProps {
-    /// Property writes in source order (last write wins), as `(name, value)`.
-    props: Vec<(smelt_hir::Symbol, smelt_hir::ExprId)>,
-    /// Set once the local escapes via a non-consuming, non-self-call read.
-    escaped: bool,
 }
 
 /// Concrete types active while lowering a generator body.

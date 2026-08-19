@@ -8,6 +8,7 @@ use super::support::{
     is_implemented_overload_signature, item_name, module_export_name,
 };
 use super::state::class_registry::ClassRegistry;
+use super::state::local_scope::LocalScope;
 use super::{
     AssertionNarrowing, ConstCollection, ConstCollectionItem, ConstCollectionValue, ConstLiteral,
     ModuleBuilder, RestParam, SpecializationData,
@@ -139,9 +140,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             path,
             source,
             ctx,
-            locals: HashMap::new(),
-            date_value_locals: HashSet::new(),
-            explicit_any_locals: HashSet::new(),
+            scope: LocalScope::default(),
             module_globals: HashMap::new(),
             mutable_global_items: HashMap::new(),
             items,
@@ -181,14 +180,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             const_object_value_collections,
             assertion_functions: HashMap::new(),
             predicate_functions: HashMap::new(),
-            narrowed_locals: Vec::new(),
             type_param_scopes: Vec::new(),
             type_param_constraint_scopes: Vec::new(),
-            local_callbacks: HashMap::new(),
-            callable_local_props: HashMap::new(),
             function_rests,
             forward_function_types: HashMap::new(),
-            local_function_items: HashMap::new(),
             function_overloads,
             specialization,
         }
@@ -1785,7 +1780,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "anonymous function declarations are not lowered yet",
             )
         })?;
-        if self.local_function_items.contains_key(id.name.as_str()) {
+        if self.scope.has_function_item(id.name.as_str()) {
             return Ok(());
         }
         // A constructor function becomes a synthesized class, so it gets no
@@ -1826,7 +1821,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             );
         }
         self.items.insert(id.name.to_string(), item);
-        self.local_function_items.insert(id.name.to_string(), item);
+        self.scope.register_function_item(id.name.to_string(), item);
         Ok(())
     }
 
@@ -1847,19 +1842,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<Function, SmeltError> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         for (index, param) in function.params.items.iter().enumerate() {
             let ty = match self.function_parameter_type(param) {
                 Ok(ty) => ty,
                 Err(error) => {
-                    self.locals = saved_locals;
+                    self.scope.restore_bindings(saved_locals);
                     return Err(error);
                 }
             };
             let local = smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX));
             let (param_name, span) =
                 if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    self.locals.insert(binding.name.to_string(), local);
+                    self.scope.bind(binding.name.to_string(), local);
                     (
                         self.intern_source_name(binding.name.as_str()),
                         self.span(binding.span.start, binding.span.end),
@@ -1877,7 +1872,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 span,
             });
         }
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         let mut rest_index = None;
         if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {

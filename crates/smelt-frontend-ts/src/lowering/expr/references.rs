@@ -138,8 +138,8 @@ impl ModuleBuilder<'_> {
         // body (for example `next` closing over `itemsByIndex`) instead of the
         // nested body's remapped local for `next` itself.
         if let (Some(local), Some(callback)) = (
-            self.locals.get(name).copied(),
-            self.local_callbacks.get(name),
+            self.scope.lookup(name),
+            self.scope.callback(name),
         ) && body.blocks.first().map(|block| block.span) != callback.defining_body_span
             && usize::try_from(local.0)
                 .ok()
@@ -155,7 +155,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
-        if let Some(callback) = self.local_callbacks.get(name).cloned() {
+        if let Some(callback) = self.scope.callback(name).cloned() {
             return self.callback_expr_to_closure_with_return_ty(
                 callback.return_ty,
                 &callback.callback,
@@ -166,7 +166,7 @@ impl ModuleBuilder<'_> {
                 body,
             );
         }
-        let Some(local) = self.locals.get(name).copied() else {
+        let Some(local) = self.scope.lookup(name) else {
             // A module-level `let`/`var` binding lifted to a mutable global (and
             // not shadowed by a local) reads through `GlobalGet`, never the
             // const-inline path. This also resolves imported mutated bindings,
@@ -338,9 +338,7 @@ impl ModuleBuilder<'_> {
         // coercion is intercepted before this path (and removes the entry), so
         // reaching here with a live entry means the value flowed out as a bare
         // callable; a later property write onto it is then a documented punt.
-        if let Some(state) = self.callable_local_props.get_mut(&local) {
-            state.escaped = true;
-        }
+        self.scope.mark_callable_local_escaped(local);
         let base_ty = Self::local_ty(body, local);
         let ty = self.narrowed_type(name).unwrap_or(base_ty);
         let local_expr = body.push_expr(Expr {

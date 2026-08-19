@@ -394,7 +394,7 @@ impl ModuleBuilder<'_> {
                 let Some((name, function)) = Self::const_constructor_function(declarator) else {
                     continue;
                 };
-                if self.classes.contains(name) || self.locals.contains_key(name) {
+                if self.classes.contains(name) || self.scope.is_bound(name) {
                     continue;
                 }
                 if !Self::statements_use_function_as_constructor(name, statements) {
@@ -476,7 +476,7 @@ impl ModuleBuilder<'_> {
                 continue;
             };
             if self.classes.contains(id.name.as_str())
-                || self.locals.contains_key(id.name.as_str())
+                || self.scope.is_bound(id.name.as_str())
             {
                 continue;
             }
@@ -722,7 +722,7 @@ impl ModuleBuilder<'_> {
                 "constructor functions must have a body",
             ));
         };
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
@@ -736,7 +736,7 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span,
         });
-        self.locals.insert("this".to_owned(), this_local);
+        self.scope.bind("this".to_owned(), this_local);
 
         let mut params = Vec::new();
         let mut errors = Vec::new();
@@ -770,7 +770,7 @@ impl ModuleBuilder<'_> {
             });
             body.params.push(local);
             if let Some(source_name) = source_name {
-                self.locals.insert(source_name, local);
+                self.scope.bind(source_name, local);
             }
             params.push(Param {
                 name: param_name,
@@ -796,7 +796,7 @@ impl ModuleBuilder<'_> {
             }
         }
 
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         self.current_class = saved_class;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
@@ -850,7 +850,7 @@ impl ModuleBuilder<'_> {
             .transpose()?
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
 
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
@@ -864,7 +864,7 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span,
         });
-        self.locals.insert("this".to_owned(), this_local);
+        self.scope.bind("this".to_owned(), this_local);
         body.params.push(this_local);
         let mut params = vec![Param {
             name: this_symbol,
@@ -904,7 +904,7 @@ impl ModuleBuilder<'_> {
             });
             body.params.push(local);
             if let Some(source_name) = source_name {
-                self.locals.insert(source_name, local);
+                self.scope.bind(source_name, local);
             }
             params.push(Param {
                 name: param_name,
@@ -935,7 +935,7 @@ impl ModuleBuilder<'_> {
             }
         }
 
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         self.current_class = saved_class;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;

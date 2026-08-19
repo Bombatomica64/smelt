@@ -151,7 +151,7 @@ impl ModuleBuilder<'_> {
         // routed through the same `ClosureCall` machinery a plain call uses. A
         // local binding that shadows a stdlib name takes priority here, matching
         // how the call-expression dispatch resolves callees.
-        if self.locals.contains_key(callee.name.as_str()) {
+        if self.scope.is_bound(callee.name.as_str()) {
             if let Some(expr) = self.new_through_value_expression(new_expr, callee, body)? {
                 return Ok(expr);
             }
@@ -400,7 +400,7 @@ impl ModuleBuilder<'_> {
         callee: &oxc::ast::ast::IdentifierReference<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Some(local) = self.locals.get(callee.name.as_str()).copied() else {
+        let Some(local) = self.scope.lookup(callee.name.as_str()) else {
             return Ok(None);
         };
         let local_ty = Self::local_ty(body, local);
@@ -547,7 +547,7 @@ impl ModuleBuilder<'_> {
         };
         // A local binding shadowing the name is an ordinary value, not a class
         // constructor; leave it to the normal identifier path.
-        if self.locals.contains_key(name) {
+        if self.scope.is_bound(name) {
             return Ok(None);
         }
         let is_error_builtin = Self::is_builtin_error_constructor(name);
@@ -2074,11 +2074,11 @@ impl ModuleBuilder<'_> {
                     None
                 };
                 if let Some(narrowing) = rhs_narrowing.clone() {
-                    self.narrowed_locals.push(narrowing);
+                    self.scope.push_narrowing_scope(narrowing);
                 }
                 let rhs = self.expression(&logical.right, body)?;
                 if rhs_narrowing.is_some() {
-                    self.narrowed_locals.pop();
+                    self.scope.pop_narrowing_scope();
                 }
                 let ty = self.ctx.krate.types.intern(Type::Bool);
                 let identity = body.push_expr(Expr {
@@ -2119,24 +2119,24 @@ impl ModuleBuilder<'_> {
                 let arm_span = self.span(conditional.span.start, conditional.span.end);
                 let then_narrowing = self.guard_narrowing(&conditional.test, body);
                 if let Some(narrowing) = then_narrowing.clone() {
-                    self.narrowed_locals.push(narrowing);
+                    self.scope.push_narrowing_scope(narrowing);
                 }
                 let then_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
                     slf.expression_with_hint(&conditional.consequent, body, type_hint)
                 })?;
                 if then_narrowing.is_some() {
-                    self.narrowed_locals.pop();
+                    self.scope.pop_narrowing_scope();
                 }
                 let branch_hint = Some(Self::expr_ty(body, then_expr));
                 let else_narrowing = self.inverse_guard_narrowing(&conditional.test, body);
                 if let Some(narrowing) = else_narrowing.clone() {
-                    self.narrowed_locals.push(narrowing);
+                    self.scope.push_narrowing_scope(narrowing);
                 }
                 let else_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
                     slf.expression_with_hint(&conditional.alternate, body, branch_hint)
                 })?;
                 if else_narrowing.is_some() {
-                    self.narrowed_locals.pop();
+                    self.scope.pop_narrowing_scope();
                 }
                 let then_ty = Self::expr_ty(body, then_expr);
                 let else_ty = Self::expr_ty(body, else_expr);
@@ -2664,7 +2664,7 @@ impl ModuleBuilder<'_> {
     /// A local binding or user class of the same name shadows the global, so it
     /// is excluded — the guard then lowers normally.
     fn identifier_is_always_present_global_constructor(&self, name: &str) -> bool {
-        if self.locals.contains_key(name) || self.classes.contains(name) {
+        if self.scope.is_bound(name) || self.classes.contains(name) {
             return false;
         }
         smelt_stdlib::is_typed_array_class_name(name)

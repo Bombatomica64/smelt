@@ -1151,7 +1151,7 @@ return_ty: string_ty,
             return Ok(None);
         };
         // A local binding named `Intl` shadows the global namespace.
-        if object.name != "Intl" || self.locals.contains_key("Intl") {
+        if object.name != "Intl" || self.scope.is_bound("Intl") {
             return Ok(None);
         }
         let qualified = format!("Intl.{}", member.property.name.as_str());

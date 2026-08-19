@@ -819,16 +819,16 @@ impl ModuleBuilder<'_> {
                 let then_narrowing = self.guard_narrowing(&if_stmt.test, body);
                 // Assignments performed only within this branch are flow facts
                 // for the branch, not for statements reached from either path.
-                self.narrowed_locals
-                    .push(then_narrowing.unwrap_or_default());
+                self.scope
+                    .push_narrowing_scope(then_narrowing.unwrap_or_default());
                 let then_block = self.block_from_statement(&if_stmt.consequent, body)?;
-                self.narrowed_locals.pop();
+                self.scope.pop_narrowing_scope();
                 let else_narrowing = self.inverse_guard_narrowing(&if_stmt.test, body);
                 let else_block = if let Some(alternate) = &if_stmt.alternate {
-                    self.narrowed_locals
-                        .push(else_narrowing.unwrap_or_default());
+                    self.scope
+                        .push_narrowing_scope(else_narrowing.unwrap_or_default());
                     let else_block = self.block_from_statement(alternate, body)?;
-                    self.narrowed_locals.pop();
+                    self.scope.pop_narrowing_scope();
                     Some(else_block)
                 } else {
                     None
@@ -900,10 +900,10 @@ impl ModuleBuilder<'_> {
                 }
                 let cond = self.condition_expression(&while_stmt.test, body)?;
                 let loop_narrowing = self.guard_narrowing(&while_stmt.test, body);
-                self.narrowed_locals
-                    .push(loop_narrowing.unwrap_or_default());
+                self.scope
+                    .push_narrowing_scope(loop_narrowing.unwrap_or_default());
                 let loop_body = self.block_from_statement(&while_stmt.body, body)?;
-                self.narrowed_locals.pop();
+                self.scope.pop_narrowing_scope();
                 body.push_stmt_to_block(
                     block,
                     Stmt::While {
@@ -950,7 +950,7 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ForOfStatement(for_stmt) => {
-                let saved_locals = self.locals.clone();
+                let saved_locals = self.scope.snapshot_bindings();
                 let mut iter = self.expression(&for_stmt.right, body)?;
                 if for_stmt.r#await
                     && let Some(Type::Future(inner)) =
@@ -977,7 +977,7 @@ impl ModuleBuilder<'_> {
                     let result = self.lower_generator_for_of(
                         for_stmt, iter, yield_ty, return_ty, body, block,
                     );
-                    self.locals = saved_locals;
+                    self.scope.restore_bindings(saved_locals);
                     return result;
                 }
                 let iter = self.for_of_iterable(iter, &for_stmt.right, body);
@@ -1008,7 +1008,7 @@ impl ModuleBuilder<'_> {
                             self.block_from_statement(&for_stmt.body, body)?,
                         )
                     };
-                self.locals = saved_locals;
+                self.scope.restore_bindings(saved_locals);
                 body.push_stmt_to_block(
                     block,
                     Stmt::For {
@@ -1020,7 +1020,7 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ForInStatement(for_stmt) => {
-                let saved_locals = self.locals.clone();
+                let saved_locals = self.scope.snapshot_bindings();
                 let iter = self.for_in_iterable(&for_stmt.right, body)?;
                 let destructured =
                     self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
@@ -1049,7 +1049,7 @@ impl ModuleBuilder<'_> {
                             self.block_from_statement(&for_stmt.body, body)?,
                         )
                     };
-                self.locals = saved_locals;
+                self.scope.restore_bindings(saved_locals);
                 body.push_stmt_to_block(
                     block,
                     Stmt::For {
@@ -1174,7 +1174,7 @@ impl ModuleBuilder<'_> {
                         self.statement_in_block(case_statement, body, case_block)?;
                     }
                     if narrowing_pushed {
-                        self.narrowed_locals.pop();
+                        self.scope.pop_narrowing_scope();
                     }
                     let is_last_case = case_index + 1 == case_count;
                     if !saw_break
@@ -1257,14 +1257,14 @@ impl ModuleBuilder<'_> {
             Statement::TryStatement(try_stmt) => {
                 let try_body = self.block_from_block_statement(&try_stmt.block, body)?;
                 let (catch_binding, catch_body) = if let Some(handler) = &try_stmt.handler {
-                    let previous_locals = self.locals.clone();
+                    let previous_locals = self.scope.snapshot_bindings();
                     let catch_binding = handler
                         .param
                         .as_ref()
                         .map(|param| self.catch_binding(param, body))
                         .transpose()?;
                     let catch_body = self.block_from_block_statement(&handler.body, body)?;
-                    self.locals = previous_locals;
+                    self.scope.restore_bindings(previous_locals);
                     (catch_binding, Some(catch_body))
                 } else {
                     (None, None)
@@ -1458,7 +1458,7 @@ impl ModuleBuilder<'_> {
             }
             let saved_locals = param_names
                 .iter()
-                .map(|name| (name.clone(), self.locals.get(name).copied()))
+                .map(|name| (name.clone(), self.scope.lookup(name)))
                 .collect::<Vec<_>>();
             for (param_index, param) in arrow.params.items.iter().take(2).enumerate() {
                 // Callback order is `(value, key)`; entries are `[key, value]`.
@@ -1495,10 +1495,10 @@ impl ModuleBuilder<'_> {
             for (name, prior) in saved_locals {
                 match prior {
                     Some(local) => {
-                        self.locals.insert(name, local);
+                        self.scope.bind(name, local);
                     }
                     None => {
-                        self.locals.remove(&name);
+                        self.scope.unbind(name.as_str());
                     }
                 }
             }
@@ -1596,7 +1596,7 @@ impl ModuleBuilder<'_> {
             span: self.span(item_param.span.start, item_param.span.end),
         });
         let saved_item_local =
-            item_binding.map(|binding| self.locals.insert(binding.name.to_string(), item_local));
+            item_binding.map(|binding| self.scope.bind(binding.name.to_string(), item_local));
         let item_pat = body.push_pattern(Pattern::Binding(item_local));
         let index_binding = arrow
             .params
@@ -1702,8 +1702,7 @@ impl ModuleBuilder<'_> {
                         value: next,
                     },
                 );
-                self.locals
-                    .insert(index_binding.name.to_string(), index_local)
+                self.scope.bind(index_binding.name.to_string(), index_local)
             } else {
                 None
             };
@@ -1712,16 +1711,16 @@ impl ModuleBuilder<'_> {
         }
         if let Some(index_binding) = index_binding {
             if let Some(prior) = saved_index_local {
-                self.locals.insert(index_binding.name.to_string(), prior);
+                self.scope.bind(index_binding.name.to_string(), prior);
             } else {
-                self.locals.remove(index_binding.name.as_str());
+                self.scope.unbind(index_binding.name.as_str());
             }
         }
         if let Some(item_binding) = item_binding {
             if let Some(Some(prior)) = saved_item_local {
-                self.locals.insert(item_binding.name.to_string(), prior);
+                self.scope.bind(item_binding.name.to_string(), prior);
             } else {
-                self.locals.remove(item_binding.name.as_str());
+                self.scope.unbind(item_binding.name.as_str());
             }
         }
         body.push_stmt_to_block(

@@ -408,7 +408,7 @@ impl<'builder> ModuleBuilder<'builder> {
             ) {
                 return self.error_function_call(call, body);
             }
-            if self.locals.contains_key(callee_ident.name.as_str()) {
+            if self.scope.is_bound(callee_ident.name.as_str()) {
                 let callee = self.identifier_expression(
                     callee_ident.name.as_str(),
                     callee_ident.span.start,
@@ -1346,7 +1346,7 @@ impl<'builder> ModuleBuilder<'builder> {
         };
         // A local binding or user class named `Object` shadows the builtin.
         if object.name != "Object"
-            || self.locals.contains_key("Object")
+            || self.scope.is_bound("Object")
             || self.classes.contains("Object")
         {
             return Ok(None);
@@ -1383,7 +1383,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "encodeURI" || self.locals.contains_key(callee.name.as_str()) {
+        if callee.name != "encodeURI" || self.scope.is_bound(callee.name.as_str()) {
             return Ok(None);
         }
         let [value_arg] = call.arguments.as_slice() else {
@@ -1437,7 +1437,7 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         };
         // The receiver must be a bare class name and not shadowed by a local.
-        if self.locals.contains_key(object.name.as_str()) {
+        if self.scope.is_bound(object.name.as_str()) {
             return Ok(None);
         }
         let Some(class_item) = self.classes.item(object.name.as_str()) else {
@@ -1492,7 +1492,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::Identifier(object) = &member.object else {
             return false;
         };
-        if self.locals.contains_key(object.name.as_str()) {
+        if self.scope.is_bound(object.name.as_str()) {
             return false;
         }
         let Some(class_item) = self.classes.item(object.name.as_str()) else {
@@ -3558,7 +3558,7 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         };
         if self.items.contains_key(callee_ident.name.as_str())
-            && !self.locals.contains_key(callee_ident.name.as_str())
+            && !self.scope.is_bound(callee_ident.name.as_str())
         {
             return Ok(None);
         }
@@ -3578,9 +3578,9 @@ impl<'builder> ModuleBuilder<'builder> {
         // dynamic surface behind a function type.
         let callee_dispatches_dynamically = self.type_is_dynamic_call_surface(callee_ty)
             || self
-                .locals
-                .get(callee_ident.name.as_str())
-                .is_some_and(|&local| self.type_is_dynamic_call_surface(Self::local_ty(body, local)));
+                .scope
+                .lookup(callee_ident.name.as_str())
+                .is_some_and(|local| self.type_is_dynamic_call_surface(Self::local_ty(body, local)));
         let optional_function_ty = match self.ctx.krate.types.get(callee_ty) {
             Some(Type::Optional(inner))
                 if call.optional
@@ -3668,10 +3668,7 @@ impl<'builder> ModuleBuilder<'builder> {
             function.return_ty
         };
         let supplied_arg_count = call.arguments.len();
-        let callback_meta = self
-            .local_callbacks
-            .get(callee_ident.name.as_str())
-            .cloned();
+        let callback_meta = self.scope.callback(callee_ident.name.as_str()).cloned();
         // Dynamically dispatched callees (union/unknown/type-parameter/erased
         // callable surfaces) are invoked through the runtime `SmeltUnknown` call
         // ABI, which flattens the entire argument list. A spread must therefore
@@ -4399,7 +4396,7 @@ impl<'builder> ModuleBuilder<'builder> {
             .cloned();
         if !matches!(function_ty, Some(Type::Function(_)))
             && let Argument::Identifier(identifier) = function_arg
-            && let Some(callback) = self.local_callbacks.get(identifier.name.as_str()).cloned()
+            && let Some(callback) = self.scope.callback(identifier.name.as_str()).cloned()
         {
             callee_expr = self.callback_expr_to_closure_with_return_ty(
                 callback.return_ty,

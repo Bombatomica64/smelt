@@ -1048,13 +1048,7 @@ impl ModuleBuilder<'_> {
 
     /// Apply a local narrowing in the current lexical lowering context.
     pub(in crate::lowering) fn apply_narrowing(&mut self, name: String, target: smelt_hir::TypeId) {
-        if let Some(scope) = self.narrowed_locals.last_mut() {
-            scope.insert(name, target);
-        } else {
-            let mut scope = HashMap::new();
-            scope.insert(name, target);
-            self.narrowed_locals.push(scope);
-        }
+        self.scope.apply_narrowing(name, target);
     }
 
     /// Push a fresh narrowing scope carrying a single local fact.
@@ -1068,17 +1062,12 @@ impl ModuleBuilder<'_> {
         name: String,
         target: smelt_hir::TypeId,
     ) {
-        let mut scope = HashMap::new();
-        scope.insert(name, target);
-        self.narrowed_locals.push(scope);
+        self.scope.push_narrowing_fact(name, target);
     }
 
     /// Return the active narrowed type for a source local, if any.
     pub(in crate::lowering) fn narrowed_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
-        self.narrowed_locals
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(name).copied())
+        self.scope.narrowed_type(name)
     }
 
     /// Discover the narrowing applied by a successful assertion call statement.
@@ -1193,7 +1182,7 @@ impl ModuleBuilder<'_> {
             }
             _ => return None,
         };
-        let local = self.locals.get(name).copied()?;
+        let local = self.scope.lookup(name)?;
         let local_ty = self
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
@@ -1352,7 +1341,7 @@ impl ModuleBuilder<'_> {
             }
             _ => return None,
         };
-        let local = self.locals.get(name).copied()?;
+        let local = self.scope.lookup(name)?;
         let local_ty = self
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
@@ -1484,7 +1473,7 @@ impl ModuleBuilder<'_> {
         name: &str,
         body: &Body,
     ) -> Option<smelt_hir::TypeId> {
-        let local = self.locals.get(name).copied()?;
+        let local = self.scope.lookup(name)?;
         let local_ty = self
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
@@ -1598,9 +1587,9 @@ impl ModuleBuilder<'_> {
             "number" => self.ctx.krate.types.intern(Type::Float),
             "string" => self.ctx.krate.types.intern(Type::String),
             "function" => {
-                let local_ty = self.locals.get(name).map(|local| {
+                let local_ty = self.scope.lookup(name).map(|local| {
                     self.narrowed_type(name)
-                        .unwrap_or_else(|| Self::local_ty(body, *local))
+                        .unwrap_or_else(|| Self::local_ty(body, local))
                 });
                 local_ty
                     .and_then(|ty| self.function_member_type(ty))
@@ -1631,7 +1620,7 @@ impl ModuleBuilder<'_> {
         kind: &str,
         body: &Body,
     ) -> Option<(String, smelt_hir::TypeId)> {
-        let local = self.locals.get(name).copied()?;
+        let local = self.scope.lookup(name)?;
         let local_ty = self
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
@@ -1763,9 +1752,9 @@ impl ModuleBuilder<'_> {
         };
         let name = identifier.name.as_str();
         let local_ty = self
-            .locals
-            .get(name)
-            .and_then(|local| Self::local_ty_checked(body, *local))
+            .scope
+            .lookup(name)
+            .and_then(|local| Self::local_ty_checked(body, local))
             .and_then(|ty| self.narrowed_type(name).or(Some(ty)));
         if let Some(ty) = local_ty
             && let Some(members) = self.filtered_union_members(ty, |union_member| {
@@ -1801,7 +1790,7 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let name = identifier.name.as_str();
-        let local = self.locals.get(name).copied()?;
+        let local = self.scope.lookup(name)?;
         let ty = self
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
@@ -1842,7 +1831,7 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let (name, field_name) = Self::member_literal_comparison(binary)?;
-        let local = self.locals.get(name.as_str()).copied()?;
+        let local = self.scope.lookup(name.as_str())?;
         let ty = self
             .narrowed_type(&name)
             .unwrap_or_else(|| Self::local_ty(body, local));
@@ -1921,7 +1910,7 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Option<(String, smelt_hir::TypeId)> {
         let (name, field_name) = Self::static_member_of_local(discriminant)?;
-        let local = self.locals.get(name.as_str()).copied()?;
+        let local = self.scope.lookup(name.as_str())?;
         let ty = self
             .narrowed_type(&name)
             .unwrap_or_else(|| Self::local_ty(body, local));
@@ -1964,7 +1953,7 @@ impl ModuleBuilder<'_> {
         kinds: &[String],
         body: &Body,
     ) -> Option<(String, smelt_hir::TypeId)> {
-        let local = self.locals.get(name).copied()?;
+        let local = self.scope.lookup(name)?;
         let current_ty = self
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
@@ -2020,7 +2009,7 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let local_name = identifier.name.as_str();
-        let local = self.locals.get(local_name).copied()?;
+        let local = self.scope.lookup(local_name)?;
         let ty = self
             .narrowed_type(local_name)
             .unwrap_or_else(|| Self::local_ty(body, local));
@@ -2141,7 +2130,7 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let name = identifier.name.as_str();
-        let local = self.locals.get(name).copied()?;
+        let local = self.scope.lookup(name)?;
         let local_ty = match self.narrowed_type(name) {
             Some(ty) => ty,
             None => Self::local_ty_checked(body, local)?,
@@ -2193,7 +2182,7 @@ impl ModuleBuilder<'_> {
             mutable: false,
             span: self.span(binding.span.start, binding.span.end),
         });
-        self.locals.insert(name.to_owned(), local);
+        self.scope.bind(name.to_owned(), local);
         Ok(local)
     }
 
@@ -2215,15 +2204,13 @@ impl ModuleBuilder<'_> {
         ) {
             return false;
         }
-        let previous = self
-            .locals
-            .insert(name.to_owned(), smelt_hir::LocalId(u32::MAX));
+        let previous = self.scope.bind(name.to_owned(), smelt_hir::LocalId(u32::MAX));
         let mut captures = Vec::new();
         self.collect_expression_capture_names(initializer, &HashSet::new(), &mut captures);
         if let Some(previous) = previous {
-            self.locals.insert(name.to_owned(), previous);
+            self.scope.bind(name.to_owned(), previous);
         } else {
-            self.locals.remove(name);
+            self.scope.unbind(name);
         }
         captures.iter().any(|capture| capture == name)
     }
@@ -2264,7 +2251,7 @@ impl ModuleBuilder<'_> {
                 if direct_arrow.is_none() && !is_deferred_self_binding {
                     continue;
                 }
-                if self.locals.contains_key(binding.name.as_str()) {
+                if self.scope.is_bound(binding.name.as_str()) {
                     continue;
                 }
                 let annotated_ty = declarator
@@ -2299,7 +2286,7 @@ impl ModuleBuilder<'_> {
                     mutable: false,
                     span: self.span(binding.span.start, binding.span.end),
                 });
-                self.locals.insert(binding.name.as_str().to_owned(), local);
+                self.scope.bind(binding.name.as_str().to_owned(), local);
             }
         }
         Ok(())
@@ -2326,7 +2313,7 @@ impl ModuleBuilder<'_> {
             let Some(id) = &function.id else {
                 continue;
             };
-            if self.locals.contains_key(id.name.as_str()) {
+            if self.scope.is_bound(id.name.as_str()) {
                 continue;
             }
             // A `function Foo(){}` used as `new Foo()` / `instanceof Foo` /
@@ -2380,7 +2367,7 @@ impl ModuleBuilder<'_> {
                     mutable: false,
                     span: self.span(id.span.start, id.span.end),
                 });
-                self.locals.insert(id.name.as_str().to_owned(), local);
+                self.scope.bind(id.name.as_str().to_owned(), local);
                 Ok(())
             })();
             self.pop_type_parameter_scope();
@@ -2504,7 +2491,7 @@ impl ModuleBuilder<'_> {
                     mutable: false,
                     span: self.span(binding.span.start, binding.span.end),
                 });
-                self.locals.insert(binding.name.as_str().to_owned(), local)
+                self.scope.bind(binding.name.as_str().to_owned(), local)
             } else {
                 None
             };
@@ -2521,8 +2508,7 @@ impl ModuleBuilder<'_> {
                 && value.is_none()
                 && let Some(previous) = predeclared_self
             {
-                self.locals
-                    .insert(binding.name.as_str().to_owned(), previous);
+                self.scope.bind(binding.name.as_str().to_owned(), previous);
             }
             match (deferred_self_local, value) {
                 (Some(local), Some(value)) => {
@@ -2615,7 +2601,7 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
-        let saved_outer_locals = self.locals.clone();
+        let saved_outer_locals = self.scope.snapshot_bindings();
         let result = (|| {
             let contextual_function = self.contextual_function_type(type_hint);
             let mut params =
@@ -2743,7 +2729,7 @@ impl ModuleBuilder<'_> {
                     self.span(start, end),
                     body,
                 );
-                self.locals.insert(name.to_owned(), local);
+                self.scope.bind(name.to_owned(), local);
                 if predeclared_local.is_some() {
                     let value = self.callback_expr_to_closure_with_return_ty(
                         return_ty,
@@ -2764,7 +2750,7 @@ impl ModuleBuilder<'_> {
                         },
                     );
                 }
-                self.local_callbacks.insert(
+                self.scope.register_callback(
                     name.to_owned(),
                     LocalCallback {
                         defining_body_span: body.blocks.first().map(|root_block| root_block.span),
@@ -2781,7 +2767,7 @@ impl ModuleBuilder<'_> {
             let value = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
             let local =
                 self.local_arrow_binding_local(name, symbol, fn_ty, self.span(start, end), body);
-            self.locals.insert(name.to_owned(), local);
+            self.scope.bind(name.to_owned(), local);
             let pat = body.push_pattern(Pattern::Binding(local));
             body.push_stmt_to_block(
                 block,
@@ -2797,10 +2783,10 @@ impl ModuleBuilder<'_> {
         let declared_local = result
             .as_ref()
             .ok()
-            .and_then(|()| self.locals.get(name).copied());
-        self.locals = saved_outer_locals;
+            .and_then(|()| self.scope.lookup(name));
+        self.scope.restore_bindings(saved_outer_locals);
         if let Some(local) = declared_local {
-            self.locals.insert(name.to_owned(), local);
+            self.scope.bind(name.to_owned(), local);
         }
         result
     }
@@ -2895,7 +2881,7 @@ impl ModuleBuilder<'_> {
                 if let Some(source_name) = source_name {
                     param_names.insert(source_name.clone());
                     saved_locals
-                        .push((source_name.clone(), self.locals.insert(source_name, local)));
+                        .push((source_name.clone(), self.scope.bind(source_name, local)));
                 }
             }
 
@@ -2944,7 +2930,7 @@ impl ModuleBuilder<'_> {
                 param_tys.push(ty);
                 let source_name = binding.name.as_str().to_owned();
                 param_names.insert(source_name.clone());
-                saved_locals.push((source_name.clone(), self.locals.insert(source_name, local)));
+                saved_locals.push((source_name.clone(), self.scope.bind(source_name, local)));
                 Some(rest_index)
             } else {
                 None
@@ -2976,7 +2962,7 @@ impl ModuleBuilder<'_> {
             param_names.insert(id.name.as_str().to_owned());
             saved_locals.push((
                 id.name.as_str().to_owned(),
-                self.locals.insert(id.name.as_str().to_owned(), self_local),
+                self.scope.bind(id.name.as_str().to_owned(), self_local),
             ));
 
             let mut capture_names = Vec::new();
@@ -2993,7 +2979,7 @@ impl ModuleBuilder<'_> {
                     .find_map(|(saved_name, prior)| {
                         (saved_name == &name).then_some(*prior).flatten()
                     })
-                    .or_else(|| self.locals.get(name.as_str()).copied())
+                    .or_else(|| self.scope.lookup(name.as_str()))
                 else {
                     continue;
                 };
@@ -3012,7 +2998,7 @@ impl ModuleBuilder<'_> {
                     mutable: source_decl.mutable,
                     span: source_decl.span,
                 });
-                saved_locals.push((name.clone(), self.locals.insert(name, body_local)));
+                saved_locals.push((name.clone(), self.scope.bind(name, body_local)));
                 captures.push(ClosureCapture {
                     source_local,
                     body_local: Some(body_local),
@@ -3052,9 +3038,9 @@ impl ModuleBuilder<'_> {
             self.current_arguments_arities.pop();
             for (name, prior) in saved_locals.into_iter().rev() {
                 if let Some(local) = prior {
-                    self.locals.insert(name, local);
+                    self.scope.bind(name, local);
                 } else {
-                    self.locals.remove(name.as_str());
+                    self.scope.unbind(name.as_str());
                 }
             }
             lowering_result?;
@@ -3079,7 +3065,7 @@ impl ModuleBuilder<'_> {
                 is_async: function.r#async,
                 may_throw: false,
             }));
-            let local = if let Some(existing) = self.locals.get(id.name.as_str()).copied() {
+            let local = if let Some(existing) = self.scope.lookup(id.name.as_str()) {
                 if let Ok(index) = usize::try_from(existing.0)
                     && let Some(decl) = outer_body.locals.get_mut(index)
                 {
@@ -3101,7 +3087,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(id.span.start, id.span.end),
                 })
             };
-            self.locals.insert(id.name.as_str().to_owned(), local);
+            self.scope.bind(id.name.as_str().to_owned(), local);
             let value = outer_body.push_expr(Expr {
                 kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                     params: closure_params,
@@ -3196,7 +3182,7 @@ impl ModuleBuilder<'_> {
         name: &str,
         body: &Body,
     ) -> Option<smelt_hir::LocalId> {
-        let local = self.locals.get(name).copied()?;
+        let local = self.scope.lookup(name)?;
         usize::try_from(local.0)
             .ok()
             .and_then(|index| body.locals.get(index))
@@ -3293,7 +3279,7 @@ impl ModuleBuilder<'_> {
                 if value.is_some_and(|value| self.expression_is_known_date_value(value, body))
                     || self.type_is_known_date_value(ty)
                 {
-                    self.date_value_locals.insert(local);
+                    self.scope.mark_date_value(local);
                 }
                 // An explicit `any` annotation pins the local to the erased
                 // `Unknown` boundary: record it so later concrete assignments do
@@ -3301,9 +3287,9 @@ impl ModuleBuilder<'_> {
                 if annotated_ty.is_some_and(|annotated| {
                     matches!(self.ctx.krate.types.get(annotated), Some(Type::Unknown))
                 }) {
-                    self.explicit_any_locals.insert(local);
+                    self.scope.mark_explicit_any(local);
                 }
-                self.locals.insert(name.to_owned(), local);
+                self.scope.bind(name.to_owned(), local);
                 let pat = body.push_pattern(Pattern::Binding(local));
                 body.push_stmt_to_block(block, Stmt::Let { pat, ty, value });
                 Ok(())

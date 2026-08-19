@@ -632,17 +632,17 @@ impl ModuleBuilder<'_> {
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let saved_locals = std::mem::take(&mut self.locals);
-        let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
-        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
-        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
+        let saved_locals = self.scope.take_bindings();
+        let saved_date_value_locals = self.scope.take_date_values();
+        let saved_callable_local_props = self.scope.take_callable_prop_writes();
+        let saved_explicit_any_locals = self.scope.take_explicit_any();
         // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
         // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
         // must not leak into a sibling test that declares its own same-named
         // binding — a stale optional narrowing would turn its indexed writes
         // into non-assignable optional projections. Scope them per test case
         // exactly like `self.locals`.
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_narrowed_locals = self.scope.take_narrowings();
         let saved_async = self.current_async;
         let class_scope = self.test_case_class_scope();
         self.current_async = arrow.r#async;
@@ -691,11 +691,11 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
-        self.locals = saved_locals;
-        self.date_value_locals = saved_date_value_locals;
-        self.callable_local_props = saved_callable_local_props;
-        self.explicit_any_locals = saved_explicit_any_locals;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_bindings(saved_locals);
+        self.scope.restore_date_values(saved_date_value_locals);
+        self.scope.restore_callable_prop_writes(saved_callable_local_props);
+        self.scope.restore_explicit_any(saved_explicit_any_locals);
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.current_async = saved_async;
         self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {
@@ -756,17 +756,17 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = std::mem::take(&mut self.locals);
-        let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
-        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
-        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
+        let saved_locals = self.scope.take_bindings();
+        let saved_date_value_locals = self.scope.take_date_values();
+        let saved_callable_local_props = self.scope.take_callable_prop_writes();
+        let saved_explicit_any_locals = self.scope.take_explicit_any();
         // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
         // body (e.g. `array1 = /c/.exec(...)` observing `Optional<SmeltMatch>`)
         // must not leak into a sibling test that declares its own same-named
         // binding — a stale optional narrowing would turn its indexed writes
         // into non-assignable optional projections. Scope them per test case
         // exactly like `self.locals`.
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_narrowed_locals = self.scope.take_narrowings();
         let saved_async = self.current_async;
         let class_scope = self.test_case_class_scope();
         self.current_async = function.r#async;
@@ -827,11 +827,11 @@ impl ModuleBuilder<'_> {
             }
         }
         self.current_arguments_arities.pop();
-        self.locals = saved_locals;
-        self.date_value_locals = saved_date_value_locals;
-        self.callable_local_props = saved_callable_local_props;
-        self.explicit_any_locals = saved_explicit_any_locals;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_bindings(saved_locals);
+        self.scope.restore_date_values(saved_date_value_locals);
+        self.scope.restore_callable_prop_writes(saved_callable_local_props);
+        self.scope.restore_explicit_any(saved_explicit_any_locals);
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.current_async = saved_async;
         self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {
@@ -1121,7 +1121,7 @@ impl ModuleBuilder<'_> {
             mutable: false,
             span: self.span(span.start, span.end),
         });
-        self.locals.insert(name.to_owned(), local);
+        self.scope.bind(name.to_owned(), local);
         let pat = body.push_pattern(Pattern::Binding(local));
         body.push_stmt(Stmt::Let {
             pat,

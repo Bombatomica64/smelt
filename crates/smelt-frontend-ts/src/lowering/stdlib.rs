@@ -208,7 +208,7 @@ impl ModuleBuilder<'_> {
         match target_arg {
             Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_) => true,
             Argument::Identifier(ident) => {
-                if let Some(local) = self.locals.get(ident.name.as_str()).copied() {
+                if let Some(local) = self.scope.lookup(ident.name.as_str()) {
                     let ty = Self::local_ty(body, local);
                     let resolved = self.type_param_constraint_or_self(ty);
                     return matches!(
@@ -239,7 +239,7 @@ impl ModuleBuilder<'_> {
         let mut spreads = Vec::new();
         for source_arg in source_args {
             if let Argument::Identifier(ident) = source_arg
-                && self.locals.contains_key(ident.name.as_str())
+                && self.scope.is_bound(ident.name.as_str())
             {
                 let source = self.argument(source_arg, body)?;
                 spreads.push(source);
@@ -1250,8 +1250,8 @@ impl ModuleBuilder<'_> {
             }
             Expression::RegExpLiteral(_) => true,
             Expression::Identifier(identifier) => self
-                .locals
-                .get(identifier.name.as_str())
+                .scope
+                .lookup(identifier.name.as_str())
                 .and_then(|local| {
                     usize::try_from(local.0)
                         .ok()

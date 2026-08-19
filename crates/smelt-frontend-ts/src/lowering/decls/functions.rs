@@ -111,11 +111,11 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = std::mem::take(&mut self.locals);
-        let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
-        let saved_callable_local_props = std::mem::take(&mut self.callable_local_props);
-        let saved_explicit_any_locals = std::mem::take(&mut self.explicit_any_locals);
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_locals = self.scope.take_bindings();
+        let saved_date_value_locals = self.scope.take_date_values();
+        let saved_callable_local_props = self.scope.take_callable_prop_writes();
+        let saved_explicit_any_locals = self.scope.take_explicit_any();
+        let saved_narrowed_locals = self.scope.take_narrowings();
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         let saved_generator_yields = self.current_generator_yields;
@@ -134,11 +134,11 @@ impl ModuleBuilder<'_> {
             let ty = match self.function_parameter_type(param) {
                 Ok(value) => value,
                 Err(error) => {
-                    self.locals = saved_locals;
-                    self.date_value_locals = saved_date_value_locals;
-                    self.callable_local_props = saved_callable_local_props;
-                    self.explicit_any_locals = saved_explicit_any_locals;
-                    self.narrowed_locals = saved_narrowed_locals;
+                    self.scope.restore_bindings(saved_locals);
+                    self.scope.restore_date_values(saved_date_value_locals);
+                    self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                    self.scope.restore_explicit_any(saved_explicit_any_locals);
+                    self.scope.restore_narrowings(saved_narrowed_locals);
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
                     self.current_generator_yields = saved_generator_yields;
@@ -194,10 +194,10 @@ impl ModuleBuilder<'_> {
             });
             body.params.push(local);
             if self.type_is_known_date_value(ty) {
-                self.date_value_locals.insert(local);
+                self.scope.mark_date_value(local);
             }
             if let Some(source_name) = source_name {
-                self.locals.insert(source_name.clone(), local);
+                self.scope.bind(source_name.clone(), local);
                 if let Some(initializer) = default_initializer {
                     defaulted_params.push((local, ty, &**initializer, param_name, source_name, span));
                 }
@@ -213,11 +213,11 @@ impl ModuleBuilder<'_> {
         }
         let rest = if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
-                self.locals = saved_locals;
-                self.date_value_locals = saved_date_value_locals;
-                self.callable_local_props = saved_callable_local_props;
-                self.explicit_any_locals = saved_explicit_any_locals;
-                self.narrowed_locals = saved_narrowed_locals;
+                self.scope.restore_bindings(saved_locals);
+                self.scope.restore_date_values(saved_date_value_locals);
+                self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                self.scope.restore_explicit_any(saved_explicit_any_locals);
+                self.scope.restore_narrowings(saved_narrowed_locals);
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
                 self.current_generator_yields = saved_generator_yields;
@@ -242,11 +242,11 @@ impl ModuleBuilder<'_> {
                 }) {
                 Ok(value) => value,
                 Err(error) => {
-                    self.locals = saved_locals;
-                    self.date_value_locals = saved_date_value_locals;
-                    self.callable_local_props = saved_callable_local_props;
-                    self.explicit_any_locals = saved_explicit_any_locals;
-                    self.narrowed_locals = saved_narrowed_locals;
+                    self.scope.restore_bindings(saved_locals);
+                    self.scope.restore_date_values(saved_date_value_locals);
+                    self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                    self.scope.restore_explicit_any(saved_explicit_any_locals);
+                    self.scope.restore_narrowings(saved_narrowed_locals);
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
                     self.current_generator_yields = saved_generator_yields;
@@ -255,11 +255,11 @@ impl ModuleBuilder<'_> {
                 }
             };
             let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
-                self.locals = saved_locals;
-                self.date_value_locals = saved_date_value_locals;
-                self.callable_local_props = saved_callable_local_props;
-                self.explicit_any_locals = saved_explicit_any_locals;
-                self.narrowed_locals = saved_narrowed_locals;
+                self.scope.restore_bindings(saved_locals);
+                self.scope.restore_date_values(saved_date_value_locals);
+                self.scope.restore_callable_prop_writes(saved_callable_local_props);
+                self.scope.restore_explicit_any(saved_explicit_any_locals);
+                self.scope.restore_narrowings(saved_narrowed_locals);
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
                 self.current_generator_yields = saved_generator_yields;
@@ -277,7 +277,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(binding.span.start, binding.span.end),
             });
             body.params.push(local);
-            self.locals.insert(binding.name.to_string(), local);
+            self.scope.bind(binding.name.to_string(), local);
             let index = params.len();
             params.push(Param {
                 name: param_name,
@@ -343,11 +343,11 @@ impl ModuleBuilder<'_> {
         if function.r#async {
             body.build_async_state_machine();
         }
-        self.locals = saved_locals;
-        self.date_value_locals = saved_date_value_locals;
-        self.callable_local_props = saved_callable_local_props;
-        self.explicit_any_locals = saved_explicit_any_locals;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_bindings(saved_locals);
+        self.scope.restore_date_values(saved_date_value_locals);
+        self.scope.restore_callable_prop_writes(saved_callable_local_props);
+        self.scope.restore_explicit_any(saved_explicit_any_locals);
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
         self.current_generator_yields = saved_generator_yields;
@@ -388,7 +388,7 @@ impl ModuleBuilder<'_> {
             body: Some(body_id),
             owner: FunctionOwner::Module,
         };
-        let item = if let Some(item) = self.local_function_items.get(name_text).copied() {
+        let item = if let Some(item) = self.scope.function_item(name_text) {
             let index = usize::try_from(item.0).unwrap_or(usize::MAX);
             if let Some(slot) = self.ctx.krate.items.get_mut(index) {
                 *slot = Item::Function(function_item);
@@ -656,9 +656,9 @@ impl ModuleBuilder<'_> {
                 span,
             });
             if self.type_is_known_date_value(inner_ty) {
-                self.date_value_locals.insert(applied);
+                self.scope.mark_date_value(applied);
             }
-            self.locals.insert(source_name, applied);
+            self.scope.bind(source_name, applied);
             let pat = body.push_pattern(Pattern::Binding(applied));
             let root = body.root;
             body.push_stmt_to_block(
@@ -796,8 +796,8 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = std::mem::take(&mut self.locals);
-        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_locals = self.scope.take_bindings();
+        let saved_narrowed_locals = self.scope.take_narrowings();
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         let saved_generator_yields = self.current_generator_yields;
@@ -821,7 +821,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(function.span.start, function.span.start),
             });
             body.params.push(this_local);
-            self.locals.insert("this".to_owned(), this_local);
+            self.scope.bind("this".to_owned(), this_local);
             params.push(Param {
                 name: this_name,
                 local: this_local,
@@ -861,7 +861,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(binding.span.start, binding.span.end),
                 });
                 body.params.push(local);
-                self.locals.insert(binding.name.to_string(), local);
+                self.scope.bind(binding.name.to_string(), local);
                 params.push(Param {
                     name: param_name,
                     local,
@@ -925,8 +925,8 @@ impl ModuleBuilder<'_> {
             body.build_async_state_machine();
         }
 
-        self.locals = saved_locals;
-        self.narrowed_locals = saved_narrowed_locals;
+        self.scope.restore_bindings(saved_locals);
+        self.scope.restore_narrowings(saved_narrowed_locals);
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
         self.current_generator_yields = saved_generator_yields;
@@ -2017,7 +2017,7 @@ impl ModuleBuilder<'_> {
         field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
         span: Span,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
         let mut body = Body::new(None, span);
         let this_symbol = self.ctx.krate.symbols.intern("this");
@@ -2027,7 +2027,7 @@ impl ModuleBuilder<'_> {
             mutable: true,
             span,
         });
-        self.locals.insert("this".to_owned(), this_local);
+        self.scope.bind("this".to_owned(), this_local);
         let params = if has_base {
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             let arg_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
@@ -2049,7 +2049,7 @@ impl ModuleBuilder<'_> {
             Vec::new()
         };
         self.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         self.current_class = saved_class;
         let body_id = self.ctx.krate.push_body(body);
         let name = self.ctx.krate.symbols.intern("new");
@@ -2554,7 +2554,7 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_locals = self.scope.take_bindings();
         let saved_class = self.current_class.replace(class_text.to_owned());
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
@@ -2578,7 +2578,7 @@ impl ModuleBuilder<'_> {
         // must not carry a receiver parameter, so it lowers to a receiver-free
         // associated function.
         if !is_static {
-            self.locals.insert("this".to_owned(), this_local);
+            self.scope.bind("this".to_owned(), this_local);
             if !is_constructor {
                 body.params.push(this_local);
                 params.push(Param {
@@ -2640,7 +2640,7 @@ impl ModuleBuilder<'_> {
             });
             body.params.push(local);
             if let Some(source_name) = source_name {
-                self.locals.insert(source_name.clone(), local);
+                self.scope.bind(source_name.clone(), local);
                 if let Some(initializer) = default_initializer {
                     defaulted_params
                         .push((local, abi_ty, &**initializer, param_name, source_name, span));
@@ -2708,7 +2708,7 @@ impl ModuleBuilder<'_> {
                 .into_iter()
                 .filter_map(|(field, source_name, ty, span)| {
                     let local = source_name
-                        .and_then(|source_name| self.locals.get(&source_name).copied())?;
+                        .and_then(|source_name| self.scope.lookup(&source_name))?;
                     Some((field, local, ty, span))
                 })
                 .collect::<Vec<_>>();
@@ -2760,7 +2760,7 @@ impl ModuleBuilder<'_> {
         if method.value.r#async {
             body.build_async_state_machine();
         }
-        self.locals = saved_locals;
+        self.scope.restore_bindings(saved_locals);
         self.current_class = saved_class;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;

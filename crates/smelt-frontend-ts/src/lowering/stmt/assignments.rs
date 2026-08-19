@@ -1354,7 +1354,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(method_ident) = &member.expression else {
             return None;
         };
-        let source_local = self.locals.get(method_ident.name.as_str()).copied()?;
+        let source_local = self.scope.lookup(method_ident.name.as_str())?;
         let source_decl = usize::try_from(source_local.0)
             .ok()
             .and_then(|index| outer_body.locals.get(index))?;
@@ -1718,7 +1718,7 @@ impl ModuleBuilder<'_> {
         let AssignmentTarget::AssignmentTargetIdentifier(identifier) = target else {
             return None;
         };
-        if self.locals.contains_key(identifier.name.as_str()) {
+        if self.scope.is_bound(identifier.name.as_str()) {
             return None;
         }
         self.mutable_global_item(identifier.name.as_str())
@@ -1775,7 +1775,7 @@ impl ModuleBuilder<'_> {
         };
         // A same-named local (function body or re-lowered test setup) shadows
         // the module global; the ordinary local update path handles it.
-        if self.locals.contains_key(identifier.name.as_str()) {
+        if self.scope.is_bound(identifier.name.as_str()) {
             return Ok(None);
         }
         let Some(item) = self.mutable_global_item(identifier.name.as_str()) else {
@@ -1950,7 +1950,7 @@ impl ModuleBuilder<'_> {
     /// (`debounced`) that receives `debounced.schedule = …`, `debounced.cancel =
     /// …` writes and is then returned at a callable-interface type. Instead of
     /// lowering the (fieldless) write, this collects `(property, value)` pairs in
-    /// [`ModuleBuilder::callable_local_props`] so the eventual callable-interface
+    /// the local scope's callable-prop registry so the eventual callable-interface
     /// coercion can synthesize a typed `CallableObjectAssign` struct. The RHS is
     /// lowered into a fresh compiler local via `Stmt::Let` so its evaluation order
     /// and side effects are preserved exactly where the write appears, even though
@@ -1987,7 +1987,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(false);
         };
-        let Some(local) = self.locals.get(object.name.as_str()).copied() else {
+        let Some(local) = self.scope.lookup(object.name.as_str()) else {
             return Ok(false);
         };
         let Some(local_ty) = Self::local_ty_checked(body, local) else {
@@ -2010,11 +2010,7 @@ impl ModuleBuilder<'_> {
             // actually consumed into a typed callable-interface struct.
             return Ok(false);
         }
-        if self
-            .callable_local_props
-            .get(&local)
-            .is_some_and(|state| state.escaped)
-        {
+        if self.scope.callable_local_escaped(local) {
             return Err(SmeltError::unsupported(
                 span,
                 "property writes onto a callable local after it escapes are not lowered yet",
@@ -2043,11 +2039,8 @@ impl ModuleBuilder<'_> {
             span,
         });
         let prop = self.intern_source_name(member.property.name.as_str());
-        let entry = self.callable_local_props.entry(local).or_default();
-        // Last write wins: a repeated write to the same property replaces the
-        // earlier value while keeping source order for the surviving props.
-        entry.props.retain(|(name, _)| *name != prop);
-        entry.props.push((prop, value_read));
+        // Last write wins, in source order: the registry method owns that rule.
+        self.scope.record_callable_prop(local, prop, value_read);
         Ok(true)
     }
 
@@ -2075,10 +2068,10 @@ impl ModuleBuilder<'_> {
         if !self.type_is_callable_interface(hint) {
             return Ok(None);
         }
-        let Some(local) = self.locals.get(ident_name).copied() else {
+        let Some(local) = self.scope.lookup(ident_name) else {
             return Ok(None);
         };
-        let Some(state) = self.callable_local_props.remove(&local) else {
+        let Some(props) = self.scope.take_callable_props(local) else {
             return Ok(None);
         };
         let base_ty = Self::local_ty_checked(body, local)
@@ -2091,7 +2084,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::CallableObjectAssign {
                 callable,
-                props: state.props,
+                props,
                 spreads: Vec::new(),
             },
             ty: hint,
@@ -2284,7 +2277,7 @@ impl ModuleBuilder<'_> {
             return;
         };
         let name = identifier.name.as_str();
-        let Some(local) = self.locals.get(name).copied() else {
+        let Some(local) = self.scope.lookup(name) else {
             return;
         };
         let base_ty = Self::local_ty(body, local);
@@ -2327,7 +2320,7 @@ impl ModuleBuilder<'_> {
         // assignment's type would let later writes through the boundary (e.g.
         // `obj.b = obj` where `obj` is a self-referential `any`) demand a concrete
         // record value type that the erased shape cannot supply.
-        if self.explicit_any_locals.contains(&local) {
+        if self.scope.is_explicit_any(local) {
             return;
         }
         self.apply_narrowing(name.to_owned(), observed_ty);
