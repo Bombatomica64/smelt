@@ -206,7 +206,7 @@ return_ty: string_ty,
             }
             Argument::Identifier(identifier) => {
                 let Some((pattern, flags, _ty)) =
-                    self.const_regexps.get(identifier.name.as_str()).cloned()
+                    self.consts.regexp(identifier.name.as_str()).cloned()
                 else {
                     return Ok(None);
                 };

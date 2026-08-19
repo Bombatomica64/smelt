@@ -182,7 +182,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
-            if let Some((pattern, flags, ty)) = self.const_regexps.get(name).cloned() {
+            if let Some((pattern, flags, ty)) = self.consts.regexp(name).cloned() {
                 let span = self.span(start, end);
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 let pattern = body.push_expr(Expr {
@@ -204,14 +204,14 @@ impl ModuleBuilder<'_> {
                     span,
                 }));
             }
-            if let Some(value) = self.const_literals.get(name) {
+            if let Some(value) = self.consts.literal(name) {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(value.literal.clone()),
                     ty: value.ty,
                     span: self.span(start, end),
                 }));
             }
-            if let Some(value) = self.const_objects.get(name).cloned() {
+            if let Some(value) = self.consts.object(name).cloned() {
                 return Ok(self.object_const_expression(&value, start, end, body));
             }
             if let Some(item) = self.items.get(name).copied()
@@ -316,10 +316,10 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
-            if let Some(value) = self.const_objects.get(name).cloned() {
+            if let Some(value) = self.consts.object(name).cloned() {
                 return Ok(self.object_const_expression(&value, start, end, body));
             }
-            if let Some(value) = self.const_literals.get(name) {
+            if let Some(value) = self.consts.literal(name) {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(value.literal.clone()),
                     ty: value.ty,
@@ -1278,7 +1278,7 @@ impl ModuleBuilder<'_> {
         end: u32,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if let Some(collection) = self.const_collections.get(name).cloned() {
+        if let Some(collection) = self.consts.collection(name).cloned() {
             let span = self.span(start, end);
             let items = collection
                 .items

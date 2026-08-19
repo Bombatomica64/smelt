@@ -8,6 +8,7 @@
 //! See `docs/architecture-plan-second-pass.md`, finding C.
 
 pub(in crate::lowering) mod class_registry;
+pub(in crate::lowering) mod const_registry;
 pub(in crate::lowering) mod interface_registry;
 pub(in crate::lowering) mod local_scope;
 pub(in crate::lowering) mod type_scope;

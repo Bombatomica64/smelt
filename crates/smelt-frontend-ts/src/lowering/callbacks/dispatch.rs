@@ -570,13 +570,13 @@ impl ModuleBuilder<'_> {
                         ty: self.ctx.krate.types.intern(Type::None),
                     });
                 }
-                if let Some(value) = self.const_literals.get(identifier.name.as_str()) {
+                if let Some(value) = self.consts.literal(identifier.name.as_str()) {
                     return Ok(CallbackExpr {
                         kind: CallbackExprKind::Literal(value.literal.clone()),
                         ty: value.ty,
                     });
                 }
-                if let Some(collection) = self.const_collections.get(identifier.name.as_str()) {
+                if let Some(collection) = self.consts.collection(identifier.name.as_str()) {
                     let items = collection
                         .items
                         .iter()
@@ -1734,9 +1734,7 @@ impl ModuleBuilder<'_> {
                         );
                     }
                     if let Expression::Identifier(receiver_ident) = &binary.right
-                        && let Some(object_const) = self
-                            .const_objects
-                            .get(receiver_ident.name.as_str())
+                        && let Some(object_const) = self.consts.object(receiver_ident.name.as_str())
                             .cloned()
                     {
                         let case_keys = object_const

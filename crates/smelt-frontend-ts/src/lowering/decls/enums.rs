@@ -4,7 +4,7 @@
 //! `enum` as a namespace of compile-time constants: each member folds to a
 //! numeric or string [`Literal`], exactly as TypeScript itself computes enum
 //! member values. The folded values are stored in
-//! [`ModuleBuilder::enum_member_literals`] (and mirrored into
+//! the module's constant registry (and mirrored into
 //! [`crate::context::HirCtx::enum_members`] for later modules), so that
 //! `EnumName.Member` reads and `case EnumName.Member:` switch labels can inline
 //! the same literal a manual `const` would produce.
@@ -102,8 +102,7 @@ impl ModuleBuilder<'_> {
 
         // Publish to the current module for immediate use, and to the shared
         // context so later modules that import this enum fold its members too.
-        self.enum_member_literals
-            .insert(enum_name.clone(), members.clone());
+        self.consts.set_enum_members(enum_name.clone(), members.clone());
         self.ctx.enum_members.insert(enum_name, members);
     }
 
@@ -191,9 +190,6 @@ impl ModuleBuilder<'_> {
         enum_name: &str,
         member_name: &str,
     ) -> Option<ConstLiteral> {
-        self.enum_member_literals
-            .get(enum_name)
-            .and_then(|members| members.get(member_name))
-            .cloned()
+        self.consts.enum_member(enum_name, member_name).cloned()
     }
 }

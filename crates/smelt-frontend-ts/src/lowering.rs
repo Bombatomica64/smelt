@@ -13,7 +13,7 @@ use std::{
 };
 use support::unknown_kind_from_typeof;
 
-use crate::{HirCtx, ObjectConst, OverloadSignature, SmeltError};
+use crate::{HirCtx, OverloadSignature, SmeltError};
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, Declaration,
@@ -609,24 +609,13 @@ struct ModuleBuilder<'ctx> {
     date_fns_timezone_factories: HashSet<String>,
     /// Object constants that act as namespace-like API surfaces.
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
-    /// Literal constant items visible from already-lowered modules.
-    const_literals: HashMap<String, ConstLiteral>,
-    /// Const-folded TypeScript `enum` member values keyed by enum name then
-    /// member name.
+    /// Folded constant values visible to this module: literals, `enum` members,
+    /// `RegExp` literals, object constants, collections and object-value
+    /// projections.
     ///
-    /// Populated from `enum` declarations in the current module and seeded from
-    /// [`HirCtx::enum_members`] for enums declared in earlier modules. Lets
-    /// `EnumName.Member` reads and `case EnumName.Member:` labels inline the
-    /// member's constant literal.
-    enum_member_literals: HashMap<String, HashMap<String, ConstLiteral>>,
-    /// `RegExp` literal constants visible from nested function bodies.
-    const_regexps: HashMap<String, (String, String, smelt_hir::TypeId)>,
-    /// Object literal constants visible from current and already-lowered modules.
-    const_objects: HashMap<String, ObjectConst>,
-    /// Array/set constants visible from nested function bodies.
-    const_collections: HashMap<String, ConstCollection>,
-    /// Object constants whose values can be projected by `Object.values`.
-    const_object_value_collections: HashMap<String, ConstCollection>,
+    /// Owns the single-kind and import-rebinding invariants documented on
+    /// [`state::const_registry::ConstRegistry`].
+    consts: state::const_registry::ConstRegistry,
     /// User assertion functions declared with `asserts value is T`.
     assertion_functions: HashMap<String, AssertionNarrowing>,
     /// User predicate functions declared with `value is T`.

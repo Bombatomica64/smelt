@@ -9,6 +9,7 @@ use super::support::{
 };
 use super::state::class_registry::ClassRegistry;
 use super::state::interface_registry::InterfaceRegistry;
+use super::state::const_registry::ConstRegistry;
 use super::state::local_scope::LocalScope;
 use super::state::type_scope::TypeScope;
 use super::{
@@ -171,12 +172,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             value_imports: HashSet::new(),
             date_fns_timezone_factories: HashSet::new(),
             object_namespaces,
-            const_literals,
-            enum_member_literals,
-            const_regexps: HashMap::new(),
-            const_objects,
-            const_collections,
-            const_object_value_collections,
+            consts: ConstRegistry::new(
+                const_literals,
+                enum_member_literals,
+                const_objects,
+                const_collections,
+                const_object_value_collections,
+            ),
             assertion_functions: HashMap::new(),
             predicate_functions: HashMap::new(),
             function_rests,
@@ -738,32 +740,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 && let Ok(value) = self.object_const_from_expression(object, None)
             {
                 if let Some(collection) = self.const_collection_from_object_const(&value) {
-                    self.const_object_value_collections
-                        .insert(binding.name.as_str().to_owned(), collection.clone());
+                    self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
                     self.ctx
                         .object_value_collections
                         .insert(binding.name.as_str().to_owned(), collection);
                 }
-                self.const_objects
-                    .insert(binding.name.as_str().to_owned(), value);
+                self.consts.set_object(binding.name.as_str().to_owned(), value);
             } else if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && let Some(init) = &declarator.init
                 && let Some(object) = Self::object_const_initializer(init)
                 && let Some(collection) = self.const_unknown_value_collection_from_object(object)
             {
-                self.const_object_value_collections
-                    .insert(binding.name.as_str().to_owned(), collection.clone());
+                self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
                 self.ctx
                     .object_value_collections
                     .insert(binding.name.as_str().to_owned(), collection);
             }
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
-                && !self.const_objects.contains_key(binding.name.as_str())
+                && !self.consts.has_object(binding.name.as_str())
                 && let Some(init) = &declarator.init
                 && let Some(map_const) = self.map_const_from_initializer(init)
             {
-                self.const_objects
-                    .insert(binding.name.as_str().to_owned(), map_const);
+                self.consts.set_object(binding.name.as_str().to_owned(), map_const);
             }
             if matches!(
                 decl.kind,
@@ -778,8 +776,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), ty);
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const {
-                    self.const_regexps
-                        .insert(binding.name.as_str().to_owned(), (pattern, flags, ty));
+                    self.consts.set_regexp(binding.name.as_str().to_owned(), (pattern, flags, ty));
                 }
             }
             if matches!(
@@ -792,8 +789,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), value.ty);
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const {
-                    self.const_literals
-                        .insert(binding.name.as_str().to_owned(), value);
+                    self.consts.set_literal(binding.name.as_str().to_owned(), value);
                 }
             }
             let Some(annotation) = &declarator.type_annotation else {
@@ -815,8 +811,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.module_globals
                         .insert(binding.name.as_str().to_owned(), ty);
                     if let Some(collection) = self.const_collection_from_initializer(init, ty) {
-                        self.const_collections
-                            .insert(binding.name.as_str().to_owned(), collection.clone());
+                        self.consts.set_collection(binding.name.as_str().to_owned(), collection.clone());
                         self.ctx
                             .const_collections
                             .insert(binding.name.as_str().to_owned(), collection);
@@ -1225,13 +1220,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             Expression::CallExpression(call) => {
                 let name = Self::object_values_identifier_argument(call)?;
-                self.const_object_value_collections.get(&name).cloned()
+                self.consts.object_value_collection(name.as_str()).cloned()
             }
             // `export const ALIAS = otherConst;` shares the referenced
             // module-level collection so nested bodies inline the alias too.
-            Expression::Identifier(identifier) => self
-                .const_collections
-                .get(identifier.name.as_str())
+            Expression::Identifier(identifier) => self.consts.collection(identifier.name.as_str())
                 .cloned(),
             Expression::TSAsExpression(as_expr) => {
                 self.const_collection_from_initializer(&as_expr.expression, ty)
@@ -1295,7 +1288,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     let Expression::Identifier(identifier) = &spread.argument else {
                         return None;
                     };
-                    let collection = self.const_collections.get(identifier.name.as_str())?;
+                    let collection = self.consts.collection(identifier.name.as_str())?;
                     items.extend(collection.items.clone());
                 }
                 ArrayExpressionElement::Elision(_) => return None,
@@ -1969,7 +1962,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .object_namespaces
                     .insert(exported.clone(), namespace);
             }
-            if let Some(value) = self.const_objects.get(&exported).cloned() {
+            if let Some(value) = self.consts.object(exported.as_str()).cloned() {
                 self.ctx.object_consts.insert(exported.clone(), value);
             }
             if let Some(overloads) = self.function_overloads.get(&exported).cloned() {
@@ -2146,9 +2139,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.items.contains_key(local)
             || self.classes.contains(local)
             || self.interfaces.contains(local)
-            || self.const_literals.contains_key(local)
-            || self.const_objects.contains_key(local)
-            || self.const_collections.contains_key(local)
+            || self.consts.is_folded_const(local)
             || self.object_namespaces.contains_key(local)
             || self.function_overloads.contains_key(local)
     }
@@ -2175,7 +2166,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 // present.
                 Item::Const(const_item) => {
                     if let Some(value) = const_literal_from_item(&self.ctx.krate, const_item) {
-                        self.const_literals.insert(local.to_owned(), value);
+                        self.consts.set_literal(local.to_owned(), value);
                     }
                 }
                 _ => {}
@@ -2225,15 +2216,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for (alias, item) in qualified_interface_aliases {
             self.interfaces.register_alias(alias, item);
         }
-        if let Some(value) = self.const_literals.get(imported).cloned() {
-            self.const_literals.insert(local.to_owned(), value);
-        }
-        if let Some(value) = self.const_objects.get(imported).cloned() {
-            self.const_objects.insert(local.to_owned(), value);
-        }
-        if let Some(value) = self.const_collections.get(imported).cloned() {
-            self.const_collections.insert(local.to_owned(), value);
-        }
+        // One call rebinds every constant kind the imported name carries.
+        self.consts.rebind_import(local, imported);
         if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
             self.object_namespaces.insert(local.to_owned(), namespace);
         }
@@ -2324,8 +2308,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     if let Some(collection) =
                         self.const_unknown_value_collection_from_object(object)
                     {
-                        self.const_object_value_collections
-                            .insert(binding.name.as_str().to_owned(), collection.clone());
+                        self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
                         self.ctx
                             .object_value_collections
                             .insert(binding.name.as_str().to_owned(), collection);
@@ -2439,7 +2422,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }));
             self.items.insert(name_text.to_owned(), item);
             self.ctx.export_aliases.insert(name_text.to_owned(), item);
-            self.const_literals.insert(name_text.to_owned(), value);
+            self.consts.set_literal(name_text.to_owned(), value);
             items.push(item);
         }
         Ok(items)
@@ -2479,8 +2462,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), ty);
         if let Some(collection) = self.const_collection_from_initializer(init, ty) {
-            self.const_collections
-                .insert(name_text.to_owned(), collection.clone());
+            self.consts.set_collection(name_text.to_owned(), collection.clone());
             self.ctx
                 .const_collections
                 .insert(name_text.to_owned(), collection);
@@ -2506,9 +2488,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return false;
         };
         self.items.contains_key(root)
-            || self.const_objects.contains_key(root)
-            || self.const_collections.contains_key(root)
-            || self.const_literals.contains_key(root)
+            || self.consts.is_folded_const(root)
             || self.module_globals.contains_key(root)
     }
 
@@ -3046,14 +3026,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), value.ty);
         if let Some(collection) = self.const_collection_from_object_const(&value) {
-            self.const_object_value_collections
-                .insert(name_text.to_owned(), collection.clone());
+            self.consts.set_object_value_collection(name_text.to_owned(), collection.clone());
             self.ctx
                 .object_value_collections
                 .insert(name_text.to_owned(), collection);
         }
-        self.const_objects
-            .insert(name_text.to_owned(), value.clone());
+        self.consts.set_object(name_text.to_owned(), value.clone());
         self.ctx.object_consts.insert(name_text.to_owned(), value);
         Ok(item)
     }
@@ -3087,8 +3065,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), ty);
         if let Some(collection) = self.const_unknown_value_collection_from_object(object) {
-            self.const_object_value_collections
-                .insert(name_text.to_owned(), collection.clone());
+            self.consts.set_object_value_collection(name_text.to_owned(), collection.clone());
             self.ctx
                 .object_value_collections
                 .insert(name_text.to_owned(), collection);

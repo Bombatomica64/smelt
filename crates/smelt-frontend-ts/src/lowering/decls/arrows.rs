@@ -729,7 +729,7 @@ return_ty: target_function.return_ty,
 
     /// Resolve a bare identifier to a foldable const literal by name.
     ///
-    /// Same-module exported consts are precomputed into `const_literals`, but a
+    /// Same-module exported consts are precomputed into the constant registry, but a
     /// const imported from another module (`import { stringTag } from
     /// './tags'`) is only registered as a HIR `Item::Const` in `self.items`
     /// until it is first read. Switch case labels and exported-const
@@ -737,7 +737,7 @@ return_ty: target_function.return_ty,
     /// literal, so fall back to the lowered const item when the precomputed map
     /// misses the name.
     pub(in crate::lowering) fn resolve_const_literal_by_name(&self, name: &str) -> Option<ConstLiteral> {
-        if let Some(value) = self.const_literals.get(name) {
+        if let Some(value) = self.consts.literal(name) {
             return Some(value.clone());
         }
         let item = self.items.get(name).copied()?;
@@ -1213,7 +1213,7 @@ return_ty: target_function.return_ty,
                 let Some(ConstLiteral {
                     literal: Literal::Float(value),
                     ..
-                }) = self.const_literals.get(ident.name.as_str())
+                }) = self.consts.literal(ident.name.as_str())
                 else {
                     return Err(SmeltError::unsupported(
                         self.span(ident.span.start, ident.span.end),

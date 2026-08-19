@@ -670,8 +670,8 @@ impl ModuleBuilder<'_> {
             || self.namespace_imports.contains(name)
             || self.items.contains_key(name)
             || self.module_globals.contains_key(name)
-            || self.const_literals.contains_key(name)
-            || self.const_objects.contains_key(name))
+            || self.consts.has_literal(name)
+            || self.consts.has_object(name))
     }
 
     /// Return whether an expression refers to the ambient global object.

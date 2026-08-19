@@ -1264,8 +1264,7 @@ impl ModuleBuilder<'_> {
                 let Expression::Identifier(object) = &member.object else {
                     return false;
                 };
-                self.const_objects
-                    .get(object.name.as_str())
+                self.consts.object(object.name.as_str())
                     .or_else(|| self.ctx.object_consts.get(object.name.as_str()))
                     .and_then(|object_const| {
                         object_const

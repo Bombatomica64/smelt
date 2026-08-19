@@ -1963,9 +1963,7 @@ impl ModuleBuilder<'_> {
         }
 
         if let Expression::Identifier(receiver_ident) = &binary.right
-            && let Some(object_const) = self
-                .const_objects
-                .get(receiver_ident.name.as_str())
+            && let Some(object_const) = self.consts.object(receiver_ident.name.as_str())
                 .cloned()
         {
             let mut key = self.expression(&binary.left, body)?;
@@ -3806,14 +3804,14 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
-        if let Some(value) = self.const_literals.get(member_name).cloned() {
+        if let Some(value) = self.consts.literal(member_name).cloned() {
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(value.literal),
                 ty: value.ty,
                 span,
             })));
         }
-        if let Some(value) = self.const_objects.get(member_name).cloned() {
+        if let Some(value) = self.consts.object(member_name).cloned() {
             return Ok(Some(self.object_const_expression(
                 &value,
                 member.span.start,
