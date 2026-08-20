@@ -8,6 +8,26 @@ stacks directly on it.
 Target: delete the `classes.rs:271` gate so a type parameter that appears inside
 a callback parameter can still be emitted as a real Rust generic.
 
+### Delivery shape
+
+**Mode:** stacked pull requests. The bottom PR expands and freezes this design;
+the next PR adds the shared, behavior-preserving type-binding analysis. Rust
+signature and callback-adapter rendering deliberately wait for the planned Rust
+AST emitter migration so those changes are implemented once against structured
+Rust syntax rather than first against strings and then against the AST.
+
+The initial stack is therefore:
+
+| # | Boundary | Base | Owns | Release state |
+| --- | --- | --- | --- | --- |
+| 1 | Callback-generics design | `main` | Binding semantics, AST boundary, staging, and validation contract | Documentation only |
+| 2 | Shared generic type bindings | PR 1 branch | Pure MIR analysis, argument alignment, binding-state tests, and behavior-preserving predicate adoption | Buildable; emitted Rust byte-identical |
+
+After the Rust AST migration lands, new behavior-changing PRs implement
+composite generic returns, directly pinned callback generics, the borrowed
+`F: Fn(..) + ?Sized` representation, and finally callback-only inference. Owned
+callbacks and per-type-parameter generic emission remain separate plans.
+
 ---
 
 ## 1. Why the restriction exists
@@ -217,7 +237,7 @@ Rationale:
   same seven escape reasons — and it is what a hand-writing Rust team would
   produce (AGENTS.md "Project scope"): `T: Trait` in preference to `dyn Trait`,
   with monomorphized dispatch. Its extra inference power (`Fn` bound rather than
-  unsize coercion) is exactly what Increment 2's callback-only-`T` case needs.
+  unsize coercion) is exactly what Increment 3's callback-only-`T` case needs.
 * Option A is rejected as the default: it buys nothing over B in erasure or
   inference, and it costs a rewrite of the owned/borrowed fixpoint plus a
   permanent second representation for optional callbacks. Keep it in reserve for
@@ -239,8 +259,8 @@ duplicate them:
 | --- | --- | --- |
 | `function_value_return_type_text(function, scoped_type_params)` | `emitter/types.rs:644` | **Already parameterised by scope** — pass the callee's own type params through it. No signature change needed. This is the single canonical renderer for a callback's return, so `may_throw ⇒ Result<T, Box<dyn Error>>` composes with `T` for free, giving the exact signature the brief predicts at `estk-throwing-callbacks.md:170`. |
 | `param_type_text` | `emitter/types.rs:671` | Increment 1's one-line change lives here: `&HashSet::new()` (`types.rs:678`) ⇒ `&self.current_function_type_params()`. This *completes* their fix rather than fighting it: today the params and the return of the same callback type are rendered in different scopes. |
-| `callee_uses_erased_call_method` / `callee_is_borrowed_function_handle` | `emitter/core.rs:2005`, `core.rs:2023` | Increment 3 turns this pair into a three-valued `CallbackHandleKind { ErasedCall, BorrowedDyn, MonomorphizedGeneric }`. `MonomorphizedGeneric` answers the same question ("direct call syntax") as `BorrowedDyn`, so Increment 1 and 2 need **no** change here; only the Option-B swap does, and then only to keep the enum honest. |
-| `borrowed_function_handle_text` | `emitter/core.rs:2369` | Their fix makes it build a `SmeltErasedFunction` for erased-rest targets. Increment 1 additionally renders its `arg{index}` declarations under the call-site binding substitution (§4.1) instead of `type_text_with_impl_trait`. |
+| `callee_uses_erased_call_method` / `callee_is_borrowed_function_handle` | `emitter/core.rs:2005`, `core.rs:2023` | Increment 2 turns this pair into a three-valued `CallbackHandleKind { ErasedCall, BorrowedDyn, MonomorphizedGeneric }`. `MonomorphizedGeneric` answers the same question ("direct call syntax") as `BorrowedDyn`, so Increment 1 needs **no** change here; only the Option-B swap does, and then only to keep the enum honest. |
+| `borrowed_function_handle_text` | `emitter/core.rs:2369` | Their fix makes it build a `SmeltErasedFunction` for erased-rest targets. Increment 1 additionally renders its `arg{index}` declarations under the call-site binding substitution (§4.2) instead of `type_text_with_impl_trait`. |
 | the panicking-adapter `?` propagation | inside `function_shape_adapter_text`, `core.rs:2901+` | Same function this plan edits (`arg_decls`, `core.rs:2946-2956`). **Sequencing requirement: land theirs first.** Two agents editing `function_shape_adapter_text` concurrently is the one real merge hazard here. |
 | `bound_to_erased_handle` ownership reason | `emitter/mod.rs:530-570` | Untouched by Increments 1-3. Increment 4 would add a sibling arm for generic callback sinks. |
 
@@ -252,21 +272,68 @@ Everything below reduces to a single missing capability: **at a call site, know
 what the callee's type parameters were instantiated to, and render the callee's
 parameter types under that substitution.**
 
-### 4.1 `callee_type_param_bindings` + `target_type_text_under_bindings`
+### 4.1 Shared `generic_bindings` analysis
 
-New, in `emitter/call.rs` next to the existing partial solutions:
+The binding engine is semantic analysis, not rendering. Put it in a new focused
+module, `crates/smelt-codegen-rust/src/generic_bindings.rs`, so the crate-wide
+generic-safety decision in `classes.rs` and call emission in `emitter/call.rs`
+cannot grow subtly different unifiers.
 
+```rust
+pub(crate) enum TypeParamBinding {
+    Unbound,
+    Concrete(TypeId),
+    Erased,
+    Conflict { first: TypeId, second: TypeId },
+    Unsupported(BindingUnsupportedReason),
+}
+
+pub(crate) struct CalleeTypeParamBindings {
+    pub(crate) by_param: IndexMap<Symbol, TypeParamBinding>,
+}
+
+pub(crate) fn collect_bindings(
+    mir: &Mir,
+    callee: &MirFunction,
+    caller: &MirFunction,
+    args: &[Operand],
+) -> CalleeTypeParamBindings;
 ```
-fn callee_type_param_bindings(&self, callee: &MirFunction, args: &[Operand])
-    -> Result<HashMap<Symbol, TypeId>, EmitError>
-```
 
-Structural unification of each argument's MIR type against the corresponding
-callee parameter type, collecting `TypeParam { name } ↦ concrete TypeId`.
-It descends `List`/`Set`/`Optional`/`Future`/`Dict`/`JsMap`/`Tuple`/`Union`/
-`Class{args}`/`Generator` **and `Function{params, return_ty}`** — the last being
-the new part. Conflicting bindings for one name, or a binding to an erased type
-(`operand_type_is_erased`'s type set, `classes.rs:350`), yield "unbound".
+Structural matching is directional: the callee declaration is a pattern and
+the caller argument supplies evidence. Matching collects
+`TypeParam { name } ↦ concrete TypeId` without rendering Rust. The initial
+supported grammar is deliberately conservative:
+
+* bind through bare type parameters, `List`, `Set`, `Optional`, `Future`,
+  `Dict`, `JsMap`, equal-length tuples, matching `Class { class, args }`,
+  generators, and function parameter/return shapes;
+* do not bind through `Union`, `Unknown`, `Never`, mismatched constructors,
+  unresolved projections, or rest/arity transformations whose correspondence
+  is not represented in MIR;
+* do not zip union members by position: unions erase in emitted Rust and member
+  order is not a sound correspondence;
+* obtain the concrete `TypeId` of literal constants when they bind a bare type
+  parameter. The existing boolean "constant is not erased" answer is
+  insufficient because rendering needs to know *which* concrete type it bound.
+
+Binding combination has explicit, testable semantics:
+
+* `Unbound + X = X`;
+* the same concrete type observed twice remains `Concrete`;
+* distinct concrete observations become `Conflict`;
+* an unsupported occurrence fails closed for that occurrence;
+* erased callback evidence does not poison a type parameter already pinned by
+  a direct concrete value argument (the Increment 1 `takeWhile` case);
+* a parameter whose only evidence is erased or unsupported is not eligible for
+  callback-only inference;
+* every type parameter required by the selected generic signature must be
+  concrete at every call site, otherwise that function is demoted.
+
+Optional and missing arguments contribute no evidence. Argument alignment must
+explicitly account for required arity, omitted/default arguments, rest
+parameters, overload-selected MIR functions, and callback arity adaptation;
+unsupported alignments fail closed rather than guessing.
 
 This **subsumes** three existing partial mechanisms, which should be refactored
 onto it rather than left beside it:
@@ -279,16 +346,26 @@ onto it rather than left beside it:
   return conversion can be computed for `List<T>` too, which is §1.4's blocker;
 * `mut_list_adapter_arg`'s `callee_generics` set (`call.rs:1396-1405`).
 
-Then:
+### 4.2 Substitution-aware Rust type lowering
 
-```
-fn target_type_text_under_bindings(&self, ty: TypeId, bindings: &HashMap<Symbol, TypeId>)
-    -> Result<String, EmitError>
+Do not add a second string renderer before the Rust AST migration. The AST
+emitter must instead expose one substitution-aware type lowering entry point:
+
+```rust
+fn rust_type(
+    &self,
+    ty: TypeId,
+    substitution: &TypeSubstitution<'_>,
+) -> Result<RustType, EmitError>;
 ```
 
-renders a callee-side type in the caller's output by substituting bound type
-parameters for their concrete `TypeId`s and rendering the rest in the caller's
-scope. Callers of this new helper, replacing `type_text_with_impl_trait(param, false)`:
+`TypeSubstitution` combines the Rust type parameters already in lexical scope
+with the concrete callee bindings collected at the call site. An unresolved
+callee type parameter reaching this function is an invariant violation; it must
+not silently render as `SmeltUnknown`.
+
+The following consumers must all use this one entry point rather than
+independently interpreting bindings:
 
 * `function_shape_adapter_text` `arg_decls` — `emitter/core.rs:2946-2956`
 * `rendered_function_shape_adapter_text` `params` — `emitter/core.rs:2439`
@@ -300,7 +377,7 @@ All four are reached from the argument-rendering ladder in
 `emitted_params` and the callee `MirFunction` in hand, so threading the bindings
 through is mechanical.
 
-### 4.2 The gate rewrite
+### 4.3 The gate rewrite
 
 `function_emits_rust_generics` (`classes.rs:244`) becomes:
 
@@ -308,7 +385,7 @@ through is mechanical.
 let signature_safe = function.type_params.iter().all(|type_param| {
     let name = type_param.name;
     param_types.iter().any(|&ty| type_param_directly_inferable(mir, ty, name))
-        || type_param_inferable_through_callback(mir, &param_types, name)   // Increment 2
+        || type_param_inferable_through_callback(mir, &param_types, name)   // Increment 3
 });
 signature_safe
     && !called_with_erased_type_param_argument(mir, function)               // widened, Increment 1
@@ -323,11 +400,48 @@ signature_safe
   `type_param_occurs` (`classes.rs:511`) stays as the "anywhere" walk;
 * `called_with_erased_type_param_argument` (`classes.rs:298`) is widened from
   bare-`TypeParam` positions (`classes.rs:304-316`) to *all* positions that bind
-  a type parameter, using the same unification as §4.1 evaluated on MIR alone
-  (this predicate runs in `classes.rs`, which has no emitter). A call site whose
+  a type parameter, using `generic_bindings::collect_bindings`. A call site whose
   unification leaves any of the callee's type parameters unbound, or binds one to
   an erased type, demotes the whole function to erasure — preserving the existing
   E0283 guarantee and extending it to callback positions.
+
+### 4.4 Option-B eligibility
+
+The `F{n}: Fn(..) + ?Sized` representation applies initially only to a direct,
+required, borrowed `Type::Function` parameter. These shapes retain their current
+representation until a later increment gives them an independently tested
+ownership/inference design:
+
+* optional callbacks (`Option<Rc<dyn Fn(..)>>` avoids an unconstrained `F` for
+  `None`);
+* callbacks already classified as owned or escaping;
+* function types nested inside another container;
+* rest callback parameters.
+
+Generated callback-generic names are deterministic by declaration index
+(`F0`, `F1`, ...), skip names that collide with sanitized source type-parameter
+identifiers, and appear after source generics in declaration order.
+
+### 4.5 Required inference matrix
+
+The shared analysis tests and later generated-Rust compile fixtures must cover:
+
+| Callee shape | Call-site evidence | Expected result |
+| --- | --- | --- |
+| `f<T>(xs: List<T>, cb: Fn(T))` | concrete list, erased callback | bind from list; generic in Increment 1 |
+| same | erased list, concrete callback | callback evidence only; defer to Increment 3 |
+| same | arguments imply two different `T`s | `Conflict`; demote |
+| `f<T>(cb: Fn() -> T)` | concrete callback return | generic in Increment 3 |
+| same | erased callable | unbound/erased; demote |
+| `f<T>(cb?: Fn(T))` | callback omitted | demote unless another argument pins `T` |
+| `f<T>(cb: Fn(T \| string))` | any callback | union does not bind; demote unless pinned elsewhere |
+| `f<T>(a: List<T>, b: List<T>)` | `List<f64>`, `List<String>` | `Conflict`; demote |
+| `f<T>(cb: Fn(T) -> T)` | unknown callback input and return | demote unless pinned elsewhere |
+
+Later behavior-changing PRs add generated compile fixtures for Option C with a
+directly pinned `T`, Option B with both a concrete closure and `&dyn Fn`, generic
+callback forwarding, default callbacks, multiple callbacks sharing one `T`, and
+`may_throw` callbacks returning `Result<T, Box<dyn Error>>`.
 
 ---
 
@@ -340,21 +454,43 @@ avoidable-erasure <= 35403 (`blocker-logs/smelt-unknown-baseline-es-toolkit.json
 examples avoidable == 0 (`blocker-logs/smelt-unknown-baseline.json`);
 `cargo clippy --all-targets` and `cargo test` clean.
 
+The Rust AST migration is a hard boundary between analysis and rendering:
+Increment 0 lands before it; the behavior-changing increments below start only
+after it. This avoids implementing the same signature and adapter changes once
+as string concatenation and again as structured Rust syntax.
+
 ### Increment 0 — bindings machinery, zero behaviour change
 
-Land §4.1 (`callee_type_param_bindings`, `target_type_text_under_bindings`) and
-refactor `generic_param_instantiated_by` (`call.rs:1207`),
-`free_function_returns_own_type_param` (`call.rs:1249`) and
-`mut_list_adapter_arg`'s generics set (`call.rs:1396`) onto it. Do **not** delete
-the gate.
+Land the pure `generic_bindings` module from §4.1 and refactor
+`generic_param_instantiated_by` (`call.rs:1207`) and the MIR-only safety scan in
+`classes.rs` onto it where equivalence is exact. Do **not** add substitution-aware
+rendering, widen composite returns, or delete the callback gate. Existing
+boolean predicates whose behavior cannot yet be expressed exactly remain in
+place until the post-AST increment that replaces their consumer.
 
 *Extra validation bar, and the reason this is its own increment:* regenerate both
 compat crates and assert the emitted Rust is **byte-identical** to before
 (`git diff --stat` over `target/compat-repos/*/dist-smelt/src` = 0 files
 changed). A refactor that changes one byte of output has changed semantics.
 
-New unit tests: bindings for `List<T>`/`Dict<K,V>`/`Function{params,ret}` shapes;
-conflicting bindings ⇒ unbound; erased argument ⇒ unbound.
+New unit tests implement the §4.5 matrix, including distinct `Erased`,
+`Conflict`, and `Unsupported` outcomes; concrete evidence pinned outside an
+erased callback; literal binding; optional/missing arguments; and conservative
+union/rest handling.
+
+### Rust AST migration — external prerequisite
+
+The migration must provide the substitution-aware `rust_type` interface from
+§4.2, or an equivalent single canonical entry point. Verify that function
+signatures, callback closure declarations, default callbacks, owned handles,
+adapters, and return conversions all lower types through it before proceeding.
+
+### Increment 0b — composite generic returns, zero callback change
+
+Replace the bare-only `free_function_returns_own_type_param` path with recursive
+return substitution using the shared bindings. Keep the callback gate intact.
+This isolates the `List<T>` return prerequisite from the callback behavior
+change and gives it focused generated compile tests.
 
 ### Increment 1 — `T` in a callback **and** in a direct value parameter
 
@@ -367,7 +503,7 @@ Changes:
 
 * `classes.rs:271` — delete the early return.
 * `emitter/types.rs:678` — `&HashSet::new()` ⇒ `&self.current_function_type_params()`.
-* the four adapter renderers listed in §4.1 — render under bindings.
+* the four adapter renderers listed in §4.2 — render under bindings.
 * widen `called_with_erased_type_param_argument` (`classes.rs:298`) to callback
   positions, per §4.2.
 * widen `free_function_returns_own_type_param` (`call.rs:1249`) to composite
@@ -391,10 +527,22 @@ that keeps `T` opaque): `takeWhile`, `takeRightWhile`, `dropWhile`,
 
 Tests to add in `generics_tests.rs`: the positive
 `takeWhile` shape; a negative proving a callback-only `T` still erases (that is
-Increment 2's job); a negative proving a call site passing an erased callable
+Increment 3's job); a negative proving a call site passing an erased callable
 still demotes the function.
 
-### Increment 2 — `T` reachable only through a callback
+### Increment 2 — representation swap to `F: Fn(..) + ?Sized`
+
+Apply the eligibility rules from §4.4. Direct required borrowed callback
+parameters become `&F{n}` and their bounds use the canonical AST type lowering
+so `may_throw` composes with generic returns. Generalise
+`callee_is_borrowed_function_handle` into the three-valued
+`CallbackHandleKind { ErasedCall, BorrowedDyn, MonomorphizedGeneric }`.
+
+Expected erasure delta: **zero**. That is the validation bar: the avoidable
+count and compatibility test count must be unchanged, proving this is a
+representation change rather than a semantic one.
+
+### Increment 3 — `T` reachable only through a callback
 
 Add `type_param_inferable_through_callback` so `unionBy<T, U>(arr1: T[],
 arr2: T[], mapper: (item: T) => U)` and `attempt<T>(func: () => T)` qualify, with
@@ -403,9 +551,9 @@ closure to carry an explicit **return** annotation at the *source* callback's
 return type so `U` is pinned from the argument side
 (`function_shape_adapter_text`, `core.rs:3204-3216`).
 
-This is the increment that genuinely depends on Option B's `Fn` bound rather than
-a `dyn` coercion, so **either** do Increment 3 first **or** accept that some
-callback-only cases will fail the bindings check and stay erased.
+This increment depends on Increment 2's Option-B `Fn` bound rather than a `dyn`
+coercion. A call site is eligible only when the shared binding analysis reports
+the concrete callback-only type parameter with no conflicts.
 
 Corpus functions: `uniqBy`, `xorBy`, `unionBy`, `differenceBy`,
 `intersectionBy`, `flatMapDeep`, `countBy`-shaped mappers whose key param is
@@ -416,19 +564,6 @@ unrelated reason. Its return type is the union `[null, T] | [E, null]`, so the
 body builds `SmeltUnknown::Array(vec![SmeltUnknown::Null, T])` and the
 body-cleanliness trial (`core.rs:4384`) rejects it. `attempt` is the motivating
 example in the brief but is *not* a winner here; the array/`*By` families are.
-
-### Increment 3 — representation swap to `F: Fn(..) + ?Sized`
-
-`param_type_text` (`types.rs:671`) emits `&{F_name}`;
-`function_impl_generics_text` (`classes.rs:572`) emits the extra
-`F{n}: Fn({params}) -> {return} + ?Sized` bounds, with `{return}` produced by
-`function_value_return_type_text` (`types.rs:644`) so `may_throw` composes.
-Generalise `callee_is_borrowed_function_handle` (`core.rs:2023`) into the
-three-valued `CallbackHandleKind`.
-
-Expected erasure delta: **zero**. That is the validation bar — the avoidable
-count must be *unchanged* from Increment 2, proving this is a representation
-change and not a semantic one. Test count must be unchanged too.
 
 ### Increment 4 — owned callback parameters (optional, Option A territory)
 
@@ -452,6 +587,14 @@ param type `Unknown`, so it renders `|closure_arg_0: SmeltUnknown|` and the
 call site needs a converting adapter even after this plan lands. Fixing that in
 the frontend would delete the adapter entirely, roughly doubling the measured
 win. Worth a separate blocker log.
+
+### Performance evidence after the representation swap
+
+Record clean and no-change incremental generated-crate `cargo check` wall time,
+peak RSS, and test artifact size before Increment 2 and at the top of the stack.
+Do not introduce an instantiation-count-based fallback unless those measurements
+show a material regression; corpus-dependent signature selection would itself
+increase complexity and reduce output predictability.
 
 ---
 
@@ -489,7 +632,7 @@ pub(crate) fn take_while_145<T: Clone + Default + IntoSmeltUnknown + SmeltFromUn
     item = arr.get({ .. }).cloned().unwrap_or(Default::default()).clone();
 ```
 
-After Increment 3 (Option B):
+After Increment 2 (Option B):
 
 ```rust
 pub(crate) fn take_while_145<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T, f64, SmeltList<T>) -> bool + ?Sized>(arr: SmeltList<T>, should_continue_taking: &F0) -> SmeltList<T>
@@ -523,7 +666,7 @@ Before:
 pub(crate) fn sum_by_674(items: SmeltList<SmeltUnknown>, get_value: &dyn Fn(SmeltUnknown, f64) -> f64) -> f64
 ```
 
-After (Increment 3):
+After (Increment 2):
 
 ```rust
 pub(crate) fn sum_by_674<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T, f64) -> f64 + ?Sized>(items: SmeltList<T>, get_value: &F0) -> f64
@@ -561,7 +704,7 @@ pub(crate) fn uniq_with_151(arr: SmeltList<SmeltUnknown>, are_items_equal: &dyn 
     let mut _smelt_tmp_9: ::std::rc::Rc<dyn Fn(SmeltUnknown, i64, SmeltList<SmeltUnknown>) -> bool> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, i64, SmeltList<SmeltUnknown>) -> bool> = ::std::rc::Rc::new(move |arg0: SmeltUnknown, arg1: i64, arg2: SmeltList<SmeltUnknown>| -> bool { false }); smelt_default_callback };
 ```
 
-After (Increment 3):
+After (Increment 2):
 
 ```rust
 pub(crate) fn uniq_with_151<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T, T) -> bool + ?Sized>(arr: SmeltList<T>, are_items_equal: &F0) -> SmeltList<T> {
@@ -572,23 +715,23 @@ pub(crate) fn uniq_with_151<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnk
 Note the default callback is emitted *inside* the generic function, so it renders
 in the callee's own scope and no E0631 arises. The E0631 risk is only at
 *call-site* defaults (`borrowed_default_function_text`, `core.rs:2338`), which
-§4.1 fixes by rendering under bindings.
+§4.2 fixes by rendering under bindings.
 
 ### 6.4 Ratchet estimate
 
 * Increment 1 alone: the ~21 lifted functions plus their call sites. Estimate
   **1,500-2,500** avoidable tokens removed, i.e. 35,403 ⇒ roughly
   **32,900-33,900**.
-* Increments 1+2 together: the full clean set (41 definitions, 488 tokens;
+* Increments 1+3 together: the full clean set (41 definitions, 488 tokens;
   321 call-site lines, 4,089 tokens), less the fraction that reclassifies to
   legitimate-boundary rather than vanishing. Estimate **2,500-4,000** removed,
   i.e. 35,403 ⇒ roughly **31,400-32,900**.
-* Increment 3: **0** by construction.
+* Increment 2: **0** by construction.
 * Fixing the frontend contextual-typing gap (§5) on top would remove most of the
   remaining adapter boilerplate — plausibly another 1,000-2,000.
 
 **Increment 1 is the one that moves the ratchet most per unit of risk**;
-Increment 2 adds roughly half again for materially more inference risk.
+Increment 3 adds roughly half again for materially more inference risk.
 
 remeda's generated crate has the same shape (85 `dyn Fn`-taking definitions, 50
 borrowed) but no ratchet, so it is a compile-and-test bar only.
@@ -623,11 +766,11 @@ Abandon-vs-push decisions, stated in advance.
    turbofish or `let _: T =` annotations. It means the bindings unification
    (§4.1) reported a binding the compiler cannot reproduce; tighten the
    unification to report "unbound" for that shape and let the function demote.
-6. **Increment 3 changes the erasure count in either direction.** Kill and
+6. **Increment 2 changes the erasure count in either direction.** Kill and
    investigate: a representation swap that changes erasure means `param_type_text`
-   and one of the four adapter renderers still disagree, i.e. the §4.1
+   and one of the four adapter renderers still disagree, i.e. the §4.2
    substitution is incomplete.
-7. **Monomorphization blowup.** After Increment 3, if the generated crate's build
+7. **Monomorphization blowup.** After Increment 2, if the generated crate's build
    time or binary size rises disproportionately (watch the compat CI wall clock),
    fall back to Option C for callbacks with more than one distinct instantiation
    — but only as a *general* rule keyed on instantiation count, never on names.
