@@ -87,12 +87,19 @@ impl FunctionEmitter<'_> {
                 // object), so erase the borrowed value at this genuinely dynamic
                 // boundary and inspect it, mirroring the non-optional case below.
                 format!(
-                    "{receiver_text}.as_ref().map_or(0, |value| match value.clone().into_smelt_unknown() {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(&value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => 0 }}, _ => 0 }})"
+                    "{receiver_text}.as_ref().map_or(0, |value| match value.clone().into_smelt_unknown() {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(&value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(&SmeltUnknown::Object(value)) as usize }}, value @ SmeltUnknown::Function(_) => {function_length}(&value) as usize, _ => 0 }})",
+                    function_length = smelt_stdlib::runtime_symbols::function_length::READ,
                 )
             }
+            // A callable's `.length` is its declared arity, which the erasure
+            // boundary parks in the function-length registry (an `Rc<dyn Fn>` has
+            // nowhere to carry it). Without the `Function` arm an erased callable
+            // answered `0`, and es-toolkit `rest(func)` — whose default split point
+            // is `func.length - 1` — computed `-1` and reshaped every call wrongly.
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 format!(
-                    "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => 0 }}, _ => 0 }}"
+                    "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(&{receiver_text}) as usize }}, SmeltUnknown::Function(_) => {function_length}(&{receiver_text}) as usize, _ => 0 }}",
+                    function_length = smelt_stdlib::runtime_symbols::function_length::READ,
                 )
             }
             // A fixed-arity tuple (e.g. a `[key, value]` narrowing) has no Rust
@@ -133,11 +140,17 @@ impl FunctionEmitter<'_> {
                 format!("{operand_text} as f64")
             });
         }
+        // `floor`/`ceil`/`trunc` mean the same thing in both languages and map to
+        // their `f64` methods. `Math.round` does not: JavaScript rounds a tie toward
+        // +∞ while Rust's `f64::round` rounds a tie away from zero, so
+        // `Math.round(-1.5)` is `-1` in JavaScript and `-2.0` in Rust. That one goes
+        // through the runtime helper, which carries the JavaScript rule (and the
+        // large-magnitude and `-0` edges with it).
         let method_name = match op {
-            smelt_hir::NumericRoundOp::Floor => "floor",
-            smelt_hir::NumericRoundOp::Ceil => "ceil",
-            smelt_hir::NumericRoundOp::Round => "round",
-            smelt_hir::NumericRoundOp::Trunc => "trunc",
+            smelt_hir::NumericRoundOp::Floor => Some("floor"),
+            smelt_hir::NumericRoundOp::Ceil => Some("ceil"),
+            smelt_hir::NumericRoundOp::Round => None,
+            smelt_hir::NumericRoundOp::Trunc => Some("trunc"),
         };
         let operand_text = if matches!(self.mir.types.get(operand_ty), Some(Type::Float)) {
             self.operand_text(operand)?
@@ -150,7 +163,13 @@ impl FunctionEmitter<'_> {
         } else {
             return Err(EmitError::new("numeric round operand must be numeric"));
         };
-        let text = format!("{operand_text}.{method_name}()");
+        let text = match method_name {
+            Some(method_name) => format!("{operand_text}.{method_name}()"),
+            None => format!(
+                "{helper}({operand_text})",
+                helper = smelt_stdlib::runtime_symbols::math::ROUND,
+            ),
+        };
         if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
             Ok(format!("{text} as i64"))
         } else {

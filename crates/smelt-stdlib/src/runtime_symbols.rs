@@ -134,6 +134,24 @@ pub mod host {
     /// (`Rvalue::ArgumentsObject`).
     pub const ARGUMENTS_OBJECT: &str = "smelt_arguments_object";
 
+    /// Extracts an `arguments` object's elements as a plain element vector, or
+    /// `None` when the value carries no [`ARGUMENTS_MARKER`].
+    ///
+    /// A JavaScript `arguments` object is iterable — its `Symbol.iterator` is
+    /// `Array.prototype.values` — so `Array.from(arguments)`, `[...arguments]`
+    /// and `for (const a of arguments)` all walk its elements. Smelt models it as
+    /// an array-like marker record with index keys and a hidden `length`, which
+    /// carries no `__smelt_symbol_iterator` slot, so the erased iterable-to-list
+    /// coercion used to reject it outright. This helper is what makes the marker
+    /// record iterable, reading `length` and the index keys rather than the
+    /// record's raw key order.
+    ///
+    /// Deliberately keyed on the marker rather than on "has a `length`": a bare
+    /// array-like object is accepted by `Array.from` but is NOT iterable, and one
+    /// emitter serves both spellings, so widening this to any `length`-bearing
+    /// record would make `[...{ length: 0 }]` succeed where JavaScript throws.
+    pub const ARGUMENTS_ELEMENTS: &str = "smelt_arguments_elements";
+
     /// The identity marker stamped onto an `arguments` object.
     ///
     /// Unlike the [`crate::host_object::HOST_OBJECTS`] markers — which hide a
@@ -253,4 +271,49 @@ pub mod host_override {
     /// reading a `Native` slot. Its presence classifies a written-back value as
     /// a restore-to-`Native`.
     pub const NATIVE_CTOR_MARKER: &str = "__smelt_native_ctor";
+}
+
+/// `Function.prototype.length` across the erasure boundary.
+///
+/// A typed callable knows its own arity, and `SmeltErasedFunction` carries it in a
+/// `length` field. Erasing that value to `SmeltUnknown::Function(Rc<…>)` throws the
+/// field away — an `Rc<dyn Fn>` has nowhere to put it — so a `.length` read on an
+/// erased callable answered `0`. Real code branches on it: es-toolkit `rest(func)`
+/// defaults its split point to `func.length - 1`, and `ary(func)` to `func.length`.
+///
+/// The arity is therefore recorded in a thread-local registry keyed by the erased
+/// callable's allocation address, in the same shape as the sibling
+/// `SMELT_FUNCTION_IDENTITIES` / `SMELT_FUNCTION_ORIGINS` registries, and read back
+/// through the canonical identity so a chain of erasure wrappers resolves to the
+/// arity of the function the chain started from.
+pub mod function_length {
+    /// Records an erased callable's source arity at the erasure site.
+    pub const REGISTER: &str = "smelt_register_function_length";
+
+    /// Reads an erased value's `Function.prototype.length`, or `0` for a
+    /// non-callable — which is also what JavaScript answers for a value with no
+    /// `length` property.
+    pub const READ: &str = "smelt_function_length";
+}
+
+/// JavaScript numeric-semantics runtime helpers.
+///
+/// Rust's `f64` inherent methods and JavaScript's `Math` functions agree almost
+/// everywhere, so the emitter maps most of them straight through. These are the
+/// ones where the two languages genuinely disagree and a helper has to carry the
+/// JavaScript rule.
+pub mod math {
+    /// JavaScript `Math.round`: ties round toward **+∞**, not away from zero.
+    ///
+    /// `Math.round(-1.5)` is `-1` in JavaScript; Rust's `f64::round` answers
+    /// `-2.0`, because it rounds half away from zero. The two differ for every
+    /// negative value whose fractional part is exactly `0.5`, which is what made
+    /// es-toolkit's `round` specs disagree.
+    ///
+    /// Computed as `floor(x)` plus one when the fraction reaches `0.5`, rather
+    /// than as `floor(x + 0.5)`: the ECMA-262 note on `Math.round` calls out that
+    /// the naive form is wrong for very large `x`, where adding `0.5` is not
+    /// representable. `floor` is exact at those magnitudes and the fraction is
+    /// then `0`, so the value passes through unchanged.
+    pub const ROUND: &str = "smelt_math_round";
 }

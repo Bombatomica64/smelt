@@ -2434,7 +2434,21 @@ impl<'mir> FunctionEmitter<'mir> {
         // An erased-rest source is a `SmeltErasedFunction` value, which is not a
         // Rust `Fn` and cannot be invoked with call syntax. Route it through the
         // erased callable ABI (`.call(..)`) instead of `(callback)(..)`.
-        let call = if self.is_erased_unknown_rest_function(source_function) {
+        let source_uses_erased_abi = self.is_erased_unknown_rest_function(source_function);
+        // `SmeltErasedFunction::call` answers `SmeltUnknown` whatever the source's
+        // DECLARED return type is — `is_erased_unknown_rest_function` keys only on
+        // the parameter shape — so the call's value is already erased and its
+        // declared type must not be applied to it a second time. A rest-only
+        // function with a concrete return (`function f(...): unknown[]`, which is
+        // what an `arguments`-reading function becomes) otherwise produced
+        // `SmeltUnknown::Array(<already SmeltUnknown>.into())`, an E0277 in the
+        // generated crate.
+        let call_return_ty = if source_uses_erased_abi {
+            self.type_id(Type::Unknown)?
+        } else {
+            source_function.return_ty
+        };
+        let call = if source_uses_erased_abi {
             if self.is_erased_unknown_rest_function(target_function) {
                 // The target is itself an erased-rest callable: its single
                 // argument already *is* the packed argument list, so forward it
@@ -2468,7 +2482,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             call
         };
-        let converted = if self.mir.types.get(source_function.return_ty) == Some(&Type::None)
+        let converted = if self.mir.types.get(call_return_ty) == Some(&Type::None)
             && matches!(
                 self.mir.types.get(target_function.return_ty),
                 Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -2480,11 +2494,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // treat the result as "no value".
             format!("{{ {call_value}; SmeltUnknown::Undefined }}")
         } else {
-            self.value_at_type_text(
-                &call_value,
-                source_function.return_ty,
-                target_function.return_ty,
-            )?
+            self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty)?
         };
         let returned = if target_function.may_throw && !source_function.may_throw {
             format!("Ok::<_, Box<dyn std::error::Error>>({converted})")
@@ -2668,8 +2678,23 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             call
         };
+        // `SmeltErasedFunction::call` answers `SmeltUnknown` whatever the source's
+        // DECLARED return type is — `is_erased_unknown_rest_function` keys only on
+        // the parameter shape — so the call's value is already erased and its
+        // declared type must not be applied to it a second time. A rest-only
+        // function with a concrete return (`function f(...): unknown[]`, which is
+        // what an `arguments`-reading function becomes) otherwise produced
+        // `SmeltUnknown::Array(<already SmeltUnknown>.into())`, an E0277 in the
+        // generated crate. Mirrors the same correction in
+        // `rest_vector_unknown_adapter_text` and
+        // `erased_rest_forwarding_closure_text`.
+        let call_return_ty = if source_is_erased {
+            self.type_id(Type::Unknown)?
+        } else {
+            source.return_ty
+        };
         let converted_return_text =
-            self.value_at_type_text(&call_value, source.return_ty, target_function.return_ty)?;
+            self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty)?;
         let default_adjusted_return_text = if converted_return_text == "Default::default()"
             && matches!(
                 self.mir.types.get(target_function.return_ty),
@@ -3213,8 +3238,14 @@ impl<'mir> FunctionEmitter<'mir> {
         let wrapper_text = self.closure_text_for_type(closure_id, source_ty)?;
         // Erased forwarding closure using `smelt_callback` as the bound source.
         let inner = self.erased_rest_forwarding_closure_text(source_ty)?;
-        let body =
-            format!("SmeltUnknown::Function({{ let smelt_callback = {wrapper_text}; {inner} }})");
+        // Register the source arity on the cached callable: an `Rc<dyn Fn>` cannot
+        // carry `Function.prototype.length`, and this accessor is the only place a
+        // function *item*'s erased value is built.
+        let body = format!(
+            "SmeltUnknown::Function({{ let smelt_callback = {wrapper_text}; let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; {register}(&smelt_erased_fn, {length}.0); smelt_erased_fn }})",
+            register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
+            length = self.operand_function_length(operand)?,
+        );
         Ok(Some((key, body)))
     }
 
@@ -3248,6 +3279,18 @@ impl<'mir> FunctionEmitter<'mir> {
             format!("smelt_callback.call({args})")
         } else {
             format!("(smelt_callback)({args})")
+        };
+        // `SmeltErasedFunction::call` answers `SmeltUnknown` whatever the source's
+        // DECLARED return type is, so the value is already erased and must not be
+        // erased again. Mirrors the same correction in
+        // `rest_vector_unknown_adapter_text`.
+        let source = &FunctionType {
+            return_ty: if source_is_erased {
+                self.type_id(Type::Unknown)?
+            } else {
+                source.return_ty
+            },
+            ..source.clone()
         };
         let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
             // A `void`-returning callback erased to a callable value returns
@@ -3304,7 +3347,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 // forwards to so JavaScript `===` can see through the wrapper
                 // (`smelt_same_erased_function`). Two erasures of one closure
                 // build two adapters; without this they compare unequal.
-                "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_erased_fn }}"
+                // Register the source arity alongside the identity link: an
+                // `Rc<dyn Fn>` cannot carry `Function.prototype.length`, so this is
+                // the last point that knows both the arity and the allocation it
+                // belongs to. es-toolkit `rest(func)` reads `func.length` off
+                // exactly this adapter.
+                "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); {register}(&smelt_erased_fn, {length}.0); smelt_erased_fn }}",
+                register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
+                length = self.operand_function_length(operand)?,
             )));
         }
         // Non-owned (function-parameter) path: invoke the callback by its operand

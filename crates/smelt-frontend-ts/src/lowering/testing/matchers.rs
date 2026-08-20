@@ -2406,6 +2406,12 @@ impl ModuleBuilder<'_> {
             {
                 continue;
             }
+            // `const { placeholder } = partial;` destructures a static property off
+            // a FUNCTION, which the ordinary record-destructuring path cannot type.
+            // See `lowering::function_statics`.
+            if self.destructure_function_statics(declarator, body, block)? {
+                continue;
+            }
             // `const { A: B } = await import('./mod')` re-imports statically
             // known module members (a vitest module-reset idiom). Compiled Rust
             // has no module registry to reset, so the fresh namespace is the
@@ -2849,7 +2855,43 @@ impl ModuleBuilder<'_> {
             let mut param_names = HashSet::new();
             let mut saved_locals = Vec::new();
 
-            for (index, param) in function.params.items.iter().enumerate() {
+            // A nested `function` that reads its own `arguments` is variadic: the
+            // object is the ACTUAL argument list, which a declared-arity signature
+            // cannot carry (see `lowering::arguments_forwarding`). Replace the
+            // parameter list with one rest list and re-bind each declared name from
+            // it. es-toolkit's `rest`/`ary`/`unary` spec helpers are this shape.
+            let arguments_forwarding = self.arguments_forwarding_params(function, &mut closure_body)?;
+            // `Function.prototype.length` is the SOURCE arity — `fn(a, b, c).length`
+            // is `3` — and es-toolkit `rest(func)` reads it to choose its default
+            // `start` (`func.length - 1`). The variadic rewrite replaces the
+            // parameter list with one rest list, so the source arity is no longer
+            // recoverable from the signature and has to be recorded here.
+            // `required_params` is the field `length` is derived from, and it still
+            // describes the source contract (the parameters before the first
+            // optional one) even though the internal ABI is now a single list.
+            let source_required_params = arguments_forwarding.as_ref().map(|_| {
+                function
+                    .params
+                    .items
+                    .iter()
+                    .position(|param| param.optional || Self::formal_parameter_has_default(param))
+                    .unwrap_or(function.params.items.len())
+            });
+            if let Some(forwarding) = &arguments_forwarding {
+                closure_params.extend(forwarding.params.iter().cloned());
+                param_tys.extend(forwarding.param_tys.iter().copied());
+                for (name, local) in forwarding.binding_pairs() {
+                    param_names.insert(name.clone());
+                    saved_locals.push((name.clone(), self.scope.bind(name, local)));
+                }
+            }
+            for (index, param) in function
+                .params
+                .items
+                .iter()
+                .enumerate()
+                .take(if arguments_forwarding.is_some() { 0 } else { usize::MAX })
+            {
                 let ty = self.function_parameter_type(param)?;
                 let (symbol, param_span, source_name) = match &param.pattern {
                     BindingPattern::BindingIdentifier(binding) => (
@@ -2892,7 +2934,9 @@ impl ModuleBuilder<'_> {
             // `function name(...args) { ... }` is a real local closure (e.g. the
             // curry/curryRight `makeCurry` family), so it must carry rest the same
             // way every other closure form does instead of aborting.
-            let rest_index = if let Some(rest_param) = &function.params.rest {
+            let rest_index = if let Some(forwarding) = &arguments_forwarding {
+                Some(forwarding.rest_index)
+            } else if let Some(rest_param) = &function.params.rest {
                 let BindingPattern::BindingIdentifier(binding) = &rest_param.rest.argument else {
                     return Err(SmeltError::unsupported(
                         self.span(rest_param.span.start, rest_param.span.end),
@@ -3016,8 +3060,15 @@ impl ModuleBuilder<'_> {
                 .generator
                 .then(|| self.initialize_generator_yield_accumulator(function, &mut closure_body));
             self.current_generator_yields = generator_yields;
-            self.current_arguments_arities
-                .push(function.params.items.len());
+            // With the variadic rewrite the whole argument list is the single rest
+            // parameter, so the FIXED arity is zero — that is what tells
+            // `arguments_object_expression` to read the list rather than the
+            // declared parameters.
+            self.current_arguments_arities.push(if arguments_forwarding.is_some() {
+                0
+            } else {
+                function.params.items.len()
+            });
             let mut lowering_result = Ok(());
             for statement in &function_body.statements {
                 if let Err(error) = self.statement(statement, &mut closure_body) {
@@ -3058,7 +3109,7 @@ impl ModuleBuilder<'_> {
             let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys,
                 rest: rest_index,
-                required_params: None,
+                required_params: source_required_params,
                 mutable_params: Vec::new(),
                 return_ty,
                 is_async: function.r#async,
@@ -3091,7 +3142,7 @@ impl ModuleBuilder<'_> {
                 kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                     params: closure_params,
                     rest: rest_index,
-                    required_params: None,
+                    required_params: source_required_params,
                     return_ty,
                     captures,
                     body: body_id,

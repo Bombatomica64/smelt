@@ -357,6 +357,14 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.global_alias_member_read(member, body)? {
             return Ok(expr);
         }
+        // A static property hung off a function declaration
+        // (`partial.placeholder`). Checked before the receiver is lowered: the
+        // receiver here is a *function*, which no property-read path can type, so
+        // without this the read fell through to `undefined`. See
+        // `lowering::function_statics`.
+        if let Some(expr) = self.function_static_property_read(member, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.enum_member_read(member, body) {
             return Ok(expr);
         }

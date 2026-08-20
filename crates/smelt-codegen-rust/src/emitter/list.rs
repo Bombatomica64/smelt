@@ -9,11 +9,9 @@ impl FunctionEmitter<'_> {
         list: &Operand,
         item: &Operand,
     ) -> Result<String, EmitError> {
-        let list_ty = self.operand_ty(list)?;
-        let Some(Type::List(list_item_ty)) = self.mir.types.get(list_ty) else {
+        let Some((list_text, item_ty)) = self.list_receiver_surface(list)? else {
             return Ok("false".to_owned());
         };
-        let item_ty = *list_item_ty;
         let needle_ty = self.operand_ty(item)?;
         if needle_ty != item_ty {
             // A `T | undefined` needle (e.g. `array.includes(sample(array))`)
@@ -36,7 +34,6 @@ impl FunctionEmitter<'_> {
                 } else {
                     return Ok("false".to_owned());
                 };
-                let list_text = self.operand_text(list)?;
                 let item_text = self.operand_text(item)?;
                 return Ok(format!(
                     "{{ match {item_text} {{ Some(smelt_needle) => {list_text}.iter().any(|item| {compare}), None => false }} }}"
@@ -44,7 +41,6 @@ impl FunctionEmitter<'_> {
             }
             return Ok("false".to_owned());
         }
-        let list_text = self.operand_text(list)?;
         let item_text = self.operand_text(item)?;
         if self.list_item_uses_same_value_zero(item_ty) {
             if self.mir.types.get(item_ty) == Some(&Type::Float) {
@@ -59,7 +55,67 @@ impl FunctionEmitter<'_> {
         Ok(format!("{list_text}.contains(&{item_text})"))
     }
 
-    /// Per-element comparison predicate against a bound `smelt_needle` value.
+    /// Resolve a containment receiver to `Vec`-backed Rust text plus its element
+    /// type, or `None` when the operand has no single list surface.
+    ///
+    /// A receiver declared as a union or an *optional* union
+    /// (`chars?: string | string[]`, interned
+    /// `Optional(Union([String, List(String)]))`) does have one list surface once
+    /// the source has narrowed it — `switch (typeof chars) { case 'object': … }` —
+    /// and the frontend only emits `Rvalue::ListContains` after proving that
+    /// narrowing. MIR reads the value through its *declaring* local, though, so the
+    /// operand type here is still the wide one. Matching `Type::List` alone
+    /// therefore answered a constant `false`, which is what made es-toolkit's
+    /// `trim`/`trimStart`/`trimEnd` array-`chars` loops never remove a character —
+    /// ten specs, all silently wrong rather than failing.
+    ///
+    /// The projection is safe precisely because the frontend established the
+    /// narrowing: `project_union_value_text` emits an `unreachable!` guard on the
+    /// other arms, so a receiver that somehow held a different member would abort
+    /// rather than answer a wrong `false`. A union with more than one list member is
+    /// ambiguous and still yields `None`.
+    fn list_receiver_surface(
+        &self,
+        list: &Operand,
+    ) -> Result<Option<(String, TypeId)>, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        if let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) {
+            return Ok(Some((self.operand_text(list)?, *item_ty)));
+        }
+        // An optional receiver is unwrapped first: the narrowing that selected the
+        // list arm also proved the value present, and the `expect` message matches
+        // the one the optional-narrowing paths already emit.
+        let (text, inner_ty) = match self.mir.types.get(list_ty) {
+            Some(Type::Optional(inner)) => (
+                format!(
+                    "{}.expect(\"optional value was absent after narrowing\")",
+                    self.operand_text(list)?
+                ),
+                *inner,
+            ),
+            _ => (self.operand_text(list)?, list_ty),
+        };
+        let Some(members) = self.concrete_union_members(inner_ty) else {
+            return Ok(None);
+        };
+        let mut surface = None;
+        for member in members {
+            if let Some(Type::List(item_ty)) = self.mir.types.get(*member) {
+                if surface.replace((*member, *item_ty)).is_some() {
+                    return Ok(None);
+                }
+            }
+        }
+        let Some((member_ty, item_ty)) = surface else {
+            return Ok(None);
+        };
+        let Some(projected) = self.project_union_value_text(&text, inner_ty, member_ty)? else {
+            return Ok(None);
+        };
+        Ok(Some((format!("({projected})"), item_ty)))
+    }
+
+    /// Per-element comparison predicate against a bound `smelt_needle` value.    /// Per-element comparison predicate against a bound `smelt_needle` value.
     ///
     /// Mirrors the direct-needle containment comparison so an optional-needle
     /// containment check (`list.includes(sample(list))`) reuses the same

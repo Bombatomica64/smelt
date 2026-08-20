@@ -130,7 +130,44 @@ impl ModuleBuilder<'_> {
 
         let mut destructured_params = Vec::new();
         let mut defaulted_params = Vec::new();
-        for (index, param) in function.params.items.iter().enumerate() {
+        // A `function` that reads its own `arguments` is variadic: the object is the
+        // ACTUAL argument list, which a declared-arity signature cannot carry (see
+        // `lowering::arguments_forwarding`). Replace the parameter list with one rest
+        // list and re-bind each declared name from it. Every other function keeps its
+        // declared parameters untouched.
+        let arguments_forwarding = match self.arguments_forwarding_params(function, &mut body) {
+            Ok(forwarding) => forwarding,
+            Err(error) => {
+                self.scope.restore_bindings(saved_locals);
+                self.scope.restore_date_values(saved_date_value_locals);
+                self.scope
+                    .restore_callable_prop_writes(saved_callable_local_props);
+                self.scope.restore_explicit_any(saved_explicit_any_locals);
+                self.scope.restore_narrowings(saved_narrowed_locals);
+                self.current_async = saved_async;
+                self.current_return_ty = saved_return_ty;
+                self.current_generator_yields = saved_generator_yields;
+                self.pop_type_parameter_scope();
+                return Err(error);
+            }
+        };
+        if let Some(forwarding) = &arguments_forwarding {
+            params.extend(forwarding.params.iter().cloned());
+            for (name, local) in forwarding.binding_pairs() {
+                self.scope.bind(name, local);
+            }
+        }
+        for (index, param) in function
+            .params
+            .items
+            .iter()
+            .enumerate()
+            .take(if arguments_forwarding.is_some() {
+                0
+            } else {
+                usize::MAX
+            })
+        {
             let ty = match self.function_parameter_type(param) {
                 Ok(value) => value,
                 Err(error) => {
@@ -211,7 +248,12 @@ impl ModuleBuilder<'_> {
                 span,
             });
         }
-        let rest = if let Some(rest) = &function.params.rest {
+        let rest = if let Some(forwarding) = &arguments_forwarding {
+            Some(RestParam {
+                index: forwarding.rest_index,
+                item_ty: forwarding.item_ty,
+            })
+        } else if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 self.scope.restore_bindings(saved_locals);
                 self.scope.restore_date_values(saved_date_value_locals);
@@ -327,8 +369,16 @@ impl ModuleBuilder<'_> {
             .generator
             .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
         self.current_generator_yields = generator_yields;
+        // With the variadic rewrite the whole argument list is the single rest
+        // parameter, so the FIXED arity is zero — that is what tells
+        // `arguments_object_expression` to read the list rather than the declared
+        // parameters.
         self.current_arguments_arities
-            .push(function.params.items.len());
+            .push(if arguments_forwarding.is_some() {
+                0
+            } else {
+                function.params.items.len()
+            });
         for statement in &function_body.statements {
             if self.is_super_call_statement(statement) {
                 continue;
@@ -751,6 +801,24 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
         receiver: Option<(smelt_hir::Symbol, smelt_hir::TypeId)>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.function_expression_item_into_slot(name_text, function, type_hint, receiver, None)
+    }
+
+    /// Lift a function expression, writing it into an already-reserved item slot.
+    ///
+    /// `slot` is the reservation made *before* the body is lowered so that the
+    /// body can already reference the item — the mechanism a self-recursive named
+    /// function expression needs, and the same one `function_declaration` uses for
+    /// hoisted local declarations (`LocalScope::function_item`). With `slot` as
+    /// `None` this pushes a fresh item, which is the ordinary lift.
+    pub(in crate::lowering) fn function_expression_item_into_slot(
+        &mut self,
+        name_text: &str,
+        function: &oxc::ast::ast::Function<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+        receiver: Option<(smelt_hir::Symbol, smelt_hir::TypeId)>,
+        slot: Option<smelt_hir::ItemId>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &function.body else {
             return Err(SmeltError::unsupported(
                 self.span(function.span.start, function.span.end),
@@ -944,7 +1012,7 @@ impl ModuleBuilder<'_> {
         }
 
         let body_id = self.ctx.krate.push_body(body);
-        Ok(self.ctx.krate.push_item(Item::Function(Function {
+        let lifted = Item::Function(Function {
             name,
             span: self.span(function.span.start, function.span.end),
             type_params,
@@ -961,7 +1029,202 @@ impl ModuleBuilder<'_> {
                     method: name,
                 }
             }),
-        })))
+        });
+        // A reserved slot is overwritten in place so that references lowered
+        // during the body above — a self-recursive call resolving through the
+        // reservation — keep pointing at this item rather than at a second copy.
+        if let Some(slot) = slot {
+            let index = usize::try_from(slot.0).unwrap_or(usize::MAX);
+            if let Some(existing) = self.ctx.krate.items.get_mut(index) {
+                *existing = lifted;
+                return Ok(slot);
+            }
+        }
+        Ok(self.ctx.krate.push_item(lifted))
+    }
+
+    /// Collect the free (unbound-by-this-function) names referenced in a function
+    /// expression's body.
+    ///
+    /// Purely an AST walk over `collect_statement_capture_names`, so it can run
+    /// *before* the body is lowered — which is what the self-recursion decision
+    /// needs. Parameter names (including the rest parameter) are excluded, so what
+    /// comes back is exactly the set of names the body expects its surroundings to
+    /// supply, plus the function's own name when it recurses.
+    fn function_expression_free_names(
+        &self,
+        function: &oxc::ast::ast::Function<'_>,
+    ) -> Vec<String> {
+        let mut param_names = HashSet::new();
+        for param in &function.params.items {
+            if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                param_names.insert(binding.name.as_str().to_owned());
+            }
+        }
+        if let Some(rest) = &function.params.rest
+            && let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument
+        {
+            param_names.insert(binding.name.as_str().to_owned());
+        }
+        let mut free_names = Vec::new();
+        if let Some(body) = &function.body {
+            for statement in &body.statements {
+                self.collect_statement_capture_names(statement, &param_names, &mut free_names);
+            }
+        }
+        free_names.sort();
+        free_names.dedup();
+        free_names
+    }
+
+    /// Return whether a named function expression's body references its own name.
+    ///
+    /// `collect_statement_capture_names` reports only names that are ALREADY bound
+    /// in the enclosing scope — it is a capture collector, not a free-variable
+    /// collector — and a named function expression's own name is by definition not
+    /// bound out there. So bind it to a probe for the duration of the scan and ask
+    /// whether the walk reports it. That reuses the one visitor that already knows
+    /// every expression and statement shape instead of adding a second one that
+    /// would drift from it.
+    pub(in crate::lowering) fn function_expression_is_self_recursive(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        name_text: &str,
+    ) -> bool {
+        let saved_bindings = self.scope.snapshot_bindings();
+        self.scope
+            .bind(name_text.to_owned(), smelt_hir::LocalId(u32::MAX));
+        let free_names = self.function_expression_free_names(function);
+        self.scope.restore_bindings(saved_bindings);
+        free_names.iter().any(|name| name == name_text)
+    }
+
+    /// Return whether a function expression's body reads any binding that lives in
+    /// the *enclosing* body rather than at module scope.
+    ///
+    /// The lift target is a module-owned item, which has no access to the
+    /// surrounding body's locals, so a capturing self-recursive function expression
+    /// cannot be lifted as-is and keeps the closure path. Its own name never counts
+    /// as a capture — resolving that name is the point of the lift.
+    pub(in crate::lowering) fn function_expression_captures_enclosing_scope(
+        &self,
+        function: &oxc::ast::ast::Function<'_>,
+        name_text: &str,
+    ) -> bool {
+        self.function_expression_free_names(function)
+            .iter()
+            .any(|name| name != name_text && self.scope.lookup(name.as_str()).is_some())
+    }
+
+    /// Lift a self-recursive named function expression to a module function item.
+    ///
+    /// The item slot is **reserved before the body is lowered** and the source name
+    /// is bound to it for exactly the duration of that lowering, so the body's
+    /// self-references resolve through the ordinary
+    /// `items` -> `Item::Function` -> `item_function_closure_expression` path while
+    /// the name stays invisible to the rest of the module — which is precisely
+    /// JavaScript's scoping rule for a named function expression.
+    ///
+    /// The reservation carries the signature the real lowering will derive
+    /// (annotation, else the contextual callable hint, else `unknown`), because a
+    /// self-reference lowered against the reservation reads its parameter types.
+    /// Getting that wrong would coerce the recursive call's arguments against a
+    /// signature the finished item does not have.
+    pub(in crate::lowering) fn lift_self_recursive_function_expression(
+        &mut self,
+        name_text: &str,
+        function: &oxc::ast::ast::Function<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+        span: oxc::span::Span,
+        outer_body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let slot = self.reserve_self_recursive_function_slot(name_text, function, type_hint);
+        let previous = self.items.insert(name_text.to_owned(), slot);
+        let lifted = self.function_expression_item_into_slot(
+            name_text,
+            function,
+            type_hint,
+            None,
+            Some(slot),
+        );
+        match previous {
+            Some(item) => {
+                self.items.insert(name_text.to_owned(), item);
+            }
+            None => {
+                self.items.remove(name_text);
+            }
+        }
+        let item = lifted?;
+        self.item_function_closure_expression(item, span.start, span.end, outer_body)
+    }
+
+    /// Reserve the item slot a self-recursive function expression will occupy.
+    ///
+    /// The reservation is body-less and is overwritten by
+    /// `function_expression_item_into_slot`; only its *signature* is read, by
+    /// self-references lowered inside the body. Parameter and return types are
+    /// resolved by the same precedence the real lift uses, and a parameter that
+    /// resolves to neither an annotation nor a hint gets `unknown` here — the real
+    /// lift raises the named error for that shape, at which point this reservation
+    /// is discarded along with the lift.
+    fn reserve_self_recursive_function_slot(
+        &mut self,
+        name_text: &str,
+        function: &oxc::ast::ast::Function<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> smelt_hir::ItemId {
+        let hinted = type_hint.and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
+            Some(Type::Function(function_ty)) => Some(function_ty),
+            _ => None,
+        });
+        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(function.span.start, function.span.end);
+        let mut params = Vec::new();
+        for (index, param) in function.params.items.iter().enumerate() {
+            let ty = param
+                .type_annotation
+                .as_ref()
+                .and_then(|annotation| self.ts_type_to_hir(&annotation.type_annotation).ok())
+                .or_else(|| {
+                    hinted
+                        .as_ref()
+                        .and_then(|function_ty| function_ty.params.get(index).copied())
+                })
+                .unwrap_or(unknown);
+            let name = match &param.pattern {
+                BindingPattern::BindingIdentifier(binding) => {
+                    self.intern_source_name(binding.name.as_str())
+                }
+                _ => self.intern_source_name(&format!("__unused{index}")),
+            };
+            params.push(Param {
+                name,
+                local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(0)),
+                ty,
+                span,
+            });
+        }
+        let return_ty = function
+            .return_type
+            .as_ref()
+            .and_then(|annotation| self.ts_type_to_hir(&annotation.type_annotation).ok())
+            .or_else(|| hinted.as_ref().map(|function_ty| function_ty.return_ty))
+            .unwrap_or(unknown);
+        let name = self.intern_exact_source_name(name_text);
+        self.ctx.krate.push_item(Item::Function(Function {
+            name,
+            span,
+            type_params: Vec::new(),
+            params,
+            rest: None,
+            required_params: None,
+            return_ty,
+            is_async: function.r#async,
+            is_test: false,
+            body: None,
+            owner: FunctionOwner::Module,
+        }))
     }
 
     /// Build a deterministic synthetic name for an anonymous class expression.
