@@ -305,6 +305,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
+        // Static properties on function declarations (`partial.placeholder = …`)
+        // are collected as a PREPASS, right after the function items they hang off
+        // are predeclared and before any body is lowered. A function's own body
+        // routinely reads its own static — es-toolkit `partial` passes
+        // `partial.placeholder` to its implementation — which is a forward
+        // reference to a statement that appears after the declaration, so
+        // collecting these in source order would leave that read unresolved.
+        self.collect_function_static_properties(program, &mut errors);
         let mut forward_arrow_consts = self.forward_arrow_const_names(program);
         forward_arrow_consts.extend(Self::object_namespace_arrow_const_names(program));
         let mut pending_arrows = program
@@ -399,6 +407,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     &mut before_each,
                     &mut after_each,
                 )
+            {
+                continue;
+            }
+            // `partial.placeholder = Symbol(…)` — a static property on a function
+            // declaration, already recorded as a const item by the prepass above.
+            // See `lowering::function_statics`.
+            if let Statement::ExpressionStatement(expr_stmt) = statement
+                && self.function_static_property_recorded(&expr_stmt.expression)
             {
                 continue;
             }
@@ -533,6 +549,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 continue;
             }
             if self.is_predeclared_arrow_const_statement(statement) {
+                continue;
+            }
+            // A static property on a function declaration was already recorded as a
+            // const item by the prepass; lowering the assignment again here would put
+            // it back into the never-called module-init body, where MIR rejects the
+            // member target outright.
+            if let Statement::ExpressionStatement(expr_stmt) = statement
+                && self.function_static_property_recorded(&expr_stmt.expression)
+            {
                 continue;
             }
 
@@ -2153,6 +2178,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Add a local alias for an imported item when it is already known.
     pub(super) fn alias_imported_item(&mut self, source: &str, imported: &str, local: &str) {
+        // A static property hung off an exported function (`partial.placeholder`)
+        // is recorded under the compound key `partial.placeholder`, so an importer
+        // has to alias those alongside the name itself. The fallback path below
+        // already does this for locally-known items; the resolved-exports path
+        // returned early and skipped it, which left an imported
+        // `partial.placeholder` unresolved.
+        if let Some(exports) = self.source_module_exports(source) {
+            let imported_prefix = format!("{imported}.");
+            let qualified = exports
+                .iter()
+                .filter_map(|(name, item)| {
+                    let member = name.strip_prefix(&imported_prefix)?;
+                    Some((format!("{local}.{member}"), *item))
+                })
+                .collect::<Vec<_>>();
+            for (alias, item) in qualified {
+                self.items.insert(alias, item);
+            }
+        }
         if let Some(exports) = self.source_module_exports(source)
             && let Some(item) = exports.get(imported).copied()
         {

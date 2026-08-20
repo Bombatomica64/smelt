@@ -2406,6 +2406,12 @@ impl ModuleBuilder<'_> {
             {
                 continue;
             }
+            // `const { placeholder } = partial;` destructures a static property off
+            // a FUNCTION, which the ordinary record-destructuring path cannot type.
+            // See `lowering::function_statics`.
+            if self.destructure_function_statics(declarator, body, block)? {
+                continue;
+            }
             // `const { A: B } = await import('./mod')` re-imports statically
             // known module members (a vitest module-reset idiom). Compiled Rust
             // has no module registry to reset, so the fresh namespace is the

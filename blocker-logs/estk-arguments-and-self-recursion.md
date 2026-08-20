@@ -1,4 +1,4 @@
-# es-toolkit runtime pass: eight general defects, 875 -> 907 passing
+# es-toolkit runtime pass: nine general defects, 875 -> 908 passing
 
 Measured against es-toolkit at the ref pinned in `.github/compat/libraries.json`
 (`e008a281`) with the fixture manifest `.github/compat/es-toolkit/Smelt.toml`,
@@ -8,11 +8,11 @@ starting from Smelt `4d15304` (`main`, the merge of #192).
 
 | Corpus | Before | After |
 | --- | --- | --- |
-| es-toolkit | 875 passed / 184 failed | **907 passed / 152 failed** |
+| es-toolkit | 875 passed / 184 failed | **908 passed / 151 failed** |
 | es-toolkit probe blockers | 0 | 0 |
 | remeda | 1789 passed / 0 failed | **1789 passed / 0 failed** |
 
-Eight independent defects, found by reading the largest failing groups rather
+Nine independent defects, found by reading the largest failing groups rather
 than the individual specs. Each was a *silent wrong answer* or a panic, not a
 compile error: the generated crate builds at zero errors throughout.
 
@@ -371,6 +371,68 @@ already erased when it went through the erased ABI. Where the declared return wa
 already `unknown` — the overwhelmingly common case — the emitted text is
 unchanged.
 
+## Defect 9 — a static property on a function declaration was dropped
+
+JavaScript functions are objects, so a module can hang a value off one. es-toolkit
+publishes all its placeholder sentinels that way, nine sites in all:
+
+```ts
+export function partial(func, ...partialArgs) {
+  return partialImpl(func, partial.placeholder, ...partialArgs);
+}
+partial.placeholder = Symbol('compat.partial.placeholder');
+```
+
+Also `partialRight.placeholder`, `curry.placeholder`, `curryRight.placeholder`,
+`bind.placeholder`, `bindKey.placeholder` and `memoize.Cache = Map`.
+
+**Root cause.** The assignment lowered into the module-init function — which
+nothing ever calls — and the *target* was dropped outright, leaving the generated
+init body binding the right-hand side to a local and discarding it:
+
+```rust
+pub(crate) fn curry_1966() -> () {
+    let curry_placeholder: SmeltUnknown = SmeltUnknown::Symbol("Symbol(curry.placeholder)@10319");
+    let _ = curry_placeholder;
+}
+```
+
+Every read of `partial.placeholder` then answered `SmeltUnknown::Null`. A sentinel
+that reads `null` is worse than a missing one: `partial(fn, placeholder, 'b',
+placeholder)` filled the placeholder slots with a real argument instead of skipping
+them, so the spec saw a plausible-but-wrong argument list rather than an error.
+
+**Fix.** A module-scope `f.prop = <expr>` whose `f` resolves to a function item is
+recorded as a **const item** under the compound key `f.prop`, and three read paths
+resolve against it: the member read (`partial.placeholder`), destructuring
+(`const { placeholder } = partial`, which the record-destructuring path cannot type
+because the source is a *function*), and an importer's qualified alias. The last
+one needed a small correction of its own: `alias_imported_item` did the qualified
+`imported.member` aliasing only on its fallback path and returned early when the
+export map resolved the name, so an imported `partial.placeholder` stayed
+unresolved.
+
+Reusing the const-item machinery rather than adding a parallel store is what makes
+the imported case work at all — it travels the same item-visibility path as any
+other module const.
+
+**Collected as a prepass**, right after the function items are predeclared and
+before any body is lowered. A function reading its OWN static is a forward
+reference to a statement below its declaration — exactly what `partial`'s body
+does — so source-order collection would leave that read unresolved. The runtime
+test pins it.
+
+**Identity** holds because the recorded initializers are site-stable: `Symbol('…')`
+lowers to a string keyed by its source span and a bare `Map` to an interned
+builtin namespace, so two inlined copies compare equal. That is the identity
+contract module-level `const` bindings already have under const inlining; a
+per-read-fresh initializer (`f.prop = {}`) would be misrepresented by both equally,
+and giving it a single allocation needs lazily-initialized module statics — a gap,
+recorded below rather than smuggled in.
+
+**Measured:** 907 → 908, 0 newly failing (`partial supports placeholders`). The
+other placeholder specs need separate features, listed under the gaps.
+
 ## Known gaps, all measured and none regressed by this pass
 
 1. **The array-callback lowering path does not lift.**
@@ -397,7 +459,24 @@ unchanged.
    leading parameters and hand out a closure that binds them — or a
    late-initialized self-reference cell. Neither shape appears in the measured
    corpora.
-4. **A lifted item lands in the crate root rather than its source module.**
+4. **A static property on a *returned* function is still unresolved.**
+   `curry(fn, 2).placeholder` — es-toolkit `curry` copies `placeholder` onto the
+   curried function it returns, and `flow`/`flowRight`'s placeholder specs read it
+   off that value. The returned value is a generated `CurriedFunction1` struct, so
+   this is a property on a runtime function *object*, not on a module function
+   item; defect 9's item-keyed lowering does not reach it.
+5. **A static property whose initializer must be one allocation.**
+   `f.prop = {}` inlines a fresh object per read. Site-stable initializers
+   (`Symbol`, a builtin namespace, a literal) are unaffected, which covers every
+   occurrence in the measured corpora. The fix is lazily-initialized module statics
+   — the `Item::MutableGlobal` machinery generalized past its literal-initializer
+   V1 constraint.
+6. **`Function.prototype.length` on a typed callable folds statically.**
+   `partial(fn, 'a').length` const-folds to the declared parameter count of the
+   *type* (2) instead of reading the value's own arity (0, because `partialImpl`
+   returns a rest-only function). Defect 7 fixed the erased read; the typed read is
+   a separate fold.
+7. **A lifted item lands in the crate root rather than its source module.**
    `body_module_names` maps bodies to Rust files through `module.items`, which a
    nested lowering cannot reach, so a lifted item's body has no module entry and
    is emitted into `main.rs`. It compiles and runs (a child module reaches its
@@ -423,6 +502,12 @@ unchanged.
   rewrite fires exactly where `arguments` is read and nowhere else.
 * `an_erased_callable_reports_its_function_length` — the registry is emitted, the
   erasure boundary records the arity, and the read consults it.
+* `a_static_property_on_a_function_declaration_resolves` — both the member read
+  and the destructured binding resolve to the recorded value instead of null.
+* `tests/function_statics_runtime.rs` (`#[ignore]`d runtime tier) — the member
+  spelling and destructuring are the SAME value, a non-symbol static resolves, two
+  statics stay distinct, and a function recognizes its own sentinel (the forward
+  reference the prepass exists for).
 * `tests/arguments_arity_runtime.rs` (`#[ignore]`d runtime tier) — short, exact
   and long calls against one three-parameter function; a real trailing `undefined`
   still counted as an argument; the declared names still binding positionally; and
@@ -472,6 +557,7 @@ Measured three ways against `blocker-logs/smelt-unknown-baseline-es-toolkit.json
 | after defect 4 (`Math.round`) | 35776 | +99 | **+0** |
 | after defect 5 (assertion overload) | 35892 | +215 | **+116** |
 | after defects 6-8 (variadic `arguments`) | **35616** | **-61** | **-276** |
+| after defect 9 (function statics) | **35422** | **-255** | **-194** |
 
 The **+34 is pre-existing** and documented in `estk-typed-array-views.md`: #192
 deliberately left the typed-array construction erasure un-baselined until the
@@ -516,10 +602,13 @@ it with one list forwarding. That is a genuine reduction in erasure, not a
 reclassification: the arguments are no longer erased individually because they are
 never unpacked in the first place.
 
-The net is **−61 against the baseline**, so the pass ends *below* where it
+Defect 9 removes a further 194: a `partial.placeholder` read was an erased
+`SmeltUnknown::Null` at every site and is now the recorded const.
+
+The net is **−255 against the baseline**, so the pass ends *below* where it
 started, which also clears the pre-existing +34 that `main` has carried since
 #192. Per the `SmeltUnknown enforcement` policy ("avoidable decreases re-snapshot
-in the same commit") the es-toolkit baseline is re-snapshotted here to 35616, and
+in the same commit") the es-toolkit baseline is re-snapshotted to 35422, and
 `--fail-on-regression` passes against it. The examples-corpus hard invariant is
 untouched: avoidable erasure there stays 0. The examples-corpus hard invariant
 (`blocker-logs/smelt-unknown-baseline.json`, avoidable == 0) is untouched.

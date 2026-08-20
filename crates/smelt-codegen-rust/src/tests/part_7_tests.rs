@@ -10026,6 +10026,58 @@ export function arity(): number {
     );
 }
 
+#[test]
+fn a_static_property_on_a_function_declaration_resolves() {
+    // JavaScript functions are objects, so a module can hang a value off one. It is
+    // how es-toolkit publishes its placeholder sentinels — `partial.placeholder`,
+    // `curry.placeholder`, `bind.placeholder`, … — and `memoize.Cache = Map`.
+    //
+    // The assignment used to lower into the module-init body, which nothing calls,
+    // with the TARGET dropped outright: the init body bound the right-hand side to a
+    // local and discarded it. Every read then answered `SmeltUnknown::Null`, so
+    // `partial(fn, placeholder, 'b', placeholder)` passed `null` where a sentinel
+    // belonged and the placeholder slots were filled with a real argument.
+    let generated = source_for(
+        r"
+export function partial(func: (...args: any[]) => any, ...args: any[]): (...rest: any[]) => any {
+  return (...rest: any[]) => func(...args, ...rest);
+}
+
+partial.placeholder = Symbol('partial.placeholder');
+
+export function readMember(): unknown {
+  return partial.placeholder;
+}
+
+export function readDestructured(): unknown {
+  const { placeholder } = partial;
+  return placeholder;
+}
+",
+    );
+    let program = generated
+        .split_once("@smelt:prelude-end")
+        .map_or(generated.as_str(), |(_, program)| program);
+    let member = program
+        .split_once("fn read_member()")
+        .map_or("", |(_, rest)| rest);
+    assert!(
+        member.contains("SmeltUnknown::Symbol("),
+        "a static-property member read must resolve to the recorded value:\n{generated}"
+    );
+    let destructured = program
+        .split_once("fn read_destructured()")
+        .map_or("", |(_, rest)| rest);
+    assert!(
+        destructured.contains("SmeltUnknown::Symbol("),
+        "destructuring a static property off a function must resolve too:\n{generated}"
+    );
+    assert!(
+        !destructured.contains("let placeholder: SmeltUnknown = SmeltUnknown::Null"),
+        "the destructured binding must not fall back to null:\n{generated}"
+    );
+}
+
 /// A `return` inside a `try` that has a `finally` must still run the finalizer.
 ///
 /// MIR made the finalizer the *fall-through* exit of the `try` body, so a

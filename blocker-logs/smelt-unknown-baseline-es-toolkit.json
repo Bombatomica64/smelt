@@ -1,9 +1,9 @@
 {
   "files_scanned": 745,
-  "total": 78364,
+  "total": 78035,
   "category_totals": {
-    "avoidable-erasure": 35616,
-    "legitimate-boundary": 39463,
+    "avoidable-erasure": 35422,
+    "legitimate-boundary": 39328,
     "runtime-prelude": 3285
   },
   "shapes": [
@@ -278,7 +278,7 @@
       "shape": "_smelt_tmp_N = { let smelt_source_value = SmeltUnknown::Null.clone().clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltUnknown>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltList<SmeltUnknown>| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(argN); smelt_call_args.push(SmeltUnknown::Array(argN.into())); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltList<SmeltUnknown>| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback } } };",
       "occurrences": 273,
       "files": 9,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:75"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:70"
     },
     {
       "category": "avoidable-erasure",
@@ -607,7 +607,7 @@
       "shape": "let _smelt_tmp_N: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![]; smelt_list_items }));",
       "occurrences": 136,
       "files": 47,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:35"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:34"
     },
     {
       "category": "legitimate-boundary",
@@ -712,7 +712,7 @@
       "shape": "let _smelt_tmp_N: CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown> = match (curry_N(SmeltErasedFunction { callback: { let smelt_callback = _smelt_tmp_N.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_callback)((smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)).into_smelt_unknown(), (smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)).into_smelt_unknown())) }, length: N.N, object: None }, Some(N.N), None::<SmeltUnknown>)).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); CurriedFunctionN { __smelt_call: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).cloned().map_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move || -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown> { Default::default() }); smelt_default_callback }, |value| { let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown>> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown>>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move || -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown> { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); match (smelt_result).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); CurriedFunctionN { __smelt_call: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).cloned().map_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move || -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown> { Default::default() }); smelt_default_callback }, |value| { let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown>> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown>>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move || -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown> { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); Default::default() }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move || -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown> { Default::default() }); smelt_default_callback } } }), _smelt_phantom: ::std::marker::PhantomData } } }, _ => Default::default() } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move || -> CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown> { Default::default() }); smelt_default_callback } } }), _smelt_phantom: ::std::marker::PhantomData } } }, _ => Default::default() };",
       "occurrences": 114,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:364"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:328"
     },
     {
       "category": "legitimate-boundary",
@@ -761,7 +761,7 @@
       "shape": "let _smelt_tmp_N: fN = match closure_arg_N.clone().clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN } + match closure_arg_N.clone().clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN };",
       "occurrences": 110,
       "files": 4,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:357"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:321"
     },
     {
       "category": "legitimate-boundary",
@@ -898,13 +898,6 @@
     },
     {
       "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N = { let smelt_source_value = _smelt_tmp_N.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn() -> MapCache> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn() -> MapCache>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move || -> MapCache { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); match (smelt_result).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); MapCache { clear: smelt_record_map.get(\"S\").cloned().map_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ()> = ::std::rc::Rc::new(move || -> () { () }); smelt_default_callback }, |value| { let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn() -> ()> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn() -> ()>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move || -> () { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); { let _ = smelt_result.clone(); () } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ()> = ::std::rc::Rc::new(move || -> () { () }); smelt_default_callback } } }), delete: smelt_record_map.get(\"S\").cloned().map_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool> = ::std::rc::Rc::new(move |argN: SmeltUnknown| -> bool { false }); smelt_default_callback }, |value| { let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: SmeltUnknown| -> bool { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(argN); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); match smelt_result.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool> = ::std::rc::Rc::new(move |argN: SmeltUnknown| -> bool { false }); smelt_default_callback } } }), get: smelt_record_map.get(\"S\").cloned().map_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback }, |value| { let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: SmeltUnknown| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(argN); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback } } }), has: smelt_record_map.get(\"S\").cloned().map_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool> = ::std::rc::Rc::new(move |argN: SmeltUnknown| -> bool { false }); smelt_default_callback }, |value| { let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: SmeltUnknown| -> bool { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(argN); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); match smelt_result.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool> = ::std::rc::Rc::new(move |argN: SmeltUnknown| -> bool { false }); smelt_default_callback } } }), set: smelt_record_map.get(\"S\").cloned().map_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback }, |value| { let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(argN); smelt_call_args.push(argN); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback } } }) } } }, _ => Default::default() } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> MapCache> = ::std::rc::Rc::new(move || -> MapCache { Default::default() }); smelt_default_callback } } }.clone();",
-      "occurrences": 92,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:162"
-    },
-    {
-      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: SmeltList<fN> = range_N(N.N, { let smelt_optional_source = match _smelt_tmp_N.clone() { SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as fN), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as fN), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number(smelt_function_length(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"S\") { SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"S\") => SmeltUnknown::Number(smelt_function_length(&SmeltUnknown::Object(map))), value => value }, _ => SmeltUnknown::Null }.clone(); if smelt_unknown_is_nullish(&smelt_optional_source.clone()) { None } else { Some(match smelt_optional_source.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }) } }, None::<fN>)?;",
       "occurrences": 92,
       "files": 4,
@@ -1013,7 +1006,7 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_N(SmeltUnknown::Function({ let smelt_source_fn = _smelt_tmp_N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }) as fN))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> fN> = ::std::rc::Rc::new(move |argN: SmeltUnknown| match smelt_callback.call(vec![(argN).into_smelt_unknown()]).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }); smelt_adapted };",
       "occurrences": 82,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:454"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:400"
     },
     {
       "category": "avoidable-erasure",
@@ -1335,7 +1328,7 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_N(SmeltUnknown::Function({ let smelt_source_fn = _smelt_tmp_N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }) as fN))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown, SmeltUnknown) -> fN> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown, argN: SmeltUnknown| match smelt_callback.call(vec![(argN).into_smelt_unknown(), (argN).into_smelt_unknown(), (argN).into_smelt_unknown()]).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }); smelt_adapted };",
       "occurrences": 69,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:565"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:499"
     },
     {
       "category": "legitimate-boundary",
@@ -1377,7 +1370,7 @@
       "shape": "let _smelt_tmp_N: fN = _smelt_tmp_N.clone() + match closure_arg_N.clone().clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN };",
       "occurrences": 66,
       "files": 4,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:358"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:322"
     },
     {
       "category": "avoidable-erasure",
@@ -1419,7 +1412,7 @@
       "shape": "_smelt_tmp_N = { let smelt_source_value = match cache.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone().clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: SmeltUnknown| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(argN); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback } } };",
       "occurrences": 64,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:67"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:65"
     },
     {
       "category": "avoidable-erasure",
@@ -1476,13 +1469,6 @@
       "occurrences": 63,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/minBy_spec.rs:22"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: SmeltList<SmeltUnknown>| {",
-      "occurrences": 62,
-      "files": 5,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial.rs:8"
     },
     {
       "category": "legitimate-boundary",
@@ -1678,7 +1664,7 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_N(SmeltUnknown::Function({ let smelt_source_fn = _smelt_tmp_N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }) as fN))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> fN> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| match smelt_callback.call(vec![(argN).into_smelt_unknown(), (argN).into_smelt_unknown()]).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }); smelt_adapted };",
       "occurrences": 55,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:528"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:466"
     },
     {
       "category": "avoidable-erasure",
@@ -1899,10 +1885,10 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let placeholder: SmeltUnknown = SmeltUnknown::Null.clone();",
+      "shape": "let placeholder: SmeltUnknown = SmeltUnknown::Symbol(\"S\".to_owned().to_owned());",
       "occurrences": 50,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:20"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:16"
     },
     {
       "category": "legitimate-boundary",
@@ -2245,7 +2231,7 @@
       "shape": "_smelt_tmp_N = { let smelt_source_value = match cache.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone().clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(argN); smelt_call_args.push(argN); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback } } };",
       "occurrences": 42,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:80"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:78"
     },
     {
       "category": "legitimate-boundary",
@@ -2273,7 +2259,7 @@
       "shape": "let _smelt_tmp_N: CurriedFunctionN<SmeltUnknown, SmeltUnknown> = match (curry_N(fn__N.clone(), None::<fN>, None::<SmeltUnknown>)).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); CurriedFunctionN { __smelt_call: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).cloned().map_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move || -> CurriedFunctionN<SmeltUnknown, SmeltUnknown> { Default::default() }); smelt_default_callback }, |value| { let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move || -> CurriedFunctionN<SmeltUnknown, SmeltUnknown> { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); Default::default() }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move || -> CurriedFunctionN<SmeltUnknown, SmeltUnknown> { Default::default() }); smelt_default_callback } } }), _smelt_phantom: ::std::marker::PhantomData } } }, _ => Default::default() };",
       "occurrences": 42,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:410"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:368"
     },
     {
       "category": "legitimate-boundary",
@@ -2350,21 +2336,21 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_N(SmeltUnknown::Function({ let smelt_source_fn = fn__N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| smelt_callback.call(vec![(argN).into_smelt_unknown(), (argN).into_smelt_unknown()])); smelt_adapted };",
       "occurrences": 41,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:217"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:193"
     },
     {
       "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_right_N(SmeltUnknown::Function({ let smelt_source_fn = _smelt_tmp_N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }) as fN))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> fN> = ::std::rc::Rc::new(move |argN: SmeltUnknown| match smelt_callback.call(vec![(argN).into_smelt_unknown()]).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }); smelt_adapted };",
       "occurrences": 41,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:457"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:403"
     },
     {
       "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_right_N(SmeltUnknown::Function({ let smelt_source_fn = fn__N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| smelt_callback.call(vec![(argN).into_smelt_unknown(), (argN).into_smelt_unknown()])); smelt_adapted };",
       "occurrences": 41,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:213"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:189"
     },
     {
       "category": "legitimate-boundary",
@@ -2504,7 +2490,7 @@
       "shape": "let index = match (*smelt_capture_key.borrow()).clone().clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN } as iN;",
       "occurrences": 40,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:77"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:72"
     },
     {
       "category": "legitimate-boundary",
@@ -2672,14 +2658,14 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_N(SmeltUnknown::Function({ let smelt_source_fn = greet.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() })))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> String> = ::std::rc::Rc::new(move |argN: SmeltUnknown| match smelt_callback.call(vec![(argN).into_smelt_unknown()]).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }); smelt_adapted };",
       "occurrences": 38,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:304"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:272"
     },
     {
       "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_right_N(SmeltUnknown::Function({ let smelt_source_fn = greet.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() })))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> String> = ::std::rc::Rc::new(move |argN: SmeltUnknown| match smelt_callback.call(vec![(argN).into_smelt_unknown()]).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }); smelt_adapted };",
       "occurrences": 38,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:304"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:272"
     },
     {
       "category": "legitimate-boundary",
@@ -3194,24 +3180,10 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltJsMap<SmeltUnknown, SmeltUnknown> = SmeltJsMap::from([]);",
-      "occurrences": 32,
-      "files": 15,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:8"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), _smelt_tmp_N)]);",
       "occurrences": 32,
       "files": 6,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/debounce_spec.rs:447"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltErasedFunction> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltErasedFunction> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltList<SmeltUnknown>| -> SmeltErasedFunction { SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null), length: N.N, object: None } }); smelt_default_callback };",
-      "occurrences": 32,
-      "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:392"
     },
     {
       "category": "avoidable-erasure",
@@ -3309,7 +3281,7 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_N(SmeltUnknown::Function({ let smelt_source_fn = parN.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String((smelt_callback)((smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)).into_smelt_unknown())))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn() -> String> = ::std::rc::Rc::new(move || match smelt_callback.call(vec![]).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }); smelt_adapted };",
       "occurrences": 30,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:307"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:275"
     },
     {
       "category": "legitimate-boundary",
@@ -3397,24 +3369,17 @@
     },
     {
       "category": "legitimate-boundary",
-      "shape": "let _ = SmeltUnknown::Function({ let smelt_source_fn = _smelt_tmp_N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({ let smelt_object_value = (smelt_callback)(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); smelt_object_entries.insert(\"S\".to_owned(), { let smelt_function_value = smelt_object_value.clear; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { (smelt_function_value)(); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) } }); smelt_object_entries.insert(\"S\".to_owned(), { let smelt_function_value = smelt_object_value.delete; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Bool((smelt_function_value)(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null))))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) } }); smelt_object_entries.insert(\"S\".to_owned(), { let smelt_function_value = smelt_object_value.get; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_function_value)(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) } }); smelt_object_entries.insert(\"S\".to_owned(), { let smelt_function_value = smelt_object_value.has; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Bool((smelt_function_value)(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null))))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) } }); smelt_object_entries.insert(\"S\".to_owned(), { let smelt_function_value = smelt_object_value.set; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_function_value)(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null), smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) } }); smelt_object_entries.insert(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) })); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn });",
-      "occurrences": 28,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:163"
-    },
-    {
-      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_N(SmeltUnknown::Function({ let smelt_source_fn = fn__N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown| smelt_callback.call(vec![(argN).into_smelt_unknown()])); smelt_adapted };",
       "occurrences": 28,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:60"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:52"
     },
     {
       "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_right_N(SmeltUnknown::Function({ let smelt_source_fn = fn__N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown| smelt_callback.call(vec![(argN).into_smelt_unknown()])); smelt_adapted };",
       "occurrences": 28,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:58"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:50"
     },
     {
       "category": "legitimate-boundary",
@@ -3513,6 +3478,13 @@
       "occurrences": 28,
       "files": 9,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/ary_spec.rs:138"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: SmeltJsMap<SmeltUnknown, SmeltUnknown> = SmeltJsMap::from([]);",
+      "occurrences": 28,
+      "files": 14,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:8"
     },
     {
       "category": "avoidable-erasure",
@@ -4023,7 +3995,7 @@
       "shape": "match _smelt_tmp_N.clone() { SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as fN), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as fN), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number(smelt_function_length(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"S\") { SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"S\") => SmeltUnknown::Number(smelt_function_length(&SmeltUnknown::Object(map))), value => value }, _ => SmeltUnknown::Null }.clone()",
       "occurrences": 24,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:85"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:73"
     },
     {
       "category": "legitimate-boundary",
@@ -4121,7 +4093,7 @@
       "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| -> CurriedFunctionN<SmeltUnknown, SmeltUnknown> { Default::default() }); smelt_default_callback };",
       "occurrences": 24,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:342"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:310"
     },
     {
       "category": "avoidable-erasure",
@@ -4345,7 +4317,7 @@
       "shape": "_smelt_tmp_N = match SmeltUnknown::Null.clone().clone() { SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Bool(_) => \"S\".to_owned(), SmeltUnknown::Number(_) => \"S\".to_owned(), SmeltUnknown::String(_) => \"S\".to_owned(), SmeltUnknown::Symbol(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"S\".to_owned() };",
       "occurrences": 22,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:464"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:410"
     },
     {
       "category": "legitimate-boundary",
@@ -4751,7 +4723,7 @@
       "shape": "_smelt_tmp_N = match _smelt_tmp_N.clone().clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };",
       "occurrences": 20,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:245"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:217"
     },
     {
       "category": "legitimate-boundary",
@@ -4814,7 +4786,7 @@
       "shape": "_smelt_tmp_N = { let smelt_source_value = smelt_function_method(_smelt_tmp_N.clone(), \"S\").clone().clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_function_identity_of(smelt_callable_object_key(&smelt_function)); let smelt_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltUnknown>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltList<SmeltUnknown>| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push((argN).into_smelt_unknown()); smelt_call_args.push(SmeltUnknown::Array(argN.into())); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltList<SmeltUnknown>| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback } } };",
       "occurrences": 20,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:108"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:103"
     },
     {
       "category": "legitimate-boundary",
@@ -4891,7 +4863,7 @@
       "shape": "let _smelt_tmp_N: bool = match closure_arg_N.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };",
       "occurrences": 20,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:241"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:213"
     },
     {
       "category": "legitimate-boundary",
@@ -4996,7 +4968,7 @@
       "shape": "_smelt_tmp_N = SmeltUnknown::Array(vec![SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::String(\"S\".to_owned())].into());",
       "occurrences": 20,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:184"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:164"
     },
     {
       "category": "avoidable-erasure",
@@ -5150,7 +5122,7 @@
       "shape": "_smelt_tmp_N = { let smelt_callback = _smelt_tmp_N.__smelt_call.clone().clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown| { let smelt_object_value = (smelt_callback)(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); smelt_object_entries.insert(\"S\".to_owned(), { let smelt_function_value = smelt_object_value.__smelt_call; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null)); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) } }); smelt_object_entries.insert(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }); smelt_adapted };",
       "occurrences": 18,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:374"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:338"
     },
     {
       "category": "legitimate-boundary",
@@ -5367,7 +5339,7 @@
       "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move |argN: SmeltUnknown| -> CurriedFunctionN<SmeltUnknown, SmeltUnknown> { Default::default() }); smelt_default_callback };",
       "occurrences": 18,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:345"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:313"
     },
     {
       "category": "avoidable-erasure",
@@ -5423,7 +5395,7 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_right_N(SmeltUnknown::Function({ let smelt_source_fn = foo.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Bool((smelt_callback)(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null))))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool> = ::std::rc::Rc::new(move |argN: SmeltUnknown| match smelt_callback.call(vec![(argN).into_smelt_unknown()]).clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }); smelt_adapted };",
       "occurrences": 17,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:256"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:228"
     },
     {
       "category": "legitimate-boundary",
@@ -5542,7 +5514,7 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = par.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::String(\"S\".to_owned())]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 16,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:183"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:163"
     },
     {
       "category": "legitimate-boundary",
@@ -5693,13 +5665,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: SmeltList<SmeltUnknown>| {",
-      "occurrences": 16,
-      "files": 3,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/orderBy.rs:110"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Bool(true), SmeltUnknown::Bool(false), SmeltUnknown::Bool(true)]; smelt_list_items }));",
       "occurrences": 16,
       "files": 4,
@@ -5752,14 +5717,14 @@
       "shape": "_smelt_tmp_N = { let smelt_callback = curried.__smelt_call.clone().clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move |argN: SmeltUnknown| { let smelt_struct_value = (smelt_callback)().clone(); CurriedFunctionN { __smelt_call: { let smelt_callback = smelt_struct_value.__smelt_call.clone().clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move || { let smelt_struct_value = (smelt_callback)().clone(); CurriedFunctionN { __smelt_call: { let smelt_callback = smelt_struct_value.__smelt_call.clone().clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move || Default::default()); smelt_adapted }, _smelt_phantom: ::std::marker::PhantomData } }); smelt_adapted }, _smelt_phantom: ::std::marker::PhantomData } }); smelt_adapted };",
       "occurrences": 16,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:372"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:336"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = { let smelt_callback = curried.clone().__smelt_call.clone().clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| { let smelt_struct_value = (smelt_callback)().clone(); CurriedFunctionN { __smelt_call: { let smelt_callback = smelt_struct_value.__smelt_call.clone().clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn() -> CurriedFunctionN<SmeltUnknown, SmeltUnknown>> = ::std::rc::Rc::new(move || Default::default()); smelt_adapted }, _smelt_phantom: ::std::marker::PhantomData } }); smelt_adapted };",
       "occurrences": 16,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:366"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:330"
     },
     {
       "category": "avoidable-erasure",
@@ -5851,13 +5816,6 @@
       "occurrences": 16,
       "files": 2,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/curryRight_spec.rs:40"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltErasedFunction> = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: SmeltList<SmeltUnknown>| {",
-      "occurrences": 16,
-      "files": 4,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial.rs:17"
     },
     {
       "category": "avoidable-erasure",
@@ -6116,7 +6074,7 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = par.clone().clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::String(\"S\".to_owned())]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 14,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:162"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:142"
     },
     {
       "category": "legitimate-boundary",
@@ -6376,13 +6334,6 @@
       "occurrences": 14,
       "files": 5,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/flatMapAsync_spec.rs:41"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltErasedFunction, Option<fN>, Option<SmeltUnknown>) -> SmeltUnknown> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltErasedFunction, Option<fN>, Option<SmeltUnknown>) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltErasedFunction, argN: Option<fN>, argN: Option<SmeltUnknown>| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback };",
-      "occurrences": 14,
-      "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:171"
     },
     {
       "category": "avoidable-erasure",
@@ -6743,13 +6694,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltUnknown> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown, argN: SmeltList<SmeltUnknown>| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback };",
-      "occurrences": 13,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:23"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown, argN: SmeltUnknown| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback };",
       "occurrences": 13,
       "files": 1,
@@ -6991,7 +6935,7 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = par.clone().clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![SmeltUnknown::String(\"S\".to_owned())]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 12,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:168"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:148"
     },
     {
       "category": "legitimate-boundary",
@@ -7828,13 +7772,6 @@
     },
     {
       "category": "legitimate-boundary",
-      "shape": "_smelt_tmp_N = match SmeltUnknown::Null.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };",
-      "occurrences": 11,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:131"
-    },
-    {
-      "category": "legitimate-boundary",
       "shape": "_smelt_tmp_N = match a.clone() { SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Object(value) if value.contains_key(\"S\") => smelt_regexp_literal(&value), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() };",
       "occurrences": 11,
       "files": 1,
@@ -7894,7 +7831,7 @@
       "shape": "_smelt_tmp_N = match par.call(SmeltList::from(vec![SmeltUnknown::Bool(true)])).clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };",
       "occurrences": 11,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:266"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:238"
     },
     {
       "category": "legitimate-boundary",
@@ -7929,7 +7866,7 @@
       "shape": "_smelt_tmp_N = partial_right_N({ let smelt_object_value = curried; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); smelt_object_entries.insert(\"S\".to_owned(), { let smelt_function_value = smelt_object_value.__smelt_call; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({ let smelt_object_value = (smelt_function_value)(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); smelt_object_entries.insert(\"S\".to_owned(), { let smelt_function_value = smelt_object_value.__smelt_call; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null)); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) } }); smelt_object_entries.insert(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) })); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) } }); smelt_object_entries.insert(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }, _smelt_tmp_N).clone().into_smelt_unknown();",
       "occurrences": 11,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:421"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:371"
     },
     {
       "category": "legitimate-boundary",
@@ -7999,21 +7936,21 @@
       "shape": "let _smelt_tmp_N = partial_N({ let smelt_object_value = curried; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); smelt_object_entries.insert(\"S\".to_owned(), { let smelt_function_value = smelt_object_value.__smelt_call; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({ let smelt_object_value = (smelt_function_value)(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); smelt_object_entries.insert(\"S\".to_owned(), { let smelt_function_value = smelt_object_value.__smelt_call; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null)); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) } }); smelt_object_entries.insert(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) })); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) } }); smelt_object_entries.insert(\"S\".to_owned(), SmeltUnknown::String(\"S\".to_owned())); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }, _smelt_tmp_N).clone();",
       "occurrences": 11,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:417"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:367"
     },
     {
       "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_N(SmeltUnknown::Function({ let smelt_source_fn = fn__N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null), smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null), smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| smelt_callback.call(vec![(argN).into_smelt_unknown(), (argN).into_smelt_unknown()])); smelt_adapted };",
       "occurrences": 11,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:359"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:323"
     },
     {
       "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_right_N(SmeltUnknown::Function({ let smelt_source_fn = fn__N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null), smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null), smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| smelt_callback.call(vec![(argN).into_smelt_unknown(), (argN).into_smelt_unknown()])); smelt_adapted };",
       "occurrences": 11,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:363"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:327"
     },
     {
       "category": "legitimate-boundary",
@@ -8678,7 +8615,7 @@
       "shape": "let _smelt_tmp_N = partial_right_N(SmeltUnknown::Function({ let smelt_source_fn = parN.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String((smelt_callback)((smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)).into_smelt_unknown())))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N).clone();",
       "occurrences": 10,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:307"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:275"
     },
     {
       "category": "legitimate-boundary",
@@ -8885,13 +8822,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Null.clone(), SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::Null.clone(), SmeltUnknown::String(\"S\".to_owned())]; smelt_list_items }));",
-      "occurrences": 10,
-      "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:420"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(fN::NAN as fN)]; smelt_list_items }));",
       "occurrences": 10,
       "files": 2,
@@ -8910,6 +8840,13 @@
       "occurrences": 10,
       "files": 2,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/uniq_spec.rs:100"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Symbol(\"S\".to_owned().to_owned()), SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::Symbol(\"S\".to_owned().to_owned()), SmeltUnknown::String(\"S\".to_owned())]; smelt_list_items }));",
+      "occurrences": 10,
+      "files": 2,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:370"
     },
     {
       "category": "avoidable-erasure",
@@ -9434,7 +9371,7 @@
       "shape": "let _smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: SmeltUnknown, closure_arg_N: SmeltUnknown| {",
       "occurrences": 9,
       "files": 3,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:356"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:320"
     },
     {
       "category": "avoidable-erasure",
@@ -10082,6 +10019,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: SmeltList<SmeltUnknown>| {",
+      "occurrences": 8,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/orderBy.rs:110"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = ::std::rc::Rc::new(|mut closure_arg_N: SmeltUnknown, _argN: iN, _argN: SmeltList<SmeltUnknown>| {",
       "occurrences": 8,
       "files": 1,
@@ -10232,14 +10176,14 @@
       "shape": "_smelt_tmp_N = SmeltUnknown::Array(vec![SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::Undefined].into());",
       "occurrences": 8,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:169"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:149"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = SmeltUnknown::Array(vec![SmeltUnknown::Undefined, SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::Undefined].into());",
       "occurrences": 8,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:175"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:155"
     },
     {
       "category": "avoidable-erasure",
@@ -10296,6 +10240,13 @@
       "occurrences": 8,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/orderBy.rs:1534"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: SmeltList<SmeltUnknown>| {",
+      "occurrences": 8,
+      "files": 1,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/xorBy.rs:79"
     },
     {
       "category": "avoidable-erasure",
@@ -10435,7 +10386,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::String(closure_arg_N.clone()), SmeltUnknown::String(closure_arg_N.clone())].into());",
       "occurrences": 8,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:53"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:45"
     },
     {
       "category": "avoidable-erasure",
@@ -10600,13 +10551,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltErasedFunction, SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltErasedFunction> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltErasedFunction, SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltErasedFunction> = ::std::rc::Rc::new(move |argN: SmeltErasedFunction, argN: SmeltUnknown, argN: SmeltList<SmeltUnknown>| -> SmeltErasedFunction { SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null), length: N.N, object: None } }); smelt_default_callback };",
-      "occurrences": 8,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:22"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltRecord<String, String>) -> SmeltUnknown> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltRecord<String, String>) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltRecord<String, String>| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback };",
       "occurrences": 8,
       "files": 1,
@@ -10680,7 +10624,7 @@
       "shape": "match &mut (*smelt_capture_memoized.borrow_mut()) { SmeltUnknown::Object(map) => { map.insert(\"S\".to_owned(), _smelt_tmp_N.clone()); }, other => { let mut map = ::std::collections::HashMap::new(); map.insert(\"S\".to_owned(), _smelt_tmp_N.clone()); *other = SmeltUnknown::Object(SmeltObject::new(map)); } }",
       "occurrences": 8,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:85"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:83"
     },
     {
       "category": "avoidable-erasure",
@@ -10918,7 +10862,7 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = par.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![SmeltUnknown::String(\"S\".to_owned()), SmeltUnknown::String(\"S\".to_owned())]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 7,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:423"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:373"
     },
     {
       "category": "legitimate-boundary",
@@ -11451,13 +11395,6 @@
       "occurrences": 7,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/flatMapDeep_spec.rs:21"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltUnknown> = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: SmeltUnknown, closure_arg_N: SmeltList<SmeltUnknown>| {",
-      "occurrences": 7,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:125"
     },
     {
       "category": "avoidable-erasure",
@@ -12493,7 +12430,7 @@
       "shape": "let _smelt_tmp_N: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![placeholder.clone(), SmeltUnknown::String(\"S\".to_owned()), placeholder.clone()]; smelt_list_items }));",
       "occurrences": 6,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:160"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:140"
     },
     {
       "category": "avoidable-erasure",
@@ -12822,7 +12759,7 @@
       "shape": "let curried: CurriedFunctionN<SmeltUnknown, SmeltUnknown, SmeltUnknown>;",
       "occurrences": 6,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:341"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:309"
     },
     {
       "category": "avoidable-erasure",
@@ -12865,13 +12802,6 @@
       "occurrences": 6,
       "files": 2,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/matches.rs:9"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltErasedFunction, Option<fN>, Option<SmeltUnknown>) -> SmeltUnknown> = ::std::rc::Rc::new(|closure_arg_N: SmeltErasedFunction, closure_arg_N: Option<fN>, closure_arg_N: Option<SmeltUnknown>| {",
-      "occurrences": 6,
-      "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:248"
     },
     {
       "category": "avoidable-erasure",
@@ -12948,14 +12878,14 @@
       "shape": "let par: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown>;",
       "occurrences": 6,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:43"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:39"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let par: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown>;",
       "occurrences": 6,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:200"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:180"
     },
     {
       "category": "avoidable-erasure",
@@ -13242,14 +13172,14 @@
       "shape": "_smelt_tmp_N = { let smelt_function_value = par.clone().clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 5,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:181"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:161"
     },
     {
       "category": "legitimate-boundary",
       "shape": "_smelt_tmp_N = { let smelt_function_value = par.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 5,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:174"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:154"
     },
     {
       "category": "legitimate-boundary",
@@ -13277,7 +13207,7 @@
       "shape": "let _smelt_tmp_N = partial_N(SmeltUnknown::Function({ let smelt_source_fn = foo.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Bool((smelt_callback)(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null))))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }), _smelt_tmp_N);",
       "occurrences": 5,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:260"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:232"
     },
     {
       "category": "legitimate-boundary",
@@ -13291,7 +13221,7 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_right_N(fn__N.clone().into_smelt_unknown(), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: SmeltUnknown| smelt_callback.call(vec![(argN).into_smelt_unknown(), (argN).into_smelt_unknown()])); smelt_adapted };",
       "occurrences": 5,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:181"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:161"
     },
     {
       "category": "legitimate-boundary",
@@ -13382,14 +13312,14 @@
       "shape": "par = SmeltUnknown::Function({ let smelt_source_fn = _smelt_tmp_N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)((smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)).into_smelt_unknown(), (smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)).into_smelt_unknown()))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn });",
       "occurrences": 5,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:182"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:162"
     },
     {
       "category": "legitimate-boundary",
       "shape": "}.clone()).into_smelt_unknown().clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(args.clone()); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 5,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:89"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:84"
     },
     {
       "category": "avoidable-erasure",
@@ -14383,7 +14313,7 @@
       "shape": "SmeltUnknown::Object(values) => smelt_host_buffer_element(&values, &smelt_property_key(((*smelt_capture_key.borrow()).clone()).into_smelt_unknown())).unwrap_or_else(|| values.get(&smelt_property_key(((*smelt_capture_key.borrow()).clone()).into_smelt_unknown())).unwrap_or(SmeltUnknown::Null)),",
       "occurrences": 4,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:87"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:82"
     },
     {
       "category": "legitimate-boundary",
@@ -14615,13 +14545,6 @@
       "occurrences": 4,
       "files": 2,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/once.rs:8"
-    },
-    {
-      "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Function({ let smelt_source_fn = _smelt_tmp_N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)())); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn });",
-      "occurrences": 4,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:161"
     },
     {
       "category": "legitimate-boundary",
@@ -14936,14 +14859,14 @@
       "shape": "_smelt_tmp_N = (_smelt_tmp_N)(SmeltUnknown::Number(N.N as fN));",
       "occurrences": 4,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:373"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:337"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = (_smelt_tmp_N)(SmeltUnknown::Number(N.N as fN), SmeltUnknown::Number(N.N as fN));",
       "occurrences": 4,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:367"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:331"
     },
     {
       "category": "avoidable-erasure",
@@ -15339,10 +15262,10 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = arg.clone().js_strict_eq(&SmeltUnknown::Null.clone());",
+      "shape": "_smelt_tmp_N = arg.clone().js_strict_eq(&SmeltUnknown::Symbol(\"S\".to_owned().to_owned()));",
       "occurrences": 4,
       "files": 4,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:48"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:43"
     },
     {
       "category": "avoidable-erasure",
@@ -15545,7 +15468,7 @@
       "shape": "cache = match (*smelt_capture_memoized.borrow()).clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"S\"), _ => SmeltUnknown::Undefined }.clone();",
       "occurrences": 4,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:66"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:64"
     },
     {
       "category": "avoidable-erasure",
@@ -15941,13 +15864,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Object(SmeltObject::new(_smelt_tmp_N.clone().into_iter().map(|(key, value)| (smelt_property_key(key), value)).collect()));",
-      "occurrences": 4,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:138"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltUnknown = SmeltUnknown::String(closure_arg_N.clone().to_uppercase());",
       "occurrences": 4,
       "files": 1,
@@ -16270,24 +16186,10 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltErasedFunction, SmeltUnknown, SmeltList<SmeltUnknown>) -> SmeltErasedFunction> = ::std::rc::Rc::new(|closure_arg_N: SmeltErasedFunction, closure_arg_N: SmeltUnknown, closure_arg_N: SmeltList<SmeltUnknown>| {",
-      "occurrences": 4,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:91"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltList<fN>) -> SmeltUnknown> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltList<fN>) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltList<fN>| -> SmeltUnknown { SmeltUnknown::Null }); smelt_default_callback };",
       "occurrences": 4,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/sampleSize_spec.rs:14"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown, Option<SmeltErasedFunction>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltUnknown, Option<SmeltErasedFunction>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |argN: SmeltUnknown, argN: Option<SmeltErasedFunction>| -> Result<SmeltUnknown, Box<dyn std::error::Error>> { Ok::<_, Box<dyn std::error::Error>>(SmeltUnknown::Null) }); smelt_default_callback };",
-      "occurrences": 4,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:18"
     },
     {
       "category": "avoidable-erasure",
@@ -17225,7 +17127,7 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_right_N(__smelt_fn_value_N(), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |argN: SmeltUnknown| smelt_callback.call(vec![(argN).into_smelt_unknown()])); smelt_adapted };",
       "occurrences": 3,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:119"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:103"
     },
     {
       "category": "legitimate-boundary",
@@ -17498,14 +17400,14 @@
       "shape": "_smelt_tmp_N = (par)(SmeltUnknown::String(\"S\".to_owned()));",
       "occurrences": 3,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:60"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:52"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = (sum_all)(SmeltUnknown::Null, SmeltUnknown::Null, SmeltUnknown::Null);",
       "occurrences": 3,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:567"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:501"
     },
     {
       "category": "avoidable-erasure",
@@ -17520,13 +17422,6 @@
       "occurrences": 3,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/isEqualWith_spec.rs:198"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: SmeltUnknown, closure_arg_N: SmeltList<SmeltUnknown>| {",
-      "occurrences": 3,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:46"
     },
     {
       "category": "avoidable-erasure",
@@ -17981,7 +17876,7 @@
       "shape": "_smelt_tmp_N = { let smelt_push_item = provided_args.get({ let len = provided_args.len() as iN; let index = __smelt_update_tmp.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone(); args.push(smelt_push_item); args.len() as fN };",
       "occurrences": 3,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:206"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:201"
     },
     {
       "category": "avoidable-erasure",
@@ -18884,7 +18779,7 @@
       "shape": "let sum_all: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown, SmeltUnknown) -> fN>;",
       "occurrences": 3,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:543"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:481"
     },
     {
       "category": "avoidable-erasure",
@@ -21075,7 +20970,7 @@
       "shape": "_smelt_tmp_N = (*smelt_capture_resolver.borrow()).clone().clone().unwrap_or(SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null), length: N.N, object: None });",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:59"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:57"
     },
     {
       "category": "avoidable-erasure",
@@ -21096,14 +20991,14 @@
       "shape": "_smelt_tmp_N = (parN)(SmeltUnknown::String(\"S\".to_owned()));",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:312"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:280"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = (partialed)(SmeltUnknown::Number(N.N as fN));",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:459"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:405"
     },
     {
       "category": "avoidable-erasure",
@@ -21124,7 +21019,7 @@
       "shape": "_smelt_tmp_N = (sum_all)(SmeltUnknown::Null, SmeltUnknown::Null);",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:530"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:468"
     },
     {
       "category": "avoidable-erasure",
@@ -21132,20 +21027,6 @@
       "occurrences": 2,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/zip.rs:17"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltErasedFunction, closure_arg_N: Option<fN>, closure_arg_N: Option<SmeltUnknown>| {",
-      "occurrences": 2,
-      "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:193"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltErasedFunction, closure_arg_N: SmeltUnknown, closure_arg_N: SmeltList<SmeltUnknown>| {",
-      "occurrences": 2,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:44"
     },
     {
       "category": "avoidable-erasure",
@@ -21320,7 +21201,7 @@
       "shape": "_smelt_tmp_N = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![placeholder.clone(), SmeltUnknown::String(\"S\".to_owned()), placeholder.clone()]; smelt_list_items }));",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:180"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:160"
     },
     {
       "category": "avoidable-erasure",
@@ -21838,14 +21719,14 @@
       "shape": "_smelt_tmp_N = { args.push(closure_arg_N.get({ let len = closure_arg_N.len() as iN; let index = __smelt_update_tmp.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone()); args.len() as fN };",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:53"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:48"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = { args.push(closure_arg_N.get({ let len = closure_arg_N.len() as iN; let index = i_N.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone()); args.len() as fN };",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:67"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:62"
     },
     {
       "category": "avoidable-erasure",
@@ -21908,7 +21789,7 @@
       "shape": "arg = (*smelt_capture_partial_args.borrow()).get({ let len = (*smelt_capture_partial_args.borrow()).len() as iN; let index = i.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone();",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:43"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:42"
     },
     {
       "category": "avoidable-erasure",
@@ -22038,13 +21919,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _ = SmeltUnknown::Symbol(\"S\".to_owned().to_owned());",
-      "occurrences": 2,
-      "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial.rs:21"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _ = invariant_N(SmeltUnknown::Bool(_smelt_tmp_N), SmeltUnknown::String(\"S\".to_owned()))?;",
       "occurrences": 2,
       "files": 1,
@@ -22119,6 +21993,20 @@
       "occurrences": 2,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/mapKeys_spec.rs:14"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N = partial_impl(func.clone(), SmeltUnknown::Symbol(\"S\".to_owned().to_owned()), partial_args.clone()).clone();",
+      "occurrences": 2,
+      "files": 2,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial.rs:8"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N = partial_right_impl(func.clone(), SmeltUnknown::Symbol(\"S\".to_owned().to_owned()), partial_args.clone()).clone();",
+      "occurrences": 2,
+      "files": 2,
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight.rs:8"
     },
     {
       "category": "avoidable-erasure",
@@ -22745,13 +22633,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = bind_key(closure_arg_N.clone(), closure_arg_N.clone(), closure_arg_N.clone());",
-      "occurrences": 2,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:47"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltUnknown = clone_deep_with_impl(match source.clone() {",
       "occurrences": 2,
       "files": 1,
@@ -22791,20 +22672,6 @@
       "occurrences": 2,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/cloneDeepWith.rs:33"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = curry_N(closure_arg_N.clone(), closure_arg_N.clone(), closure_arg_N.clone());",
-      "occurrences": 2,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:194"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = curry_right_N(closure_arg_N.clone(), closure_arg_N.clone(), closure_arg_N.clone());",
-      "occurrences": 2,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curryRight.rs:228"
     },
     {
       "category": "avoidable-erasure",
@@ -22903,13 +22770,6 @@
       "occurrences": 2,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/curryRight.rs:82"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = memoize_N(closure_arg_N.clone(), closure_arg_N.clone()).unwrap_or_else(|error| panic!(\"S\", error));",
-      "occurrences": 2,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:128"
     },
     {
       "category": "avoidable-erasure",
@@ -23532,14 +23392,14 @@
       "shape": "let bind_key_placeholder: SmeltUnknown = SmeltUnknown::Symbol(\"S\".to_owned().to_owned());",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:124"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:119"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let bind_placeholder: SmeltUnknown = SmeltUnknown::Symbol(\"S\".to_owned().to_owned());",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:90"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:85"
     },
     {
       "category": "avoidable-erasure",
@@ -23574,7 +23434,7 @@
       "shape": "let cache: SmeltUnknown;",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:36"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:34"
     },
     {
       "category": "avoidable-erasure",
@@ -23658,14 +23518,14 @@
       "shape": "let curry_placeholder: SmeltUnknown = SmeltUnknown::Symbol(\"S\".to_owned().to_owned());",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:247"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:242"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let curry_right_placeholder: SmeltUnknown = SmeltUnknown::Symbol(\"S\".to_owned().to_owned());",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curryRight.rs:260"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curryRight.rs:255"
     },
     {
       "category": "avoidable-erasure",
@@ -23879,13 +23739,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(SmeltUnknown, Option<SmeltErasedFunction>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: Option<SmeltErasedFunction>| -> Result<SmeltUnknown, Box<dyn std::error::Error>> {",
-      "occurrences": 2,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:152"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let mut _smelt_tmp_N: Option<::std::rc::Rc<dyn Fn(SmeltUnknown, fN) -> bool>> = None::<::std::rc::Rc<dyn Fn(SmeltUnknown, fN) -> bool>>;",
       "occurrences": 2,
       "files": 1,
@@ -23938,14 +23791,14 @@
       "shape": "let mut args: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(_smelt_tmp_N);",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:185"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:184"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let mut args: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(_smelt_tmp_N.clone());",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:36"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bind.rs:35"
     },
     {
       "category": "avoidable-erasure",
@@ -24204,28 +24057,28 @@
       "shape": "let par: ::std::rc::Rc<dyn Fn() -> SmeltUnknown>;",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:74"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:66"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let par: SmeltUnknown;",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:391"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:355"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let parN: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> String>;",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:276"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:248"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let partialed: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> fN>;",
       "occurrences": 2,
       "files": 2,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:437"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:387"
     },
     {
       "category": "avoidable-erasure",
@@ -24379,7 +24232,7 @@
       "shape": "let sum_all: ::std::rc::Rc<dyn Fn(SmeltUnknown, SmeltUnknown) -> fN>;",
       "occurrences": 2,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:508"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:450"
     },
     {
       "category": "avoidable-erasure",
@@ -27536,7 +27389,7 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_right_N(fn__N.clone().into_smelt_unknown(), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn() -> SmeltUnknown> = ::std::rc::Rc::new(move || smelt_callback.call(vec![])); smelt_adapted };",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:89"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:77"
     },
     {
       "category": "legitimate-boundary",
@@ -27893,7 +27746,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = bound_N.clone().into_smelt_unknown();",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:119"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/bindKey.rs:114"
     },
     {
       "category": "legitimate-boundary",
@@ -28292,14 +28145,14 @@
       "shape": "_smelt_tmp_N = (add_three)(SmeltUnknown::Null);",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:495"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:437"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = (par)(SmeltUnknown::Bool(true));",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:262"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:234"
     },
     {
       "category": "avoidable-erasure",
@@ -28342,13 +28195,6 @@
       "occurrences": 1,
       "files": 1,
       "example": "target/compat-repos/es-toolkit/dist-smelt/src/intersectionWith.rs:44"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = ::std::rc::Rc::new(|closure_arg_N: SmeltUnknown, closure_arg_N: Option<SmeltErasedFunction>| -> Result<SmeltUnknown, Box<dyn std::error::Error>> {",
-      "occurrences": 1,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/memoize_1.rs:127"
     },
     {
       "category": "avoidable-erasure",
@@ -29188,14 +29034,14 @@
       "shape": "_smelt_tmp_N = { let smelt_push_item = provided_args.get({ let len = provided_args.len() as iN; let index = __smelt_update_tmp_N.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone(); args.push(smelt_push_item); args.len() as fN };",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curryRight.rs:239"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curryRight.rs:234"
     },
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = { let smelt_push_item = provided_args.get({ let len = provided_args.len() as iN; let index = i_N.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone(); args.push(smelt_push_item); args.len() as fN };",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:239"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:234"
     },
     {
       "category": "avoidable-erasure",
@@ -29272,14 +29118,14 @@
       "shape": "arg = partial_args.get({ let len = partial_args.len() as iN; let index = i.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone();",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:192"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curry.rs:191"
     },
     {
       "category": "avoidable-erasure",
       "shape": "arg = partial_args.get({ let len = partial_args.len() as iN; let index = i_N.clone() as iN; let normalized = if index < N { len + index } else { index }; usize::try_from(normalized).expect(\"S\") }).cloned().unwrap_or(SmeltUnknown::Undefined).clone();",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curryRight.rs:226"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/curryRight.rs:225"
     },
     {
       "category": "avoidable-erasure",
@@ -29584,34 +29430,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N = partial_impl(func.clone(), SmeltUnknown::Null.clone(), partial_args.clone()).clone();",
-      "occurrences": 1,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial.rs:12"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N = partial_impl(func.clone(), SmeltUnknown::Symbol(\"S\".to_owned().to_owned()), partial_args.clone()).clone();",
-      "occurrences": 1,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_1.rs:8"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N = partial_right_impl(func.clone(), SmeltUnknown::Null.clone(), partial_args.clone()).clone();",
-      "occurrences": 1,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight.rs:12"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N = partial_right_impl(func.clone(), SmeltUnknown::Symbol(\"S\".to_owned().to_owned()), partial_args.clone()).clone();",
-      "occurrences": 1,
-      "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_1.rs:8"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N = property_N(SmeltUnknown::String(_smelt_tmp_N)).clone();",
       "occurrences": 1,
       "files": 1,
@@ -29643,7 +29461,7 @@
       "shape": "let _smelt_tmp_N = { let smelt_callback = partial_N(__smelt_fn_value_N(), _smelt_tmp_N).clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn() -> SmeltUnknown> = ::std::rc::Rc::new(move || smelt_callback.call(vec![])); smelt_adapted };",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:29"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:25"
     },
     {
       "category": "avoidable-erasure",
@@ -32226,7 +32044,7 @@
       "shape": "let add_three: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> fN>;",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:475"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partial_spec.rs:421"
     },
     {
       "category": "avoidable-erasure",
@@ -33164,7 +32982,7 @@
       "shape": "let mut par: SmeltUnknown;",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:135"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:119"
     },
     {
       "category": "avoidable-erasure",
@@ -33584,7 +33402,7 @@
       "shape": "let par: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>;",
       "occurrences": 1,
       "files": 1,
-      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:228"
+      "example": "target/compat-repos/es-toolkit/dist-smelt/src/partialRight_spec.rs:204"
     },
     {
       "category": "avoidable-erasure",

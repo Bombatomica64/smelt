@@ -2,6 +2,7 @@
 
 mod ambient_globals;
 mod arguments_forwarding;
+mod function_statics;
 mod specialization;
 mod state;
 mod stdlib;
