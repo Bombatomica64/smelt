@@ -10232,3 +10232,127 @@ console.log(keys.length);
         "both spread halves must be chained into the result list:\n{body}"
     );
 }
+
+/// A loop whose body contains a `try`/`catch` around an `await` must stay a loop.
+///
+/// Two independent gaps combined here. `block_exits_to_loop` — the guard
+/// `while_header` uses to decide whether a body is loop-shaped — had no arm for
+/// `Terminator::Await` and fell into its `_ => Ok(false)` catch-all, so the
+/// header was never recognized. And the throwing-call/throwing-`await` emitters
+/// hardcoded `emit_block` for their `Ok`/`Err` continuations, so even once
+/// recognized the back edge reached from inside `match fut.await { .. }` was
+/// treated as an ordinary goto and re-emitted the loop header inline. The two
+/// together made this 12-line function expand to 437 lines with 14 `.await`s and
+/// no `loop`, terminated only by the emitter's recursion-depth cap — which
+/// silently caps the number of iterations the program can actually perform.
+///
+/// The load-bearing assertions are the counts, not the presence of `loop`: one
+/// `.await` and one `catch_unwind` prove the body was emitted exactly once, which
+/// is the difference between a loop and an unrolled prefix of one.
+#[test]
+fn awaiting_try_catch_in_a_loop_body_emits_one_loop_not_an_unrolled_body() {
+    let source = source_for(
+        r"
+async function flaky(n: number): Promise<number> {
+  if (n < 3) { throw new Error('nope'); }
+  return n;
+}
+export async function attempt(limit: number): Promise<number> {
+  for (let i = 0; i <= limit; i++) {
+    try {
+      return await flaky(i);
+    } catch (err) {
+      // keep going
+    }
+  }
+  return -1;
+}
+",
+    );
+
+    let start = source.find("async fn attempt").expect("attempt present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("attempt closing brace");
+    let body = &after[..end];
+
+    assert_eq!(
+        body.matches("loop {").count(),
+        1,
+        "the `for` header must render as a single Rust loop:\n{body}"
+    );
+    assert_eq!(
+        body.matches(".await").count(),
+        1,
+        "the one source `await` must be emitted once; more copies mean the loop \
+         body was unrolled into the back edge:\n{body}"
+    );
+    assert_eq!(
+        body.matches("catch_unwind").count(),
+        1,
+        "the one source `try` must be emitted once:\n{body}"
+    );
+    assert!(
+        body.contains("continue;"),
+        "the back edge out of the `catch` arm must render as `continue`:\n{body}"
+    );
+    assert!(
+        !body.contains("could not structurally emit"),
+        "the region must be structured, not surrendered to the recursion cap:\n{body}"
+    );
+}
+
+/// The same shape without `await` must keep its `catch` handler.
+///
+/// The loop-body emitters matched `Terminator::Call { unwind: _, .. }` and threw
+/// the exception handler away, emitting the call through the plain `?` template.
+/// That deleted the `catch` block outright: a synchronous
+/// `for (..) { try { return f(i); } catch {} }` propagated the first error out of
+/// the enclosing function instead of retrying, and in a non-throwing function the
+/// stray `?` did not even compile. Asserting on `catch_unwind` (not on `loop`) is
+/// what pins the handler down — the loop was already emitted before the fix.
+#[test]
+fn a_try_catch_in_a_loop_body_keeps_its_handler() {
+    let source = source_for(
+        r"
+function flaky(n: number): number {
+  if (n < 3) { throw new Error('nope'); }
+  return n;
+}
+export function attempt(limit: number): number {
+  for (let i = 0; i <= limit; i++) {
+    try {
+      return flaky(i);
+    } catch (err) {
+      // keep going
+    }
+  }
+  return -1;
+}
+console.log(attempt(5));
+",
+    );
+
+    let start = source.find("fn attempt").expect("attempt present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("attempt closing brace");
+    let body = &after[..end];
+
+    assert_eq!(
+        body.matches("loop {").count(),
+        1,
+        "the `for` header must render as a single Rust loop:\n{body}"
+    );
+    assert!(
+        body.contains("catch_unwind"),
+        "the `catch` handler must be emitted inside the loop body:\n{body}"
+    );
+    assert!(
+        !body.contains("flaky(i.clone())?"),
+        "the throwing call must not be emitted through the error-propagating `?` \
+         template, which discards the `catch` arm:\n{body}"
+    );
+    assert!(
+        body.contains("continue;"),
+        "the back edge out of the `catch` arm must render as `continue`:\n{body}"
+    );
+}
