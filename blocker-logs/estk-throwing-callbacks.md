@@ -251,3 +251,67 @@ that record text) and the classification is covered by
 are ordinary `catch`-body statements on a statically-`unknown` caught value; the
 scanner is textual and cannot see that source type, so they stay classified as
 avoidable rather than being papered over with a broader marker.
+
+## Follow-up: the erased `.call` argument vector (arity defect)
+
+Routing a call to an erased-rest callee through the terminator form surfaced a
+second, quieter ABI disagreement — one that *compiles*, which is why the first
+round's validation missed it. `guardedViaLocal` below returned a plausible value
+while calling its callback with the wrong arity:
+
+```ts
+function guardedViaLocal(cb: (...args: unknown[]) => unknown): unknown {
+  const g = cb;
+  try { return g(3, 4); } catch { return "caught"; }
+}
+```
+
+```rust
+// before: ONE argument that happens to be an array, not two arguments
+(g).call(vec![SmeltUnknown::Array(_smelt_tmp_2.clone().into())])
+// after: the packed list IS the argument vector
+(g).call(_smelt_tmp_2)
+```
+
+The two callable ABIs disagree about what a rest argument list *is*.
+`&dyn Fn(SmeltList<SmeltUnknown>) -> _` takes the packed list as its single
+parameter, so lowering hands the emitter one `SmeltList` operand standing for all
+N source arguments (`g(3, 4)` packs to `[3, 4]`, `g(arr)` packs to `[arr]`, and
+`g(...arr)` passes `arr` itself — in every case the operand is exactly the
+argument vector). `SmeltErasedFunction::call(impl Into<Vec<SmeltUnknown>>)` takes
+the argument vector, one element per argument. `erased_call_args_text` erases one
+operand to one element, so the packed list became a single nested array.
+
+The fix lives next to the ABI authority, as
+`erased_call_argument_vector_text(callee, args)`: the helper that answers "how do
+I call this value" now also answers "how do I shape its arguments", because the
+two answers have to agree. Both call forms consequently render identical argument
+text (`.call(_smelt_tmp_2)`), which is what the golden asserts.
+
+Sibling paths audited and found correct, for the same reason stated explicitly:
+`Rvalue::ClosureCallSpread` already passes the packed list as the vector (and its
+leading-positional split is skipped for erased callees); the `.then`/`.catch`
+continuation (`promise_callback_invocation_with`) builds `vec![one]` from a single
+resolved value, which is the argument vector with one element, not a packed rest
+list; the timer forwarder passes an already-flat `Vec<SmeltUnknown>`; and the
+`core.rs` adapters either forward `arg0` (itself the packed list) or build
+`vec![..]` from per-argument elements.
+
+### On the panicking adapters (correcting the brief's attribution)
+
+The brief read the `unwrap_or_else(|error| panic!(..))` in Symptom 1's output as a
+missing `?` in the callback adapter. The adapters already had it: at `56a58c1`,
+`rendered_function_shape_adapter_text` (core.rs:2478),
+`rest_vector_function_adapter_text` (core.rs:2674) and
+`function_shape_adapter_text` (core.rs:3051) each read
+`if source.may_throw && target_function.may_throw { "{call}?" } else if
+source.may_throw { panic }`. The `panic` branch was selected because the *target*
+callback position — a TypeScript-declared `cb: (x: number) => string` — has
+`may_throw == false`, and no TS source shape gives a borrowed callback parameter
+`may_throw == true` (see step 1's limitation above). So the emitted panic was a
+correct rendering of an incorrect *type*, not a missing adapter branch: with the
+target unable to carry an error, `?` would not type-check. The two call sites that
+genuinely lacked the branch were `Rvalue::ClosureCall` and
+`closure_call_text_for_dest`, both fixed in step 2; the recoverable path for a
+callback parameter runs through the `catch_unwind` handler until the callback
+parameter's type can carry `may_throw`.

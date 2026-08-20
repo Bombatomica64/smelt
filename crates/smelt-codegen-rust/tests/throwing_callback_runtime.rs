@@ -241,3 +241,54 @@ test("both call forms agree on the erased-rest call ABI", () => {
 "#;
     run_fixture(source, "smelt_erased_rest_abi_agreement");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_erased_handle_receives_the_source_arguments_not_one_packed_array() {
+    // The two callable ABIs disagree about what a rest argument list *is*.
+    // `&dyn Fn(SmeltList<SmeltUnknown>) -> _` takes the packed list as its one
+    // parameter, so lowering hands the emitter a single `SmeltList` operand
+    // standing for all N source arguments. `SmeltErasedFunction::call` takes the
+    // *argument vector*. Erasing the packed list into a single vector element
+    // produced `.call(vec![SmeltUnknown::Array([3, 4])])` — one argument that
+    // happens to be an array, not two arguments. That COMPILES and returns a
+    // plausible value, so only an arity/identity assertion catches it.
+    //
+    // Both call forms are exercised: `guarded` goes through the unwind-carrying
+    // terminator form (where the defect was) and `plain` through the statement
+    // form (which was already right), and both must agree.
+    let source = r#"
+import { test, expect } from "vitest";
+
+function guardedViaLocal(cb: (...args: unknown[]) => unknown): unknown {
+  const g = cb;
+  try {
+    return g(3, 4);
+  } catch (err) {
+    return "caught";
+  }
+}
+
+function plainViaLocal(cb: (...args: unknown[]) => unknown): unknown {
+  const g = cb;
+  return g(3, 4);
+}
+
+test("an erased handle receives each source argument separately", () => {
+  const arity = (...args: unknown[]): unknown => args.length;
+  const first = (...args: unknown[]): unknown => args[0];
+  const second = (...args: unknown[]): unknown => args[1];
+
+  // Arity: two source arguments must arrive as two arguments.
+  expect(guardedViaLocal(arity)).toBe(2);
+  expect(plainViaLocal(arity)).toBe(2);
+
+  // Identity: each element must be the argument that was written, in order.
+  expect(guardedViaLocal(first)).toBe(3);
+  expect(guardedViaLocal(second)).toBe(4);
+  expect(plainViaLocal(first)).toBe(3);
+  expect(plainViaLocal(second)).toBe(4);
+});
+"#;
+    run_fixture(source, "smelt_erased_handle_argument_vector");
+}

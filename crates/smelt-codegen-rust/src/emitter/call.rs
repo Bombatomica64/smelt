@@ -1006,7 +1006,7 @@ impl FunctionEmitter<'_> {
                 if self.callee_uses_erased_call_method(indirect_callee)? {
                     return Ok(format!(
                         "({callee_text}).call({})",
-                        self.erased_call_args_text(args)?
+                        self.erased_call_argument_vector_text(indirect_callee, args)?
                     ));
                 }
                 // A rest-only callee invoked with positional arguments takes them
@@ -1099,7 +1099,10 @@ impl FunctionEmitter<'_> {
     /// Render arguments for a call into an erased `SmeltErasedFunction`, erasing
     /// each to `SmeltUnknown` and packing them into the `vec![..]` the runtime
     /// `.call(..)` method consumes.
-    fn erased_call_args_text(&self, args: &[Operand]) -> Result<String, EmitError> {
+    pub(super) fn erased_call_args_text(
+        &self,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let rendered = args
             .iter()

@@ -2015,6 +2015,44 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(!self.callee_is_borrowed_function_handle(callee)?)
     }
 
+    /// Render the argument vector for a call through the erased
+    /// `SmeltErasedFunction::call` ABI.
+    ///
+    /// The companion to `callee_uses_erased_call_method`: the one authority that
+    /// answers "how do I call this value" also answers "how do I shape its
+    /// arguments", because the two answers have to agree.
+    ///
+    /// The two callable ABIs disagree about what a rest argument list *is*.
+    /// `&dyn Fn(SmeltList<SmeltUnknown>) -> _` takes the packed list as its one
+    /// parameter, so lowering hands this emitter a single `SmeltList` operand
+    /// standing for all N source arguments (`g(3, 4)` packs to `[3, 4]`;
+    /// `g(arr)` packs to `[arr]`; `g(...arr)` passes `arr` itself). But
+    /// `SmeltErasedFunction::call(impl Into<Vec<SmeltUnknown>>)` takes the
+    /// *argument vector*, where each element is one argument. Erasing the packed
+    /// list into a single vector element (`vec![SmeltUnknown::Array([3, 4])]`)
+    /// therefore calls the callback with ONE array argument instead of two
+    /// arguments — it compiles, and silently passes the wrong arity.
+    ///
+    /// So when the argument list is already the rest-packed list, hand it over as
+    /// the argument vector (`From<SmeltList<T>> for Vec<T>` converts it) rather
+    /// than nesting it. Only genuinely separate per-argument operands are erased
+    /// element-by-element.
+    pub(super) fn erased_call_argument_vector_text(
+        &self,
+        callee: &Operand,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
+        if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
+            && let Some(0) = function.rest
+            && let [rest_param] = function.params.as_slice()
+            && let [packed] = args
+            && self.operand_ty(packed)? == *rest_param
+        {
+            return self.value_at_type(packed, *rest_param);
+        }
+        self.erased_call_args_text(args)
+    }
+
     /// Return whether the emitted Rust value for `callee` is a borrowed
     /// `&dyn Fn` handle, which is invoked with bare direct call syntax.
     ///
