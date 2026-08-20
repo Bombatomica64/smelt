@@ -1061,7 +1061,7 @@ impl FunctionEmitter<'_> {
     /// `return` statement rather than a bare Rust tail expression, because a
     /// value produced as the tail of a `loop { ... }` body block would mistype
     /// the block as its value type instead of the required `()`.
-    fn emit_closure_block_inner(
+    pub(super) fn emit_closure_block_inner(
         &self,
         block: &BasicBlock,
         out: &mut String,
@@ -1189,8 +1189,35 @@ impl FunctionEmitter<'_> {
                 args,
                 dest,
                 target,
-                unwind: _,
+                unwind,
             } => {
+                // A `try`/`catch` around the call is a real fork of the closure
+                // body and must be rendered. Ignoring `unwind` sent the call
+                // through `closure_call_text_for_dest`, whose only difference from
+                // the function-level path is that it rewrites a trailing `?` into
+                // `unwrap_or_else(|error| panic!(..))` — which is precisely the
+                // handler being discarded. A nested `function` whose body wrapped
+                // a throwing call in `try`/`catch` therefore aborted the process
+                // on the first throw instead of running its `catch`.
+                //
+                // The shared throwing emitter is reused rather than copied so the
+                // closure and function paths cannot drift; `Continuation::Closure`
+                // is what routes its two continuations back into this emitter.
+                if let Some(handler) = unwind {
+                    return self.emit_throwing_call_terminator(
+                        callee,
+                        args,
+                        *dest,
+                        *target,
+                        *handler,
+                        &control_flow::Continuation::Closure {
+                            active: &active[..],
+                            stop,
+                            in_loop,
+                        },
+                        out,
+                    );
+                }
                 let local = self.local_decl(*dest)?;
                 let call_text = self.closure_call_text_for_dest(callee, args, local.ty)?;
                 let name = self.local_name(*dest)?;
@@ -1205,8 +1232,24 @@ impl FunctionEmitter<'_> {
                 future,
                 dest,
                 target,
-                unwind: _,
+                unwind,
             } => {
+                // Same fork as the `Call` arm above: awaiting a rejecting future
+                // inside a `try` must run the `catch`, not propagate with `?`.
+                if let Some(handler) = unwind {
+                    return self.emit_throwing_await_terminator(
+                        future,
+                        *dest,
+                        *target,
+                        *handler,
+                        &control_flow::Continuation::Closure {
+                            active: &active[..],
+                            stop,
+                            in_loop,
+                        },
+                        out,
+                    );
+                }
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
                 // `SmeltFuture<T>` and generated async function calls both
