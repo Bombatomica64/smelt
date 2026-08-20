@@ -10453,3 +10453,181 @@ export function outer(n: number): number {
         "the awaited value inside a `try` must not be propagated with `?`:\n{source}"
     );
 }
+
+/// A `try` around a call to a function-typed *parameter* must emit its handler.
+///
+/// `ExprKind::ClosureCall` took the unwind-carrying `Terminator::Call` form only
+/// when the callee type's `may_throw` was set. A callback parameter of unknown
+/// provenance has `may_throw == false` — yet the source wrapped the call in
+/// `try` precisely *because* its throw behaviour is not statically known — so
+/// the statement form was taken and the active exception handler was discarded
+/// outright. The `catch` clause did not merely mis-structure: it was absent, and
+/// the first throw aborted the process where JavaScript would have carried on.
+#[test]
+fn a_try_around_a_callback_parameter_call_emits_its_handler() {
+    let source = source_for(
+        r"
+export function guard(cb: (x: number) => string, v: number): string {
+  try {
+    return cb(v);
+  } catch {
+    return 'caught';
+  }
+}
+",
+    );
+
+    assert!(
+        source.contains("::std::panic::catch_unwind"),
+        "the callback call must carry an unwind edge:\n{source}"
+    );
+    assert!(
+        source.contains("return \"caught\".to_owned();"),
+        "the catch clause must be emitted:\n{source}"
+    );
+}
+
+/// A throwing call inside a *fallible* closure body keeps its `?`.
+///
+/// Adapting a throwing function into a callback slot wraps it in a closure whose
+/// Rust signature is `-> Result<T, Box<dyn std::error::Error>>`. The call inside
+/// that body was still rewritten from `?` to
+/// `unwrap_or_else(|error| panic!(..))`, which turned a recoverable JavaScript
+/// exception into an abort even though the enclosing signature could carry it.
+/// The `panic!` belongs only where the surrounding Rust signature genuinely
+/// cannot carry an error.
+#[test]
+fn a_throwing_call_in_a_fallible_closure_body_propagates_with_question_mark() {
+    let source = source_for(
+        r"
+function thrower(x: number): string {
+  if (x > 0) { throw new Error('boom'); }
+  return 'ok';
+}
+export function guard(cb: (x: number) => string, v: number): string {
+  try {
+    return cb(v);
+  } catch {
+    return 'caught';
+  }
+}
+export function useIt(): string {
+  return guard(thrower, 1);
+}
+",
+    );
+
+    assert!(
+        source.contains("thrower(closure_arg_0.clone())?"),
+        "the fallible wrapper closure must propagate the throw:\n{source}"
+    );
+    assert!(
+        !source.contains("thrower(closure_arg_0.clone()).unwrap_or_else"),
+        "a fallible closure body must not abort on a recoverable throw:\n{source}"
+    );
+}
+
+/// An erased-rest callback parameter bound to a local agrees with its call ABI.
+///
+/// `const g = cb` binds the parameter to a local whose Rust type is the owned
+/// `SmeltErasedFunction` struct, whose callback field is a `'static`
+/// `Rc<dyn Fn(Vec<SmeltUnknown>) -> SmeltUnknown>`. Wrapping the borrowed
+/// parameter in a bare `Rc::new(move |arg0| cb(arg0))` produced a value that was
+/// *not* that struct while the call site still used the erased `.call(..)` ABI —
+/// an E0658 (`fn_traits`) plus an E0308 in the generated crate. The parameter
+/// must therefore enter owned, so the value and its ABI agree.
+#[test]
+fn an_erased_rest_callback_parameter_bound_to_a_local_enters_owned() {
+    let source = source_for(
+        r"
+export function viaLocal(cb: (...args: unknown[]) => unknown): unknown {
+  const g = cb;
+  return g(3);
+}
+",
+    );
+
+    assert!(
+        source.contains("fn via_local(cb: SmeltErasedFunction)"),
+        "a parameter bound to an erased handle local must enter owned:\n{source}"
+    );
+    assert!(
+        source.contains("g.call("),
+        "the erased handle keeps the inherent call ABI:\n{source}"
+    );
+    assert!(
+        !source.contains("::std::rc::Rc::new(move |arg0: SmeltList<SmeltUnknown>| cb(arg0))"),
+        "the borrowed-handle wrapper disagrees with the erased call ABI:\n{source}"
+    );
+}
+
+/// Both indirect-call forms answer the erased-rest ABI question the same way.
+///
+/// `Rvalue::ClosureCall` (statement form) had an explicit precedence ladder —
+/// function-parameter place, function-parameter name, borrowed callback capture,
+/// *then* erased-rest — while `call_text`'s `Callee::Indirect` (terminator form)
+/// had none and emitted `.call(..)` for any erased-rest callee type. Routing a
+/// call from one form to the other therefore flipped its ABI: a borrowed
+/// `&dyn Fn` parameter is not the `SmeltErasedFunction` struct, so `.call(..)` on
+/// it resolves to the unstable `Fn::call` trait method (E0658). One helper,
+/// `callee_uses_erased_call_method`, now answers for both.
+#[test]
+fn a_borrowed_erased_rest_parameter_is_called_directly_in_both_forms() {
+    let source = source_for(
+        r"
+export function guardedErased(cb: (...args: unknown[]) => unknown): unknown {
+  try {
+    return cb(1);
+  } catch {
+    return 'caught';
+  }
+}
+export function plainErased(cb: (...args: unknown[]) => unknown): unknown {
+  return cb(2);
+}
+",
+    );
+
+    assert!(
+        source.contains("fn guarded_erased(cb: &dyn Fn(SmeltList<SmeltUnknown>) -> SmeltUnknown)"),
+        "a borrowed erased-rest parameter stays a bare handle:\n{source}"
+    );
+    assert!(
+        source.contains("(cb)(_smelt_tmp_1)"),
+        "the terminator form must invoke the borrowed handle directly:\n{source}"
+    );
+    assert!(
+        !source.contains("cb.call(") && !source.contains("(cb).call("),
+        "a borrowed `&dyn Fn` must never take the inherent erased call ABI:\n{source}"
+    );
+}
+
+/// A borrowed callback parameter renders its return through the canonical
+/// function-value logic.
+///
+/// `param_type_text` re-derived the return type instead of sharing the
+/// `Type::Function` arm's refinements, so the Rust type of a borrowed callback
+/// could disagree with the Rust type of the very value bound to it. Both now
+/// call `function_value_return_type_text`: a `Future` return is the promise
+/// value `SmeltFuture<T>` (an async throw is a rejected future, so no outer
+/// `Result` is added), and `may_throw` otherwise wraps the return in
+/// `Result<T, Box<dyn std::error::Error>>`.
+#[test]
+fn a_borrowed_callback_parameter_renders_a_future_return_as_a_promise_value() {
+    let source = source_for(
+        r"
+export function fireAndForget(cb: () => Promise<string>): void {
+  cb();
+}
+",
+    );
+
+    assert!(
+        source.contains("fn fire_and_forget(cb: &dyn Fn() -> SmeltFuture<String>)"),
+        "a borrowed callback's future return is the promise value:\n{source}"
+    );
+    assert!(
+        !source.contains("Result<SmeltFuture<String>"),
+        "an async throw is a rejected future, not an outer Result:\n{source}"
+    );
+}

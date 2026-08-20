@@ -594,7 +594,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 11] = [
+    const BOUNDARY_MARKERS: [&str; 12] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         "IntoSmeltUnknown",
@@ -618,6 +618,22 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // type, generated union arm, or scoped generic can express that.
         "smelt_throw(",
         "smelt_thrown_value(",
+        // The panic-recovery exception payload
+        // (`crates/smelt-codegen-rust/src/thrown.rs`,
+        // `panic_payload_record_expr`). When a call inside a `try` is not
+        // statically known to throw, its handler is emitted as a
+        // `catch_unwind`; the recovered panic message has no Smelt payload, so
+        // the value the `catch` observes is rebuilt as the branded `Error`
+        // record `{ __smelt_error: "Error", message }` — the SAME record
+        // `smelt_thrown_value` synthesizes for a foreign error, whose ABI is
+        // already a boundary above. `throw` accepts any JavaScript value and a
+        // `catch` binding has no static type (TypeScript types it `unknown`), so
+        // no concrete struct, generated union arm, or scoped generic can carry
+        // it. Matching the *message binding* rather than the record shape keeps
+        // this to the recovery site: an ordinary `new Error(msg)` record built
+        // from program values is unaffected and stays classified as it was.
+        // Proven in `panic_recovery_payload_is_a_boundary` below.
+        "SmeltUnknown::String(__smelt_error)",
         // `.slice()` on an erased receiver (a generic `T` / `unknown` value that
         // may be an array, string, or a typed-array/array-buffer marker at
         // runtime) emits a `smelt_slice_value` tag match that dispatches on the
@@ -836,6 +852,34 @@ fn escape_cell(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The panic-recovery exception payload is a dynamic boundary, and the
+    /// marker does not swallow ordinary error-record construction.
+    ///
+    /// A `catch` binding has no static type — TypeScript types it `unknown` —
+    /// and the payload is rebuilt from a recovered panic message, so no concrete
+    /// struct, generated union arm, or scoped generic can represent it: the
+    /// branch that produced the panic is only known at run time. Only the
+    /// recovery site's `__smelt_error` *message binding* is matched, so an
+    /// `Error` record built from program values keeps whatever classification it
+    /// had.
+    #[test]
+    fn panic_recovery_payload_is_a_boundary() {
+        let recovery = "            let e = SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])));";
+        assert_eq!(
+            classify_line(recovery, false),
+            Category::LegitimateBoundary,
+            "the recovered panic payload is the exception ABI, not program storage"
+        );
+        // The same record shape built from a program value (a source
+        // `new Error(message)`) is NOT reclassified by this marker.
+        let program_error = "            let e = SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(message.clone()))])));";
+        assert_eq!(
+            classify_line(program_error, false),
+            Category::AvoidableErasure,
+            "an Error record built from program values keeps its classification"
+        );
+    }
 
     /// Counting is non-overlapping and handles repeats on one line.
     #[test]

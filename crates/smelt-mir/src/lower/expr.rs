@@ -2236,7 +2236,37 @@ impl LoweringCtx<'_> {
                     ),
                     _ => false,
                 };
-                if inner_throws {
+                // A callee whose value is a promise does not reject at the call:
+                // an async function returns its future normally and the rejection
+                // surfaces at the `await`, which has its own unwind edge (see the
+                // `ExprKind::Await` arm). Routing it through the terminator form
+                // would attach the handler to the wrong point.
+                let callee_returns_future = |ty| {
+                    matches!(
+                        self.krate.types.get(ty),
+                        Some(Type::Function(function))
+                            if function.is_async
+                                || matches!(
+                                    self.krate.types.get(function.return_ty),
+                                    Some(Type::Future(_))
+                                )
+                    )
+                };
+                let callee_is_async = match self.krate.types.get(callee_ty) {
+                    Some(Type::Optional(inner)) => callee_returns_future(*inner),
+                    _ => callee_returns_future(callee_ty),
+                };
+                // Whenever a `try` is active the call needs the unwind-carrying
+                // terminator form, not only when the callee type is statically
+                // known to throw. A callback parameter of unknown provenance has
+                // `may_throw == false` — yet the source wrapped the call in `try`
+                // precisely *because* its throw behaviour is not statically
+                // known. Taking the statement form there discarded the active
+                // handler outright, so `try { cb(..) } catch { .. }` could never
+                // observe a callback throw.
+                let needs_unwind_edge =
+                    !callee_is_async && self.current_exception_handler().is_some();
+                if inner_throws || needs_unwind_edge {
                     let target = self.function.push_block(expr.span);
                     self.set_terminator(Terminator::Call {
                         callee: Callee::Indirect(callee_operand),

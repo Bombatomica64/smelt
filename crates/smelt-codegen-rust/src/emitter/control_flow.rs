@@ -991,7 +991,13 @@ impl FunctionEmitter<'_> {
                 let exception_decl = self.local_decl(exception_local)?;
                 let value = match self.mir.types.get(exception_decl.ty) {
                     Some(Type::String) => "__smelt_error".to_owned(),
-                    Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])))".to_owned(),
+                    // The recovered panic message is presented through the
+                    // shared exception-payload record (see
+                    // `thrown::panic_payload_record_expr` for why this is a real
+                    // dynamic boundary rather than avoidable erasure).
+                    Some(Type::Unknown) => {
+                        crate::thrown::panic_payload_record_expr("__smelt_error")
+                    }
                     _ => self.default_value(exception_decl.ty)?,
                 };
                 out.push_str(&format!("            let {exception_name} = {value};\n"));
@@ -1051,7 +1057,11 @@ impl FunctionEmitter<'_> {
             let exception_decl = self.local_decl(exception_local)?;
             let value = match self.mir.types.get(exception_decl.ty) {
                 Some(Type::String) => "__smelt_error".to_owned(),
-                Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])))".to_owned(),
+                // Same exception-payload record as the sibling call terminator;
+                // see `thrown::panic_payload_record_expr`.
+                Some(Type::Unknown) => {
+                    crate::thrown::panic_payload_record_expr("__smelt_error")
+                }
                 _ => self.default_value(exception_decl.ty)?,
             };
             out.push_str(&format!("            let {exception_name} = {value};\n"));

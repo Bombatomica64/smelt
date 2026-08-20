@@ -86,6 +86,30 @@ pub(crate) fn thrown_value_expr(error_text: &str) -> String {
     format!("{THROWN_VALUE_FN}(&*{error_text})")
 }
 
+/// Renders the erased `Error` record a caught *panic* is presented as.
+///
+/// `message_text` names a binding holding the recovered panic message. A Rust
+/// `panic!` carries no Smelt payload, so the value a `catch` observes is rebuilt
+/// as the same branded `Error` record `smelt_thrown_value` synthesizes for a
+/// foreign error: `{ __smelt_error: "Error", message }`.
+///
+/// **Dynamic boundary.** This record is the exception-payload ABI, not program
+/// storage: `throw` accepts any JavaScript value and a `catch` binding has no
+/// static type (TypeScript types it `unknown`), so no concrete struct, generated
+/// union arm, or scoped generic can stand in for it — the payload's shape is
+/// only known at run time, on the run-time branch that produced it. This is the
+/// documented boundary behind the `SmeltUnknown::String({message})` marker in
+/// `crates/smelt-transpiler/src/unknown_report.rs`, which classifies these lines
+/// as `legitimate-boundary` rather than avoidable erasure; the regression test
+/// `panic_recovery_payload_is_a_boundary` there covers the classification, and
+/// `thrown_tests::one_channel_carries_structurally_unrelated_payloads` covers
+/// the ABI itself.
+pub(crate) fn panic_payload_record_expr(message_text: &str) -> String {
+    format!(
+        "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String({message_text}))])))"
+    )
+}
+
 /// Emits the exception-payload ABI into the generated runtime prelude.
 ///
 /// Only called from inside the prelude's `needs_unknown` region: the payload is
@@ -134,6 +158,7 @@ pub(crate) fn emit_thrown_payload_support(writer: &mut CodeWriter) {
     writer.line("/// record built from its `Display` text -- the shape a `catch` saw before the");
     writer.line("/// payload ABI existed.");
     writer.line(format!(
-        "fn {THROWN_VALUE_FN}(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown {{ if let Some(thrown) = error.downcast_ref::<{THROWN_TYPE}>() {{ return thrown.value.clone(); }} SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(error.to_string()))]))) }}"
+        "fn {THROWN_VALUE_FN}(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown {{ if let Some(thrown) = error.downcast_ref::<{THROWN_TYPE}>() {{ return thrown.value.clone(); }} {} }}",
+        panic_payload_record_expr("error.to_string()")
     ));
 }
