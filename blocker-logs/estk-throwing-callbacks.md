@@ -174,3 +174,80 @@ Lifting it means moving callback parameters from `&dyn Fn(..)` to `F: Fn(..)`,
 which changes every callback-parameter signature in the corpus. That is a separate
 feature with its own validation, tracked here as the next step rather than folded
 into this PR.
+
+## Outcome (implemented)
+
+All five steps landed. What each one turned into:
+
+1. **`param_type_text`** now renders its return through a new shared helper,
+   `FunctionEmitter::function_value_return_type_text`, which is also the only
+   return-type logic left in the canonical `Type::Function` arm. The two sites
+   can no longer drift. Note the honest limitation: no TypeScript source shape
+   currently produces a *borrowed* callback parameter whose MIR type carries
+   `may_throw` (the frontend hard-codes `may_throw: false` for a declared
+   callback type; `may_throw` arrives either from body analysis on a real
+   function, from the MIR closure-widening pass on a *local*, or from
+   specialization's `materialized_static_type` — and a specialized callback
+   parameter is not reachable while `function_emits_rust_generics` refuses
+   generics through callbacks, see "Deliberately out of scope"). The `may_throw`
+   arm of the helper is therefore an invariant guard today, and the reachable
+   half of Symptom 1 — the `panic!` inside the *fallible adapter closure* — is
+   what step 2 fixed.
+2. **The panicking adapters.** The three callback adapters in `core.rs`
+   (`function_shape_adapter_text`, `rest_vector_function_adapter_text`,
+   `rendered_function_shape_adapter_text`) already propagated with `?` when the
+   target callback position also `may_throw`. Two call sites did not and now do:
+   `Rvalue::ClosureCall` (`call_runtime.rs`) and `closure_call_text_for_dest`
+   (`call.rs`), both gated on the new `body_can_propagate_error()` — the
+   enclosing emitted body returns a `Result` and is not a generator. The `panic!`
+   remains where the target genuinely cannot carry an error: the erased
+   `SmeltErasedFunction` callback field (`Vec<SmeltUnknown> -> SmeltUnknown`),
+   and the `Option::map(|f| ..)` closures of the optional-callee paths.
+3. **The owned erased-rest handle.** `borrowed_function_handle_text` could not be
+   the fix: `SmeltErasedFunction::callback` is an
+   `Rc<dyn Fn(Vec<SmeltUnknown>) -> SmeltUnknown>`, i.e. a `'static` trait
+   object, so a *borrowed* `&dyn Fn` can never be wrapped into one. The general
+   fix is one step earlier, in the ownership analysis: a callback parameter bound
+   to a local whose Rust type is the erased-rest struct now counts as escaping
+   (`bound_to_erased_handle` in `compute_owned_callback_params`), so the
+   parameter enters owned as `SmeltErasedFunction` and `g.call(..)` matches the
+   value. The predicate is shared with the renderer through the new free function
+   `is_erased_unknown_rest_function_in`.
+4. **One authoritative ABI helper.** `callee_uses_erased_call_method` (plus its
+   companion `callee_is_borrowed_function_handle`) now answers "does this
+   callee's emitted Rust value carry the inherent `SmeltErasedFunction::call`
+   method?" for all three call-emitting sites: `Rvalue::ClosureCall`,
+   `Rvalue::ClosureCallSpread`, and `call_text`'s `Callee::Indirect`. Nothing was
+   reimplemented in MIR. `Callee::Indirect` also had to learn the rest-vector
+   argument packing the statement form already had, since a borrowed erased-rest
+   parameter now reaches it.
+5. **`ExprKind::ClosureCall`** takes the `Terminator::Call` form whenever an
+   exception handler is active, excluding an async callee (its rejection surfaces
+   at the `await`, which has its own unwind edge).
+
+### SmeltUnknown delta (a justified rise, not a fall)
+
+es-toolkit avoidable erasure went 35403 -> 35411 (+8); the baseline was
+re-snapshotted in the same commit. Every new occurrence is inside a `catch`
+clause that *previously was not emitted at all* — this change is what makes that
+code reachable — and every one of them handles a caught exception value, which
+TypeScript types `unknown`:
+
+| Occurrences | Shape |
+| ---: | --- |
+| 6 | the panic-recovery payload record, `SmeltUnknown::String(__smelt_error)` |
+| 2 | `SmeltUnknown::Array(vec![error.clone(), SmeltUnknown::Null])` (`attempt`'s `[error, null]`) |
+| 2 | `let mut _smelt_tmp_N: SmeltUnknown = SmeltUnknown::Null;` (the catch result temp) |
+| 2 | `SmeltRecord::from([.., SmeltUnknown::String(_smelt_tmp_N)])` |
+| 1 | `matches!(e.clone(), SmeltUnknown::Object(value) if value.contains_key(..))` |
+| 1 | `SmeltUnknown::Object(SmeltObject::from_unknown_record(..))` |
+
+The first 6 were reclassified as `legitimate-boundary`: they are the
+exception-payload ABI, identical to the record `smelt_thrown_value` synthesizes
+for a foreign error, which was already a boundary. The emit site is documented
+(`thrown::panic_payload_record_expr`, which also deduplicates the three copies of
+that record text) and the classification is covered by
+`unknown_report::tests::panic_recovery_payload_is_a_boundary`. The remaining 8
+are ordinary `catch`-body statements on a statically-`unknown` caught value; the
+scanner is textual and cannot see that source type, so they stay classified as
+avoidable rather than being papered over with a broader marker.

@@ -994,18 +994,29 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("indirect call target is not a function"));
                 };
                 let callee_text = self.operand_text(indirect_callee)?;
-                // An erased-unknown-rest callable value (e.g. an untyped
+                // An erased-unknown-rest callable *value* (e.g. an untyped
                 // `vi.fn()` spy) lowers to `SmeltErasedFunction`, whose call ABI
                 // is the `.call(vec![..])` method over an erased argument vector,
-                // not a direct `(f)(args)` invocation. Route the call through that
-                // method and erase every argument to `SmeltUnknown`.
-                if self.is_erased_unknown_rest_function(function) && !function.may_throw {
+                // not a direct `(f)(args)` invocation. The same MIR type bound to
+                // a borrowed callback parameter is emitted as a bare `&dyn Fn`
+                // instead, so the question is delegated to the one authority
+                // (`callee_uses_erased_call_method`) that `Rvalue::ClosureCall`
+                // also consults — otherwise moving a call between the statement
+                // and terminator forms would flip its ABI.
+                if self.callee_uses_erased_call_method(indirect_callee)? {
                     return Ok(format!(
                         "({callee_text}).call({})",
                         self.erased_call_args_text(args)?
                     ));
                 }
-                let rendered_args = self.indirect_call_args_text(function, args)?;
+                // A rest-only callee invoked with positional arguments takes them
+                // packed into its single rest `SmeltList` parameter; without this
+                // the per-parameter mapping below would report "too many
+                // arguments".
+                let rendered_args = match self.rest_vector_call_args_text(args, Some(function))? {
+                    Some(packed) => packed.join(", "),
+                    None => self.indirect_call_args_text(function, args)?,
+                };
                 let suffix = if function.may_throw { "?" } else { "" };
                 Ok(format!("({callee_text})({rendered_args}){suffix}"))
             }
@@ -1964,7 +1975,15 @@ impl FunctionEmitter<'_> {
             return Ok(call_text);
         }
         let mut call_text = self.call_text(callee, args)?;
-        if let Some(stripped) = call_text.strip_suffix('?') {
+        // A closure body that is itself fallible returns
+        // `Result<_, Box<dyn std::error::Error>>`, so a throwing call inside it
+        // keeps its `?` and the error stays recoverable for whoever invokes the
+        // callback. Only a closure whose Rust signature genuinely cannot carry
+        // an error (a non-throwing body, or a generator whose `?` would target
+        // the step output) collapses the error into a `panic!`.
+        if let Some(stripped) = call_text.strip_suffix('?')
+            && !self.body_can_propagate_error()
+        {
             call_text = format!("{stripped}.unwrap_or_else(|error| panic!(\"{{}}\", error))");
         }
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
