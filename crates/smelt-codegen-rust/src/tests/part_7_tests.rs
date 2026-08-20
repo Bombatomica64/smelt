@@ -10542,7 +10542,15 @@ fn an_erased_rest_callback_parameter_bound_to_a_local_enters_owned() {
         r"
 export function viaLocal(cb: (...args: unknown[]) => unknown): unknown {
   const g = cb;
-  return g(3);
+  return g(3, 4);
+}
+export function guardedViaLocal(cb: (...args: unknown[]) => unknown): unknown {
+  const g = cb;
+  try {
+    return g(3, 4);
+  } catch {
+    return 'caught';
+  }
 }
 ",
     );
@@ -10554,6 +10562,21 @@ export function viaLocal(cb: (...args: unknown[]) => unknown): unknown {
     assert!(
         source.contains("g.call("),
         "the erased handle keeps the inherent call ABI:\n{source}"
+    );
+    // Arity: `SmeltErasedFunction::call` takes the ARGUMENT VECTOR, while
+    // lowering hands the emitter the rest-packed `SmeltList` standing for all
+    // N source arguments. Nesting that list as a single vector element calls the
+    // callback with one array argument instead of two — it compiles and silently
+    // passes the wrong arity, so the packed list must be handed over as the
+    // vector itself. Both call forms must render the same argument text.
+    assert_eq!(
+        source.matches(".call(_smelt_tmp_2)").count(),
+        2,
+        "both call forms pass the packed argument list as the argument vector:\n{source}"
+    );
+    assert!(
+        !source.contains(".call(vec![SmeltUnknown::Array("),
+        "the rest-packed argument list must not become one array argument:\n{source}"
     );
     assert!(
         !source.contains("::std::rc::Rc::new(move |arg0: SmeltList<SmeltUnknown>| cb(arg0))"),
