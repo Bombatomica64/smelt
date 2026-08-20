@@ -1,5 +1,21 @@
 if i need to tell you something multiple time put it here
 
+## Project scope (north star)
+the guiding question for every design decision is: **what if a team of engineers was rewriting this
+TypeScript/Python codebase in Rust by hand?** That is the bar the output is judged against, not
+"does it run".
+
+A hand-writing Rust team would give a value the most precise type the source supports and carry that
+type all the way down to runtime. They would reach for a concrete struct/enum first, then a generic
+`T` with trait bounds when the code is genuinely polymorphic, then `dyn Trait` when they need
+dynamic dispatch — and only at a real dynamic boundary would they reach for a tagged runtime value.
+So: types correct all the way down to runtime, as few `SmeltUnknown`s as possible, and prefer
+`T: Trait` over erasure whenever the shape is knowable. See "SmeltUnknown boundaries" below for how
+that principle is enforced.
+
+They would also not special-case: a rule that only fires for one library's spelling is a rule they
+would refuse to merge. See "Type lowering".
+
 
 ## always run
 Tight loop (fast — `--lib` skips compiling the ~40k lines of inline tests in
