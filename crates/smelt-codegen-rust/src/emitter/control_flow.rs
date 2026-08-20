@@ -24,6 +24,35 @@ thread_local! {
     static LAST_EMIT_DIVERGED: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Describes how the successor blocks of a terminator must be rendered.
+///
+/// Structured emission has exactly two contexts. At the top level a successor is
+/// simply the next region and is emitted with [`FunctionEmitter::emit_block`].
+/// Inside a generated Rust `loop`, the same successor may instead be the loop
+/// header — a back edge, which must render as `continue` — or the loop's exit
+/// block, which must render as `break`.
+///
+/// The throwing-call and throwing-`await` emitters used to hardcode the
+/// top-level choice for their `Ok`/`Err` continuations. A `try`/`catch` in a loop
+/// body reaches the loop header from inside those match arms, so hardcoding
+/// `emit_block` there re-emitted the whole loop header and body inside the arm,
+/// recursively, until the [`EMIT_BLOCK_DEPTH`] cap replaced the tail with a
+/// default return. Threading this enum through instead is what turns those back
+/// edges into `continue`.
+pub(super) enum Continuation<'a> {
+    /// Emit the successor as an ordinary structured region.
+    Block,
+    /// Emit the successor as part of the body of an enclosing generated `loop`.
+    InLoop {
+        /// The loop header; an edge to it is a back edge and renders as `continue`.
+        continue_target: smelt_mir::BlockId,
+        /// The loop's exit block; an edge to it renders as `break`.
+        break_target: Option<smelt_mir::BlockId>,
+        /// Blocks already rendered on the current path, to stop unstructured cycles.
+        visited: &'a BlockIdSet,
+    },
+}
+
 /// Records whether the most recently emitted terminator diverges.
 pub(super) fn set_last_emit_diverged(diverged: bool) {
     LAST_EMIT_DIVERGED.with(|cell| cell.set(diverged));
@@ -579,7 +608,13 @@ impl FunctionEmitter<'_> {
             } => {
                 if let Some(handler) = unwind {
                     return self.emit_throwing_call_terminator(
-                        callee, args, *dest, *target, *handler, out,
+                        callee,
+                        args,
+                        *dest,
+                        *target,
+                        *handler,
+                        &Continuation::Block,
+                        out,
                     );
                 }
                 self.emit_call_terminator_statement(callee, args, *dest, out)?;
@@ -592,31 +627,16 @@ impl FunctionEmitter<'_> {
                 unwind,
             } => {
                 if let Some(handler) = unwind {
-                    return self
-                        .emit_throwing_await_terminator(future, *dest, *target, *handler, out);
+                    return self.emit_throwing_await_terminator(
+                        future,
+                        *dest,
+                        *target,
+                        *handler,
+                        &Continuation::Block,
+                        out,
+                    );
                 }
-                let local = self.local_decl(*dest)?;
-                let name = self.local_name(*dest)?;
-                let mutability = if self.local_binding_needs_mut(*dest) {
-                    "mut "
-                } else {
-                    ""
-                };
-                let raw_value = format!("{}.await?", self.await_operand_text(future)?);
-                let source_ty = self.awaited_output_ty(future)?;
-                let value = self.value_at_type_text(&raw_value, source_ty, local.ty)?;
-                if matches!(
-                    self.mir.types.get(local.ty),
-                    Some(Type::Future(_) | Type::Function(_))
-                ) {
-                    out.push_str(&format!("    let {mutability}{name} = {value};\n"));
-                } else {
-                    out.push_str(&format!(
-                        "    let {mutability}{name}: {} = {value};\n",
-                        self.type_text_with_impl_trait(local.ty, false)?
-                    ));
-                }
-                self.mark_local_declared(*dest);
+                self.emit_await_terminator_statement(future, *dest, out)?;
                 self.emit_block(self.block(*target)?, out)
             }
             Terminator::Switch {
@@ -793,6 +813,86 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
+    /// Emits the region reached after a terminator, honoring loop context.
+    ///
+    /// This is the single place that decides whether an edge is an inline region,
+    /// a `continue`, or a `break`, so the throwing-call and throwing-`await`
+    /// emitters behave identically at the top level and inside a loop body.
+    fn emit_continuation(
+        &self,
+        target: smelt_mir::BlockId,
+        continuation: &Continuation<'_>,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        match continuation {
+            Continuation::Block => self.emit_block(self.block(target)?, out),
+            Continuation::InLoop {
+                continue_target,
+                break_target,
+                visited,
+            } => {
+                if target == *continue_target {
+                    out.push_str("    continue;\n");
+                    set_last_emit_diverged(true);
+                    return Ok(());
+                }
+                if Some(target) == *break_target {
+                    out.push_str("    break;\n");
+                    set_last_emit_diverged(true);
+                    return Ok(());
+                }
+                // Each arm of the emitted `match` is its own path, so it gets its
+                // own copy of the visited set: a join block legitimately reached
+                // from both the `Ok` and the `Err` arm is not a cycle, and sharing
+                // one set would make the second arm collapse to a wrong `continue`.
+                self.emit_loop_branch_inner(
+                    self.block(target)?,
+                    *continue_target,
+                    *break_target,
+                    out,
+                    &mut (*visited).clone(),
+                )
+            }
+        }
+    }
+
+    /// Emits the binding part of a non-throwing `await` without following it.
+    ///
+    /// Extracted from [`Self::emit_terminator`] so the loop-body emitters can
+    /// bind the awaited value and then continue in loop context instead of
+    /// delegating to `emit_terminator`, which would emit the successor region as
+    /// a fresh top-level block and lose the surrounding loop's back edge.
+    fn emit_await_terminator_statement(
+        &self,
+        future: &Operand,
+        dest: LocalId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let local = self.local_decl(dest)?;
+        let name = self.local_name(dest)?;
+        let mutability = if self.local_binding_needs_mut(dest) {
+            "mut "
+        } else {
+            ""
+        };
+        let raw_value = format!("{}.await?", self.await_operand_text(future)?);
+        let source_ty = self.awaited_output_ty(future)?;
+        let value = self.value_at_type_text(&raw_value, source_ty, local.ty)?;
+        if matches!(
+            self.mir.types.get(local.ty),
+            Some(Type::Future(_) | Type::Function(_))
+        ) {
+            out.push_str(&format!("    let {mutability}{name} = {value};\n"));
+        } else {
+            out.push_str(&format!(
+                "    let {mutability}{name}: {} = {value};\n",
+                self.type_text_with_impl_trait(local.ty, false)?
+            ));
+        }
+        self.mark_local_declared(dest);
+        Ok(())
+    }
+
     /// Emits a throwing call with explicit normal and exception continuations.
     fn emit_throwing_call_terminator(
         &self,
@@ -801,6 +901,7 @@ impl FunctionEmitter<'_> {
         dest: LocalId,
         target: smelt_mir::BlockId,
         handler: smelt_mir::ExceptionHandler,
+        continuation: &Continuation<'_>,
         out: &mut String,
     ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
@@ -844,7 +945,7 @@ impl FunctionEmitter<'_> {
                 }
             }
             self.mark_local_declared(dest);
-            self.emit_block(self.block(target)?, out)?;
+            self.emit_continuation(target, continuation, out)?;
             out.push_str("        }\n");
             out.push_str("        Err(__smelt_panic) => {\n");
             out.push_str("            let __smelt_error = if let Some(message) = __smelt_panic.downcast_ref::<String>() { message.clone() } else if let Some(message) = __smelt_panic.downcast_ref::<&'static str>() { (*message).to_owned() } else { \"JavaScript exception\".to_owned() };\n");
@@ -859,7 +960,7 @@ impl FunctionEmitter<'_> {
                 out.push_str(&format!("            let {exception_name} = {value};\n"));
                 self.mark_local_declared(exception_local);
             }
-            self.emit_block(self.block(handler.catch_block)?, out)?;
+            self.emit_continuation(handler.catch_block, continuation, out)?;
             out.push_str("        }\n");
             out.push_str("    }\n");
             return Ok(());
@@ -890,7 +991,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         self.mark_local_declared(dest);
-        self.emit_block(self.block(target)?, out)?;
+        self.emit_continuation(target, continuation, out)?;
         out.push_str("        }\n");
         out.push_str("        Ok(Err(__smelt_error)) => {\n");
         if let Some(exception_local) = handler.exception_local {
@@ -904,7 +1005,7 @@ impl FunctionEmitter<'_> {
             out.push_str(&format!("            let {exception_name} = {value};\n"));
             self.mark_local_declared(exception_local);
         }
-        self.emit_block(self.block(handler.catch_block)?, out)?;
+        self.emit_continuation(handler.catch_block, continuation, out)?;
         out.push_str("        }\n");
         out.push_str("        Err(__smelt_panic) => {\n");
         out.push_str("            let __smelt_error = if let Some(message) = __smelt_panic.downcast_ref::<String>() { message.clone() } else if let Some(message) = __smelt_panic.downcast_ref::<&'static str>() { (*message).to_owned() } else { \"JavaScript exception\".to_owned() };\n");
@@ -919,7 +1020,7 @@ impl FunctionEmitter<'_> {
             out.push_str(&format!("            let {exception_name} = {value};\n"));
             self.mark_local_declared(exception_local);
         }
-        self.emit_block(self.block(handler.catch_block)?, out)?;
+        self.emit_continuation(handler.catch_block, continuation, out)?;
         out.push_str("        }\n");
         out.push_str("    }\n");
         Ok(())
@@ -932,6 +1033,7 @@ impl FunctionEmitter<'_> {
         dest: LocalId,
         target: smelt_mir::BlockId,
         handler: smelt_mir::ExceptionHandler,
+        continuation: &Continuation<'_>,
         out: &mut String,
     ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
@@ -969,7 +1071,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         self.mark_local_declared(dest);
-        self.emit_block(self.block(target)?, out)?;
+        self.emit_continuation(target, continuation, out)?;
         out.push_str("        }\n");
         out.push_str("        Err(__smelt_error) => {\n");
         // A rejected future carries the same error channel as a throwing call, so
@@ -984,7 +1086,7 @@ impl FunctionEmitter<'_> {
             out.push_str(&format!("            let {exception_name} = {value};\n"));
             self.mark_local_declared(exception_local);
         }
-        self.emit_block(self.block(handler.catch_block)?, out)?;
+        self.emit_continuation(handler.catch_block, continuation, out)?;
         out.push_str("        }\n");
         out.push_str("    }\n");
         Ok(())
@@ -1599,12 +1701,42 @@ impl FunctionEmitter<'_> {
                     )
                 }
             }
-            Some(Terminator::Call { target, .. }) => self.block_exits_to_loop(
-                self.block(*target)?,
-                continue_target,
-                break_target,
-                visited,
-            ),
+            Some(
+                Terminator::Call {
+                    target, unwind, ..
+                }
+                | Terminator::Await {
+                    target, unwind, ..
+                },
+            ) => {
+                // A throwing call and an `await` both fork: the normal edge and,
+                // when the region sits inside a `try`, the handler edge. Both are
+                // real successors, so the block only exits to the loop when both
+                // do — the same rule the `Match` arm below applies.
+                //
+                // `Await` was previously absent from this match and fell into the
+                // `_ => Ok(false)` catch-all, so any loop body containing an
+                // `await` failed `while_header` recognition outright and was
+                // emitted as a straight-line region whose back edge re-inlined
+                // the loop header until the recursion cap tripped.
+                if !self.block_exits_to_loop(
+                    self.block(*target)?,
+                    continue_target,
+                    break_target,
+                    visited,
+                )? {
+                    Ok(false)
+                } else if let Some(handler) = unwind {
+                    self.block_exits_to_loop(
+                        self.block(handler.catch_block)?,
+                        continue_target,
+                        break_target,
+                        visited,
+                    )
+                } else {
+                    Ok(true)
+                }
+            }
             Some(Terminator::Switch {
                 then_block,
                 else_block,
@@ -2096,8 +2228,29 @@ impl FunctionEmitter<'_> {
                 args,
                 dest,
                 target,
-                unwind: _,
+                unwind,
             }) => {
+                // A `try`/`catch` around the call is a real fork of the loop body,
+                // so it has to be emitted here rather than dropped. Ignoring
+                // `unwind` used to emit the call through the plain `?` template,
+                // which silently discarded the `catch` block: a `for` loop
+                // wrapping `try { return f(i); } catch {}` propagated the first
+                // error out of the function instead of retrying.
+                if let Some(handler) = unwind {
+                    return self.emit_throwing_call_terminator(
+                        callee,
+                        args,
+                        *dest,
+                        *target,
+                        *handler,
+                        &Continuation::InLoop {
+                            continue_target: stop,
+                            break_target,
+                            visited,
+                        },
+                        out,
+                    );
+                }
                 self.emit_call_terminator_statement(callee, args, *dest, out)?;
                 self.emit_block_until_goto_inner(
                     self.block(*target)?,
@@ -2107,8 +2260,34 @@ impl FunctionEmitter<'_> {
                     visited,
                 )
             }
-            Some(terminator @ Terminator::Await { .. }) => {
-                self.emit_terminator(block.id, terminator, out)
+            Some(Terminator::Await {
+                future,
+                dest,
+                target,
+                unwind,
+            }) => {
+                if let Some(handler) = unwind {
+                    return self.emit_throwing_await_terminator(
+                        future,
+                        *dest,
+                        *target,
+                        *handler,
+                        &Continuation::InLoop {
+                            continue_target: stop,
+                            break_target,
+                            visited,
+                        },
+                        out,
+                    );
+                }
+                self.emit_await_terminator_statement(future, *dest, out)?;
+                self.emit_block_until_goto_inner(
+                    self.block(*target)?,
+                    stop,
+                    break_target,
+                    out,
+                    visited,
+                )
             }
             Some(Terminator::Switch {
                 cond,
@@ -2201,8 +2380,25 @@ impl FunctionEmitter<'_> {
                 args,
                 dest,
                 target,
-                unwind: _,
+                unwind,
             }) => {
+                // Same fork as in `emit_block_until_goto_inner`: the handler edge
+                // must be rendered, and both edges continue inside this loop.
+                if let Some(handler) = unwind {
+                    return self.emit_throwing_call_terminator(
+                        callee,
+                        args,
+                        *dest,
+                        *target,
+                        *handler,
+                        &Continuation::InLoop {
+                            continue_target,
+                            break_target,
+                            visited,
+                        },
+                        out,
+                    );
+                }
                 self.emit_call_terminator_statement(callee, args, *dest, out)?;
                 self.emit_loop_branch_inner(
                     self.block(*target)?,
@@ -2212,8 +2408,34 @@ impl FunctionEmitter<'_> {
                     visited,
                 )
             }
-            Some(terminator @ Terminator::Await { .. }) => {
-                self.emit_terminator(block.id, terminator, out)
+            Some(Terminator::Await {
+                future,
+                dest,
+                target,
+                unwind,
+            }) => {
+                if let Some(handler) = unwind {
+                    return self.emit_throwing_await_terminator(
+                        future,
+                        *dest,
+                        *target,
+                        *handler,
+                        &Continuation::InLoop {
+                            continue_target,
+                            break_target,
+                            visited,
+                        },
+                        out,
+                    );
+                }
+                self.emit_await_terminator_statement(future, *dest, out)?;
+                self.emit_loop_branch_inner(
+                    self.block(*target)?,
+                    continue_target,
+                    break_target,
+                    out,
+                    visited,
+                )
             }
             Some(Terminator::Switch {
                 cond,
