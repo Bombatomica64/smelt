@@ -120,3 +120,6 @@ _site/
 
 # Callback-generics lift design plan.
 !blocker-logs/estk-callback-generics-plan.md
+
+# Throwing-callback / function-value ABI investigation.
+!blocker-logs/estk-throwing-callbacks.md

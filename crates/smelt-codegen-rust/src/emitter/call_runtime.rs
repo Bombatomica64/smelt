@@ -1304,29 +1304,17 @@ impl FunctionEmitter<'_> {
                     Some(Type::Function(function))
                         if self.is_erased_unknown_rest_function(function) && !function.may_throw
                 );
-                // Function parameters and borrowed callback captures are emitted as
-                // bare `dyn Fn`/`impl Fn` handles, which are invoked with direct
-                // call syntax. Only a non-parameter erased-rest value is the
-                // inherent-`.call()`-bearing `SmeltErasedFunction`, so these
-                // parameter branches must take precedence over the erased-rest
-                // branch — otherwise `.call()` resolves to the unstable `Fn::call`
-                // trait method on the borrowed `dyn Fn` (E0658).
-                let call_text = match callee {
-                    Operand::Copy(place) | Operand::Move(place)
-                        if self.is_function_parameter_place(place)? =>
-                    {
-                        format!("{callee_text}({args_text})")
-                    }
-                    _ if self.is_function_parameter_name(&callee_text)? => {
-                        format!("{callee_text}({args_text})")
-                    }
-                    _ if self.is_borrowed_callback_capture_name(&callee_text) => {
-                        format!("{callee_text}({args_text})")
-                    }
-                    _ if callee_is_erased_rest => {
-                        format!("{callee_text}.call({args_text})")
-                    }
-                    _ => format!("({callee_text})({args_text})"),
+                // The choice between the erased `.call(..)` ABI and a direct
+                // invocation is answered once, by
+                // `callee_uses_erased_call_method` (see its docs for the
+                // precedence and why it matters); `call_text`'s
+                // `Callee::Indirect` arm consults the same helper.
+                let call_text = if self.callee_uses_erased_call_method(callee)? {
+                    format!("{callee_text}.call({args_text})")
+                } else if self.callee_is_borrowed_function_handle(callee)? {
+                    format!("{callee_text}({args_text})")
+                } else {
+                    format!("({callee_text})({args_text})")
                 };
                 let (source_ty, rendered_call_text) = match self.mir.types.get(callee_ty) {
                     Some(Type::Function(function)) => {
@@ -1334,8 +1322,22 @@ impl FunctionEmitter<'_> {
                             self.mir.types.get(function.return_ty),
                             Some(Type::Future(_))
                         );
+                        // A throwing callee invoked in statement position
+                        // propagates its error with `?` when the enclosing
+                        // emitted body itself returns a `Result` — a recoverable
+                        // JavaScript exception must stay recoverable. The
+                        // `panic!` is kept only where the surrounding Rust
+                        // signature genuinely cannot carry an error (a
+                        // non-throwing body, or a generator whose `?` would
+                        // target the wrong output type).
                         let throwing_call_text = if function.may_throw && !returns_future {
-                            format!("{call_text}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+                            if self.body_can_propagate_error() {
+                                format!("{call_text}?")
+                            } else {
+                                format!(
+                                    "{call_text}.unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                                )
+                            }
                         } else {
                             call_text
                         };
@@ -1390,26 +1392,14 @@ impl FunctionEmitter<'_> {
                     // positional+rest text (reads `smelt_spread_args`) or the
                     // packed list verbatim.
                     let inner_args = split_args.as_deref().unwrap_or(&args_text);
-                    // See the `ClosureCall` arm: parameter/borrowed-capture handles
-                    // are bare `dyn Fn` and must be invoked directly, taking
-                    // precedence over the erased-rest inherent `.call()` so we never
-                    // emit the unstable `Fn::call` trait method (E0658).
-                    let inner_call = match callee {
-                        Operand::Copy(place) | Operand::Move(place)
-                            if self.is_function_parameter_place(place)? =>
-                        {
-                            format!("{callee_text}({inner_args})")
-                        }
-                        _ if self.is_function_parameter_name(&callee_text)? => {
-                            format!("{callee_text}({inner_args})")
-                        }
-                        _ if self.is_borrowed_callback_capture_name(&callee_text) => {
-                            format!("{callee_text}({inner_args})")
-                        }
-                        _ if callee_is_erased_rest => {
-                            format!("{callee_text}.call({inner_args})")
-                        }
-                        _ => format!("({callee_text})({inner_args})"),
+                    // See the `ClosureCall` arm: the ABI question is answered by
+                    // the shared `callee_uses_erased_call_method` helper.
+                    let inner_call = if self.callee_uses_erased_call_method(callee)? {
+                        format!("{callee_text}.call({inner_args})")
+                    } else if self.callee_is_borrowed_function_handle(callee)? {
+                        format!("{callee_text}({inner_args})")
+                    } else {
+                        format!("({callee_text})({inner_args})")
                     };
                     // When the arguments were split, bind the packed list once so
                     // the positional/rest reads above resolve; otherwise the call
@@ -1895,7 +1885,7 @@ impl FunctionEmitter<'_> {
 
 
     /// Packs scalar callback call arguments for an erased rest-vector callback ABI.
-    fn rest_vector_call_args_text(
+    pub(super) fn rest_vector_call_args_text(
         &self,
         args: &[Operand],
         function: Option<&FunctionType>,

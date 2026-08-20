@@ -1972,28 +1972,104 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Return whether a function type is represented as an erased JS rest callable.
     pub(super) fn is_erased_unknown_rest_function(&self, function: &FunctionType) -> bool {
-        if function.is_async
-            || matches!(
-                self.mir.types.get(function.return_ty),
-                Some(Type::Future(_))
-            )
-        {
-            return false;
+        is_erased_unknown_rest_function_in(&self.mir.types, function)
+    }
+
+    /// Return whether the currently emitted Rust body can propagate a `?`.
+    ///
+    /// A fallible body returns `Result<_, Box<dyn std::error::Error>>`, so a
+    /// throwing call inside it can forward the error with `?` instead of
+    /// aborting the process with `panic!`. Generators are excluded: their `?`
+    /// would target the generator step's output type rather than the body's.
+    pub(super) fn body_can_propagate_error(&self) -> bool {
+        self.function.can_throw && !self.function.is_generator
+    }
+
+    /// Return whether the *emitted Rust value* for `callee` carries the inherent
+    /// `SmeltErasedFunction::call` method, rather than being a bare `dyn Fn`
+    /// handle that is invoked with direct call syntax.
+    ///
+    /// This is the single authority for that question. Two call-emitting sites
+    /// used to answer it independently — `Rvalue::ClosureCall` with an explicit
+    /// precedence ladder, and `call_text`'s `Callee::Indirect` with none — so
+    /// routing one call from the statement form to the terminator form silently
+    /// flipped its ABI (E0658 `fn_traits` plus E0308).
+    ///
+    /// The precedence matters and is encoded here once: a function *parameter*
+    /// and a borrowed callback *capture* are emitted as borrowed `&dyn Fn`
+    /// handles (see `param_type_text`) even when their MIR type has the
+    /// erased-unknown-rest shape, so they must be invoked directly. Emitting
+    /// `.call(..)` on them would resolve to the unstable `Fn::call` trait
+    /// method. Only a value whose emitted Rust type really is the
+    /// `SmeltErasedFunction` struct answers `true`.
+    pub(super) fn callee_uses_erased_call_method(
+        &self,
+        callee: &Operand,
+    ) -> Result<bool, EmitError> {
+        let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?) else {
+            return Ok(false);
+        };
+        if !self.is_erased_unknown_rest_function(function) || function.may_throw {
+            return Ok(false);
         }
-        let Some(0) = function.rest else {
-            return false;
-        };
-        let [param] = function.params.as_slice() else {
-            return false;
-        };
-        matches!(
-            self.mir.types.get(*param),
-            Some(Type::List(item))
-                if matches!(
-                    self.mir.types.get(*item),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
-                )
-        )
+        Ok(!self.callee_is_borrowed_function_handle(callee)?)
+    }
+
+    /// Render the argument vector for a call through the erased
+    /// `SmeltErasedFunction::call` ABI.
+    ///
+    /// The companion to `callee_uses_erased_call_method`: the one authority that
+    /// answers "how do I call this value" also answers "how do I shape its
+    /// arguments", because the two answers have to agree.
+    ///
+    /// The two callable ABIs disagree about what a rest argument list *is*.
+    /// `&dyn Fn(SmeltList<SmeltUnknown>) -> _` takes the packed list as its one
+    /// parameter, so lowering hands this emitter a single `SmeltList` operand
+    /// standing for all N source arguments (`g(3, 4)` packs to `[3, 4]`;
+    /// `g(arr)` packs to `[arr]`; `g(...arr)` passes `arr` itself). But
+    /// `SmeltErasedFunction::call(impl Into<Vec<SmeltUnknown>>)` takes the
+    /// *argument vector*, where each element is one argument. Erasing the packed
+    /// list into a single vector element (`vec![SmeltUnknown::Array([3, 4])]`)
+    /// therefore calls the callback with ONE array argument instead of two
+    /// arguments — it compiles, and silently passes the wrong arity.
+    ///
+    /// So when the argument list is already the rest-packed list, hand it over as
+    /// the argument vector (`From<SmeltList<T>> for Vec<T>` converts it) rather
+    /// than nesting it. Only genuinely separate per-argument operands are erased
+    /// element-by-element.
+    pub(super) fn erased_call_argument_vector_text(
+        &self,
+        callee: &Operand,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
+        if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
+            && let Some(0) = function.rest
+            && let [rest_param] = function.params.as_slice()
+            && let [packed] = args
+            && self.operand_ty(packed)? == *rest_param
+        {
+            return self.value_at_type(packed, *rest_param);
+        }
+        self.erased_call_args_text(args)
+    }
+
+    /// Return whether the emitted Rust value for `callee` is a borrowed
+    /// `&dyn Fn` handle, which is invoked with bare direct call syntax.
+    ///
+    /// Companion to `callee_uses_erased_call_method`; the two together are the
+    /// full precedence ladder for choosing an indirect call's shape.
+    pub(super) fn callee_is_borrowed_function_handle(
+        &self,
+        callee: &Operand,
+    ) -> Result<bool, EmitError> {
+        if let Operand::Copy(place) | Operand::Move(place) = callee
+            && self.is_function_parameter_place(place)?
+        {
+            return Ok(true);
+        }
+        let callee_text = self.operand_text(callee)?;
+        Ok(self.is_function_parameter_name(&callee_text)?
+            || self.is_borrowed_callback_capture_name(&callee_text))
     }
 
     /// Adapt a concrete callable to an erased JS rest callable while preserving
@@ -4056,6 +4132,35 @@ fn unique_local_name(base_name: String, used: &mut HashSet<String>) -> String {
 }
 
 /// Return whether an operand reads a specific local.
+/// Return whether a function type is represented as an erased JS rest callable.
+///
+/// Free-function form of `Emitter::is_erased_unknown_rest_function`, so the
+/// pre-emission ownership analysis in `emitter::mod` (which runs before any
+/// `Emitter` exists) asks the exact same question the type renderer does. The
+/// method delegates here; the predicate has one definition.
+pub(super) fn is_erased_unknown_rest_function_in(
+    types: &smelt_hir::TypeInterner,
+    function: &FunctionType,
+) -> bool {
+    if function.is_async || matches!(types.get(function.return_ty), Some(Type::Future(_))) {
+        return false;
+    }
+    let Some(0) = function.rest else {
+        return false;
+    };
+    let [param] = function.params.as_slice() else {
+        return false;
+    };
+    matches!(
+        types.get(*param),
+        Some(Type::List(item))
+            if matches!(
+                types.get(*item),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
+            )
+    )
+}
+
 pub(super) fn operand_uses_local(operand: &Operand, local: LocalId) -> bool {
     match operand {
         Operand::Copy(place) | Operand::Move(place) => place_reads_local(place, local),

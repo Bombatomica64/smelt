@@ -624,6 +624,44 @@ impl FunctionEmitter<'_> {
         ty
     }
 
+    /// Render the Rust return type of a function *value* type.
+    ///
+    /// This is the single source of truth for the two return-position
+    /// refinements a `Type::Function` carries, so every site that renders a
+    /// function value (the canonical `Type::Function` arm of
+    /// `type_text_with_scoped_type_params`, and the borrowed callback parameter
+    /// rendering in `param_type_text`) agrees on the emitted Rust type:
+    ///
+    /// * a `Future` return renders as the promise value `SmeltFuture<T>`. A
+    ///   synchronous throw from an async function surfaces as a *rejected
+    ///   future*, not an outer `Result`, so `may_throw` adds no wrapper here.
+    /// * otherwise `may_throw` wraps the return in
+    ///   `Result<T, Box<dyn std::error::Error>>`.
+    ///
+    /// Disagreement between two renderings of the same MIR function type is
+    /// what silently turned a recoverable callback throw into a `panic!` at the
+    /// parameter boundary, so the logic lives here rather than being repeated.
+    pub(super) fn function_value_return_type_text(
+        &self,
+        function: &FunctionType,
+        scoped_type_params: &HashSet<Symbol>,
+    ) -> Result<String, EmitError> {
+        if let Some(Type::Future(item)) = self.mir.types.get(function.return_ty) {
+            return Ok(format!(
+                "SmeltFuture<{}>",
+                self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
+            ));
+        }
+        let inner_return_ty =
+            self.type_text_with_scoped_type_params(function.return_ty, false, scoped_type_params)?;
+        if function.may_throw {
+            return Ok(format!(
+                "Result<{inner_return_ty}, Box<dyn std::error::Error>>"
+            ));
+        }
+        Ok(inner_return_ty)
+    }
+
     /// Convert a function parameter type to Rust.
     ///
     /// Callback parameters are borrowed as reentrant functions so callers can
@@ -641,7 +679,13 @@ impl FunctionEmitter<'_> {
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
-            let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
+            // Render the return through the same canonical helper the
+            // `Type::Function` arm uses: a borrowed callback parameter must
+            // carry the SAME Rust type as the function value bound to it, or a
+            // throwing callback's `Result` is dropped at the parameter boundary
+            // and its error is forced into a `panic!` by the argument adapter.
+            let return_ty = self
+                .function_value_return_type_text(function, &self.current_function_type_params())?;
             return Ok(format!("&dyn Fn({params}) -> {return_ty}"));
         }
         self.type_text(ty)
@@ -895,31 +939,8 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                let return_ty = if let Some(Type::Future(item)) =
-                    self.mir.types.get(function.return_ty)
-                {
-                    // An async function's return type is the promise value
-                    // itself (`SmeltFuture<T>`); a synchronous throw from an
-                    // async function surfaces as a rejected future, not an outer
-                    // `Result`, so `may_throw` does not add a wrapper here.
-                    format!(
-                        "SmeltFuture<{}>",
-                        self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
-                    )
-                } else if function.may_throw {
-                    let inner_return_ty = self.type_text_with_scoped_type_params(
-                        function.return_ty,
-                        false,
-                        scoped_type_params,
-                    )?;
-                    format!("Result<{inner_return_ty}, Box<dyn std::error::Error>>")
-                } else {
-                    self.type_text_with_scoped_type_params(
-                        function.return_ty,
-                        false,
-                        scoped_type_params,
-                    )?
-                };
+                let return_ty =
+                    self.function_value_return_type_text(function, scoped_type_params)?;
                 if allow_impl_trait {
                     Ok(format!("impl Fn({params}) -> {return_ty}"))
                 } else {

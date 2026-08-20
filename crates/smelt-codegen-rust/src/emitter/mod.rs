@@ -527,6 +527,49 @@ fn callback_param_escapes_locally(
             )
         })
     });
+    // A borrowed callback parameter bound to a LOCAL whose own Rust type is the
+    // owned `SmeltErasedFunction` struct (the erased-unknown-rest shape) has to
+    // enter the function owned. `SmeltErasedFunction` stores its callback as an
+    // `Rc<dyn Fn(Vec<SmeltUnknown>) -> SmeltUnknown>`, i.e. a `'static` trait
+    // object: a borrowed `&dyn Fn` cannot be wrapped into one (the borrow would
+    // escape). Emitting a bare `Rc::new(move |..| borrowed(..))` closure instead
+    // — which is what the borrowed-handle path used to do — types the local as
+    // something that is NOT `SmeltErasedFunction`, so the call site's erased
+    // `.call(..)` ABI disagreed with the value and produced E0658 + E0308.
+    // Requiring ownership here keeps the value and its call ABI in agreement
+    // with the type the renderer already assigned to that local.
+    let bound_to_erased_handle = function.blocks.iter().any(|block| {
+        block.statements.iter().any(|statement| {
+            let Statement::Assign { dest, value } = statement else {
+                return false;
+            };
+            let reads_param = matches!(
+                value,
+                Rvalue::Use(
+                    Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source)),
+                ) if *source == local
+            );
+            if !reads_param {
+                return false;
+            }
+            let Some(dest_ty) = id_index(dest.0, "local index does not fit usize")
+                .ok()
+                .and_then(|index| function.locals.get(index))
+                .map(|decl| decl.ty)
+            else {
+                return false;
+            };
+            matches!(
+                mir.types.get(dest_ty),
+                Some(Type::Function(dest_function))
+                    if !dest_function.may_throw
+                        && crate::emitter::core::is_erased_unknown_rest_function_in(
+                            &mir.types,
+                            dest_function,
+                        )
+            )
+        })
+    });
     // An async function runs its entire body inside the returned future, so any
     // callback parameter it references is retained past the caller's statement
     // (the future outlives the call expression). A borrowed `&dyn Fn` parameter
@@ -535,6 +578,7 @@ fn callback_param_escapes_locally(
     // function-typed params must therefore enter as owned `Rc<dyn Fn…>` handles.
     let retained_by_async_body = function.is_async;
     Ok(directly_returned
+        || bound_to_erased_handle
         || retained_by_async_body
         || rebound_locally
         || escapes_into_timer
