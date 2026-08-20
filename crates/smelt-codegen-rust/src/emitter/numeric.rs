@@ -87,12 +87,19 @@ impl FunctionEmitter<'_> {
                 // object), so erase the borrowed value at this genuinely dynamic
                 // boundary and inspect it, mirroring the non-optional case below.
                 format!(
-                    "{receiver_text}.as_ref().map_or(0, |value| match value.clone().into_smelt_unknown() {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(&value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => 0 }}, _ => 0 }})"
+                    "{receiver_text}.as_ref().map_or(0, |value| match value.clone().into_smelt_unknown() {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(&value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(&SmeltUnknown::Object(value)) as usize }}, value @ SmeltUnknown::Function(_) => {function_length}(&value) as usize, _ => 0 }})",
+                    function_length = smelt_stdlib::runtime_symbols::function_length::READ,
                 )
             }
+            // A callable's `.length` is its declared arity, which the erasure
+            // boundary parks in the function-length registry (an `Rc<dyn Fn>` has
+            // nowhere to carry it). Without the `Function` arm an erased callable
+            // answered `0`, and es-toolkit `rest(func)` — whose default split point
+            // is `func.length - 1` — computed `-1` and reshaped every call wrongly.
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 format!(
-                    "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => 0 }}, _ => 0 }}"
+                    "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(&{receiver_text}) as usize }}, SmeltUnknown::Function(_) => {function_length}(&{receiver_text}) as usize, _ => 0 }}",
+                    function_length = smelt_stdlib::runtime_symbols::function_length::READ,
                 )
             }
             // A fixed-arity tuple (e.g. a `[key, value]` narrowing) has no Rust

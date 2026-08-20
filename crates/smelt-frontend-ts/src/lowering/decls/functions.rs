@@ -130,7 +130,44 @@ impl ModuleBuilder<'_> {
 
         let mut destructured_params = Vec::new();
         let mut defaulted_params = Vec::new();
-        for (index, param) in function.params.items.iter().enumerate() {
+        // A `function` that reads its own `arguments` is variadic: the object is the
+        // ACTUAL argument list, which a declared-arity signature cannot carry (see
+        // `lowering::arguments_forwarding`). Replace the parameter list with one rest
+        // list and re-bind each declared name from it. Every other function keeps its
+        // declared parameters untouched.
+        let arguments_forwarding = match self.arguments_forwarding_params(function, &mut body) {
+            Ok(forwarding) => forwarding,
+            Err(error) => {
+                self.scope.restore_bindings(saved_locals);
+                self.scope.restore_date_values(saved_date_value_locals);
+                self.scope
+                    .restore_callable_prop_writes(saved_callable_local_props);
+                self.scope.restore_explicit_any(saved_explicit_any_locals);
+                self.scope.restore_narrowings(saved_narrowed_locals);
+                self.current_async = saved_async;
+                self.current_return_ty = saved_return_ty;
+                self.current_generator_yields = saved_generator_yields;
+                self.pop_type_parameter_scope();
+                return Err(error);
+            }
+        };
+        if let Some(forwarding) = &arguments_forwarding {
+            params.extend(forwarding.params.iter().cloned());
+            for (name, local) in forwarding.binding_pairs() {
+                self.scope.bind(name, local);
+            }
+        }
+        for (index, param) in function
+            .params
+            .items
+            .iter()
+            .enumerate()
+            .take(if arguments_forwarding.is_some() {
+                0
+            } else {
+                usize::MAX
+            })
+        {
             let ty = match self.function_parameter_type(param) {
                 Ok(value) => value,
                 Err(error) => {
@@ -211,7 +248,12 @@ impl ModuleBuilder<'_> {
                 span,
             });
         }
-        let rest = if let Some(rest) = &function.params.rest {
+        let rest = if let Some(forwarding) = &arguments_forwarding {
+            Some(RestParam {
+                index: forwarding.rest_index,
+                item_ty: forwarding.item_ty,
+            })
+        } else if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 self.scope.restore_bindings(saved_locals);
                 self.scope.restore_date_values(saved_date_value_locals);
@@ -327,8 +369,16 @@ impl ModuleBuilder<'_> {
             .generator
             .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
         self.current_generator_yields = generator_yields;
+        // With the variadic rewrite the whole argument list is the single rest
+        // parameter, so the FIXED arity is zero — that is what tells
+        // `arguments_object_expression` to read the list rather than the declared
+        // parameters.
         self.current_arguments_arities
-            .push(function.params.items.len());
+            .push(if arguments_forwarding.is_some() {
+                0
+            } else {
+                function.params.items.len()
+            });
         for statement in &function_body.statements {
             if self.is_super_call_statement(statement) {
                 continue;

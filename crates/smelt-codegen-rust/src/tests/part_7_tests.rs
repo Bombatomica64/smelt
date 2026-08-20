@@ -9919,6 +9919,113 @@ export function run(): void {
     );
 }
 
+#[test]
+fn a_function_reading_arguments_lowers_to_one_rest_parameter() {
+    // A JavaScript `arguments` object is the ACTUAL argument list of the call, not
+    // the declared parameter list, and the two differ constantly:
+    //
+    //     function fn(_a, _b, _c) { return Array.from(arguments); }
+    //     ary(fn, 2)('a', 'b', 'c', 'd');   // fn('a', 'b') -> ['a', 'b']
+    //
+    // A declared-arity signature cannot carry that: the erased-call boundary pads a
+    // short call up to the arity, and the padding is indistinguishable from a real
+    // trailing `undefined` (which `partial`'s placeholder specs deliberately pass).
+    // So such a function is lowered variadically — one rest parameter holding the
+    // whole list, each declared name re-bound from it — and `arguments` is that
+    // list.
+    let generated = source_for(
+        r"
+export function probe(_a: unknown, _b: unknown, _c: unknown): unknown {
+  return arguments;
+}
+",
+    );
+    assert!(
+        generated.contains("smelt_arguments_object(vec![], Some("),
+        "`arguments` must be built from the rest list, not the parameters:\n{generated}"
+    );
+    let program = generated
+        .split_once("@smelt:prelude-end")
+        .map_or(generated.as_str(), |(_, program)| program);
+    assert!(
+        program.contains("fn probe(__smelt_arguments: SmeltList<SmeltUnknown>)"),
+        "the signature must become a single rest list:\n{generated}"
+    );
+    assert!(
+        program.contains("let _a: SmeltUnknown = __smelt_arguments"),
+        "each declared name must be re-bound from the list:\n{generated}"
+    );
+}
+
+#[test]
+fn a_function_not_reading_arguments_keeps_its_declared_arity() {
+    // The variadic rewrite is scoped to functions that actually read `arguments`;
+    // everything else keeps its declared parameters, so the change costs nothing
+    // for the overwhelming majority of code. An arrow body inside the function does
+    // NOT count as reading its own `arguments` unless it mentions it — but a nested
+    // non-arrow `function` reading `arguments` reads its OWN, so the outer function
+    // stays fixed-arity.
+    let generated = source_for(
+        r"
+export function outer(a: number, b: number): number {
+  function inner(_x: unknown): unknown {
+    return arguments;
+  }
+  const unused = inner(a);
+  return a + b;
+}
+",
+    );
+    let program = generated
+        .split_once("@smelt:prelude-end")
+        .map_or(generated.as_str(), |(_, program)| program);
+    assert!(
+        program.contains("fn outer(a: f64, b: f64)"),
+        "a function that never mentions `arguments` must keep its parameters:\n{generated}"
+    );
+}
+
+#[test]
+fn an_erased_callable_reports_its_function_length() {
+    // A typed callable knows its arity and `SmeltErasedFunction` carries it in a
+    // `length` field, but erasing to `SmeltUnknown::Function(Rc<…>)` throws the
+    // field away — an `Rc<dyn Fn>` has nowhere to put it — so a `.length` read on
+    // an erased callable answered `0`. es-toolkit `rest(func)` defaults its split
+    // point to `func.length - 1`, so `0` made it `-1` and every rest-parameter spec
+    // reshaped its arguments wrongly. The arity is now parked in a registry keyed by
+    // the callable's canonical identity.
+    // The fixture erases a real callable so the `SmeltErasedFunction` boundary — the
+    // only place that still knows both the arity and the erased allocation — is
+    // emitted alongside the read.
+    let generated = source_for(
+        r"
+function target(_a: unknown, _b: unknown): unknown {
+  return _a;
+}
+
+export function arity(): number {
+  const erased: unknown = target;
+  return (erased as any).length;
+}
+",
+    );
+    assert!(
+        generated.contains("fn smelt_function_length(value: &SmeltUnknown) -> f64"),
+        "the function-length reader must be emitted:\n{generated}"
+    );
+    assert!(
+        generated.contains("smelt_register_function_length(&smelt_erased_fn"),
+        "the erasure boundary must record the arity:\n{generated}"
+    );
+    let program = generated
+        .split_once("@smelt:prelude-end")
+        .map_or(generated.as_str(), |(_, program)| program);
+    assert!(
+        program.contains("smelt_function_length("),
+        "an erased `.length` read must consult the registry:\n{generated}"
+    );
+}
+
 /// A `return` inside a `try` that has a `finally` must still run the finalizer.
 ///
 /// MIR made the finalizer the *fall-through* exit of the `try` body, so a

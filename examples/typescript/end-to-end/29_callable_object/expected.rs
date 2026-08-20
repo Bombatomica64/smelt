@@ -154,6 +154,21 @@ fn smelt_link_function_identity<D: ?Sized, O: ?Sized>(derived: &::std::rc::Rc<D>
 /// its identity has to be read before the move.
 fn smelt_link_function_identity_key<D: ?Sized>(derived: &::std::rc::Rc<D>, canonical: usize) { SMELT_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(smelt_callable_object_key(derived), canonical); }); }
 
+thread_local! {
+    /// Source arity of each erased callable, keyed by canonical identity.
+    static SMELT_FUNCTION_LENGTHS: ::std::cell::RefCell<::std::collections::HashMap<usize, f64>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+/// Record an erased callable's `Function.prototype.length`.
+fn smelt_register_function_length<T: ?Sized>(function: &::std::rc::Rc<T>, length: f64) { let key = smelt_function_identity_of(smelt_callable_object_key(function)); SMELT_FUNCTION_LENGTHS.with(|lengths| { lengths.borrow_mut().insert(key, length); }); }
+
+/// Read `Function.prototype.length` off an erased value.
+///
+/// A callable object (`{ __smelt_call }`) reports the arity of the callable it
+/// carries; anything else reports `0`, which is what JavaScript answers for a
+/// value with no `length` property.
+fn smelt_function_length(value: &SmeltUnknown) -> f64 { let function = match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get("__smelt_call") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None }; let Some(function) = function else { return 0.0; }; let key = smelt_function_identity_of(smelt_callable_object_key(&function)); SMELT_FUNCTION_LENGTHS.with(|lengths| lengths.borrow().get(&key).copied()).unwrap_or(0.0) }
+
 /// Whether two callables denote the same JavaScript function value.
 ///
 /// Two allocations can denote one source function once a wrapper sits between

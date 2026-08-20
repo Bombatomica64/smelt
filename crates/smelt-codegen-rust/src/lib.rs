@@ -650,6 +650,40 @@ fn emit_source_with_free_function_router(
         writer.line("/// its identity has to be read before the move.");
         writer.line("fn smelt_link_function_identity_key<D: ?Sized>(derived: &::std::rc::Rc<D>, canonical: usize) { SMELT_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(smelt_callable_object_key(derived), canonical); }); }");
         writer.blank_line();
+        // `Function.prototype.length` across the erasure boundary.
+        //
+        // A typed callable knows its own arity, and `SmeltErasedFunction` carries it
+        // in a `length` field. Erasing that value to `SmeltUnknown::Function(Rc<…>)`
+        // throws the field away — an `Rc<dyn Fn>` has nowhere to put it — so a
+        // `.length` read on an erased callable answered `0`. Real code branches on
+        // it: es-toolkit `rest(func)` defaults its split point to `func.length - 1`,
+        // so an answer of `0` made the default `-1` and every rest-parameter spec
+        // reshaped its arguments wrongly.
+        //
+        // Keyed and read through the CANONICAL identity, so a chain of erasure
+        // wrappers resolves to the arity of the function the chain started from,
+        // exactly as `smelt_same_function_identity` resolves equality.
+        writer.line("thread_local! {");
+        writer.line("    /// Source arity of each erased callable, keyed by canonical identity.");
+        writer.line("    static SMELT_FUNCTION_LENGTHS: ::std::cell::RefCell<::std::collections::HashMap<usize, f64>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Record an erased callable's `Function.prototype.length`.");
+        writer.line(format!(
+            "fn {register}<T: ?Sized>(function: &::std::rc::Rc<T>, length: f64) {{ let key = smelt_function_identity_of(smelt_callable_object_key(function)); SMELT_FUNCTION_LENGTHS.with(|lengths| {{ lengths.borrow_mut().insert(key, length); }}); }}",
+            register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
+        ));
+        writer.blank_line();
+        writer.line("/// Read `Function.prototype.length` off an erased value.");
+        writer.line("///");
+        writer.line("/// A callable object (`{ __smelt_call }`) reports the arity of the callable it");
+        writer.line("/// carries; anything else reports `0`, which is what JavaScript answers for a");
+        writer.line("/// value with no `length` property.");
+        writer.line(format!(
+            "fn {read}(value: &SmeltUnknown) -> f64 {{ let function = match value {{ SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(function)) => Some(function), _ => None }}, _ => None }}; let Some(function) = function else {{ return 0.0; }}; let key = smelt_function_identity_of(smelt_callable_object_key(&function)); SMELT_FUNCTION_LENGTHS.with(|lengths| lengths.borrow().get(&key).copied()).unwrap_or(0.0) }}",
+            read = smelt_stdlib::runtime_symbols::function_length::READ,
+        ));
+        writer.blank_line();
         writer.line("/// Whether two callables denote the same JavaScript function value.");
         writer.line("///");
         writer.line("/// Two allocations can denote one source function once a wrapper sits between");
@@ -1702,10 +1736,23 @@ fn emit_source_with_free_function_router(
             writer.line("            let callback = self.callback.clone();");
             writer.line("            let callable: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((callback)(args)));");
             writer.line("            SMELT_ERASED_FUNCTION_VALUES.with(|cache| { cache.borrow_mut().insert(key, ::std::rc::Rc::downgrade(&callable)); });");
+            // The `length` field dies with the struct, so hand it to the registry
+            // before returning: this is the only point that still knows both the
+            // arity and the erased allocation it belongs to.
+            writer.line(format!(
+                "            {register}(&callable, self.length);",
+                register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
+            ));
             writer.line("            return SmeltUnknown::Function(callable);");
             writer.line("        }");
             writer.line("        let callback = self.callback.clone();");
-            writer.line("        let callable = SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((callback)(args))));");
+            writer.line("        let length = self.length;");
+            writer.line("        let callable = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((callback)(args)));");
+            writer.line(format!(
+                "        {register}(&callable, length);",
+                register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
+            ));
+            writer.line("        let callable = SmeltUnknown::Function(callable);");
             writer.line("        if let Some(object) = self.object { object.insert(\"__smelt_call\".to_owned(), callable); SmeltUnknown::Object(object) } else { callable }");
             writer.line("    }");
             writer.line("}");

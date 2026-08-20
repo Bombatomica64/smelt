@@ -3216,7 +3216,32 @@ impl ModuleBuilder<'_> {
         let mut params = Vec::new();
         let mut param_names = HashSet::new();
         let mut errors = Vec::new();
-        for (index, param) in function.params.items.iter().enumerate() {
+        // A `function` expression that reads its own `arguments` is variadic: the
+        // object is the ACTUAL argument list, which a declared-arity signature
+        // cannot carry (see `lowering::arguments_forwarding`). Replace the parameter
+        // list with one rest list and re-bind each declared name from it.
+        // es-toolkit's `partial`/`partialRight`/`flow` spec helpers are this shape.
+        let arguments_forwarding = match self.arguments_forwarding_params(function, &mut body) {
+            Ok(forwarding) => forwarding,
+            Err(error) => {
+                errors.push(error);
+                None
+            }
+        };
+        if let Some(forwarding) = &arguments_forwarding {
+            params.extend(forwarding.params.iter().cloned());
+            for (name, local) in forwarding.binding_pairs() {
+                param_names.insert(name.clone());
+                self.scope.bind(name, local);
+            }
+        }
+        for (index, param) in function
+            .params
+            .items
+            .iter()
+            .enumerate()
+            .take(if arguments_forwarding.is_some() { 0 } else { usize::MAX })
+        {
             let result = (|| {
                 let ty = if let Some(annotation) = &param.type_annotation {
                     self.ts_type_to_hir(&annotation.type_annotation)?
@@ -3265,8 +3290,13 @@ impl ModuleBuilder<'_> {
         // collects the trailing source arguments into one list. Function
         // expressions appear as object property values, returned values, and call
         // arguments, so this keeps rest semantics for all of them.
-        let mut rest = None;
-        if let Some(rest_param) = &function.params.rest {
+        let mut rest = arguments_forwarding.as_ref().map(|forwarding| RestParam {
+            index: forwarding.rest_index,
+            item_ty: forwarding.item_ty,
+        });
+        if rest.is_none()
+            && let Some(rest_param) = &function.params.rest
+        {
             let result = (|| {
                 let BindingPattern::BindingIdentifier(binding) = &rest_param.rest.argument else {
                     return Err(SmeltError::unsupported(
@@ -3375,8 +3405,16 @@ impl ModuleBuilder<'_> {
         // binding, so make the array-like `arguments` object available while
         // lowering the body — mirroring the function-declaration and closure
         // lowering paths that also push the argument arity stack.
+        // With the variadic rewrite the whole argument list is the single rest
+        // parameter, so the FIXED arity is zero — that is what tells
+        // `arguments_object_expression` to read the list rather than the declared
+        // parameters.
         self.current_arguments_arities
-            .push(function.params.items.len());
+            .push(if arguments_forwarding.is_some() {
+                0
+            } else {
+                function.params.items.len()
+            });
         for statement in &function_body.statements {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);

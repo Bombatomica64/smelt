@@ -89,8 +89,16 @@ impl FunctionEmitter<'_> {
                     let scrutinee =
                         self.erase_concrete_union_text(&format!("{base_text}.clone()"), base_ty);
                     if field_rule == Some(smelt_stdlib::FieldRule::TsLength) {
+                        // A callable's `.length` is its declared arity, which the
+                        // erasure boundary parks in the function-length registry
+                        // (an `Rc<dyn Fn>` has nowhere to carry it). Without this
+                        // arm an erased callable answered `null`, and es-toolkit
+                        // `rest(func)` — whose default split point is
+                        // `func.length - 1` — reshaped every call wrongly.
                         return Ok(format!(
-                            "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
+                            "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"__smelt_call\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
+                            function_length =
+                                smelt_stdlib::runtime_symbols::function_length::READ,
                         ));
                     }
                     if field_rule == Some(smelt_stdlib::FieldRule::TsSort) {

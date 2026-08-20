@@ -1,4 +1,4 @@
-# es-toolkit runtime pass: five general defects, 875 -> 900 passing
+# es-toolkit runtime pass: eight general defects, 875 -> 907 passing
 
 Measured against es-toolkit at the ref pinned in `.github/compat/libraries.json`
 (`e008a281`) with the fixture manifest `.github/compat/es-toolkit/Smelt.toml`,
@@ -8,11 +8,11 @@ starting from Smelt `4d15304` (`main`, the merge of #192).
 
 | Corpus | Before | After |
 | --- | --- | --- |
-| es-toolkit | 875 passed / 184 failed | **900 passed / 159 failed** |
+| es-toolkit | 875 passed / 184 failed | **907 passed / 152 failed** |
 | es-toolkit probe blockers | 0 | 0 |
 | remeda | 1789 passed / 0 failed | **1789 passed / 0 failed** |
 
-Five independent defects, found by reading the largest failing groups rather
+Eight independent defects, found by reading the largest failing groups rather
 than the individual specs. Each was a *silent wrong answer* or a panic, not a
 compile error: the generated crate builds at zero errors throughout.
 
@@ -250,23 +250,135 @@ really does return a boolean and its callers read it.
 **Measured:** 893 → 900 together with defect 4 (`round` 3, `invariant` 4), 0 newly
 failing.
 
+## Defect 6 — `arguments` saw the declared arity, not the actual call
+
+This is the gap defects 1-5 left open, and the largest of them.
+
+A JavaScript `arguments` object is the **actual** argument list of the call, not
+the function's declared parameter list, and the two differ constantly:
+
+```js
+function fn(_a, _b, _c) { return Array.from(arguments); }
+ary(fn, 2)('a', 'b', 'c', 'd');   // fn('a', 'b')      -> ['a', 'b']
+rest(fn)(1, 2, 3, 4);             // fn(1, 2, [3, 4])  -> [1, 2, [3, 4]]
+```
+
+Smelt emitted such a function at its **declared** arity, and the erased-call
+boundary padded a short call up to it:
+
+```rust
+Rc::new(move |smelt_args: Vec<SmeltUnknown>| callback(
+    smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null),
+    smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Null),
+    smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Null),
+))
+```
+
+By the time the body ran the count was gone, so `arguments` answered
+`['a', 'b', null]`. The padding cannot simply be *trimmed* either: a real
+trailing `undefined` is a legitimate argument — es-toolkit's `partial`
+placeholder specs expect `[undefined, 'b', undefined]` — so the count has to
+travel with the call.
+
+**Fix: a function that reads `arguments` is lowered variadically.** Its parameter
+list becomes a single rest parameter holding the whole argument list, and each
+declared name is re-bound from that list at function entry:
+
+```ts
+// source                          lowered as
+function fn(a, b, c) {             function fn(...__smelt_arguments) {
+  … arguments …                      const a = __smelt_arguments[0];
+}                                    const b = __smelt_arguments[1];
+                                     const c = __smelt_arguments[2];
+                                     … __smelt_arguments …
+                                   }
+```
+
+This reuses the rest-parameter path end to end rather than inventing a side
+channel: callers already pack their arguments into the rest list, the erased-call
+boundary already forwards its whole `Vec<SmeltUnknown>` into it, and `arguments`
+is then that list — exact count, no padding. The new
+`lowering::arguments_forwarding` module carries the rewrite and its reasoning;
+detection is an oxc `Visit` scanner that descends into arrow functions (which have
+no `arguments` of their own) and stops at every non-arrow `function` boundary
+(which has). It is wired into all three non-arrow function-lowering sites: module
+function declarations, nested function declarations, and function expressions.
+
+**A thread-local "current call arguments" slot was the alternative, and was
+rejected.** Nothing identifies which callee a pushed frame belongs to, so a
+function reading `arguments` through a *direct* call nested inside an erased call
+would read the outer frame. Closing that needs callee identity at the erasure
+site, which is exactly the information the rest list already carries.
+
+Functions that never mention `arguments` are untouched and keep their declared
+arity, so the change costs nothing for the overwhelming majority of code. remeda
+contains **zero** `arguments` references, which is why it cannot be affected at
+all.
+
+**Measured:** 900 → 904, 0 newly failing (`ary` 3, `rest` 1).
+
+## Defect 7 — `Function.prototype.length` did not survive erasure
+
+`length` is the **declared** arity — `fn(a, b, c).length` is `3` — and real code
+branches on it. es-toolkit `rest(func)` defaults its split point to
+`func.length - 1`, and `ary(func)` to `func.length`.
+
+Two problems, one exposed by the other:
+
+* A typed callable knows its arity and `SmeltErasedFunction` carries it in a
+  `length` field, but erasing to `SmeltUnknown::Function(Rc<…>)` throws the field
+  away — an `Rc<dyn Fn>` has nowhere to put it — so the erased `.length` read
+  answered `0`, making `rest`'s default `-1`.
+* Defect 6 removes the declared arity from the signature, so the nested-function
+  site had to record it explicitly rather than derive it.
+
+**Fix.** A `SMELT_FUNCTION_LENGTHS` registry keyed by the callable's *canonical*
+identity — the same key `smelt_same_function_identity` compares by, so a chain of
+erasure wrappers resolves to the arity of the function the chain started from.
+All three paths that mint an erased callable now record it:
+`SmeltErasedFunction::into_smelt_unknown`, the function-item value accessor, and
+the closure-local erasure adapter. The erased `.length` read consults it (and a
+callable object reports the arity of the callable in its `__smelt_call` slot).
+The nested-function site records the source arity in `required_params`, which is
+the field `length` already derives from and which does still describe the source
+contract.
+
+**Measured:** 904 → 907, 0 newly failing (the remaining three `rest` specs).
+
+## Defect 8 — an erased-ABI call had its return type applied twice
+
+Found while validating defect 6, and a latent bug it makes reachable rather than
+one it introduced.
+
+`is_erased_unknown_rest_function` keys **only on the parameter shape** — one rest
+parameter of `unknown[]` — so any rest-only function is represented as
+`SmeltErasedFunction`, whose `call` answers `SmeltUnknown` whatever the declared
+return type is. Three callback adapters called through that ABI and then applied
+the *declared* return type to the result anyway, emitting
+
+```rust
+SmeltUnknown::Array(smelt_callback.call(…).into())   // E0277: SmeltArray: From<SmeltUnknown>
+```
+
+Unreachable before, because a rest-only function with a concrete return type was
+rare; the variadic rewrite makes every `arguments`-reading function rest-only, so
+`function f(...): unknown[]` — the natural spelling of a spec helper — hits it and
+the generated crate does not compile.
+
+**Fix.** All three adapters (`rest_vector_unknown_adapter_text`, the typed-rest
+adapter, and `erased_rest_forwarding_closure_text`) now treat the call's value as
+already erased when it went through the erased ABI. Where the declared return was
+already `unknown` — the overwhelmingly common case — the emitted text is
+unchanged.
+
 ## Known gaps, all measured and none regressed by this pass
 
-1. **`arguments` does not see the actual argument count.** The erased-call ABI
-   pads a short call up to the callee's declared arity, so
-   `ary(fn, 2)('a','b','c','d')` invokes `fn('a','b')` and `arguments` reads
-   `['a','b',null]` instead of `['a','b']`. This is what the remaining twelve
-   specs from defect 1 now fail on. The actual argument vector *is* available at
-   the erasure boundary (`|smelt_args: Vec<SmeltUnknown>|`) and is discarded by
-   the fixed-arity call; making it reach the callee is an ABI change, because the
-   callee's signature and every call site are emitted from the same MIR
-   signature. Not a representation problem, so not folded into this pass.
-2. **The array-callback lowering path does not lift.**
+1. **The array-callback lowering path does not lift.**
    `[n].map(function step(v) { … step(v - 1) … })` goes through the stdlib
    callback lowering rather than `function_expression_value`, and its
    self-reference still lowers to `SmeltUnknown::Null`. That path lowers the body
    itself and needs the same reservation wired into it.
-3. **A self-recursive nested function *declaration* emits Rust that does not
+2. **A self-recursive nested function *declaration* emits Rust that does not
    compile.** `function outer() { function step(n) { … step(n - 1) … } }` lowers
    `step` to a callback local assigned after the closure is built, so the body
    references `step` before it exists:
@@ -280,12 +392,12 @@ failing.
    compile at zero errors), which is why it was invisible. The same lift fixes
    it, but widening the change to nested function declarations touches a much
    more heavily used path, so it is recorded rather than bundled.
-4. **A capturing self-recursive function expression keeps the empty-object
+3. **A capturing self-recursive function expression keeps the empty-object
    lowering.** The honest fix is closure conversion — lift with the captures as
    leading parameters and hand out a closure that binds them — or a
    late-initialized self-reference cell. Neither shape appears in the measured
    corpora.
-5. **A lifted item lands in the crate root rather than its source module.**
+4. **A lifted item lands in the crate root rather than its source module.**
    `body_module_names` maps bodies to Rust files through `module.items`, which a
    nested lowering cannot reach, so a lifted item's body has no module entry and
    is emitted into `main.rs`. It compiles and runs (a child module reaches its
@@ -306,6 +418,16 @@ failing.
   the same shape.
 * `an_assertion_overload_still_emits_its_call` — the call survives in the caller's
   body instead of being folded to its arguments.
+* `a_function_reading_arguments_lowers_to_one_rest_parameter` /
+  `a_function_not_reading_arguments_keeps_its_declared_arity` — the variadic
+  rewrite fires exactly where `arguments` is read and nowhere else.
+* `an_erased_callable_reports_its_function_length` — the registry is emitted, the
+  erasure boundary records the arity, and the read consults it.
+* `tests/arguments_arity_runtime.rs` (`#[ignore]`d runtime tier) — short, exact
+  and long calls against one three-parameter function; a real trailing `undefined`
+  still counted as an argument; the declared names still binding positionally; and
+  `length` reporting the declared arity across erasure, unchanged by reading
+  `arguments`, and `0` for a genuinely variadic function.
 * `tests/math_round_runtime.rs` (`#[ignore]`d runtime tier) — the tie rule in both
   directions, non-ties, the large-magnitude pass-through, `-0` survival, and that
   `floor`/`ceil`/`trunc` are untouched. Confirmed to actually assert by flipping
@@ -349,6 +471,7 @@ Measured three ways against `blocker-logs/smelt-unknown-baseline-es-toolkit.json
 | after defect 3 (union containment) | 35776 | +99 | **+0** |
 | after defect 4 (`Math.round`) | 35776 | +99 | **+0** |
 | after defect 5 (assertion overload) | 35892 | +215 | **+116** |
+| after defects 6-8 (variadic `arguments`) | **35616** | **-61** | **-276** |
 
 The **+34 is pre-existing** and documented in `estk-typed-array-views.md`: #192
 deliberately left the typed-array construction erasure un-baselined until the
@@ -385,12 +508,18 @@ appear everywhere and cannot be labelled a legitimate boundary by
 statement is the one above: the erasure is what the source's `unknown` parameter
 demands, at calls that previously did not exist. Defect 4 contributes +0.
 
-The baseline is therefore **not** re-snapshotted, matching how #192 handled its
-own delta: laundering the number by re-snapshotting would hide both this +65 and
-the pre-existing +34. The honest reading is that the es-toolkit ratchet has been
-above its baseline since #192 and needs the `Type::Host` work
-(`blocker-logs/phase2-type-host-spec.md`) to come back down; this pass does not
-make that worse in kind, only in count. Whether to re-snapshot at +215 and treat
-that as the new floor is a judgement call for the reviewer, not something this
-pass should decide silently. The examples-corpus hard invariant
+**Defects 6-8 remove 276, which is what closes the whole gap.** The variadic
+rewrite deletes the padded-argument erasure at every erased call to an
+`arguments`-reading function — the
+`smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)` triplets — and replaces
+it with one list forwarding. That is a genuine reduction in erasure, not a
+reclassification: the arguments are no longer erased individually because they are
+never unpacked in the first place.
+
+The net is **−61 against the baseline**, so the pass ends *below* where it
+started, which also clears the pre-existing +34 that `main` has carried since
+#192. Per the `SmeltUnknown enforcement` policy ("avoidable decreases re-snapshot
+in the same commit") the es-toolkit baseline is re-snapshotted here to 35616, and
+`--fail-on-regression` passes against it. The examples-corpus hard invariant is
+untouched: avoidable erasure there stays 0. The examples-corpus hard invariant
 (`blocker-logs/smelt-unknown-baseline.json`, avoidable == 0) is untouched.

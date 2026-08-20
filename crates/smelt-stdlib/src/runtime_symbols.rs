@@ -273,6 +273,29 @@ pub mod host_override {
     pub const NATIVE_CTOR_MARKER: &str = "__smelt_native_ctor";
 }
 
+/// `Function.prototype.length` across the erasure boundary.
+///
+/// A typed callable knows its own arity, and `SmeltErasedFunction` carries it in a
+/// `length` field. Erasing that value to `SmeltUnknown::Function(Rc<…>)` throws the
+/// field away — an `Rc<dyn Fn>` has nowhere to put it — so a `.length` read on an
+/// erased callable answered `0`. Real code branches on it: es-toolkit `rest(func)`
+/// defaults its split point to `func.length - 1`, and `ary(func)` to `func.length`.
+///
+/// The arity is therefore recorded in a thread-local registry keyed by the erased
+/// callable's allocation address, in the same shape as the sibling
+/// `SMELT_FUNCTION_IDENTITIES` / `SMELT_FUNCTION_ORIGINS` registries, and read back
+/// through the canonical identity so a chain of erasure wrappers resolves to the
+/// arity of the function the chain started from.
+pub mod function_length {
+    /// Records an erased callable's source arity at the erasure site.
+    pub const REGISTER: &str = "smelt_register_function_length";
+
+    /// Reads an erased value's `Function.prototype.length`, or `0` for a
+    /// non-callable — which is also what JavaScript answers for a value with no
+    /// `length` property.
+    pub const READ: &str = "smelt_function_length";
+}
+
 /// JavaScript numeric-semantics runtime helpers.
 ///
 /// Rust's `f64` inherent methods and JavaScript's `Math` functions agree almost

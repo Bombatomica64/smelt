@@ -1,6 +1,7 @@
 //! TypeScript AST lowering into Smelt HIR.
 
 mod ambient_globals;
+mod arguments_forwarding;
 mod specialization;
 mod state;
 mod stdlib;
