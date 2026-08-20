@@ -34,6 +34,7 @@ smelt-runtime = { path = "../smelt-runtime", version = "0.1.1" }
 # Fast, non-DoS-resistant hasher for the CFG reachability hot path: block/local
 # ids are dense `u32`s, so SipHash's per-key cost dominated `emit_crate`.
 rustc-hash = "2"
+indexmap = "2"
 
 [dev-dependencies]
 insta = "1.48"

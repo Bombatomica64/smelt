@@ -84,6 +84,12 @@ mod byte_buffer_prelude;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod deps;
+#[expect(
+    dead_code,
+    unreachable_pub,
+    reason = "the pre-AST binding engine is deliberately dormant and private until its rendering consumer lands"
+)]
+mod generic_bindings;
 mod reflection_prelude;
 pub(crate) mod runtime_prelude;
 pub mod rust;
