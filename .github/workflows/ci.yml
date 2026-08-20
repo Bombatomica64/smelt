@@ -20,7 +20,14 @@ on:
       - 'coverage-summary.json'
       - 'lcov.info'
   pull_request:
-    branches: [ main ]
+    # `main` is the merge target that matters, but a *stacked* PR (one whose base
+    # is the branch below it in a chain) would otherwise get no CI at all: a
+    # `pull_request` trigger only fires for the base branches named here. A
+    # stacked PR with zero checks is unreviewable, so `claude/**` is included as
+    # a base too. Those runs test the stacked head against its parent branch,
+    # which is exactly the diff under review; the same jobs re-run against `main`
+    # once the chain is flattened and the PR is retargeted.
+    branches: [ main, 'claude/**' ]
     # `labeled` is required so that applying the `run-regressions` label starts a
     # run; `synchronize` keeps the regression jobs re-running on every later push
     # while the label is still applied. Naming `types` at all means the three
