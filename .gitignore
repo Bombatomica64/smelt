@@ -117,3 +117,6 @@ _site/
 
 # Agent worktrees are transient checkouts created under .claude/, never part of the tree
 .claude/worktrees/
+
+# Callback-generics lift design plan.
+!blocker-logs/estk-callback-generics-plan.md
