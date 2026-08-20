@@ -10356,3 +10356,100 @@ console.log(attempt(5));
         "the back edge out of the `catch` arm must render as `continue`:\n{body}"
     );
 }
+
+/// A `try`/`catch` inside a closure body must keep its handler.
+///
+/// Closure bodies are rendered by their own recursive emitter,
+/// `emit_closure_block_inner`, and its `Call`/`Await` arms matched
+/// `unwind: _` — throwing the exception handler away. The call then went through
+/// `closure_call_text_for_dest`, whose single difference from the function-level
+/// path is that it rewrites a trailing `?` into
+/// `unwrap_or_else(|error| panic!(..))`. So a nested function whose body wrapped
+/// a throwing call in `try`/`catch` did not run its `catch` at all: it aborted
+/// the process on the first throw.
+///
+/// The load-bearing assertion is the absence of the panicking unwrap together
+/// with the presence of `catch_unwind`. Asserting only on `loop {` would prove
+/// nothing here — the closure emitter already recognized this loop before the
+/// fix and still produced a program that panicked.
+#[test]
+fn a_try_catch_inside_a_closure_body_keeps_its_handler() {
+    let source = source_for(
+        r"
+function flaky(x: number): number {
+  if (x < 3) { throw new Error('nope'); }
+  return x;
+}
+export function outer(n: number): number {
+  const inner = (limit: number): number => {
+    for (let i = 0; i <= limit; i++) {
+      try { return flaky(i); } catch (err) { }
+    }
+    return -1;
+  };
+  return inner(n);
+}
+console.log(outer(5));
+",
+    );
+
+    let start = source.find("fn outer").expect("outer present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("outer closing brace");
+    let body = &after[..end];
+
+    assert_eq!(
+        body.matches("loop {").count(),
+        1,
+        "the closure body's `for` must still render as a single loop:\n{body}"
+    );
+    assert!(
+        body.contains("catch_unwind"),
+        "the `catch` handler must be emitted inside the closure body:\n{body}"
+    );
+    assert!(
+        !body.contains("unwrap_or_else(|error| panic!"),
+        "a caught throwing call must not be emitted as a panicking unwrap, which \
+         is the handler being discarded:\n{body}"
+    );
+}
+
+/// An awaited rejection inside a closure `try` runs the `catch`.
+///
+/// The closure emitter's `Await` arm dropped `unwind` exactly like its `Call`
+/// arm, so `try { await f() } catch` inside a closure propagated the rejection
+/// with `?` instead of running the handler. The awaited call itself is
+/// deliberately left on the statement path by lowering — an async callee hands
+/// back a future and the rejection surfaces at the `await`, whose terminator
+/// already carries the handler — so `.await` appearing exactly once inside a
+/// `match` is what proves the single handler landed in the right place.
+#[test]
+fn an_awaited_rejection_inside_a_closure_try_runs_the_catch() {
+    let source = source_for(
+        r"
+async function flaky(x: number): Promise<number> {
+  if (x < 3) { throw new Error('nope'); }
+  return x;
+}
+export function outer(n: number): number {
+  const inner = async (limit: number): Promise<number> => {
+    for (let i = 0; i <= limit; i++) {
+      try { return await flaky(i); } catch (err) { }
+    }
+    return -1;
+  };
+  inner(n);
+  return 0;
+}
+",
+    );
+
+    assert!(
+        source.contains("match _smelt_tmp_6.await {") || source.contains(".await {"),
+        "the awaited rejection must be matched, not propagated with `?`:\n{source}"
+    );
+    assert!(
+        !source.contains(".await?;\n    return Ok::<f64"),
+        "the awaited value inside a `try` must not be propagated with `?`:\n{source}"
+    );
+}

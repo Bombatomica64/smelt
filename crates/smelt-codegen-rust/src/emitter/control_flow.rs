@@ -51,6 +51,23 @@ pub(super) enum Continuation<'a> {
         /// Blocks already rendered on the current path, to stop unstructured cycles.
         visited: &'a BlockIdSet,
     },
+    /// Emit the successor inside a Rust closure body.
+    ///
+    /// Closure bodies are rendered by their own recursive emitter
+    /// ([`FunctionEmitter::emit_closure_block_inner`]) because a closure block can
+    /// end as a Rust tail expression and its `Return` handling differs. Routing
+    /// the throwing-terminator emitters through this variant lets a closure body
+    /// reuse them verbatim instead of growing a second copy of their coercion
+    /// logic that could drift.
+    Closure {
+        /// Blocks currently on the closure emitter's emission stack.
+        active: &'a [smelt_mir::BlockId],
+        /// Block at which emission stops (the enclosing loop header, if any).
+        stop: Option<smelt_mir::BlockId>,
+        /// Whether emission is inside a generated `loop`, which forces a MIR
+        /// `Return` to render as an explicit `return` rather than a tail value.
+        in_loop: bool,
+    },
 }
 
 /// Records whether the most recently emitted terminator diverges.
@@ -853,6 +870,26 @@ impl FunctionEmitter<'_> {
                     &mut (*visited).clone(),
                 )
             }
+            Continuation::Closure {
+                active,
+                stop,
+                in_loop,
+            } => {
+                // Each arm of the emitted `match` is its own path, so it gets its
+                // own copy of the emission stack for the same reason the loop case
+                // copies its visited set: a block legitimately reached from both
+                // the `Ok` and the `Err` arm is not a recursive cycle, and sharing
+                // one stack would make the second arm emit the closure emitter's
+                // "not structured yet" panic instead of its real continuation.
+                let mut arm_active = active.to_vec();
+                self.emit_closure_block_inner(
+                    self.block(target)?,
+                    out,
+                    &mut arm_active,
+                    *stop,
+                    *in_loop,
+                )
+            }
         }
     }
 
@@ -894,7 +931,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Emits a throwing call with explicit normal and exception continuations.
-    fn emit_throwing_call_terminator(
+    pub(super) fn emit_throwing_call_terminator(
         &self,
         callee: &Callee,
         args: &[Operand],
@@ -1027,7 +1064,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Emits an awaited rejecting future with explicit normal and exception continuations.
-    fn emit_throwing_await_terminator(
+    pub(super) fn emit_throwing_await_terminator(
         &self,
         future: &Operand,
         dest: LocalId,
