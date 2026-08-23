@@ -2297,7 +2297,15 @@ impl FunctionEmitter<'_> {
             call_text = format!("{stripped}.unwrap_or_else(|error| panic!(\"{{}}\", error))");
         }
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
-        let source_ty = self.call_source_ty(callee)?;
+        // The emitted return, not the declared one. A monomorphized generic
+        // callee really evaluates to its declared return with this call site's
+        // bindings applied (`shift<T>(SmeltList<T>) -> SmeltList<T>` called with
+        // a `SmeltList<f64>` yields `SmeltList<f64>`), while the declared return
+        // renders `T` as `SmeltUnknown` in the caller's scope. Asking for the
+        // declared type here makes the coercion a no-op whenever the destination
+        // is erased, so the concrete value is bound to an erased local and the
+        // argument is what rustc reports as mismatched (E0308).
+        let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty)
     }
 
