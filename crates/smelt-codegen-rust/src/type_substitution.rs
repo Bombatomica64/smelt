@@ -21,9 +21,10 @@
 //! itself never branches on it.
 //!
 //! [`TypeSubstitution`] additionally carries the slot for the concrete callee
-//! bindings collected at a call site (`crate::generic_bindings`). That slot is
-//! still unwired: it is `None` at every production call site, so this module
-//! remains behaviour-preserving by construction.
+//! bindings collected at a call site (`crate::generic_bindings`). Increment 1 of
+//! the callback-generics plan made that slot live: the callback adapter
+//! renderers attach it so a monomorphizing call site spells the callee's
+//! declared callback at the types it pinned.
 //!
 //! Increment 0b of the callback-generics plan
 //! (`blocker-logs/estk-callback-generics-plan.md`, §5) landed composite generic
@@ -39,7 +40,7 @@
 //! What genuinely needs type *text* under bindings is Increment 1's callback
 //! adapter renderers (§4.2): there the emitted Rust must literally spell the
 //! callee's parameter type at the bound type, and there is no MIR question to
-//! ask. That is where this slot becomes live.
+//! ask. That is where this slot became live.
 
 #![expect(
     clippy::redundant_pub_crate,
@@ -60,8 +61,10 @@ use std::collections::HashSet;
 pub(crate) enum ScopeOrigin {
     /// Nothing is spellable: every type parameter erases to `SmeltUnknown`.
     ///
-    /// This is the state the callback-parameter renderers pass today, and the
-    /// one the callback-generics plan changes in a later increment.
+    /// This is the base a call-site substitution is built on: the callback
+    /// adapter renderers pair it with [`TypeSubstitution::with_bindings`] so the
+    /// callee's declared type resolves only through the call site's bindings and
+    /// never captures a same-named type parameter from the caller's scope.
     DeliberatelyErased,
     /// The type parameters declared by the Rust item currently being emitted.
     Lexical,
@@ -83,10 +86,11 @@ pub(crate) enum Resolved {
     Spelled(Symbol),
     /// Replace it with the concrete type the call site bound it to.
     ///
-    /// Still unreachable in production: nothing attaches bindings yet.
-    /// Increment 0b resolves its substitutions in MIR rather than in rendered
-    /// text; the callback adapter renderers of Increment 1 are what make this
-    /// arm live. See the module docstring.
+    /// Live since Increment 1 of the callback-generics plan: the callback
+    /// adapter renderers attach a call site's bindings, so a monomorphizing site
+    /// spells the callee's declared callback at the types it pinned. Increment 0b
+    /// does *not* reach this arm — it resolves its substitutions in MIR rather
+    /// than in rendered text. See the module docstring.
     Substituted(TypeId),
     /// Deliberately erased: render the runtime unknown carrier.
     Erased,
@@ -108,7 +112,9 @@ pub(crate) struct TypeSubstitution<'a> {
     origin: ScopeOrigin,
     /// Concrete instantiations collected at a call site.
     ///
-    /// Always `None` today; see the module docstring.
+    /// `None` everywhere except the callback adapter renderers, which attach a
+    /// static call site's bindings through [`Self::with_bindings`]; see the
+    /// module docstring.
     bindings: Option<&'a CalleeTypeParamBindings>,
 }
 
@@ -157,18 +163,11 @@ impl<'a> TypeSubstitution<'a> {
 
     /// Attach the concrete bindings collected at a call site.
     ///
-    /// Intentionally has no production caller: the `expect` below is what proves
-    /// this module stays inert. Increment 0b did not wire it — it settles its
-    /// substitutions in MIR (see the module docstring) — so the proof still
-    /// holds. Wiring it up is Increment 1, and removing the attribute rather
-    /// than the reason for it would erase that proof.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the call-site binding seam lands inert; a later increment threads it"
-        )
-    )]
+    /// Live since Increment 1: `crate::emitter::callee_substitution` attaches
+    /// the bindings a static call site pinned so the callee's declared callback
+    /// type renders at those concrete types. It is deliberately attached to
+    /// [`Self::erased`] and never to a caller's lexical scope — see that
+    /// function for why mixing the two is the historical `E0631`.
     pub(crate) const fn with_bindings(self, bindings: &'a CalleeTypeParamBindings) -> Self {
         Self {
             bindings: Some(bindings),
@@ -218,8 +217,10 @@ impl<'a> TypeSubstitution<'a> {
     /// Once bindings are attached, a parameter the callee declares but that is
     /// absent from the binding map is an invariant violation — the binding
     /// matcher and the renderer disagree about the callee's signature — and
-    /// returns `Err` rather than silently erasing. That arm cannot fire while
-    /// `bindings` is `None`, which is why it is safe to write it now.
+    /// returns `Err` rather than silently erasing. Since Increment 1 that arm is
+    /// reachable: `static_call_monomorphization` only produces a binding map in
+    /// which every declared type parameter is `Concrete`, so a missing entry
+    /// means the two disagree about which parameters the callee declares.
     ///
     /// Note the deliberate difference from
     /// `crate::generic_bindings::substituted_type_id`, which fails *closed*

@@ -4,8 +4,10 @@
     reason = "class helpers are shared across sibling emitter modules"
 )]
 
+use std::collections::HashSet;
+
 use smelt_hir::{Symbol, Type, TypeId};
-use smelt_mir::{Mir, MirClass, MirField, MirFunction, MirInterface};
+use smelt_mir::{FuncId, LocalId, Mir, MirClass, MirField, MirFunction, MirInterface};
 
 use crate::{EmitError, emitter::FunctionEmitter, generic_bindings, id_index, rust::RustIdent};
 
@@ -235,14 +237,35 @@ pub(crate) fn class_impl_generics_text(mir: &Mir, class: &MirClass) -> Result<St
 ///   *direct* (non-callback) parameter position such as `T`, `T[]`, or
 ///   `Option<T>`, so Rust can infer it from the argument. A type parameter used
 ///   only in the return type (e.g. a type predicate `data is T`) or only inside
-///   a callback parameter cannot be inferred and would produce `E0283`;
-/// - **absent from every callback (function-typed) parameter** — codegen
-///   synthesizes default callbacks as `move |arg: SmeltUnknown| ...`, which
-///   cannot unify with a generic callback signature `Fn(T) -> _` (`E0631`), so a
-///   type parameter appearing inside a function-typed parameter is unsafe.
+///   a callback parameter cannot be inferred and would produce `E0283`.
+///
+/// A type parameter that appears inside a callback parameter is *no longer*
+/// rejected outright. That gate (Increment 1 of
+/// `blocker-logs/estk-callback-generics-plan.md`) existed because
+/// `param_type_text` rendered a callback's parameter halves in an empty
+/// type-parameter scope, so a callee whose signature said `Fn(T)` was handed
+/// closures declared `|arg: SmeltUnknown|`. The scope, not Rust inference, was
+/// the defect; both halves of a callback type now render in the callee's own
+/// lexical scope, and call-site adapters render the callee's declared callback
+/// under the bindings that call site pinned.
+///
+/// That relaxation is bounded by §4.4 of the plan: only a **direct, required,
+/// borrowed, non-rest** `Type::Function` parameter can carry a type parameter
+/// into the emitted signature and still have every call site render an argument
+/// that matches it. See [`callback_occurrences_are_liftable`] for the rule and
+/// for why each excluded shape is excluded.
+///
+/// `owned_callback_params` is the emitter's own ownership fixpoint
+/// (`emitter::compute_owned_callback_params`), threaded in rather than
+/// recomputed so the gate and the renderer cannot grow two different notions of
+/// "owned callback".
 ///
 /// These are the deferred "bounded / higher-order / return-only" slices of #99.
-pub(crate) fn function_emits_rust_generics(mir: &Mir, function: &MirFunction) -> bool {
+pub(crate) fn function_emits_rust_generics(
+    mir: &Mir,
+    function: &MirFunction,
+    owned_callback_params: &HashSet<(FuncId, LocalId)>,
+) -> bool {
     if function.type_params.is_empty()
         || function
             .type_params
@@ -266,17 +289,18 @@ pub(crate) fn function_emits_rust_generics(mir: &Mir, function: &MirFunction) ->
     let signature_safe = function.type_params.iter().all(|type_param| {
         let name = type_param.name;
         // The parameter must be inferable from at least one direct value
-        // parameter position and must never appear inside a callback parameter.
-        let mut inferable = false;
-        for &param_ty in &param_types {
-            if type_param_in_callback(mir, param_ty, name) {
-                return false;
-            }
-            if type_param_directly_inferable(mir, param_ty, name) {
-                inferable = true;
-            }
-        }
-        inferable
+        // parameter position. Increment 3 of the callback-generics plan is what
+        // relaxes this to inference *through* a callback; until then a type
+        // parameter reachable only through a callback still demotes the
+        // function, because a `dyn Fn` argument position is an unsize coercion
+        // rather than an inference source.
+        param_types
+            .iter()
+            .any(|&param_ty| type_param_directly_inferable(mir, param_ty, name))
+            // ... and every callback position it *also* occupies must be one the
+            // renderer can express under Increment 1's `&dyn Fn(T, ..)`
+            // representation (§4.4).
+            && callback_occurrences_are_liftable(mir, function, owned_callback_params, name)
     });
 
     signature_safe && !called_with_erased_type_param_argument(mir, function)
@@ -300,7 +324,7 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
     // Parameter positions whose declared type is exactly one of the function's
     // own type parameters (`x: T`). Nested shapes (`T[]`) still bind `T` from
     // the argument's element type, so only bare-parameter positions are checked.
-    let own_params: std::collections::HashSet<Symbol> =
+    let own_params: HashSet<Symbol> =
         function.type_params.iter().map(|param| param.name).collect();
     let bare_type_param_positions: Vec<usize> = function
         .params
@@ -456,13 +480,27 @@ fn type_param_directly_inferable(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
 /// Return whether `name` appears anywhere inside a function-typed sub-shape of
 /// `ty` (a callback parameter or return).
 ///
-/// Such positions are unsafe for real generics because codegen synthesizes a
-/// default callback as `move |arg: SmeltUnknown| ...`, which cannot unify with a
-/// generic `Fn(T) -> _` signature. The walk descends through value wrappers to
-/// find a nested `Type::Function`, then checks whether `name` occurs anywhere
-/// within that function type using the shared
-/// [`generic_bindings::type_param_occurs`] walk.
-fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
+/// The walk descends through value wrappers to find a nested `Type::Function`,
+/// then checks whether `name` occurs anywhere within that function type using
+/// the shared [`generic_bindings::type_param_occurs`] walk.
+///
+/// This used to be the callback gate itself — any occurrence demoted the
+/// function. Increment 1 of the callback-generics plan deleted that
+/// all-or-nothing early return; the walk stayed, and is now the occurrence half
+/// of the §4.4 eligibility rule implemented by
+/// [`callback_occurrences_are_liftable`]: it answers "does `name` reach a
+/// function-typed sub-shape of `ty` at all", and the caller decides whether the
+/// position that occurrence sits in is one the renderer can express.
+///
+/// Increment 3 additionally turns this into
+/// `type_param_inferable_through_callback` by restricting it to positions Rust
+/// can *infer* from — a callback parameter or return, but not a `T` buried in a
+/// union inside a callback parameter, since a union erases and never appears in
+/// the emitted `Fn` bound. That restriction is deferred: it only matters once a
+/// callback position becomes an inference source. Here the walk is used as a
+/// *demotion* trigger, so being deliberately wide (it descends unions, tuples,
+/// class arguments and generator shapes) is the conservative direction.
+pub(crate) fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     match mir.types.get(ty) {
         Some(Type::Function(function)) => {
             function
@@ -515,6 +553,85 @@ fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     }
 }
 
+/// Return whether every callback occurrence of `name` in `function`'s parameter
+/// list sits in a position the current callback representation can express.
+///
+/// §4.4 of `blocker-logs/estk-callback-generics-plan.md` scopes callback-borne
+/// generics to a **direct, required, borrowed, non-rest** `Type::Function`
+/// parameter. A parameter that mentions `name` inside a function type in any
+/// other shape demotes the whole function to erasure, because the callee
+/// signature and the call-site argument would be rendered by two different
+/// paths that cannot agree:
+///
+/// * **optional** (`Type::Optional(Function)`) — lowers to
+///   `Option<Rc<dyn Fn(T) -> _>>`. An omitted argument is `None`, which carries
+///   no closure and therefore no `T`; the call site must name a concrete
+///   element type for the `None` and picks the erased one (`E0308`, and `E0631`
+///   on the synthesized default closure). This is also exactly the shape
+///   `emitter::callee_param_is_owned_callback_sink` classifies as an owned sink.
+/// * **owned or escaping** — the emitter's ownership fixpoint decided this
+///   parameter is stored, returned or captured, so it lowers to an owned
+///   `Rc<dyn Fn(..)>` with a `'static` bound rather than a borrowed `&dyn Fn`.
+///   The borrowed-callback argument ladder in `emitter::call` — the one that
+///   renders the substituted adapter — declines those positions, so the
+///   substituted signature would be met with an erased argument.
+/// * **nested inside a container, or inside another function type** — the
+///   occurrence is behind a wrapper the adapter renderers do not walk into, so
+///   the callee would advertise `T` in a position no call site substitutes.
+/// * **rest** (`function.rest == Some(index)`) — a packed rest parameter is
+///   emitted as an erased sequence of callables; there is no single declared
+///   callback whose type the call site can be substituted against.
+///
+/// `owned` is the emitter's `compute_owned_callback_params` fixpoint, threaded
+/// in by the caller. It is deliberately *the same* set the renderer consults
+/// (`FunctionEmitter::is_owned_callback_param`) so the gate cannot disagree with
+/// the representation it is predicting.
+///
+/// Only parameter positions are examined. A callback in the *return* type is
+/// produced by the callee's own body rather than supplied by a call site, so it
+/// has no argument to disagree with.
+fn callback_occurrences_are_liftable(
+    mir: &Mir,
+    function: &MirFunction,
+    owned: &HashSet<(FuncId, LocalId)>,
+    name: Symbol,
+) -> bool {
+    for (index, param) in function.params.iter().enumerate() {
+        let Ok(local_index) = id_index(param.0, "local index does not fit usize") else {
+            return false;
+        };
+        let Some(local) = function.locals.get(local_index) else {
+            return false;
+        };
+        if !type_param_in_callback(mir, local.ty, name) {
+            // No callback occurrence in this parameter at all; a direct value
+            // position such as `T` or `T[]` is handled by
+            // `type_param_directly_inferable`.
+            continue;
+        }
+        // There IS a callback occurrence here, so this parameter must be the one
+        // eligible shape.
+        let Some(Type::Function(callback)) = mir.types.get(local.ty) else {
+            // Wrapped in `Option<..>`, a list, a dict, a class argument, ...
+            return false;
+        };
+        if function.rest == Some(index) || owned.contains(&(function.id, *param)) {
+            return false;
+        }
+        // Direct callback parameter — but the occurrence must be at its own
+        // top level, not inside a further nested function type.
+        if callback
+            .params
+            .iter()
+            .any(|nested| type_param_in_callback(mir, *nested, name))
+            || type_param_in_callback(mir, callback.return_ty, name)
+        {
+            return false;
+        }
+    }
+    true
+}
+
 /// Render the bounded generic-parameter suffix for a generic free function.
 ///
 /// A generic free function such as `function identity<T>(x: T): T` is emitted
@@ -527,8 +644,9 @@ fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
 pub(crate) fn function_impl_generics_text(
     mir: &Mir,
     function: &MirFunction,
+    owned_callback_params: &HashSet<(FuncId, LocalId)>,
 ) -> Result<String, EmitError> {
-    if !function_emits_rust_generics(mir, function) {
+    if !function_emits_rust_generics(mir, function, owned_callback_params) {
         return Ok(String::new());
     }
     let params = function

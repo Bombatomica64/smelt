@@ -280,7 +280,7 @@ impl FunctionEmitter<'_> {
             if let Some(adapter) = self.rest_vector_function_adapter_text(operand, target, false)? {
                 return Ok(adapter);
             }
-            if let Some(adapter) = self.function_shape_adapter_text(operand, target, false)? {
+            if let Some(adapter) = self.function_shape_adapter_text(operand, target, false, None)? {
                 return Ok(adapter);
             }
             let text = self.operand_text(operand)?;
@@ -495,7 +495,7 @@ impl FunctionEmitter<'_> {
             ))
         {
             return self
-                .function_shape_adapter_text(operand, target, false)?
+                .function_shape_adapter_text(operand, target, false, None)?
                 .ok_or_else(|| EmitError::new("function adapter was unexpectedly unavailable"));
         }
         if matches!(self.mir.types.get(target), Some(Type::Function(_))) {

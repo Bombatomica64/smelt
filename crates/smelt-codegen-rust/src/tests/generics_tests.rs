@@ -534,12 +534,14 @@ function useBox(): number[] {
 }
 
 #[test]
-fn callback_generic_function_still_demotes() {
-    // INVARIANT for Increment 0b: the callback gate (`type_param_in_callback`,
-    // `classes.rs`) is untouched, so a type parameter appearing inside a
-    // callback parameter still forces the whole function to erase. This test is
-    // expected to FLIP in Increment 1; its flip is the marker that the gate
-    // came down, and it must not flip before then.
+fn callback_generic_function_emits_generics() {
+    // INVARIANT for Increment 1: a type parameter that appears inside a callback
+    // parameter *and* in a direct value parameter is a real Rust generic. Both
+    // halves of the callback type render in the callee's own lexical scope, so
+    // the signature says `Fn(T)` and not `Fn(SmeltUnknown)`.
+    //
+    // This test replaces `callback_generic_function_still_demotes`, which pinned
+    // the deleted gate. Its flip is the marker that the gate came down.
     let source = source_for(
         r"
 export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
@@ -548,8 +550,116 @@ export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
 ",
     );
 
-    assert!(!source.contains("fn take_while<T"));
-    assert!(source.contains("fn take_while(xs: SmeltList<SmeltUnknown>"));
+    assert!(source.contains(
+        "fn take_while<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>, keep: &dyn Fn(T) -> bool) -> SmeltList<T>"
+    ));
+}
+
+#[test]
+fn callback_generic_stays_dyn_not_bounded() {
+    // GUARDS Increment 2. The representation for a borrowed callback parameter
+    // is still Option C, `&dyn Fn(T, ..)`. Swapping it for `F0: Fn(..) + ?Sized`
+    // changes who satisfies the bound at every call site, so it must be a
+    // deliberate, separately validated change rather than something that leaks
+    // in with a helper refactor.
+    let source = source_for(
+        r"
+export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
+  return xs.filter(keep);
+}
+",
+    );
+
+    assert!(source.contains("keep: &dyn Fn(T) -> bool"));
+    assert!(!source.contains("F0: Fn("));
+    assert!(!source.contains("keep: &F"));
+}
+
+#[test]
+fn callback_only_type_param_still_demotes() {
+    // INVARIANT: Increment 1 keeps `type_param_directly_inferable` required, so
+    // a type parameter reachable ONLY through a callback still erases the whole
+    // function. Lifting it is Increment 3's job, and it needs an `Fn` bound
+    // rather than an unsize coercion to a `dyn Fn` to infer through. If this
+    // flips without that work, a call site passing an erased callable (a
+    // `vi.fn()` spy) leaves `T` unconstrained: `E0283`.
+    let source = source_for(
+        r"
+export function attempt<T>(make: () => T): T[] {
+  return [make()];
+}
+",
+    );
+
+    assert!(!source.contains("fn attempt<T"));
+    assert!(source.contains("fn attempt(make: &dyn Fn() -> SmeltUnknown)"));
+}
+
+#[test]
+fn constrained_type_param_still_demotes_with_callback() {
+    // GUARDS Increment 5. The generic decision is still per *function*, not per
+    // type parameter: one constrained parameter demotes the whole signature even
+    // when its sibling `T` is perfectly inferable. Deleting the callback gate
+    // must not partially enable per-parameter decisions.
+    let source = source_for(
+        r"
+export function groupBy<T, K extends string>(xs: T[], key: (x: T) => K): K[] {
+  return xs.map(key);
+}
+",
+    );
+
+    assert!(!source.contains("fn group_by<"));
+}
+
+#[test]
+fn erased_callable_argument_keeps_the_definition_generic() {
+    // The counterpart to `callback_only_type_param_still_demotes`: when `T` IS
+    // pinned by a direct value parameter, an erased callable in the callback
+    // position is harmless. Nothing has to infer `T` from the callback, so the
+    // definition stays generic and only the call site erases — the same
+    // whole-function/per-site split `generic_free_function_demotes_on_erased_argument`
+    // pins for bare positions.
+    let source = source_for(
+        r"
+export function each<T>(xs: T[], cb: (x: T) => void): T[] {
+  return xs.filter(cb) as T[];
+}
+export function run(xs: unknown[], cb: unknown): unknown[] {
+  return each(xs, cb as (x: unknown) => void);
+}
+",
+    );
+
+    assert!(source.contains(
+        "fn each<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>, cb: &dyn Fn(T) -> ())"
+    ));
+}
+
+#[test]
+fn defaulted_callback_inside_a_generic_body_renders_in_scope() {
+    // The synthesized default callback is emitted INSIDE the generic body and
+    // bound to a handle whose type renders in that body's lexical scope. Both
+    // halves must therefore agree: an `Rc<dyn Fn(T, ..)>` handle initialised
+    // with `move |arg0: SmeltUnknown, ..|` does not type-check (E0631/E0308).
+    // This is a fifth renderer beyond the four call-site adapters, and it is
+    // what keeps `uniqWith`-shaped functions in the lift.
+    let source = source_for(
+        r"
+export function uniqWith<T>(xs: T[], same: (a: T, b: T) => boolean): T[] {
+  const seen: T[] = [];
+  for (const item of xs) {
+    if (!seen.some((other) => same(item, other))) {
+      seen.push(item);
+    }
+  }
+  return seen;
+}
+",
+    );
+
+    assert!(source.contains("fn uniq_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>"));
+    assert!(!source.contains("move |arg0: SmeltUnknown"));
 }
 
 #[test]
@@ -578,3 +688,142 @@ export function useSubset(): boolean {
     assert!(source.contains("let _smelt_tmp_4: bool = is_subset(xs, ys);"));
 }
 
+
+#[test]
+fn optional_callback_type_param_demotes() {
+    // INVARIANT for §4.4 of `blocker-logs/estk-callback-generics-plan.md`: an
+    // OPTIONAL callback parameter lowers to `Option<Rc<dyn Fn(T) -> _>>`, and a
+    // call site that omits it must name a concrete element type for the `None`.
+    // It has no closure to take one from, so it names the erased one and the
+    // call no longer matches the generic signature (measured: 21 x E0308 plus
+    // 1 x E0631 on the synthesized default closure). The whole function must
+    // therefore keep the erased representation until an increment designs the
+    // optional case.
+    //
+    // NON-VACUOUS: with the §4.4 narrowing removed this emits
+    // `fn pick<T: ..>(x: T, cb: Option<Rc<dyn Fn(T) -> bool>>) -> T`, so the
+    // first assertion fails.
+    let source = source_for(
+        r"
+export function pick<T>(x: T, cb: (v: T) => boolean = () => true): T {
+  return cb(x) ? x : x;
+}
+export function useDefault(): number {
+  return pick(1);
+}
+",
+    );
+
+    assert!(!source.contains("fn pick<T"));
+    assert!(source.contains("fn pick(x: SmeltUnknown, cb: Option<"));
+}
+
+#[test]
+fn owned_callback_type_param_demotes() {
+    // INVARIANT for §4.4: a callback the emitter's ownership fixpoint classifies
+    // as ESCAPING (here it is returned) lowers to an owned `Rc<dyn Fn(..)>` with
+    // a `'static` bound rather than a borrowed `&dyn Fn`. The borrowed-callback
+    // argument ladder — the only path that renders a call-site adapter under the
+    // site's bindings — declines those positions, so a generic signature would be
+    // met with an erased argument. The gate consults
+    // `emitter::compute_owned_callback_params`, the SAME set the renderer uses,
+    // so the two cannot grow different notions of "owned".
+    //
+    // NON-VACUOUS: without the narrowing this emits
+    // `fn keep<T: ..>(x: T, cb: Rc<dyn Fn(T) -> bool>) -> Rc<dyn Fn(T) -> bool>`.
+    let source = source_for(
+        r"
+export function keep<T>(x: T, cb: (v: T) => boolean): (v: T) => boolean {
+  return cb;
+}
+",
+    );
+
+    assert!(!source.contains("fn keep<T"));
+    assert!(source.contains("fn keep(x: SmeltUnknown, cb: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>)"));
+}
+
+#[test]
+fn callback_nested_in_a_container_demotes() {
+    // INVARIANT for §4.4: a function type nested inside another container
+    // (`((v: T) => boolean)[]`) is not a direct callback parameter. No adapter
+    // renderer walks into the container, so the callee would advertise `T` in a
+    // position no call site substitutes.
+    //
+    // NON-VACUOUS: without the narrowing this emits
+    // `fn pick<T: ..>(xs: SmeltList<T>, cbs: SmeltList<Rc<dyn Fn(T) -> bool>>)`.
+    let source = source_for(
+        r"
+export function pick<T>(xs: T[], cbs: ((v: T) => boolean)[]): T[] {
+  return xs.filter(cbs[0]);
+}
+",
+    );
+
+    assert!(!source.contains("fn pick<T"));
+    assert!(source.contains("cbs: SmeltList<::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>>"));
+}
+
+#[test]
+fn rest_callback_type_param_demotes() {
+    // INVARIANT for §4.4: a packed rest callback parameter is emitted as an
+    // erased sequence of callables, so there is no single declared callback type
+    // for a call site to be substituted against. (It is also container-nested,
+    // which is why the emitted text below matches
+    // `callback_nested_in_a_container_demotes`; the `function.rest` half of the
+    // rule is what covers a rest parameter whose declared MIR type is not a
+    // container.)
+    //
+    // NON-VACUOUS: without the narrowing this emits `fn pick<T: ..>`.
+    let source = source_for(
+        r"
+export function pick<T>(xs: T[], ...cbs: ((v: T) => boolean)[]): T[] {
+  return xs.filter(cbs[0]);
+}
+",
+    );
+
+    assert!(!source.contains("fn pick<T"));
+}
+
+#[test]
+fn higher_order_callback_type_param_demotes() {
+    // INVARIANT for §4.4: the callback occurrence must be at the DIRECT
+    // callback's own top level. A `T` buried inside a further nested function
+    // type (`(f: (v: T) => boolean) => boolean`) sits behind an owned
+    // `Rc<dyn Fn>` the adapter renderers do not descend into.
+    //
+    // NON-VACUOUS: without the narrowing this emits
+    // `fn apply<T: ..>(x: T, cb: &dyn Fn(Rc<dyn Fn(T) -> bool>) -> bool)`.
+    let source = source_for(
+        r"
+export function apply<T>(x: T, cb: (f: (v: T) => boolean) => boolean): boolean {
+  return cb((v: T) => true);
+}
+",
+    );
+
+    assert!(!source.contains("fn apply<T"));
+    assert!(source.contains(
+        "fn apply(x: SmeltUnknown, cb: &dyn Fn(::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>) -> bool)"
+    ));
+}
+
+#[test]
+fn callback_in_the_return_type_still_lifts() {
+    // The boundary of §4.4's rule, stated positively: it scopes only PARAMETER
+    // positions. A callback in the return type is produced by the callee's own
+    // body rather than supplied by a call site, so it has no argument that could
+    // disagree with the substituted signature and it stays generic.
+    let source = source_for(
+        r"
+export function make<T>(x: T): (v: T) => boolean {
+  return (v: T) => true;
+}
+",
+    );
+
+    assert!(source.contains(
+        "fn make<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T) -> ::std::rc::Rc<dyn Fn(T) -> bool>"
+    ));
+}

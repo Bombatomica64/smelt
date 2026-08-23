@@ -1267,7 +1267,7 @@ impl FunctionEmitter<'_> {
                             let text = if rest_function.is_some_and(|function| {
                                 function.mutable_params.contains(&index)
                             }) {
-                                self.mutable_reference_argument_text(arg, *param)?
+                                self.mutable_reference_argument_text(arg, *param, None)?
                             } else {
                                 self.value_at_type(arg, *param)?
                             };

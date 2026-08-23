@@ -732,23 +732,27 @@ impl FunctionEmitter<'_> {
     /// than requiring `FnMut` receiver access.
     pub(super) fn param_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
         if let Some(Type::Function(function)) = self.mir.types.get(ty) {
+            // BOTH halves of the callback type render in the lexical scope of
+            // the item being defined. They used to disagree — the parameters in
+            // an explicitly empty environment, the return in the lexical scope —
+            // which is the §1.2 defect of the callback-generics plan: a callee
+            // whose `T` was in scope emitted `Fn(SmeltUnknown) -> T`, so the
+            // gate had to refuse every callback-borne type parameter outright.
+            //
+            // `param_type_text` is only ever reached from
+            // `parameter_decl_type_text`, and that only from the four signature
+            // emitters, where `self` is always the emitter for the item being
+            // DEFINED. The scope is therefore the callee's own, which is the
+            // correct owner of a `T` inside its declared callback. Call-site
+            // adapters are rendered elsewhere, under the call site's bindings.
+            let scope = self.current_function_type_params();
+            let substitution = TypeSubstitution::lexical(&scope);
             let params = function
                 .params
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    // The callback's PARAMETER types are rendered in an
-                    // explicitly empty environment while its return (below) is
-                    // rendered in the caller's lexical scope. That split is the
-                    // defect the callback-generics plan (§1.2) exists to fix; it
-                    // is threaded here as a named empty substitution so the fix
-                    // is a change to what is passed in, not to who renders what.
-                    self.function_type_param_text(
-                        function,
-                        index,
-                        *param,
-                        &TypeSubstitution::erased(),
-                    )
+                    self.function_type_param_text(function, index, *param, &substitution)
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
@@ -757,9 +761,7 @@ impl FunctionEmitter<'_> {
             // carry the SAME Rust type as the function value bound to it, or a
             // throwing callback's `Result` is dropped at the parameter boundary
             // and its error is forced into a `panic!` by the argument adapter.
-            let scope = self.current_function_type_params();
-            let return_ty =
-                self.function_value_return_type_text(function, &TypeSubstitution::lexical(&scope))?;
+            let return_ty = self.function_value_return_type_text(function, &substitution)?;
             return Ok(format!("&dyn Fn({params}) -> {return_ty}"));
         }
         self.type_text(ty)
@@ -814,6 +816,12 @@ impl FunctionEmitter<'_> {
     /// lets a generic free function emit real Rust generics rather than routing
     /// its `T`-typed parameters and return through the runtime unknown carrier.
     pub(super) fn current_function_type_params(&self) -> HashSet<Symbol> {
+        // Text destined for a hoisted module-level item may not spell any type
+        // parameter: the item declares none. See
+        // `FunctionEmitter::hoisted_module_item`.
+        if self.hoisted_module_item.get() {
+            return HashSet::new();
+        }
         // A closure (or other nested) sub-emitter inherits the type parameters
         // that are in scope in the enclosing Rust output. That set was captured
         // from the enclosing emitter at construction time, so it is already
@@ -835,7 +843,11 @@ impl FunctionEmitter<'_> {
                 // trial has not forced a fall back to erasure via
                 // `suppress_type_params`.
                 if *self.suppress_type_params.borrow()
-                    || !crate::classes::function_emits_rust_generics(self.mir, self.function)
+                    || !crate::classes::function_emits_rust_generics(
+                        self.mir,
+                        self.function,
+                        &self.context.owned_callback_params,
+                    )
                 {
                     return HashSet::new();
                 }
@@ -1172,6 +1184,17 @@ impl FunctionEmitter<'_> {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
                     return Ok("SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null), length: 0.0, object: None }".to_owned());
                 }
+                // The synthesized default callback is emitted INSIDE the body
+                // that needs it, and it is bound to a handle whose type
+                // (`function_type`, below) renders in that body's lexical scope.
+                // Its parameter declarations must therefore render in the SAME
+                // scope, or a generic function containing a defaulted callback
+                // emits `Rc<dyn Fn(T, ..)> = Rc::new(move |arg0: SmeltUnknown|
+                // ..)` and fails to type-check (E0631/E0308) inside its own
+                // body. This is the same split `param_type_text` had, in a fifth
+                // renderer; both halves now agree.
+                let scope = self.current_function_type_params();
+                let substitution = TypeSubstitution::lexical(&scope);
                 let params = function
                     .params
                     .iter()
@@ -1179,18 +1202,7 @@ impl FunctionEmitter<'_> {
                     .map(|(index, param)| {
                         Ok(format!(
                             "arg{index}: {}",
-                            // The synthesized default callback's PARAMETER types
-                            // are rendered in an explicitly empty environment
-                            // while its return (below) uses the caller's lexical
-                            // scope. Same split as `param_type_text`; threaded
-                            // here as a named empty substitution so a later
-                            // increment changes the argument, not the renderer.
-                            self.function_type_param_text(
-                                function,
-                                index,
-                                *param,
-                                &TypeSubstitution::erased(),
-                            )?
+                            self.function_type_param_text(function, index, *param, &substitution)?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
