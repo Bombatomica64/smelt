@@ -389,7 +389,7 @@ fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &smelt_mir::
 /// the bare parameter (`T`), collections and wrappers over it (`T[]`,
 /// `Set<T>`, `Option<T>`, `T[]` inside a tuple, a union member, dict key/value).
 /// This walk must mirror what codegen actually EMITS for a parameter type
-/// (see `type_text_with_scoped_type_params`): it only descends through shapes
+/// (see `FunctionEmitter::rust_type`): it only descends through shapes
 /// that preserve the type parameter in the emitted Rust. It intentionally does
 /// NOT descend into:
 /// - **`Union`** — a union parameter erases to `SmeltUnknown` in emission, so a

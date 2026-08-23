@@ -934,7 +934,7 @@ impl FunctionEmitter<'_> {
                             "{name}: {}",
                             self.default_value_with_scoped_type_params(
                                 field.ty,
-                                &scoped_type_params,
+                                &TypeSubstitution::lexical(&scoped_type_params),
                             )?
                         ));
                     }

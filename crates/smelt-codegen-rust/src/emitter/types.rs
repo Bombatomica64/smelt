@@ -4,6 +4,23 @@ use super::*;
 use crate::rust::RustIdent;
 use smelt_hir::FunctionType;
 
+/// Whether a callback parameter declared mutable gets a `&mut ` prefix.
+///
+/// The callback-argument renderers historically differ here, and the difference
+/// is emitted bytes: `param_type_text`, the default-callback renderer, the
+/// virtual-method storage field and the rendered shape adapter apply it; the
+/// three caller-scope adapters bypass `function_type_param_text` and do not.
+/// Preserved as an explicit axis rather than normalized, because normalizing it
+/// either way changes generated output. Whether the omission is a latent bug is
+/// a separate question from this consolidation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum MutablePrefix {
+    /// Prefix `&mut ` for indices in `FunctionType::mutable_params`.
+    Apply,
+    /// Never prefix, whatever `mutable_params` says.
+    Ignore,
+}
+
 impl FunctionEmitter<'_> {
     /// Render one parameter type from a function-typed value.
     ///
@@ -15,14 +32,58 @@ impl FunctionEmitter<'_> {
         function: &FunctionType,
         index: usize,
         param: TypeId,
-        scoped_type_params: &HashSet<Symbol>,
+        substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
-        let param_text =
-            self.type_text_with_scoped_type_params(param, false, scoped_type_params)?;
+        let param_text = self.rust_type(param, false, substitution)?;
         if function.mutable_params.contains(&index) {
             Ok(format!("&mut {param_text}"))
         } else {
-            Ok(param_text)
+            Ok(param_text.into_string())
+        }
+    }
+
+    /// Render `arg0: T0, arg1: T1, ..` declarations for one callback shape.
+    ///
+    /// Six renderers used to hand-roll this loop, and they disagreed on two
+    /// independent axes that are both visible in emitted bytes: which
+    /// type-parameter environment the parameter types are lowered in, and
+    /// whether `FunctionType::mutable_params` contributes a `&mut ` prefix.
+    /// Both axes are therefore explicit arguments rather than a choice this
+    /// helper makes — collapsing them onto one answer would be a behaviour
+    /// change, not a consolidation.
+    pub(super) fn callback_arg_decls(
+        &self,
+        function: &FunctionType,
+        substitution: &TypeSubstitution<'_>,
+        mutability: MutablePrefix,
+    ) -> Result<Vec<String>, EmitError> {
+        function
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                Ok(format!(
+                    "arg{index}: {}",
+                    self.callback_param_type(function, index, *param, substitution, mutability)?
+                ))
+            })
+            .collect()
+    }
+
+    /// Render one callback parameter type, honoring the `&mut ` axis.
+    pub(super) fn callback_param_type(
+        &self,
+        function: &FunctionType,
+        index: usize,
+        param: TypeId,
+        substitution: &TypeSubstitution<'_>,
+        mutability: MutablePrefix,
+    ) -> Result<String, EmitError> {
+        match mutability {
+            MutablePrefix::Apply => {
+                self.function_type_param_text(function, index, param, substitution)
+            }
+            MutablePrefix::Ignore => Ok(self.rust_type(param, false, substitution)?.into_string()),
         }
     }
 
@@ -629,8 +690,8 @@ impl FunctionEmitter<'_> {
     /// This is the single source of truth for the two return-position
     /// refinements a `Type::Function` carries, so every site that renders a
     /// function value (the canonical `Type::Function` arm of
-    /// `type_text_with_scoped_type_params`, and the borrowed callback parameter
-    /// rendering in `param_type_text`) agrees on the emitted Rust type:
+    /// `rust_type`, and the borrowed callback parameter rendering in
+    /// `param_type_text`) agrees on the emitted Rust type:
     ///
     /// * a `Future` return renders as the promise value `SmeltFuture<T>`. A
     ///   synchronous throw from an async function surfaces as a *rejected
@@ -644,16 +705,17 @@ impl FunctionEmitter<'_> {
     pub(super) fn function_value_return_type_text(
         &self,
         function: &FunctionType,
-        scoped_type_params: &HashSet<Symbol>,
+        substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
         if let Some(Type::Future(item)) = self.mir.types.get(function.return_ty) {
             return Ok(format!(
                 "SmeltFuture<{}>",
-                self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
+                self.rust_type(*item, false, substitution)?
             ));
         }
-        let inner_return_ty =
-            self.type_text_with_scoped_type_params(function.return_ty, false, scoped_type_params)?;
+        let inner_return_ty = self
+            .rust_type(function.return_ty, false, substitution)?
+            .into_string();
         if function.may_throw {
             return Ok(format!(
                 "Result<{inner_return_ty}, Box<dyn std::error::Error>>"
@@ -675,7 +737,18 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    self.function_type_param_text(function, index, *param, &HashSet::new())
+                    // The callback's PARAMETER types are rendered in an
+                    // explicitly empty environment while its return (below) is
+                    // rendered in the caller's lexical scope. That split is the
+                    // defect the callback-generics plan (§1.2) exists to fix; it
+                    // is threaded here as a named empty substitution so the fix
+                    // is a change to what is passed in, not to who renders what.
+                    self.function_type_param_text(
+                        function,
+                        index,
+                        *param,
+                        &TypeSubstitution::erased(),
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
@@ -684,8 +757,9 @@ impl FunctionEmitter<'_> {
             // carry the SAME Rust type as the function value bound to it, or a
             // throwing callback's `Result` is dropped at the parameter boundary
             // and its error is forced into a `panic!` by the argument adapter.
-            let return_ty = self
-                .function_value_return_type_text(function, &self.current_function_type_params())?;
+            let scope = self.current_function_type_params();
+            let return_ty =
+                self.function_value_return_type_text(function, &TypeSubstitution::lexical(&scope))?;
             return Ok(format!("&dyn Fn({params}) -> {return_ty}"));
         }
         self.type_text(ty)
@@ -715,11 +789,9 @@ impl FunctionEmitter<'_> {
         ty: TypeId,
         allow_impl_trait: bool,
     ) -> Result<String, EmitError> {
-        self.type_text_with_scoped_type_params(
-            ty,
-            allow_impl_trait,
-            &self.current_function_type_params(),
-        )
+        let scope = self.current_function_type_params();
+        self.rust_type(ty, allow_impl_trait, &TypeSubstitution::lexical(&scope))
+            .map(RustType::into_string)
     }
 
     /// Return whether `param` is a type parameter in scope for the current
@@ -783,44 +855,62 @@ impl FunctionEmitter<'_> {
             .unwrap_or_default()
     }
 
-    /// Convert a type ID to Rust while preserving type parameters declared by
-    /// the current storage item.
+    /// The one canonical, substitution-aware Rust type lowering entry point.
     ///
-    /// Function-level generics are not represented in MIR yet, so unscoped type
-    /// parameters still lower to `SmeltUnknown`. Class and interface storage,
-    /// however, already declares Rust generic parameters; those positions should
-    /// keep the generic shape instead of erasing fields to the runtime unknown
-    /// carrier.
-    pub(super) fn type_text_with_scoped_type_params(
+    /// Every structural `Type` -> Rust-type-text decision in this crate lives in
+    /// this match; every other renderer is either a wrapper around it or a
+    /// function-signature assembler that calls back into it. Whether a
+    /// `Type::TypeParam` keeps its generic shape or erases to the runtime unknown
+    /// carrier is decided in exactly one place — `substitution.resolve` — so a
+    /// render position changes what it erases by changing the environment it
+    /// passes in, never by rendering types itself.
+    ///
+    /// `allow_impl_trait` stays a separate argument rather than folding into the
+    /// substitution: it is a property of the render *position* (root versus
+    /// nested), not of the type-parameter environment.
+    ///
+    /// Known gap: the concrete-union arm still delegates to `union_type_text`,
+    /// which consults no environment at all and spells a union's free type
+    /// parameters unconditionally. Reconciling that moves emitted bytes and is
+    /// therefore its own change.
+    pub(super) fn rust_type(
         &self,
         ty: TypeId,
         allow_impl_trait: bool,
-        scoped_type_params: &HashSet<Symbol>,
-    ) -> Result<String, EmitError> {
+        substitution: &TypeSubstitution<'_>,
+    ) -> Result<RustType, EmitError> {
         let resolved_ty = self
             .mir
             .types
             .get(ty)
             .ok_or_else(|| EmitError::new("MIR references an unknown type"))?;
         match resolved_ty {
-            Type::Bool => Ok("bool".to_owned()),
-            Type::Int => Ok("i64".to_owned()),
-            Type::Float => Ok("f64".to_owned()),
-            Type::String => Ok("String".to_owned()),
-            Type::Unknown => Ok("SmeltUnknown".to_owned()),
-            Type::Never => Ok("SmeltUnknown".to_owned()),
-            Type::TypeParam { name } if scoped_type_params.contains(name) => self
-                .symbol_name(*name)
-                .map(|param_name| RustIdent::new(param_name).into_string()),
-            Type::TypeParam { .. } => Ok("SmeltUnknown".to_owned()),
+            Type::Bool => Ok(RustType::raw("bool")),
+            Type::Int => Ok(RustType::raw("i64")),
+            Type::Float => Ok(RustType::raw("f64")),
+            Type::String => Ok(RustType::raw("String")),
+            Type::Unknown => Ok(RustType::raw("SmeltUnknown")),
+            Type::Never => Ok(RustType::raw("SmeltUnknown")),
+            Type::TypeParam { name } => match substitution.resolve(*name)? {
+                Resolved::Spelled(param) => Ok(RustType::raw(
+                    RustIdent::new(self.symbol_name(param)?).into_string(),
+                )),
+                // The substituted type is a *caller-side* type: its own type
+                // parameters live in the caller's world, not the callee's, so
+                // the callee bindings must not keep applying inside it.
+                Resolved::Substituted(bound) => {
+                    self.rust_type(bound, allow_impl_trait, &substitution.without_bindings())
+                }
+                Resolved::Erased => Ok(RustType::raw("SmeltUnknown")),
+            },
             Type::Class { name, args } => {
                 if self.is_regexp_class_symbol(*name)? {
-                    return Ok("SmeltRegExp".to_owned());
+                    return Ok(RustType::raw("SmeltRegExp"));
                 }
                 // Both synthetic match-result classes are backed by the same
                 // concrete `SmeltMatch` Rust type.
                 if self.is_match_class_symbol(*name)? {
-                    return Ok("SmeltMatch".to_owned());
+                    return Ok(RustType::raw("SmeltMatch"));
                 }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
                     && !self
@@ -829,7 +919,7 @@ impl FunctionEmitter<'_> {
                         .iter()
                         .any(|interface| interface.name == *name)
                 {
-                    return Ok("SmeltUnknown".to_owned());
+                    return Ok(RustType::raw("SmeltUnknown"));
                 }
                 let type_name = sanitize_ident(self.symbol_name(*name)?);
                 if args.is_empty() {
@@ -847,133 +937,134 @@ impl FunctionEmitter<'_> {
                         .find(|class| class.name == *name)
                         .map_or(0, |class| class.type_params.len());
                     if declared_params == 0 {
-                        Ok(type_name)
+                        Ok(RustType::raw(type_name))
                     } else {
                         let placeholders = vec!["_"; declared_params].join(", ");
-                        Ok(format!("{type_name}<{placeholders}>"))
+                        Ok(RustType::raw(format!("{type_name}<{placeholders}>")))
                     }
                 } else {
                     let arg_text = args
                         .iter()
-                        .map(|arg| {
-                            self.type_text_with_scoped_type_params(*arg, false, scoped_type_params)
-                        })
+                        .map(|arg| Ok(self.rust_type(*arg, false, substitution)?.into_string()))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    Ok(format!("{type_name}<{arg_text}>"))
+                    Ok(RustType::raw(format!("{type_name}<{arg_text}>")))
                 }
             }
-            Type::None => Ok("()".to_owned()),
-            Type::List(item) => Ok(format!(
+            Type::None => Ok(RustType::raw("()")),
+            Type::List(item) => Ok(RustType::raw(format!(
                 "SmeltList<{}>",
-                self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
-            )),
-            Type::Set(item) if self.type_is_hash_set_key_safe(*item) => Ok(format!(
+                self.rust_type(*item, false, substitution)?
+            ))),
+            Type::Set(item) if self.type_is_hash_set_key_safe(*item) => Ok(RustType::raw(format!(
                 "::std::collections::HashSet<{}>",
-                self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
-            )),
-            Type::Set(item) => Ok(format!(
+                self.rust_type(*item, false, substitution)?
+            ))),
+            Type::Set(item) => Ok(RustType::raw(format!(
                 "SmeltJsSet<{}>",
-                self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
-            )),
-            Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => Ok(format!(
+                self.rust_type(*item, false, substitution)?
+            ))),
+            Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => Ok(RustType::raw(format!(
                 "SmeltRecord<String, {}>",
-                self.type_text_with_scoped_type_params(*value, false, scoped_type_params)?
-            )),
-            Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => Ok(format!(
+                self.rust_type(*value, false, substitution)?
+            ))),
+            Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => Ok(RustType::raw(format!(
                 "SmeltJsMap<{}, {}>",
-                self.type_text_with_scoped_type_params(*key, false, scoped_type_params)?,
-                self.type_text_with_scoped_type_params(*value, false, scoped_type_params)?
-            )),
-            Type::Dict(key, value) => Ok(format!(
+                self.rust_type(*key, false, substitution)?,
+                self.rust_type(*value, false, substitution)?
+            ))),
+            Type::Dict(key, value) => Ok(RustType::raw(format!(
                 "::std::collections::HashMap<{}, {}>",
-                self.type_text_with_scoped_type_params(*key, false, scoped_type_params)?,
-                self.type_text_with_scoped_type_params(*value, false, scoped_type_params)?
-            )),
+                self.rust_type(*key, false, substitution)?,
+                self.rust_type(*value, false, substitution)?
+            ))),
             // A source-spelled `Map` always uses the `SmeltJsMap` container, even
             // when string-keyed. Unlike a string-keyed `Record` (which uses
             // `SmeltRecord`), `SmeltJsMap`'s `IntoSmeltUnknown` stamps the
             // `__smelt_map` marker so erased `Map`s remain observable as Maps
             // (`isMap`, `[object Map]`, structural `isEqual`).
-            Type::JsMap(key, value) => Ok(format!(
+            Type::JsMap(key, value) => Ok(RustType::raw(format!(
                 "SmeltJsMap<{}, {}>",
-                self.type_text_with_scoped_type_params(*key, false, scoped_type_params)?,
-                self.type_text_with_scoped_type_params(*value, false, scoped_type_params)?
-            )),
+                self.rust_type(*key, false, substitution)?,
+                self.rust_type(*value, false, substitution)?
+            ))),
             Type::Tuple(items) => {
                 let items_text = items
                     .iter()
-                    .map(|item| {
-                        self.type_text_with_scoped_type_params(*item, false, scoped_type_params)
-                    })
+                    .map(|item| Ok(self.rust_type(*item, false, substitution)?.into_string()))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 if items.len() == 1 {
-                    Ok(format!("({items_text},)"))
+                    Ok(RustType::raw(format!("({items_text},)")))
                 } else {
-                    Ok(format!("({items_text})"))
+                    Ok(RustType::raw(format!("({items_text})")))
                 }
             }
-            Type::Optional(item) => Ok(format!(
+            Type::Optional(item) => Ok(RustType::raw(format!(
                 "Option<{}>",
-                self.type_text_with_scoped_type_params(
+                self.rust_type(
                     self.flatten_optional_inner(*item),
                     false,
-                    scoped_type_params,
+                    substitution,
                 )?
-            )),
+            ))),
             Type::Union(_) if self.concrete_union_members(ty).is_some() => {
-                self.union_type_text(ty)
+                // Deliberately NOT threaded with the substitution in this
+                // increment: `union_type_text` spells the generated enum's own
+                // declared parameter names and consults no scope at all, so
+                // giving it one changes emitted output. Reconciling it is its
+                // own, separately byte-verified change.
+                self.union_type_text(ty).map(RustType::raw)
             }
-            Type::Union(_) => Ok("SmeltUnknown".to_owned()),
+            Type::Union(_) => Ok(RustType::raw("SmeltUnknown")),
             Type::Function(function) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok("SmeltErasedFunction".to_owned());
+                    return Ok(RustType::raw("SmeltErasedFunction"));
                 }
                 let params = function
                     .params
                     .iter()
                     .enumerate()
                     .map(|(index, param)| {
-                        self.function_type_param_text(function, index, *param, scoped_type_params)
+                        self.function_type_param_text(function, index, *param, substitution)
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 let return_ty =
-                    self.function_value_return_type_text(function, scoped_type_params)?;
+                    self.function_value_return_type_text(function, substitution)?;
                 if allow_impl_trait {
-                    Ok(format!("impl Fn({params}) -> {return_ty}"))
+                    Ok(RustType::raw(format!("impl Fn({params}) -> {return_ty}")))
                 } else {
-                    Ok(format!("::std::rc::Rc<dyn Fn({params}) -> {return_ty}>"))
+                    Ok(RustType::raw(format!("::std::rc::Rc<dyn Fn({params}) -> {return_ty}>")))
                 }
             }
             // A source `Promise<T>` / `Type::Future(T)` lowers to the generic
             // promise-value ABI `SmeltFuture<T>` in every position, so the same
             // MIR future type renders one Rust type everywhere.
-            Type::Future(item) => Ok(format!(
+            Type::Future(item) => Ok(RustType::raw(format!(
                 "SmeltFuture<{}>",
-                self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
-            )),
+                self.rust_type(*item, false, substitution)?
+            ))),
             Type::Generator {
                 is_async,
                 yield_ty,
                 return_ty,
                 next_ty,
-            } => Ok(format!(
+            } => Ok(RustType::raw(format!(
                 "Smelt{}Generator<{}, {}, {}>",
                 if *is_async { "Async" } else { "" },
-                self.type_text_with_scoped_type_params(*yield_ty, false, scoped_type_params)?,
-                self.type_text_with_scoped_type_params(*return_ty, false, scoped_type_params)?,
-                self.type_text_with_scoped_type_params(*next_ty, false, scoped_type_params)?
-            )),
+                self.rust_type(*yield_ty, false, substitution)?,
+                self.rust_type(*return_ty, false, substitution)?,
+                self.rust_type(*next_ty, false, substitution)?
+            ))),
             Type::GeneratorResult {
                 yield_ty,
                 return_ty,
-            } => Ok(format!(
+            } => Ok(RustType::raw(format!(
                 "SmeltGeneratorResult<{}, {}>",
-                self.type_text_with_scoped_type_params(*yield_ty, false, scoped_type_params)?,
-                self.type_text_with_scoped_type_params(*return_ty, false, scoped_type_params)?
-            )),
+                self.rust_type(*yield_ty, false, substitution)?,
+                self.rust_type(*return_ty, false, substitution)?
+            ))),
         }
     }
 
@@ -1088,11 +1179,17 @@ impl FunctionEmitter<'_> {
                     .map(|(index, param)| {
                         Ok(format!(
                             "arg{index}: {}",
+                            // The synthesized default callback's PARAMETER types
+                            // are rendered in an explicitly empty environment
+                            // while its return (below) uses the caller's lexical
+                            // scope. Same split as `param_type_text`; threaded
+                            // here as a named empty substitution so a later
+                            // increment changes the argument, not the renderer.
                             self.function_type_param_text(
                                 function,
                                 index,
                                 *param,
-                                &HashSet::new(),
+                                &TypeSubstitution::erased(),
                             )?
                         ))
                     })
@@ -1152,7 +1249,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn default_value_with_scoped_type_params(
         &self,
         ty: TypeId,
-        scoped_type_params: &HashSet<Symbol>,
+        substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
         match self
             .mir
@@ -1160,20 +1257,16 @@ impl FunctionEmitter<'_> {
             .get(ty)
             .ok_or_else(|| EmitError::new("MIR references an unknown type"))?
         {
-            Type::TypeParam { name } if scoped_type_params.contains(name) => {
+            Type::TypeParam { name } if substitution.spells(*name) => {
                 Ok("Default::default()".to_owned())
             }
             Type::Optional(inner) => Ok(format!(
                 "None::<{}>",
-                self.type_text_with_scoped_type_params(
-                    self.flatten_optional_inner(*inner),
-                    false,
-                    scoped_type_params,
-                )?
+                self.rust_type(self.flatten_optional_inner(*inner), false, substitution)?
             )),
             Type::Function(function) => {
                 // An erased-unknown-rest function type renders as the concrete
-                // `SmeltErasedFunction` struct (see `type_text_with_scoped_type_params`),
+                // `SmeltErasedFunction` struct (see `rust_type`),
                 // not a bare `Rc<dyn Fn(..)>`. Its default must therefore be a
                 // `SmeltErasedFunction` wrapping a no-op callback so a struct
                 // field default agrees with the field's declared type (a
@@ -1190,12 +1283,7 @@ impl FunctionEmitter<'_> {
                     .map(|(index, param)| {
                         Ok(format!(
                             "arg{index}: {}",
-                            self.function_type_param_text(
-                                function,
-                                index,
-                                *param,
-                                scoped_type_params,
-                            )?
+                            self.function_type_param_text(function, index, *param, substitution)?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
@@ -1203,23 +1291,14 @@ impl FunctionEmitter<'_> {
                 let return_ty = if function.may_throw {
                     format!(
                         "Result<{}, Box<dyn std::error::Error>>",
-                        self.type_text_with_scoped_type_params(
-                            function.return_ty,
-                            false,
-                            scoped_type_params,
-                        )?
+                        self.rust_type(function.return_ty, false, substitution)?
                     )
                 } else {
-                    self.type_text_with_scoped_type_params(
-                        function.return_ty,
-                        false,
-                        scoped_type_params,
-                    )?
+                    self.rust_type(function.return_ty, false, substitution)?
+                        .into_string()
                 };
-                let return_value = self.default_value_with_scoped_type_params(
-                    function.return_ty,
-                    scoped_type_params,
-                )?;
+                let return_value =
+                    self.default_value_with_scoped_type_params(function.return_ty, substitution)?;
                 let body = if function.may_throw {
                     format!("Ok::<_, Box<dyn std::error::Error>>({return_value})")
                 } else {
@@ -1232,12 +1311,7 @@ impl FunctionEmitter<'_> {
                         .iter()
                         .enumerate()
                         .map(|(index, param)| {
-                            self.function_type_param_text(
-                                function,
-                                index,
-                                *param,
-                                scoped_type_params,
-                            )
+                            self.function_type_param_text(function, index, *param, substitution)
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(", "),

@@ -83,6 +83,31 @@ pub(crate) struct CalleeTypeParamBindings {
 }
 
 impl CalleeTypeParamBindings {
+    /// Build a binding map declaring `names`, every entry left `Unbound`.
+    ///
+    /// Test-only: production maps are always produced by [`collect_bindings`]
+    /// from a real callee signature. This exists so consumers of the binding
+    /// map (notably [`crate::type_substitution`]) can be unit-tested against
+    /// every binding state without standing up a whole MIR.
+    #[cfg(test)]
+    pub(crate) fn unbound(names: impl IntoIterator<Item = Symbol>) -> Self {
+        Self {
+            bindings: names
+                .into_iter()
+                .map(|name| (name, TypeParamBinding::Unbound))
+                .collect(),
+        }
+    }
+
+    /// Overwrite one declared parameter's binding outright.
+    ///
+    /// Test-only, and deliberately not a `merge`: a test wants the state it
+    /// names, not the state merging would negotiate.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, name: Symbol, binding: TypeParamBinding) {
+        self.bindings.insert(name, binding);
+    }
+
     /// Return the collected binding for `name`.
     pub(crate) fn get(&self, name: Symbol) -> Option<TypeParamBinding> {
         self.bindings.get(&name).copied()

@@ -8,6 +8,8 @@
     reason = "the private emitter module still exposes helpers to its parent codegen module"
 )]
 
+use crate::rust::RustType;
+use crate::type_substitution::{Resolved, TypeSubstitution};
 use crate::{EmitError, compact_index, id_index, sanitize_ident};
 use literals::operand_local;
 use smelt_hir::{FileId, Span, Symbol, Type, TypeId};
@@ -63,6 +65,7 @@ mod union;
 
 use literals::{assigned_locals, constant_text, method_mutates_this};
 use rendered_value::{Precedence, RenderedValue};
+use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
 
 /// Precomputed crate-level codegen facts shared by all function emitters.

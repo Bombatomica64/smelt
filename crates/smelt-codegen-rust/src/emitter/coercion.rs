@@ -2332,22 +2332,16 @@ impl FunctionEmitter<'_> {
                 }
                 let target_text = self.type_text_with_impl_trait(target, false)?;
                 let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
-                let params = function
-                    .params
-                    .iter()
-                    .enumerate()
-                    .map(|(index, param)| {
-                        Ok(format!(
-                            "arg{index}: {}",
-                            self.function_type_param_text(
-                                function,
-                                index,
-                                *param,
-                                &HashSet::new(),
-                            )?
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
+                // The adapted callback's PARAMETER types erase while
+                // `target_text` and `return_ty` above use the caller's lexical
+                // scope. Same split as `param_type_text`; threaded as a named
+                // empty substitution rather than reconciled.
+                let params = self
+                    .callback_arg_decls(
+                        function,
+                        &TypeSubstitution::erased(),
+                        MutablePrefix::Apply,
+                    )?
                     .join(", ");
                 let args = self.unknown_function_call_args_text(function)?;
                 let call_text = if function.may_throw {

@@ -1,9 +1,24 @@
 # Callback generics: lifting `type_param_in_callback`
 
-Design plan only. Nothing in this document has been implemented. Written against
-`claude/estoolkit-throwing-callbacks` at `76dcfae` **plus that branch's
-uncommitted working tree** (5 modified emitter files), because this feature
-stacks directly on it.
+Written against `claude/estoolkit-throwing-callbacks` at `76dcfae` **plus that
+branch's uncommitted working tree** (5 modified emitter files), because this
+feature stacks directly on it.
+
+## Delivery status
+
+| Step | State |
+| --- | --- |
+| Increment 0 — bindings machinery | **landed.** Engine in `generic_bindings.rs` (#200); adoption in `547f21a`, which shares the operand resolver, the erasure classifier and the type-parameter occurrence walk with `classes.rs`. `generic_param_instantiated_by` was deliberately *not* ported — it diverges from the shared matcher in both directions; see its docstring. |
+| Rust AST migration (§4.2 prerequisite) | **landed, in its narrow form.** `type_substitution.rs` holds `TypeSubstitution`; `type_text_with_scoped_type_params` became the canonical `rust_type(ty, allow_impl_trait, &TypeSubstitution) -> Result<RustType, _>`. The `&HashSet<Symbol>` spelling is gone from the lowering API and every former scope drop is now a named substitution. `RustType` stays a thin newtype; no string-to-AST rewrite was performed, and none is required by §4.2. |
+| Increment 0b — composite generic returns | not started |
+| Increment 1 — `T` in a callback *and* a value parameter | not started. `param_type_text` now passes `TypeSubstitution::erased()` for the callback's parameter half, so the §1.2 fix is a change to that one argument. |
+| Increment 2 — `F: Fn(..) + ?Sized` | not started |
+| Increment 3 — callback-only `T` | not started |
+| Increments 4, 5 | deferred / out of scope, as written below |
+
+Both landed steps were verified byte-inert on both compat crates: es-toolkit
+745 files `186237e759…`, remeda 391 files `fbeacfb765…`, `files_with_blockers`
+0, es-toolkit runtime 909 passed / 150 failed.
 
 Target: delete the `classes.rs:271` gate so a type parameter that appears inside
 a callback parameter can still be emitted as a real Rust generic.

@@ -77,6 +77,7 @@ use std::{
     path::Path,
 };
 
+use crate::type_substitution::TypeSubstitution;
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirFunction, Rvalue};
 
@@ -101,6 +102,7 @@ pub(crate) mod runtime_prelude;
 pub mod rust;
 pub(crate) mod stdlib;
 pub(crate) mod thrown;
+pub(crate) mod type_substitution;
 
 use deps::GeneratedDep;
 mod emitter;
@@ -3002,7 +3004,7 @@ fn emit_source_with_free_function_router(
                     mir,
                     &context,
                     field.ty,
-                    &scoped_type_params,
+                    &TypeSubstitution::lexical(&scoped_type_params),
                 )
                 .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                 block_writer.line(format!("{field_name}: {field_ty},"));
@@ -3222,7 +3224,7 @@ fn emit_source_with_free_function_router(
                     mir,
                     &context,
                     field.ty,
-                    &scoped_type_params,
+                    &TypeSubstitution::lexical(&scoped_type_params),
                 )?
             ));
         }
@@ -3286,7 +3288,7 @@ fn emit_source_with_free_function_router(
                             mir,
                             &context,
                             field.ty,
-                            &scoped_type_params,
+                            &TypeSubstitution::lexical(&scoped_type_params),
                         )
                         .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                         let value = materialized_static_value_text(field.value.as_ref());
@@ -3984,7 +3986,7 @@ fn emit_reference_class_storage(
                         mir,
                         context,
                         field.ty,
-                        &scoped_type_params,
+                        &TypeSubstitution::lexical(&scoped_type_params),
                     )
                     .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                     let value = materialized_static_value_text(field.value.as_ref());
@@ -4026,7 +4028,7 @@ fn emit_reference_inner_fields(
             mir,
             context,
             field.ty,
-            scoped_type_params,
+            &TypeSubstitution::lexical(scoped_type_params),
         )
         .unwrap_or_else(|_| "SmeltUnknown".to_owned());
         block_writer.line(format!("{field_name}: {field_ty},"));
@@ -4111,7 +4113,7 @@ fn emit_default_impl_for_storage_type(
                                 mir,
                                 context,
                                 field.ty,
-                                scoped_type_params,
+                                &TypeSubstitution::lexical(scoped_type_params),
                             )
                             .unwrap_or_else(|_| "Default::default()".to_owned());
                         self_writer.line(format!("{field_name}: {default_value},"));

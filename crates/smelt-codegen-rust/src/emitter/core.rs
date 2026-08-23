@@ -928,7 +928,12 @@ impl<'mir> FunctionEmitter<'mir> {
                 let source_value = format!("smelt_struct_value.{source_field_name}.clone()");
                 self.value_at_type_text(&source_value, source_field.ty, target_field.ty)?
             } else {
-                self.default_value_with_scoped_type_params(target_field.ty, &HashSet::new())?
+                // No source field supplies this value, so nothing here can
+                // spell a type parameter: an explicitly empty environment.
+                self.default_value_with_scoped_type_params(
+                    target_field.ty,
+                    &TypeSubstitution::erased(),
+                )?
             };
             field_text.push(format!("{field_name}: {value}"));
         }
@@ -999,29 +1004,25 @@ impl<'mir> FunctionEmitter<'mir> {
         let dispatches_to_source_field =
             inherited_source_function.is_none() && self.storage_field_is_function(source, method);
         if dispatches_to_source_field {
-            let params = function_ty
-                .params
-                .iter()
-                .enumerate()
-                .map(|(index, param)| {
-                    Ok(format!(
-                        "arg{index}: {}",
-                        self.function_type_param_text(
-                            &function_ty,
-                            index,
-                            *param,
-                            &HashSet::new()
-                        )?
-                    ))
-                })
-                .collect::<Result<Vec<_>, EmitError>>()?
+            // The storage field's PARAMETER types erase while its return
+            // (below) uses the caller's lexical scope. Same split as
+            // `param_type_text`, threaded as a named empty substitution.
+            let field_substitution = TypeSubstitution::erased();
+            let params = self
+                .callback_arg_decls(&function_ty, &field_substitution, MutablePrefix::Apply)?
                 .join(", ");
             let param_types = function_ty
                 .params
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    self.function_type_param_text(&function_ty, index, *param, &HashSet::new())
+                    self.callback_param_type(
+                        &function_ty,
+                        index,
+                        *param,
+                        &field_substitution,
+                        MutablePrefix::Apply,
+                    )
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
                 .join(", ");
@@ -1083,24 +1084,23 @@ impl<'mir> FunctionEmitter<'mir> {
                 )?,
             ));
         };
-        let params = function_ty
-            .params
-            .iter()
-            .enumerate()
-            .map(|(index, param)| {
-                Ok(format!(
-                    "arg{index}: {}",
-                    self.function_type_param_text(&function_ty, index, *param, &HashSet::new())?
-                ))
-            })
-            .collect::<Result<Vec<_>, EmitError>>()?
+        // Same deliberate erasure as the dispatches-to-source-field arm above.
+        let field_substitution = TypeSubstitution::erased();
+        let params = self
+            .callback_arg_decls(&function_ty, &field_substitution, MutablePrefix::Apply)?
             .join(", ");
         let param_types = function_ty
             .params
             .iter()
             .enumerate()
             .map(|(index, param)| {
-                self.function_type_param_text(&function_ty, index, *param, &HashSet::new())
+                self.callback_param_type(
+                    &function_ty,
+                    index,
+                    *param,
+                    &field_substitution,
+                    MutablePrefix::Apply,
+                )
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
@@ -1371,10 +1371,16 @@ impl<'mir> FunctionEmitter<'mir> {
                 let mapped = self.value_at_type_text("value", source_value, field.ty)?;
                 format!(
                     "{lookup_value}.map_or({}, |value| {mapped})",
-                    self.default_value_with_scoped_type_params(field.ty, &scoped_type_params)?
+                    self.default_value_with_scoped_type_params(
+                        field.ty,
+                        &TypeSubstitution::lexical_subset(&scoped_type_params),
+                    )?
                 )
             } else {
-                self.default_value_with_scoped_type_params(field.ty, &HashSet::new())?
+                self.default_value_with_scoped_type_params(
+                    field.ty,
+                    &TypeSubstitution::erased(),
+                )?
             };
             field_text.push(format!("{field_name}: {value}"));
         }
@@ -1804,11 +1810,19 @@ impl<'mir> FunctionEmitter<'mir> {
             suppress_type_params: RefCell::new(false),
             enclosing_type_params: HashSet::new(),
         }
+        // TODO(plan-197): this synthetic emitter's `function` is
+        // `mir.functions.first()`, so the lexical scope it renders under is an
+        // arbitrary *foreign* function's — neither empty nor the caller's, and
+        // dependent on MIR function ordering. Four of the five callers reach it
+        // from inside a live emitter that discards its own correct scope.
+        // Preserved verbatim here because replacing it with an explicitly empty
+        // substitution changes emitted output whenever `functions[0]` is
+        // generic; fixing it needs its own byte-verified change.
         .type_text_with_impl_trait(ty, false)
     }
 
-    /// Converts a type ID to Rust text while preserving the provided type
-    /// parameters as real Rust generics.
+    /// Converts a type ID to Rust text under an explicitly supplied
+    /// type-parameter environment.
     ///
     /// This is used for class and interface storage emission, where MIR has
     /// already retained the declaring type parameter list. Other contexts keep
@@ -1818,7 +1832,7 @@ impl<'mir> FunctionEmitter<'mir> {
         mir: &Mir,
         context: &EmitContext,
         ty: TypeId,
-        scoped_type_params: &HashSet<Symbol>,
+        substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
         FunctionEmitter {
             mir,
@@ -1849,7 +1863,8 @@ impl<'mir> FunctionEmitter<'mir> {
             suppress_type_params: RefCell::new(false),
             enclosing_type_params: HashSet::new(),
         }
-        .type_text_with_scoped_type_params(ty, false, scoped_type_params)
+        .rust_type(ty, false, substitution)
+        .map(RustType::into_string)
     }
 
     /// Converts a type ID to a Rust default expression using an existing context.
@@ -1899,7 +1914,7 @@ impl<'mir> FunctionEmitter<'mir> {
         mir: &Mir,
         context: &EmitContext,
         ty: TypeId,
-        scoped_type_params: &HashSet<Symbol>,
+        substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
         FunctionEmitter {
             mir,
@@ -1930,7 +1945,7 @@ impl<'mir> FunctionEmitter<'mir> {
             suppress_type_params: RefCell::new(false),
             enclosing_type_params: HashSet::new(),
         }
-        .default_value_with_scoped_type_params(ty, scoped_type_params)
+        .default_value_with_scoped_type_params(ty, substitution)
     }
 
     /// Emits a basic block's statements and terminator.
@@ -2382,17 +2397,16 @@ impl<'mir> FunctionEmitter<'mir> {
                 "borrowed default callback target must be a function",
             ));
         };
-        let params = function
-            .params
-            .iter()
-            .enumerate()
-            .map(|(index, param)| {
-                Ok(format!(
-                    "arg{index}: {}",
-                    self.type_text_with_impl_trait(*param, false)?
-                ))
-            })
-            .collect::<Result<Vec<_>, EmitError>>()?
+        // Renders the CALLEE's parameter types in the CALLER's lexical scope,
+        // and without the `&mut ` prefix `function_type_param_text` would add.
+        // Both are preserved verbatim: they are emitted bytes today.
+        let caller_scope = self.current_function_type_params();
+        let params = self
+            .callback_arg_decls(
+                function,
+                &TypeSubstitution::lexical(&caller_scope),
+                MutablePrefix::Ignore,
+            )?
             .join(", ");
         let return_value = self.default_value(function.return_ty)?;
         let return_text = if function.may_throw {
@@ -2414,17 +2428,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 "borrowed callback handle target must be a function",
             ));
         };
-        let params = function
-            .params
-            .iter()
-            .enumerate()
-            .map(|(index, param)| {
-                Ok(format!(
-                    "arg{index}: {}",
-                    self.type_text_with_impl_trait(*param, false)?
-                ))
-            })
-            .collect::<Result<Vec<_>, EmitError>>()?;
+        // Near-verbatim twin of `borrowed_default_function_text`: same caller
+        // scope, same omitted `&mut ` prefix, preserved for the same reason.
+        let caller_scope = self.current_function_type_params();
+        let params = self.callback_arg_decls(
+            function,
+            &TypeSubstitution::lexical(&caller_scope),
+            MutablePrefix::Ignore,
+        )?;
         let args = (0..function.params.len())
             .map(|index| format!("arg{index}"))
             .collect::<Vec<_>>()
@@ -2474,22 +2485,15 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(None);
         }
 
-        let arg_decls = target_function
-            .params
-            .iter()
-            .enumerate()
-            .map(|(index, param)| {
-                Ok(format!(
-                    "arg{index}: {}",
-                    self.function_type_param_text(
-                        target_function,
-                        index,
-                        *param,
-                        &HashSet::new(),
-                    )?
-                ))
-            })
-            .collect::<Result<Vec<_>, EmitError>>()?;
+        // Note this adapter disagrees with the other three shape adapters: it
+        // renders the target's parameters in an explicitly empty environment
+        // while its own binding type (below) uses the caller's lexical scope.
+        // Preserved rather than reconciled — reconciling it moves bytes.
+        let arg_decls = self.callback_arg_decls(
+            target_function,
+            &TypeSubstitution::erased(),
+            MutablePrefix::Apply,
+        )?;
         // Forward one argument per *source* parameter. Where the target supplies a
         // matching argument (`arg{index}`), coerce it into the source parameter
         // type; where the source declares more (optional) parameters than the
@@ -2591,8 +2595,13 @@ impl<'mir> FunctionEmitter<'mir> {
             && !target_function.may_throw
             && let [rest_param] = target_function.params.as_slice()
         {
-            let rest_text =
-                self.function_type_param_text(target_function, 0, *rest_param, &HashSet::new())?;
+            let rest_text = self.callback_param_type(
+                target_function,
+                0,
+                *rest_param,
+                &TypeSubstitution::erased(),
+                MutablePrefix::Apply,
+            )?;
             let erased_return =
                 self.erase_value_text(&returned, target_function.return_ty)?;
             let length = source_function.params.len();
@@ -2981,17 +2990,16 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             self.place_text(place)?
         };
-        let arg_decls = target_function
-            .params
-            .iter()
-            .enumerate()
-            .map(|(index, param)| {
-                Ok(format!(
-                    "arg{index}: {}",
-                    self.type_text_with_impl_trait(*param, false)?
-                ))
-            })
-            .collect::<Result<Vec<_>, EmitError>>()?;
+        // Renders the CALLEE's parameter types in the CALLER's lexical scope.
+        // Because `Symbol` is name-interned this captures a same-named caller
+        // `T` and erases every other callee parameter — the historical E0631.
+        // It is emitted bytes today, so it is threaded, not fixed.
+        let caller_scope = self.current_function_type_params();
+        let arg_decls = self.callback_arg_decls(
+            target_function,
+            &TypeSubstitution::lexical(&caller_scope),
+            MutablePrefix::Ignore,
+        )?;
         let forwarded = source
             .params
             .iter()

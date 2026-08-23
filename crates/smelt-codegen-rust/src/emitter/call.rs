@@ -1479,10 +1479,10 @@ impl FunctionEmitter<'_> {
                         if let Some(borrow) = access.mut_borrow {
                             rendered_args.push(format!("&mut {borrow}"));
                         } else {
-                            let temp_ty = self.type_text_with_scoped_type_params(
+                            let temp_ty = self.rust_type(
                                 place_ty,
                                 false,
-                                &caller_scope,
+                                &TypeSubstitution::lexical(&caller_scope),
                             )?;
                             prelude.push_str(&format!(
                                 "let mut {temp}: {temp_ty} = {}; ",
@@ -1496,19 +1496,20 @@ impl FunctionEmitter<'_> {
                     }
                     MutListArgKind::Erased => {
                         let arg_item = self.list_element_ty(place_ty)?;
-                        let caller_elem = self.type_text_with_scoped_type_params(
+                        let caller_elem = self.rust_type(
                             arg_item,
                             false,
-                            &caller_scope,
+                            &TypeSubstitution::lexical(&caller_scope),
                         )?;
                         // The callee renders its erased element as `SmeltUnknown`;
                         // build the temporary at the callee's rendered parameter
                         // type so the `&mut` reborrow is type-correct.
-                        let temp_ty = self.type_text_with_scoped_type_params(
-                            target_ty,
-                            false,
-                            &HashSet::new(),
-                        )?;
+                        // Rendered in the CALLEE's emission scope, which is
+                        // empty here precisely because the callee erased this
+                        // element. The emptiness is the callee's, not the
+                        // caller's; naming it keeps that deliberate.
+                        let temp_ty =
+                            self.rust_type(target_ty, false, &TypeSubstitution::erased())?;
                         prelude.push_str(&format!(
                             "let mut {temp}: {temp_ty} = {}.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<{temp_ty}>(); ",
                             access.read
@@ -1588,12 +1589,21 @@ impl FunctionEmitter<'_> {
         else {
             return Ok(value_text.to_owned());
         };
-        let return_render = self.type_text_with_scoped_type_params(return_ty, false, &HashSet::new())?;
-        let dest_render = self.type_text_with_scoped_type_params(dest_ty, false, caller_scope)?;
+        // Deliberately two different environments in one comparison: the
+        // callee's rendering (erased, hence the empty substitution) against the
+        // caller's lexical one. Rendering both sides the same way would make the
+        // equality below always hold and silently drop the un-erasure.
+        let return_render = self
+            .rust_type(return_ty, false, &TypeSubstitution::erased())?
+            .into_string();
+        let dest_render = self
+            .rust_type(dest_ty, false, &TypeSubstitution::lexical(caller_scope))?
+            .into_string();
         if return_render == dest_render {
             return Ok(value_text.to_owned());
         }
-        let dest_elem = self.type_text_with_scoped_type_params(*dest_item, false, caller_scope)?;
+        let dest_elem =
+            self.rust_type(*dest_item, false, &TypeSubstitution::lexical(caller_scope))?;
         Ok(format!(
             "{value_text}.into_iter().map(|smelt_element| <{dest_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>()"
         ))
@@ -1646,13 +1656,17 @@ impl FunctionEmitter<'_> {
         // (a shared `TypeParam`) while the caller keeps it generic and the callee
         // erases it. The callee renders its element with generics only when it
         // emits real Rust generics, which is what `callee_generics` encodes.
-        let arg_element_text = self.type_text_with_scoped_type_params(
-            *arg_item,
-            false,
-            &self.current_function_type_params(),
-        )?;
-        let param_element_text =
-            self.type_text_with_scoped_type_params(*target_item, false, callee_generics)?;
+        let caller_scope = self.current_function_type_params();
+        let arg_element_text = self
+            .rust_type(*arg_item, false, &TypeSubstitution::lexical(&caller_scope))?
+            .into_string();
+        let param_element_text = self
+            .rust_type(
+                *target_item,
+                false,
+                &TypeSubstitution::callee_emission(callee_generics),
+            )?
+            .into_string();
         if arg_element_text == param_element_text {
             // Already invariance-compatible: the ordinary call path passes the
             // place (or the forwarded reference) straight through.
