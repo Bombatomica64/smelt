@@ -1,9 +1,26 @@
 # Callback generics: lifting `type_param_in_callback`
 
-Design plan only. Nothing in this document has been implemented. Written against
-`claude/estoolkit-throwing-callbacks` at `76dcfae` **plus that branch's
-uncommitted working tree** (5 modified emitter files), because this feature
-stacks directly on it.
+Written against `claude/estoolkit-throwing-callbacks` at `76dcfae` **plus that
+branch's uncommitted working tree** (5 modified emitter files), because this
+feature stacks directly on it.
+
+## Delivery status
+
+| Step | State |
+| --- | --- |
+| Increment 0 — bindings machinery | **landed.** Engine in `generic_bindings.rs` (#200); adoption in `547f21a`, which shares the operand resolver, the erasure classifier and the type-parameter occurrence walk with `classes.rs`. `generic_param_instantiated_by` was deliberately *not* ported — it diverges from the shared matcher in both directions; see its docstring. |
+| Rust AST migration (§4.2 prerequisite) | **landed, in its narrow form.** `type_substitution.rs` holds `TypeSubstitution`; `type_text_with_scoped_type_params` became the canonical `rust_type(ty, allow_impl_trait, &TypeSubstitution) -> Result<RustType, _>`. The `&HashSet<Symbol>` spelling is gone from the lowering API and every former scope drop is now a named substitution. `RustType` stays a thin newtype; no string-to-AST rewrite was performed, and none is required by §4.2. |
+| Increment 0b — composite generic returns | **landed.** `free_function_returns_own_type_param` and `method_returns_class_type_param` are deleted; `generic_bindings::substituted_type_id` rebuilds the substituted return bottom-up and looks it up in the interner, failing closed when it is not interned. `static_call_monomorphization` computes one decision per call site, shared by argument rendering and the return type, so the two cannot disagree. es-toolkit avoidable 35411 → 35406, legitimate → 39139; 13 call-site lines in 8 files, zero signature changes. |
+| Increment 1 — `T` in a callback *and* a value parameter | **landed.** The `classes.rs` early return is deleted; `param_type_text` and `default_value`'s `Type::Function` arm (a **fifth** renderer §4.2 omits, and it lives *inside* the callee) render both halves of a callback type in the callee's own lexical scope; the three static-call callback renderers take the call site's bindings. es-toolkit lifts **15** definitions (`takeWhile`, `takeRightWhile`, `dropWhile`, `dropRightWhile`, `uniqWith`, `unionWith`, `intersectionWith`, `differenceWith`, `partition`, `sumBy`, `meanBy`, `medianBy`, `minBy`, `maxBy`, and `forEachRight`, which §5 missed); remeda lifts 8. avoidable 35406 → **35258** (−148), legitimate +17, `smelt_from_unknown` occurrences unchanged at 56. Zero call-site lines moved. |
+| Increment 1 — corrections to this document | §5's corpus list is over-counted: `pickBy`/`omitBy` are `<T extends Record<string, any>>` (constrained, so §1.4 already excluded them), `unzipWith`'s `R` is callback-return-only *and* a rest callback, `pullAllWith`'s callback is optional, and `xorWith`/`isSubsetWith`/`remove` keep `into_smelt_unknown`/`SmeltUnknown` in their trial bodies. §6.4's "1,500–2,500 tokens" is an order of magnitude too high: it counted 4,089 call-site tokens without running them through `classify_line`, and almost all of those lines are already `legitimate-boundary` because of the `unknown → f64` un-erasure ladder. The realistic Increment-1 ceiling is the ~160 tokens inside the lifted definitions. §4.3's widened valve is **not** implemented, and must not be implemented as written — see §7 note below. |
+| Increment 1 — §4.4 eligibility narrowing | **landed.** `function_emits_rust_generics` no longer lifts *any* callback-borne type parameter: a callback occurrence is liftable only in a **direct, required, borrowed, non-rest** `Type::Function` parameter, with the occurrence at that callback's own top level. `callback_occurrences_are_liftable` (`classes.rs`) implements it; the "borrowed" half consults the emitter's own ownership fixpoint (`emitter::compute_owned_callback_params`), threaded into the gate as a parameter rather than re-derived, so the gate and the renderer cannot grow two notions of "owned". Without it an *optional* callback (`cb: (v: T) => boolean = () => true`) emitted `Option<Rc<dyn Fn(T) -> bool>>` against a call site passing `None::<Rc<dyn Fn(SmeltUnknown) -> bool>>` — 21 × E0308 + 1 × E0631. Byte-inert on both compat crates (es-toolkit 745 files, remeda 391 files, zero files differ), so it costs no lift: es-toolkit's fifteen lifted definitions all have direct required borrowed callbacks. Six new `generics_tests.rs` cases pin each excluded shape as demoted plus the return-position boundary as still lifted; scratch repros under `scratchpad/inc1{def,fix,nested,rest,owned,higher,ret}`. |
+| Increment 2 — `F: Fn(..) + ?Sized` | not started |
+| Increment 3 — callback-only `T` | not started |
+| Increments 4, 5 | deferred / out of scope, as written below |
+
+Both landed steps were verified byte-inert on both compat crates: es-toolkit
+745 files `186237e759…`, remeda 391 files `fbeacfb765…`, `files_with_blockers`
+0, es-toolkit runtime 909 passed / 150 failed.
 
 Target: delete the `classes.rs:271` gate so a type parameter that appears inside
 a callback parameter can still be emitted as a real Rust generic.
@@ -782,3 +799,45 @@ Abandon-vs-push decisions, stated in advance.
 No increment in this plan requires `unsafe`, and none introduces a new
 `SmeltUnknown` conversion; every one of them deletes conversions or moves them to
 an explicit boundary adapter.
+
+### Measured during Increment 1: §4.3's widened valve is destructive
+
+§4.3 says to widen `called_with_erased_type_param_argument` so that a call site
+leaving any callee type parameter unbound *or bound to an erased type* demotes
+the whole function, and to apply that to callback-borne parameters. Implemented
+literally and measured on es-toolkit, it cuts the lift from **15 definitions to
+2** (`takeWhile` and `forEachRight`). The reason is structural, not incidental:
+es-toolkit's spec files hoist their arguments into `_smelt_tmp_N` locals typed
+`List<Unknown>`, which `actual_type_is_erased` classifies `Erased`, so one spec
+call site demotes the definition for the whole crate.
+
+That is also not the failure the valve is for. §1.3 already states that when `T`
+is *also* pinned by a direct value parameter — which Increment 1 still
+requires — the callback position needs no inference power and has **no** hard
+failure. The E0283 analogue §1.3 describes belongs to the callback-*only* case,
+i.e. Increment 3, which is where the valve becomes load-bearing.
+`type_param_in_callback` is kept (unused, `#[expect(dead_code)]`) for exactly
+that step.
+
+### Measured during Increment 1: the real failure is `&mut` invariance
+
+The one genuine miscompile the gate deletion exposed was not `E0631` at a
+callback at all. It was `E0308` in remeda's `takeFirstBy`: a newly generic caller
+passing `&mut heap` (`SmeltList<T>`) to `heapMaybeInsert`, which the *existing*
+bare-position valve demotes to `SmeltList<SmeltUnknown>`. `&mut` is invariant, and
+the convert-in-place adapter that normally bridges this
+(`static_call_mut_list_adapter_text`) declines on the throwing-call path.
+
+The fix is a general rule, not an exception:
+`mutable_reference_argument_text` now compares the *rendered* types rather than
+MIR `TypeId`s — name interning makes a caller's `SmeltList<T>` and an erased
+callee's declared `T[]` the same `TypeId` while rendering differently — and on a
+mismatch renders a deliberate `into_smelt_unknown` demotion signal that the
+body-cleanliness trial rejects, so the caller falls back to full erasure and
+re-renders with both sides erased. It is scoped to demotable (`HirOrigin::Body`,
+non-empty scope) callers so a class method, which cannot fall back, keeps its
+previous answer exactly.
+
+Increment 2 should reconsider extending the convert-in-place adapter to the
+throwing-call path, which would let `takeFirstBy`/`dropFirstBy` keep their
+generics instead of demoting.

@@ -1,8 +1,33 @@
 //! Call emission helpers.
 
 use super::*;
+use crate::generic_bindings::{
+    CalleeTypeParamBindings, bind_class_type_params, collect_bindings_from_types,
+    substituted_type_id, substitution_matches, type_param_occurs,
+};
 use rendered_text_rewrite::shared_capture_cell_name;
 use smelt_hir::FunctionType;
+
+/// The concrete instantiation one static call site pins on a generic callee.
+///
+/// Produced by [`FunctionEmitter::static_call_monomorphization`] and consumed by
+/// both halves of the same call: the argument rendering and the type the call
+/// expression is claimed to produce. Sharing one decision between them is what
+/// keeps the two sides from disagreeing — a monomorphized argument with an
+/// erased return claim (or the reverse) is exactly the E0308 this analysis
+/// exists to prevent.
+struct CallMonomorphization {
+    /// Every declared type parameter of the callee, pinned to a concrete type.
+    bindings: CalleeTypeParamBindings,
+    /// The callee's declared return type with `bindings` applied.
+    ///
+    /// This is the type the emitted Rust call really evaluates to, which is not
+    /// in general the destination local's type: the frontend's destination
+    /// carries the type *after* the surrounding conversion (`last<T>(xs): T |
+    /// undefined` called on a `number[][]` produces `Option<SmeltList<f64>>`
+    /// into a `SmeltList<f64>` destination).
+    return_ty: TypeId,
+}
 
 /// How a mutable-list argument needs its elements treated at a call site.
 ///
@@ -836,10 +861,14 @@ impl FunctionEmitter<'_> {
                                 .unwrap_or(false)
                         {
                             rendered_args.push(self.borrowed_function_argument_text(
-                                arg, target_ty,
+                                arg, target_ty, None,
                             )?);
                         } else if self.parameter_needs_mutable_reference_in(function, param) {
-                            rendered_args.push(self.mutable_reference_argument_text(arg, target_ty)?);
+                            rendered_args.push(self.mutable_reference_argument_text(
+                                arg,
+                                target_ty,
+                                Some(&self.callee_free_function_type_params(function)),
+                            )?);
                         } else {
                             rendered_args.push(self.value_at_type(arg, target_ty)?);
                         }
@@ -862,6 +891,12 @@ impl FunctionEmitter<'_> {
                 }
                 let free_function_type_params =
                     self.callee_free_function_type_params(function);
+                // One decision per call site, shared with the return side in
+                // `call_emitted_source_ty`: either this call monomorphizes the
+                // callee at the caller's concrete types (arguments pass through,
+                // the call's type is the substituted return) or it does not
+                // (everything erases, exactly as before).
+                let monomorphization = self.static_call_monomorphization(function, args)?;
                 let mut rendered_args = Vec::new();
                 for (index, arg) in args.iter().enumerate() {
                     let param = function.params.get(index).copied();
@@ -904,41 +939,18 @@ impl FunctionEmitter<'_> {
                         )?);
                         continue;
                     }
-                    // A composite parameter that mentions one of the callee's own
-                    // generics (`arr: T[]` -> `SmeltList<T>`) is monomorphized at
-                    // this call site to the concrete argument shape. This is only
-                    // taken for callees that return one of their own type
-                    // parameters (e.g. `sample<T>(arr: T[]): T`): there the return
-                    // dest pins `T` to a concrete type, so the argument must be
-                    // rendered at its own concrete shape (`SmeltList<f64>`) to bind
-                    // `T = f64`; coercing to the bare `SmeltList<T>` target would
-                    // erase elements to `SmeltUnknown` and clash with the
-                    // monomorphization (E0308). Restricting to type-param-returning
-                    // callees keeps functions that merely consume a generic list
-                    // (and are emitted with erased or independently-inferred
-                    // parameters) on the ordinary coercion path.
-                    if !free_function_type_params.is_empty()
-                        && self.free_function_returns_own_type_param(function)
-                    {
-                        let source_ty = self.operand_ty(arg)?;
-                        if source_ty != target_ty
-                            && self.generic_param_instantiated_by(
-                                source_ty,
-                                target_ty,
-                                &free_function_type_params,
-                            )
-                        {
-                            rendered_args.push(self.value_at_type(arg, source_ty)?);
-                            continue;
-                        }
-                    }
-                    // A composite parameter that mentions one of the callee's own
-                    // generics (`arr: T[]` -> `SmeltList<T>`) is monomorphized at
-                    // this call site to the concrete argument shape. Render the
-                    // argument at its own type so Rust binds the type parameter
-                    // (`SmeltList<f64>` -> `T = f64`); coercing to the bare
-                    // `SmeltList<T>` target would erase elements to `SmeltUnknown`
-                    // and clash with the monomorphization (E0308).
+                    // A borrowed callback parameter belongs to the borrowed-callback
+                    // renderer, which reborrows the argument as `&dyn Fn(..)` and resolves
+                    // the callee's type parameters through this call site's bindings.
+                    //
+                    // It is tested BEFORE the monomorphization passthrough below, and the
+                    // order is load-bearing. Once a callback-bearing callee can emit real
+                    // generics (Increment 1), a pinned call site satisfies
+                    // `substitution_matches` for an `Fn(T)` target too, so the passthrough
+                    // would claim the callback and render it as an owned `Rc<closure>`
+                    // value against a `&dyn Fn` parameter (E0308). The passthrough exists
+                    // for value parameters; this branch owns every borrowed callback,
+                    // pinned or not.
                     if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
                         && param.is_some_and(|target_param| {
                             !self
@@ -946,14 +958,69 @@ impl FunctionEmitter<'_> {
                                 .unwrap_or(false)
                         })
                     {
-                        rendered_args.push(self.borrowed_function_argument_text(arg, target_ty)?);
+                        rendered_args.push(self.borrowed_function_argument_text(
+                            arg,
+                            target_ty,
+                            monomorphization.as_ref().map(|pinned| &pinned.bindings),
+                        )?);
                         continue;
                     }
+                    // A `&mut` value parameter is rendered by the mutable-reference path,
+                    // which passes a reference rather than a value.
+                    //
+                    // Like the borrowed-callback branch above, this is tested BEFORE the
+                    // monomorphization passthrough, and for the same reason: a parameter can
+                    // be BOTH a monomorphizing composite (`xs: T[]` -> `SmeltList<T>`) and in
+                    // `mutable_params`. The passthrough would claim it and render it by value
+                    // against a `&mut SmeltList<f64>` parameter (E0308). Three branches claim
+                    // one argument here; the two needing a specific reference form run first,
+                    // and the passthrough takes what is left.
                     if param.is_some_and(|target_param| {
                         self.parameter_needs_mutable_reference_in(function, target_param)
                     }) {
-                        rendered_args.push(self.mutable_reference_argument_text(arg, target_ty)?);
+                        // Render against the SUBSTITUTED target. A monomorphizing
+                        // site instantiates `&mut SmeltList<T>` as
+                        // `&mut SmeltList<f64>`, so rendering against the declared
+                        // `SmeltList<T>` erases every element and hands the callee a
+                        // `Vec<SmeltUnknown>` where it declared `Vec<f64>` (E0308).
+                        // Falls back to the declared type when the site did not
+                        // monomorphize, which is the pre-Increment-1 behaviour.
+                        let mutable_target_ty = self.substituted_param_ty(
+                            target_ty,
+                            monomorphization.as_ref().map(|pinned| &pinned.bindings),
+                        );
+                        rendered_args.push(self.mutable_reference_argument_text(
+                                arg,
+                                mutable_target_ty,
+                                Some(&self.callee_free_function_type_params(function)),
+                            )?);
                         continue;
+                    }
+                    // A composite VALUE parameter that mentions one of the callee's own
+                    // generics (`arr: T[]` -> `SmeltList<T>`) is monomorphized at this call
+                    // site to the concrete argument shape, so it is rendered at its own
+                    // concrete type (`SmeltList<f64>`) and Rust binds `T = f64` from it.
+                    // Coercing to the declared `SmeltList<T>` target instead would erase
+                    // every element to `SmeltUnknown` and clash with the monomorphization
+                    // (E0308).
+                    //
+                    // `substitution_matches` is the whole test: for a target that mentions
+                    // no type parameter it degenerates to `source == target`, which the
+                    // guard above already excluded. Borrowed callback targets are claimed
+                    // by the branch above and never reach here.
+                    if let Some(pinned) = monomorphization.as_ref() {
+                        let source_ty = self.operand_ty(arg)?;
+                        if source_ty != target_ty
+                            && substitution_matches(
+                                self.mir,
+                                target_ty,
+                                source_ty,
+                                &pinned.bindings,
+                            )
+                        {
+                            rendered_args.push(self.value_at_type(arg, source_ty)?);
+                            continue;
+                        }
                     }
                     if matches!(
                         self.mir.types.get(self.operand_ty(arg)?),
@@ -976,7 +1043,10 @@ impl FunctionEmitter<'_> {
                             .function_parameter_requires_owned_in(function, *param)
                             .unwrap_or(false)
                     {
-                        rendered_args.push(self.borrowed_default_function_text(target_ty)?);
+                        rendered_args.push(self.borrowed_default_function_text(
+                            target_ty,
+                            monomorphization.as_ref().map(|pinned| &pinned.bindings),
+                        )?);
                     } else {
                         rendered_args.push(self.default_value(target_ty)?);
                     }
@@ -1128,7 +1198,7 @@ impl FunctionEmitter<'_> {
                     .copied()
                     .ok_or_else(|| EmitError::new("indirect call has too many arguments"))?;
                 if function.mutable_params.contains(&index) {
-                    self.mutable_reference_argument_text(arg, target_ty)
+                    self.mutable_reference_argument_text(arg, target_ty, None)
                 } else {
                     self.value_at_type(arg, target_ty)
                 }
@@ -1207,6 +1277,45 @@ impl FunctionEmitter<'_> {
     /// argument has a different or erased shape (`SmeltUnknown` against
     /// `SmeltList<T>`), this returns `false` and the caller falls back to the
     /// ordinary coercion so the value is erased as before.
+    ///
+    /// # Relationship to [`crate::generic_bindings`]
+    ///
+    /// This is *not* dead duplication of the shared matcher, and it is
+    /// deliberately not refactored onto it yet. The two answer different
+    /// questions and diverge in both directions:
+    ///
+    /// - **answer shape** — this is a whole-tree conjunction over one
+    ///   (source, target) pair, so a mismatch anywhere is fatal;
+    ///   `generic_bindings` records evidence per *type parameter* and drops a
+    ///   mismatch that lands in a type-parameter-free subtree (a `Dict` key, a
+    ///   tuple slot);
+    /// - **unions** — this zips equal-length unions positionally and so accepts
+    ///   an identical nested union; the shared matcher refuses to bind through
+    ///   unions at all, because unions erase in emitted Rust and member order is
+    ///   not a sound correspondence;
+    /// - **`Class` / `JsMap` / `Function` / generators** — this has no arm for
+    ///   them and falls through to identity; the shared matcher descends into
+    ///   all of them. Descending here would divert a callback argument off the
+    ///   borrowed-callback path and change emitted bytes;
+    /// - **erased sources** — a bare `TypeParam` target returns `true` here for
+    ///   any source, including `SmeltUnknown`; the shared matcher records that
+    ///   as `Erased`, which its only public query reports as not concrete.
+    ///
+    /// # Remaining scope
+    ///
+    /// Increment 0b deleted this predicate's *general* consumers: the composite
+    /// argument decision and the return-conversion ladder now ask
+    /// [`crate::generic_bindings::substitution_matches`], which is exact and
+    /// unforgiving, instead of this whole-tree conjunction. What is left is one
+    /// caller, [`Self::mut_list_adapter_arg`], so this is now the mutable-list
+    /// adapter's private rule rather than a shared one.
+    ///
+    /// It is kept rather than migrated because the adapter *needs* the
+    /// divergences listed above: its `TypeParam`-target-accepts-anything arm is
+    /// what classifies a `&mut SmeltList<T>` argument as `Monomorphized`, and
+    /// `&mut` invariance makes the adapter's own writeback protocol, not this
+    /// predicate, the thing that decides correctness there. Migrating it is a
+    /// separate change with its own corpus evidence.
     fn generic_param_instantiated_by(
         &self,
         source: TypeId,
@@ -1240,37 +1349,139 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Return whether a generic free function's declared return type is one of
-    /// its own type parameters.
+    /// Return the generic type parameters declared by the class that owns
+    /// `function`, in declaration order.
     ///
-    /// A call such as `identity(3)` monomorphizes `fn identity<T>(x: T) -> T` to
-    /// return `f64`, so the call value is already concrete at the site. The dest
-    /// local carries that concrete type from the frontend, so the return needs
-    /// no `SmeltUnknown` extraction. As with the argument pass-through, only a
-    /// bare `TypeParam` return is handled; nested shapes (`T[]`) are excluded to
-    /// keep the increment narrow and correct.
-    fn free_function_returns_own_type_param(&self, function: &MirFunction) -> bool {
-        matches!(
-            self.mir.types.get(function.return_ty),
-            Some(Type::TypeParam { name })
-                if self.callee_free_function_type_params(function).contains(name)
-        )
+    /// [`Self::callee_class_type_params`] answers the membership question and
+    /// returns a set; binding needs the order, because the receiver type's class
+    /// arguments correspond to the declaration positionally.
+    fn callee_class_type_param_names(&self, function: &MirFunction) -> Vec<Symbol> {
+        let class_name = match function.origin {
+            HirOrigin::ClassConstructor { class, .. } | HirOrigin::ClassMethod { class, .. } => {
+                class
+            }
+            HirOrigin::Body(_) | HirOrigin::ClassStaticMethod { .. } => return Vec::new(),
+        };
+        self.mir
+            .classes
+            .iter()
+            .find(|class| class.name == class_name)
+            .map(|class| class.type_params.iter().map(|param| param.name).collect())
+            .unwrap_or_default()
     }
 
-    /// Return whether `function`'s declared return type is a generic type
-    /// parameter of the class that owns it.
+    /// Return whether `ty` mentions any of `names`.
+    fn type_mentions_any(&self, ty: TypeId, names: &HashSet<Symbol>) -> bool {
+        names
+            .iter()
+            .any(|name| type_param_occurs(self.mir, ty, *name))
+    }
+
+    /// Decide whether one static call really monomorphizes a generic callee at
+    /// the caller's concrete types.
     ///
-    /// Used to detect method calls such as `Box<number>::get(): T`, whose result
-    /// is the receiver's concrete class argument at the call site rather than an
-    /// erased `SmeltUnknown`. Nested shapes built from the parameter (for example
-    /// `T[]`) are intentionally excluded here; only a bare `TypeParam` return is
-    /// handled, matching the argument pass-through rule and keeping the concrete
-    /// increment narrow and correct.
-    fn method_returns_class_type_param(&self, function: &MirFunction) -> bool {
-        matches!(
-            self.mir.types.get(function.return_ty),
-            Some(Type::TypeParam { name }) if self.callee_class_type_params(function).contains(name)
-        )
+    /// This replaces the former bare-`TypeParam`-return predicates. The return
+    /// shape is no longer an input to the decision: what licenses passing an
+    /// argument through concretely is that *this call site pins every one of the
+    /// callee's type parameters*, not what the callee happens to return. The
+    /// substituted return type falls out of the same bindings
+    /// ([`CallMonomorphization::return_ty`]), which is how a composite
+    /// `T[] -> T[]` callee becomes usable at all.
+    ///
+    /// Accepts only when every one of the following holds; otherwise this call
+    /// site demotes to the ordinary erased path, which is unchanged. Demotion is
+    /// per *call site*, never per function: the callee stays generic and other
+    /// sites keep instantiating it at `SmeltUnknown`, which its emitted bounds
+    /// already satisfy.
+    ///
+    /// 1. the crate decided to emit this callee with real Rust generics
+    ///    ([`Self::callee_free_function_type_params`]). A callee demoted by the
+    ///    crate-wide gate — including every callback-bearing one, which the
+    ///    callback gate still rejects — never reaches the rest of this check;
+    /// 2. the callee packs no rest parameter, which would break the positional
+    ///    correspondence between parameters and arguments;
+    /// 3. no parameter position that mentions a type parameter is left to the
+    ///    trailing default-argument loop, which renders the *erased* default and
+    ///    would pin the parameter to `SmeltUnknown`;
+    /// 4. every declared type parameter is `Concrete`. An `Unbound` parameter is
+    ///    precisely "rustc has nothing to infer from" — passing through anyway
+    ///    is E0282/E0283, so the site demotes instead;
+    /// 5. every parameter position mentioning a type parameter is *exactly* its
+    ///    argument's type under the bindings, so rustc reproduces the binding map
+    ///    position by position;
+    /// 6. the substituted return type is an interned MIR type, so the call's own
+    ///    Rust type can be named rather than guessed.
+    fn static_call_monomorphization(
+        &self,
+        function: &MirFunction,
+        args: &[Operand],
+    ) -> Result<Option<CallMonomorphization>, EmitError> {
+        // (1) — the crate-wide generic-emission decision.
+        let own_params = self.callee_free_function_type_params(function);
+        if own_params.is_empty() {
+            return Ok(None);
+        }
+        // (2) — a packed rest parameter destroys positional alignment.
+        if function.rest.is_some() {
+            return Ok(None);
+        }
+        let rust_name = self.function_rust_name(function)?;
+        let emitted_params = self.emitted_function_param_types(&rust_name)?;
+
+        let type_params = function
+            .type_params
+            .iter()
+            .map(|param| param.name)
+            .collect::<Vec<_>>();
+        let mut declared = Vec::new();
+        let mut actual = Vec::new();
+        for (index, param) in function.params.iter().enumerate() {
+            let local_ty = self.function_local_decl(function, *param)?.ty;
+            let target_ty = emitted_params
+                .as_ref()
+                .and_then(|params| params.get(index).copied())
+                .unwrap_or(local_ty);
+            let Some(arg) = args.get(index) else {
+                // (3) — an omitted argument in a generic-mentioning position
+                // would be rendered as the erased default.
+                if self.type_mentions_any(target_ty, &own_params) {
+                    return Ok(None);
+                }
+                declared.push(target_ty);
+                actual.push(None);
+                continue;
+            };
+            declared.push(target_ty);
+            actual.push(Some(self.operand_ty(arg)?));
+        }
+
+        let bindings = collect_bindings_from_types(self.mir, &type_params, &declared, &actual);
+        // (4) — every type parameter pinned, or the site demotes.
+        if !bindings.all_concrete() {
+            return Ok(None);
+        }
+        // (5) — each generic-mentioning parameter is exactly its argument.
+        for (target_ty, supplied) in declared.iter().zip(&actual) {
+            let Some(actual_ty) = *supplied else {
+                continue;
+            };
+            if self.type_mentions_any(*target_ty, &own_params)
+                && !substitution_matches(self.mir, *target_ty, actual_ty, &bindings)
+            {
+                return Ok(None);
+            }
+        }
+        // (6) — the call's own Rust type must be nameable.
+        let declared_return = self
+            .emitted_function_return_type(&rust_name)
+            .unwrap_or(function.return_ty);
+        let Some(return_ty) = substituted_type_id(self.mir, declared_return, &bindings) else {
+            return Ok(None);
+        };
+        Ok(Some(CallMonomorphization {
+            bindings,
+            return_ty,
+        }))
     }
 
     /// Render a constructor or method argument against a callee parameter type,
@@ -1406,17 +1617,25 @@ impl FunctionEmitter<'_> {
         // `callee_generics` is the set of type parameters the callee actually emits
         // as real Rust generics; it is empty for an erased monomorphization, so
         // the same set both renders the callee's parameter types and decides
-        // whether an argument monomorphizes them.
-        let callee_emits_generics = self.context.is_generic_function(func);
-        let callee_generics: HashSet<Symbol> = if callee_emits_generics {
-            function
-                .type_params
-                .iter()
-                .map(|type_param| type_param.name)
-                .collect()
-        } else {
-            HashSet::new()
-        };
+        // whether an argument monomorphizes them. It is an *emission scope*, not
+        // a call-site binding: `crate::generic_bindings` cannot express it, and
+        // the post-AST increment must not conflate the two.
+        let callee_generics = self.callee_free_function_type_params(function);
+        // This adapter renders callback arguments without a call-site binding map
+        // (see the `Type::Function` arm of the render loop below), so it can only
+        // handle callees whose callback parameters mention none of the type
+        // parameters the callee actually emits. When one does, decline the
+        // adapter and let the ordinary call path — which computes
+        // `static_call_monomorphization` and threads those bindings into every
+        // callback renderer — emit the call instead.
+        if !callee_generics.is_empty()
+            && target_tys.iter().any(|&target_ty| {
+                matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                    && self.type_mentions_any(target_ty, &callee_generics)
+            })
+        {
+            return Ok(None);
+        }
         let caller_scope = self.current_function_type_params();
         let mut needs_adapter = false;
         for (index, arg) in args.iter().enumerate() {
@@ -1458,10 +1677,10 @@ impl FunctionEmitter<'_> {
                         if let Some(borrow) = access.mut_borrow {
                             rendered_args.push(format!("&mut {borrow}"));
                         } else {
-                            let temp_ty = self.type_text_with_scoped_type_params(
+                            let temp_ty = self.rust_type(
                                 place_ty,
                                 false,
-                                &caller_scope,
+                                &TypeSubstitution::lexical(&caller_scope),
                             )?;
                             prelude.push_str(&format!(
                                 "let mut {temp}: {temp_ty} = {}; ",
@@ -1475,19 +1694,20 @@ impl FunctionEmitter<'_> {
                     }
                     MutListArgKind::Erased => {
                         let arg_item = self.list_element_ty(place_ty)?;
-                        let caller_elem = self.type_text_with_scoped_type_params(
+                        let caller_elem = self.rust_type(
                             arg_item,
                             false,
-                            &caller_scope,
+                            &TypeSubstitution::lexical(&caller_scope),
                         )?;
                         // The callee renders its erased element as `SmeltUnknown`;
                         // build the temporary at the callee's rendered parameter
                         // type so the `&mut` reborrow is type-correct.
-                        let temp_ty = self.type_text_with_scoped_type_params(
-                            target_ty,
-                            false,
-                            &HashSet::new(),
-                        )?;
+                        // Rendered in the CALLEE's emission scope, which is
+                        // empty here precisely because the callee erased this
+                        // element. The emptiness is the callee's, not the
+                        // caller's; naming it keeps that deliberate.
+                        let temp_ty =
+                            self.rust_type(target_ty, false, &TypeSubstitution::erased())?;
                         prelude.push_str(&format!(
                             "let mut {temp}: {temp_ty} = {}.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<{temp_ty}>(); ",
                             access.read
@@ -1500,7 +1720,17 @@ impl FunctionEmitter<'_> {
                     }
                 }
             } else if matches!(self.mir.types.get(target_ty), Some(Type::Function(_))) {
-                rendered_args.push(self.borrowed_function_argument_text(arg, target_ty)?);
+                // No call-site bindings on this path: the mutable-list adapter
+                // runs its OWN unifier (`mut_list_adapter_arg`) rather than
+                // `static_call_monomorphization`. Two unifiers deciding one call
+                // site is the §4.1 hazard, so this path never guesses a
+                // substitution. The guard above makes that safe rather than
+                // merely hopeful: it already declined the adapter for any callee
+                // whose callback parameter mentions a type parameter the callee
+                // emits, so the callback reaching here has a declared type with
+                // nothing to substitute, and the caller's own lexical scope is
+                // the right (and unchanged) environment to render it in.
+                rendered_args.push(self.borrowed_function_argument_text(arg, target_ty, None)?);
             } else {
                 rendered_args.push(self.value_at_type(arg, target_ty)?);
             }
@@ -1567,12 +1797,21 @@ impl FunctionEmitter<'_> {
         else {
             return Ok(value_text.to_owned());
         };
-        let return_render = self.type_text_with_scoped_type_params(return_ty, false, &HashSet::new())?;
-        let dest_render = self.type_text_with_scoped_type_params(dest_ty, false, caller_scope)?;
+        // Deliberately two different environments in one comparison: the
+        // callee's rendering (erased, hence the empty substitution) against the
+        // caller's lexical one. Rendering both sides the same way would make the
+        // equality below always hold and silently drop the un-erasure.
+        let return_render = self
+            .rust_type(return_ty, false, &TypeSubstitution::erased())?
+            .into_string();
+        let dest_render = self
+            .rust_type(dest_ty, false, &TypeSubstitution::lexical(caller_scope))?
+            .into_string();
         if return_render == dest_render {
             return Ok(value_text.to_owned());
         }
-        let dest_elem = self.type_text_with_scoped_type_params(*dest_item, false, caller_scope)?;
+        let dest_elem =
+            self.rust_type(*dest_item, false, &TypeSubstitution::lexical(caller_scope))?;
         Ok(format!(
             "{value_text}.into_iter().map(|smelt_element| <{dest_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>()"
         ))
@@ -1625,13 +1864,17 @@ impl FunctionEmitter<'_> {
         // (a shared `TypeParam`) while the caller keeps it generic and the callee
         // erases it. The callee renders its element with generics only when it
         // emits real Rust generics, which is what `callee_generics` encodes.
-        let arg_element_text = self.type_text_with_scoped_type_params(
-            *arg_item,
-            false,
-            &self.current_function_type_params(),
-        )?;
-        let param_element_text =
-            self.type_text_with_scoped_type_params(*target_item, false, callee_generics)?;
+        let caller_scope = self.current_function_type_params();
+        let arg_element_text = self
+            .rust_type(*arg_item, false, &TypeSubstitution::lexical(&caller_scope))?
+            .into_string();
+        let param_element_text = self
+            .rust_type(
+                *target_item,
+                false,
+                &TypeSubstitution::callee_emission(callee_generics),
+            )?
+            .into_string();
         if arg_element_text == param_element_text {
             // Already invariance-compatible: the ordinary call path passes the
             // place (or the forwarded reference) straight through.
@@ -1856,7 +2099,7 @@ impl FunctionEmitter<'_> {
             }
         }
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
-        let source_ty = self.call_emitted_source_ty(callee, dest_ty)?;
+        let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty)
     }
 
@@ -1908,12 +2151,18 @@ impl FunctionEmitter<'_> {
     /// produces, accounting for erasure: async functions yield
     /// `Future<return_ty>`, functions whose emitted signature erased a return
     /// type parameter yield the emitted return type, and monomorphized generic
-    /// returns pass through at the concrete `dest_ty`. Callers coerce the call
-    /// value from this type to the destination, so it must match the emitted
-    /// signature, not the frontend's specialized view of the call site.
+    /// returns yield the callee's declared return with the call site's bindings
+    /// applied. Callers coerce the call value from this type to the destination,
+    /// so it must match the emitted signature, not the frontend's specialized
+    /// view of the call site.
+    ///
+    /// `args` is needed because a generic callee's real Rust return type is a
+    /// property of the *call*, not of the callee: it is whatever the arguments
+    /// pinned its type parameters to.
     pub(super) fn call_emitted_source_ty(
         &self,
         callee: &Callee,
+        args: &[Operand],
         dest_ty: TypeId,
     ) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
@@ -1925,27 +2174,31 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("call references an unknown function"))?;
                 if matches!(function.origin, HirOrigin::ClassConstructor { .. }) {
                     dest_ty
-                } else if matches!(function.origin, HirOrigin::ClassMethod { .. })
-                    && self.method_returns_class_type_param(function)
+                } else if let Some(method_return_ty) =
+                    self.class_method_substituted_return_ty(function, args)?
                 {
-                    // A method of a generic class whose declared return type is
-                    // one of the class type parameters (e.g. `get(): T`) returns
-                    // the receiver's concrete instantiation at this call site
-                    // (`Box<f64>::get` yields `f64`). The dest local already
-                    // carries that substituted type from the frontend, so use it
-                    // as the source type: the call value is concrete and needs no
-                    // `SmeltUnknown` extraction. Erasing here would emit an
-                    // extraction match against a value that is not `SmeltUnknown`.
-                    dest_ty
-                } else if self.free_function_returns_own_type_param(function) {
-                    // A generic free function whose declared return type is one
-                    // of its own type parameters (`identity<T>(x: T): T`) is
-                    // monomorphized at this call site, so `identity(3)` yields a
-                    // concrete `f64`. The dest local carries that concrete type
-                    // from the frontend; use it as the source type so the value
-                    // passes through without a spurious `SmeltUnknown`
-                    // extraction against an already-concrete value.
-                    dest_ty
+                    // A method of a generic class whose declared return mentions
+                    // a class type parameter (`get(): T`, `all(): T[]`) returns
+                    // the receiver's concrete instantiation at this call site:
+                    // `Box<f64>::all` really evaluates to `SmeltList<f64>`. The
+                    // receiver pins the class arguments, so the substituted
+                    // return is the honest source type and no `SmeltUnknown`
+                    // extraction is emitted against an already-concrete value.
+                    method_return_ty
+                } else if let Some(monomorphization) =
+                    self.monomorphized_free_function_return(function, args)?
+                {
+                    // A generic free function monomorphized at this call site
+                    // (`identity<T>(x: T): T`, `at<T>(xs: T[], ..): T[]`) really
+                    // evaluates to its declared return with the call site's
+                    // bindings applied. The same decision licensed passing the
+                    // arguments through concretely, so the two sides cannot
+                    // disagree.
+                    if function.is_async && !function.is_generator {
+                        self.type_id(Type::Future(monomorphization))?
+                    } else {
+                        monomorphization
+                    }
                 } else if function.is_async && !function.is_generator {
                     self.type_id(Type::Future(function.return_ty))?
                 } else {
@@ -1957,6 +2210,60 @@ impl FunctionEmitter<'_> {
             _ => self.call_source_ty(callee)?,
         };
         Ok(source_ty)
+    }
+
+    /// Return a generic class method's return type with the receiver's class
+    /// arguments substituted in, when this call really instantiates them.
+    ///
+    /// `None` — meaning "keep the ordinary erased path" — when the callee is not
+    /// a method of a generic class, when its return mentions no class type
+    /// parameter (there is nothing to substitute, and the emitted signature is
+    /// already the answer), when the receiver does not pin every class type
+    /// parameter concretely, or when the substituted type is not interned.
+    fn class_method_substituted_return_ty(
+        &self,
+        function: &MirFunction,
+        args: &[Operand],
+    ) -> Result<Option<TypeId>, EmitError> {
+        if !matches!(function.origin, HirOrigin::ClassMethod { .. }) {
+            return Ok(None);
+        }
+        let class_params = self.callee_class_type_params(function);
+        if class_params.is_empty() || !self.type_mentions_any(function.return_ty, &class_params) {
+            return Ok(None);
+        }
+        // The receiver is `args[0]` for every emitted method call; see the
+        // `ClassMethod` arm of `call_text`, which splits it off first.
+        let Some(receiver) = args.first() else {
+            return Ok(None);
+        };
+        let ordered = self.callee_class_type_param_names(function);
+        let bindings = bind_class_type_params(self.mir, &ordered, self.operand_ty(receiver)?);
+        if !bindings.all_concrete() {
+            return Ok(None);
+        }
+        Ok(substituted_type_id(self.mir, function.return_ty, &bindings))
+    }
+
+    /// Return a monomorphized generic free function's substituted return type.
+    ///
+    /// `None` when this call site does not monomorphize the callee, and also
+    /// when the callee's return mentions none of its own type parameters: there
+    /// the emitted signature already states the return type and the ordinary
+    /// ladder below is the right answer, so the argument-side decision must not
+    /// perturb it.
+    fn monomorphized_free_function_return(
+        &self,
+        function: &MirFunction,
+        args: &[Operand],
+    ) -> Result<Option<TypeId>, EmitError> {
+        let own_params = self.callee_free_function_type_params(function);
+        if own_params.is_empty() || !self.type_mentions_any(function.return_ty, &own_params) {
+            return Ok(None);
+        }
+        Ok(self
+            .static_call_monomorphization(function, args)?
+            .map(|monomorphization| monomorphization.return_ty))
     }
 
     /// Converts a function call inside a Rust closure body.
@@ -1990,7 +2297,15 @@ impl FunctionEmitter<'_> {
             call_text = format!("{stripped}.unwrap_or_else(|error| panic!(\"{{}}\", error))");
         }
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
-        let source_ty = self.call_source_ty(callee)?;
+        // The emitted return, not the declared one. A monomorphized generic
+        // callee really evaluates to its declared return with this call site's
+        // bindings applied (`shift<T>(SmeltList<T>) -> SmeltList<T>` called with
+        // a `SmeltList<f64>` yields `SmeltList<f64>`), while the declared return
+        // renders `T` as `SmeltUnknown` in the caller's scope. Asking for the
+        // declared type here makes the coercion a no-op whenever the destination
+        // is erased, so the concrete value is bound to an erased local and the
+        // argument is what rustc reports as mismatched (E0308).
+        let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty)
     }
 

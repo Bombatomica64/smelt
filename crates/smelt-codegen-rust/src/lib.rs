@@ -77,6 +77,7 @@ use std::{
     path::Path,
 };
 
+use crate::type_substitution::TypeSubstitution;
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirFunction, Rvalue};
 
@@ -84,17 +85,24 @@ mod byte_buffer_prelude;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod deps;
-#[expect(
-    dead_code,
-    unreachable_pub,
-    reason = "the pre-AST binding engine is deliberately dormant and private until its rendering consumer lands"
+// Call-site binding collection stays dormant until its rendering consumer
+// lands; only the shared operand, erasure and occurrence walks are adopted so
+// far. The module's own unit tests exercise the dormant entry points, so the
+// expectation applies to non-test builds only.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the pre-AST binding engine is deliberately dormant until its rendering consumer lands"
+    )
 )]
-mod generic_bindings;
+pub(crate) mod generic_bindings;
 mod reflection_prelude;
 pub(crate) mod runtime_prelude;
 pub mod rust;
 pub(crate) mod stdlib;
 pub(crate) mod thrown;
+pub(crate) mod type_substitution;
 
 use deps::GeneratedDep;
 mod emitter;
@@ -2996,7 +3004,7 @@ fn emit_source_with_free_function_router(
                     mir,
                     &context,
                     field.ty,
-                    &scoped_type_params,
+                    &TypeSubstitution::lexical(&scoped_type_params),
                 )
                 .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                 block_writer.line(format!("{field_name}: {field_ty},"));
@@ -3216,7 +3224,7 @@ fn emit_source_with_free_function_router(
                     mir,
                     &context,
                     field.ty,
-                    &scoped_type_params,
+                    &TypeSubstitution::lexical(&scoped_type_params),
                 )?
             ));
         }
@@ -3280,7 +3288,7 @@ fn emit_source_with_free_function_router(
                             mir,
                             &context,
                             field.ty,
-                            &scoped_type_params,
+                            &TypeSubstitution::lexical(&scoped_type_params),
                         )
                         .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                         let value = materialized_static_value_text(field.value.as_ref());
@@ -3978,7 +3986,7 @@ fn emit_reference_class_storage(
                         mir,
                         context,
                         field.ty,
-                        &scoped_type_params,
+                        &TypeSubstitution::lexical(&scoped_type_params),
                     )
                     .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                     let value = materialized_static_value_text(field.value.as_ref());
@@ -4020,7 +4028,7 @@ fn emit_reference_inner_fields(
             mir,
             context,
             field.ty,
-            scoped_type_params,
+            &TypeSubstitution::lexical(scoped_type_params),
         )
         .unwrap_or_else(|_| "SmeltUnknown".to_owned());
         block_writer.line(format!("{field_name}: {field_ty},"));
@@ -4105,7 +4113,7 @@ fn emit_default_impl_for_storage_type(
                                 mir,
                                 context,
                                 field.ty,
-                                scoped_type_params,
+                                &TypeSubstitution::lexical(scoped_type_params),
                             )
                             .unwrap_or_else(|_| "Default::default()".to_owned());
                         self_writer.line(format!("{field_name}: {default_value},"));

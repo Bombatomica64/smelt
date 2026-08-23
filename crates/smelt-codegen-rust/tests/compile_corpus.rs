@@ -936,6 +936,76 @@ export function usePair(): string {
 "#,
         },
         Case {
+            // Plan 197 Increment 0b: generic free functions whose return is a
+            // *composite* built from their own type parameter (`T[]`, `T[][]`,
+            // `T | undefined` lowering to `Option<T>`), plus a generic class
+            // method with the same shape. Each call site pins `T` concretely, so
+            // the emitted call passes its argument through unerased and takes the
+            // result at the substituted return type. That only compiles if the
+            // argument side and the return side agree: a monomorphized argument
+            // with an erased return claim (or the reverse) is E0308, and a call
+            // site that cannot pin every type parameter must demote wholesale —
+            // `useDemoted` is that case, sharing one callee with `useTail`.
+            name: "generic_composite_returns",
+            area: "generics",
+            source: r#"
+class Holder<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  all(): T[] { return [this.value]; }
+}
+
+export function tail<T>(xs: T[]): T[] {
+  return xs.slice(1);
+}
+
+export function nest<T>(xs: T[]): T[][] {
+  return [xs];
+}
+
+export function last<T>(xs: T[]): T | undefined {
+  return xs[xs.length - 1];
+}
+
+export function isShorter<T>(a: T[], b: T[]): boolean {
+  return a.length < b.length;
+}
+
+export function useTail(): number[] {
+  const data = [1, 2, 3];
+  return tail(data);
+}
+
+export function useNest(): string[][] {
+  const data = ["a", "b"];
+  return nest(data);
+}
+
+export function useNestedElements(): number[][] {
+  const data = [[1, 2], [3]];
+  return tail(data);
+}
+
+export function useLast(): number | undefined {
+  const data = [1, 2, 3];
+  return last(data);
+}
+
+export function useIsShorter(): boolean {
+  return isShorter([1], [2, 3]);
+}
+
+export function useDemoted(us: unknown[]): unknown[] {
+  return tail(us);
+}
+
+export function useHolder(): number[] {
+  const holder = new Holder<number>(7);
+  return holder.all();
+}
+"#,
+        },
+        Case {
             // Issue #78: `switch` over non-literal case labels. Enum-member and
             // const-reference labels const-fold to the member's numeric/string
             // literal, and the enum type resolves to its underlying primitive so

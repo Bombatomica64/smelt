@@ -967,7 +967,7 @@ impl FunctionEmitter<'_> {
                     "            let {mutability}{name} = __smelt_value;\n"
                 ));
             } else {
-                let source_ty = self.call_emitted_source_ty(callee, local.ty)?;
+                let source_ty = self.call_emitted_source_ty(callee, args, local.ty)?;
                 let value_text =
                     self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
                 if matches!(self.mir.types.get(local.ty), Some(Type::Future(_))) {

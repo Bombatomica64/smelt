@@ -934,7 +934,7 @@ impl FunctionEmitter<'_> {
                             "{name}: {}",
                             self.default_value_with_scoped_type_params(
                                 field.ty,
-                                &scoped_type_params,
+                                &TypeSubstitution::lexical(&scoped_type_params),
                             )?
                         ));
                     }
@@ -1267,7 +1267,7 @@ impl FunctionEmitter<'_> {
                             let text = if rest_function.is_some_and(|function| {
                                 function.mutable_params.contains(&index)
                             }) {
-                                self.mutable_reference_argument_text(arg, *param)?
+                                self.mutable_reference_argument_text(arg, *param, None)?
                             } else {
                                 self.value_at_type(arg, *param)?
                             };

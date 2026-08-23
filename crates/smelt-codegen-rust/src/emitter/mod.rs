@@ -8,6 +8,9 @@
     reason = "the private emitter module still exposes helpers to its parent codegen module"
 )]
 
+use crate::generic_bindings::CalleeTypeParamBindings;
+use crate::rust::RustType;
+use crate::type_substitution::{Resolved, TypeSubstitution};
 use crate::{EmitError, compact_index, id_index, sanitize_ident};
 use literals::operand_local;
 use smelt_hir::{FileId, Span, Symbol, Type, TypeId};
@@ -20,6 +23,68 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
 };
+
+/// Pick the environment a *callee-owned* type renders in at one call site.
+///
+/// A callee's `T` has no meaning in the caller's world: [`smelt_hir::Symbol`] is
+/// name-interned, so rendering a callee type under the caller's lexical scope
+/// captures a same-named caller parameter and erases every other one. That is
+/// the historical `E0631` described in §1.2 of
+/// `blocker-logs/estk-callback-generics-plan.md`.
+///
+/// There are exactly two sound answers, and which one applies is decided once
+/// per call site rather than once per argument:
+///
+/// * the site **monomorphized** the callee — every one of its type parameters is
+///   pinned to a concrete type, and the sibling value arguments were passed
+///   through at those types. The callee's names are then spelled at their
+///   bindings and nothing is left to the lexical scope, which is why the base is
+///   [`TypeSubstitution::erased`] rather than the caller's scope: a caller `T`
+///   must not shadow the binding for a callee `T`;
+/// * the site did **not** monomorphize — every argument is instead coerced to
+///   the callee's declared parameter type as rendered in the caller's lexical
+///   scope, so the callee is instantiated at whatever that rendering produced.
+///   Rendering the callback in the same scope reproduces exactly that
+///   instantiation, which is why this arm keeps the caller's scope instead of
+///   erasing.
+///
+/// Mixing the two is precisely what fails to compile.
+fn callee_substitution<'a>(
+    caller_scope: &'a HashSet<Symbol>,
+    callee_bindings: Option<&'a CalleeTypeParamBindings>,
+) -> TypeSubstitution<'a> {
+    match callee_bindings {
+        Some(bindings) => TypeSubstitution::erased().with_bindings(bindings),
+        None => TypeSubstitution::lexical(caller_scope),
+    }
+}
+
+/// Scope guard that renders text for a hoisted module-level item.
+///
+/// Sets [`FunctionEmitter::hoisted_module_item`] for as long as it lives and
+/// restores the previous value on drop, so an early `?` inside the rendered
+/// region cannot leave the emitter stuck in the module-level scope.
+struct HoistedModuleItemScope<'e, 'm> {
+    /// The emitter whose render scope this guard switched.
+    emitter: &'e FunctionEmitter<'m>,
+    /// The scope flag to restore on drop.
+    previous: bool,
+}
+
+impl<'e, 'm> HoistedModuleItemScope<'e, 'm> {
+    /// Enter the module-level render scope on `emitter`.
+    fn enter(emitter: &'e FunctionEmitter<'m>) -> Self {
+        let previous = emitter.hoisted_module_item.replace(true);
+        Self { emitter, previous }
+    }
+}
+
+impl Drop for HoistedModuleItemScope<'_, '_> {
+    /// Restore whatever render scope was active before this guard.
+    fn drop(&mut self) {
+        self.emitter.hoisted_module_item.set(self.previous);
+    }
+}
 
 /// Hash set of MIR block ids using a fast, non-DoS-resistant hasher.
 ///
@@ -63,6 +128,7 @@ mod union;
 
 use literals::{assigned_locals, constant_text, method_mutates_this};
 use rendered_value::{Precedence, RenderedValue};
+use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
 
 /// Precomputed crate-level codegen facts shared by all function emitters.
@@ -237,7 +303,11 @@ impl EmitContext {
             if !matches!(function.origin, HirOrigin::Body(_)) {
                 continue;
             }
-            if !crate::classes::function_emits_rust_generics(mir, function) {
+            if !crate::classes::function_emits_rust_generics(
+                mir,
+                function,
+                &self.owned_callback_params,
+            ) {
                 continue;
             }
             let emitter = FunctionEmitter::new(mir, self, function)?;
@@ -900,6 +970,18 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// construction time, so it is already gated by the enclosing function's
     /// erasure decision.
     enclosing_type_params: HashSet<Symbol>,
+    /// Set while rendering text that is HOISTED to module level.
+    ///
+    /// `function_item_erased_accessor` builds the body of a module-level
+    /// `fn __smelt_fn_value_<key>() -> SmeltUnknown` accessor, but it builds it
+    /// from inside whatever function first referenced the function item. That
+    /// accessor declares no type parameters, so any `T` the enclosing function
+    /// has in scope must NOT be spelled in it — the hoisted item would reference
+    /// an undeclared type (`E0412`). While this is set,
+    /// [`FunctionEmitter::current_function_type_params`] answers with the empty
+    /// scope, which is the truthful answer for a module-level item: a generic
+    /// function's erased *value* is its `T = SmeltUnknown` instantiation.
+    hoisted_module_item: std::cell::Cell<bool>,
 }
 
 /// How to compute the default end bound for a slice.

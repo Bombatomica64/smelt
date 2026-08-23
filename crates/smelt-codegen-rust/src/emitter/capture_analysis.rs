@@ -255,10 +255,34 @@ impl FunctionEmitter<'_> {
     }
 
     /// Renders an argument for a mutable-reference collection parameter.
+    ///
+    /// `callee_emission_scope` is the set of type parameters the callee actually
+    /// emits as real Rust generics, supplied only for a *static* call where a
+    /// callee `MirFunction` exists. It is needed because MIR type identity is
+    /// not Rust type identity: [`smelt_hir::Symbol`] is name-interned, so a
+    /// generic caller's `SmeltList<T>` local and an erased callee's declared
+    /// `T[]` parameter are the SAME `TypeId` while rendering as
+    /// `SmeltList<T>` and `SmeltList<SmeltUnknown>`. A `&mut` reference is
+    /// invariant in its element, so passing the place straight through on
+    /// TypeId equality alone is `E0308`.
+    ///
+    /// When the two renderings disagree the argument is rendered through
+    /// [`FunctionEmitter::demoting_mutable_reference_text`], which is a
+    /// *demotion signal* rather than a rendering the emitted crate keeps: it
+    /// carries an `into_smelt_unknown` token, so the body-cleanliness trial
+    /// (`crate::emitter::core::body_needs_erased_carrier`) rejects the caller's
+    /// generic signature, and the re-render with both sides erased takes the
+    /// pass-through branch again. Declining to emit generics is always sound;
+    /// emitting an invariant `&mut` at the wrong element type is not.
+    ///
+    /// `None` means "no callee emission scope to compare against" — an indirect
+    /// call through a function *value*, whose target type is rendered in the
+    /// caller's own scope, so MIR identity already implies rendered identity.
     pub(super) fn mutable_reference_argument_text(
         &self,
         operand: &Operand,
         target: TypeId,
+        callee_emission_scope: Option<&HashSet<Symbol>>,
     ) -> Result<String, EmitError> {
         let text = match operand {
             Operand::Copy(place) | Operand::Move(place) => {
@@ -269,8 +293,17 @@ impl FunctionEmitter<'_> {
                 {
                     return self.place_text(place);
                 }
-                if self.place_ty(place)? == target {
-                    self.place_text(place)?
+                let place_ty = self.place_ty(place)?;
+                if place_ty == target {
+                    if self.mutable_reference_renders_alike(
+                        place_ty,
+                        target,
+                        callee_emission_scope,
+                    )? {
+                        self.place_text(place)?
+                    } else {
+                        self.demoting_mutable_reference_text(place, place_ty)?
+                    }
                 } else {
                     self.value_at_type(operand, target)?
                 }
@@ -278,6 +311,72 @@ impl FunctionEmitter<'_> {
             Operand::Const(_) => self.value_at_type(operand, target)?,
         };
         Ok(format!("&mut {text}"))
+    }
+
+    /// Return whether the caller's rendering of `arg_ty` equals the callee's
+    /// rendering of `target`, so a `&mut` borrow of the place is type-correct.
+    ///
+    /// Always `true` when there is no callee emission scope to compare against;
+    /// see [`FunctionEmitter::mutable_reference_argument_text`].
+    fn mutable_reference_renders_alike(
+        &self,
+        arg_ty: TypeId,
+        target: TypeId,
+        callee_emission_scope: Option<&HashSet<Symbol>>,
+    ) -> Result<bool, EmitError> {
+        let Some(scope) = callee_emission_scope else {
+            return Ok(true);
+        };
+        // Only a *demotable* caller may report a mismatch. The disagreement is
+        // reported by rendering text the body-cleanliness trial rejects, and
+        // only a generic free function has that trial; a class method carries
+        // its `impl<T>` parameters unconditionally and cannot fall back, so
+        // reporting there would replace a compile error with a silently
+        // mutation-losing temporary. Those keep their previous answer exactly.
+        if !matches!(self.function.origin, HirOrigin::Body(_)) {
+            return Ok(true);
+        }
+        let caller_scope = self.current_function_type_params();
+        if caller_scope.is_empty() {
+            return Ok(true);
+        }
+        let caller_text = self
+            .rust_type(arg_ty, false, &TypeSubstitution::lexical(&caller_scope))?
+            .into_string();
+        let target_text = self
+            .rust_type(target, false, &TypeSubstitution::callee_emission(scope))?
+            .into_string();
+        Ok(caller_text == target_text)
+    }
+
+    /// Render a `&mut` argument whose caller and callee renderings disagree.
+    ///
+    /// This exists to be *rejected*. `&mut` is invariant, so there is no inline
+    /// expression that bridges a caller's `SmeltList<T>` to a callee's
+    /// `SmeltList<SmeltUnknown>` while preserving the callee's write-back; the
+    /// convert-in-place adapter (`call::static_call_mut_list_adapter_text`) is
+    /// the mechanism that does, and it declines on the throwing-call path.
+    ///
+    /// So instead of emitting an unsound borrow, this emits the element-wise
+    /// erasure of the place — a type-correct expression that *does* carry an
+    /// `into_smelt_unknown` token. `body_needs_erased_carrier` sees the token in
+    /// the caller's trial body, the caller demotes to full erasure, and the
+    /// re-render finds both sides erased and passes the place through as before.
+    /// The text below therefore never reaches the emitted crate; the guards in
+    /// [`FunctionEmitter::mutable_reference_renders_alike`] are what make that
+    /// true, and they must not be relaxed without replacing this mechanism.
+    fn demoting_mutable_reference_text(
+        &self,
+        place: &Place,
+        place_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let place_text = self.place_text(place)?;
+        if matches!(self.mir.types.get(place_ty), Some(Type::List(_))) {
+            return Ok(format!(
+                "{place_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<_>>()"
+            ));
+        }
+        Ok(format!("{place_text}.clone().into_smelt_unknown()"))
     }
 
     /// Returns whether a non-escaping capture must share outer storage.

@@ -228,3 +228,44 @@ mod tests {
         assert_eq!(writer.finish(), "fn main() {\n    let value = 1;\n}\n");
     }
 }
+
+/// A Rust type fragment that has already been rendered as source text.
+///
+/// Deliberately a newtype over `String` rather than a structured type. The
+/// canonical lowering entry point (`FunctionEmitter::rust_type`) is required to
+/// reproduce today's rendered bytes exactly, and every structural rendering
+/// decision it makes — container spellings, the one-tuple `(T,)` form, the
+/// `impl Fn` versus `Rc<dyn Fn>` split, inference placeholders — is a place a
+/// re-derived `Display` implementation could differ by a character. Wrapping the
+/// existing text costs nothing and makes the return type nameable now; giving
+/// `RustType` an internal representation later is a change behind these same
+/// constructors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RustType(String);
+
+impl RustType {
+    /// Wraps already-rendered Rust type text.
+    #[must_use]
+    pub fn raw(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// Returns the rendered source text for this type.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consumes the type and returns its rendered source text.
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl std::fmt::Display for RustType {
+    /// Writes the rendered type text.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}

@@ -378,20 +378,41 @@ jobs:
         run: cargo test --manifest-path target/compat-repos/remeda/dist-smelt/Cargo.toml --no-fail-fast
 
       # Advisory SmeltUnknown metric: classify generated erasure and surface any
-      # rise in avoidable erasure against the committed baseline. Non-blocking on
-      # purpose (`|| true`) — intentional dynamic-boundary additions must never
-      # fail CI; the report is for review, and enforcement lives in AGENTS.md
-      # (## SmeltUnknown enforcement). The report is printed to the job log.
+      # rise in avoidable erasure against remeda's OWN committed baseline.
+      # Non-blocking on purpose (`|| true`) — intentional dynamic-boundary
+      # additions must never fail CI; the report is for review, and enforcement
+      # lives in AGENTS.md (## SmeltUnknown enforcement).
+      #
+      # This compared remeda's generated crate against the EXAMPLES baseline
+      # until 2026-08-23, which is not a comparison: the examples corpus is 29
+      # hand-written files with zero avoidable erasure, so every green run
+      # printed a standing "avoidable erasure rose by 25435" against a crate it
+      # had nothing to do with. A meaningless red line trains reviewers to
+      # ignore the report, which is worse than having no report.
       - name: SmeltUnknown usage report (advisory)
         if: ${{ always() }}
         run: |
           if [ -d target/compat-repos/remeda/dist-smelt/src ]; then
             target/debug/smelt smelt-unknown-report \
               target/compat-repos/remeda/dist-smelt/src \
-              --baseline blocker-logs/smelt-unknown-baseline.json || true
+              --baseline blocker-logs/smelt-unknown-baseline-remeda.json || true
           else
             echo "No generated Remeda crate to scan; skipping SmeltUnknown report."
           fi
+
+      # Blocking invariant: the checked-in example corpus must hold ZERO
+      # avoidable erasure. AGENTS.md calls this a hard invariant, but nothing in
+      # CI checked it until 2026-08-23 — it was enforced by policy alone. The
+      # examples are small and hand-audited, so any avoidable erasure appearing
+      # there is a real lowering regression with a readable reproduction, which
+      # makes this the cheapest true signal in the whole SmeltUnknown suite.
+      # Needs no compat checkout, only the smelt binary this job already built.
+      - name: SmeltUnknown examples invariant (blocking, avoidable == 0)
+        if: ${{ always() }}
+        run: |
+          target/debug/smelt smelt-unknown-report examples \
+            --baseline blocker-logs/smelt-unknown-baseline.json \
+            --fail-on-regression
 
   # Regression gate: transpile Radash at the ref pinned in
   # .github/compat/libraries.json, then compile and run all generated Rust
