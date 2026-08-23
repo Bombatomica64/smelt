@@ -294,7 +294,7 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
     // parameters are bounded by `IntoSmeltUnknown + SmeltFromUnknown` (see
     // `classes::class_impl_generics_text`). A generic free function emits the
     // same bounds on its own `fn name<T: ..>` signature (see
-    // `classes::function_impl_generics_text`). Those bounds reference the
+    // `classes::function_impl_generics_list`). Those bounds reference the
     // erasure traits, so the carrier and its traits must be emitted even when a
     // program has no explicit `unknown`/union value of its own — otherwise the
     // generic signature names traits that were never declared.

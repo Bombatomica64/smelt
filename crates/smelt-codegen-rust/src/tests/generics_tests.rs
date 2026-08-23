@@ -551,17 +551,22 @@ export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
     );
 
     assert!(source.contains(
-        "fn take_while<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>, keep: &dyn Fn(T) -> bool) -> SmeltList<T>"
+        "fn take_while<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T) -> bool + ?Sized>(xs: SmeltList<T>, keep: &F0) -> SmeltList<T>"
     ));
 }
 
 #[test]
-fn callback_generic_stays_dyn_not_bounded() {
-    // GUARDS Increment 2. The representation for a borrowed callback parameter
-    // is still Option C, `&dyn Fn(T, ..)`. Swapping it for `F0: Fn(..) + ?Sized`
-    // changes who satisfies the bound at every call site, so it must be a
-    // deliberate, separately validated change rather than something that leaks
-    // in with a helper refactor.
+fn callback_generic_uses_a_bounded_fn_param() {
+    // INVARIANT for Increment 2 (Option B). A direct required borrowed callback
+    // parameter of a generic free function is monomorphized as `&F0` with an
+    // `F0: Fn(..) + ?Sized` bound, not dispatched dynamically through
+    // `&dyn Fn(..)`.
+    //
+    // This test replaces `callback_generic_stays_dyn_not_bounded`, which guarded
+    // the pre-swap representation; its inversion is the marker that the swap
+    // landed. `?Sized` is asserted explicitly because dropping it is the one
+    // edit that still compiles this shape while breaking both the `&*rc_handle`
+    // argument and callback forwarding into another generic helper.
     let source = source_for(
         r"
 export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
@@ -570,9 +575,103 @@ export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
 ",
     );
 
-    assert!(source.contains("keep: &dyn Fn(T) -> bool"));
-    assert!(!source.contains("F0: Fn("));
-    assert!(!source.contains("keep: &F"));
+    assert!(source.contains("F0: Fn(T) -> bool + ?Sized"));
+    assert!(source.contains("keep: &F0"));
+    assert!(!source.contains("keep: &dyn Fn"));
+}
+
+#[test]
+fn callback_generic_name_skips_a_colliding_source_type_param() {
+    // The generated callback generic names are deterministic by declaration
+    // index and must not collide with a sanitized SOURCE type-parameter
+    // identifier. A source `<F0>` therefore pushes the first generated name to
+    // `F1`; without the skip the signature declares `F0` twice (E0403).
+    let source = source_for(
+        r"
+export function takeWhile<F0>(xs: F0[], keep: (item: F0) => boolean): F0[] {
+  return xs.filter(keep);
+}
+",
+    );
+
+    assert!(source.contains("F1: Fn(F0) -> bool + ?Sized"));
+    assert!(source.contains("keep: &F1"));
+}
+
+#[test]
+fn two_callback_params_get_distinct_generic_names() {
+    // Two liftable callbacks on one generic function take F0 and F1 in
+    // declaration order. Neither compat corpus contains this shape, so nothing
+    // else in the test surface pins the naming loop.
+    let source = source_for(
+        r"
+export function both<T>(xs: T[], a: (item: T) => boolean, b: (item: T) => boolean): T[] {
+  return xs.filter(a).filter(b);
+}
+",
+    );
+
+    assert!(source.contains("F0: Fn(T) -> bool + ?Sized, F1: Fn(T) -> bool + ?Sized"));
+    assert!(source.contains("a: &F0"));
+    assert!(source.contains("b: &F1"));
+}
+
+#[test]
+fn callback_bound_renders_its_return_through_the_canonical_helper() {
+    // The `F0` bound must be produced by `callback_fn_trait_text`, which routes
+    // the return through `function_value_return_type_text` — the single
+    // canonical renderer for the two return-position refinements a
+    // `Type::Function` carries. Re-formatting the return inside the bound is how
+    // the bound and the `&F0` parameter would drift apart, and how a throwing
+    // callback's `Result` would be dropped at the parameter boundary.
+    //
+    // A `Future` return is the reachable half of that composition: it renders as
+    // the promise value `SmeltFuture<T>`, substituted with the callee's own `T`.
+    // The `may_throw` half (`Fn(T) -> Result<T, Box<dyn std::error::Error>>`)
+    // shares the exact same code path but cannot be produced from TypeScript
+    // today — a declared callback *parameter* type always lowers with
+    // `may_throw == false` (see `part_7_tests`'s borrowed-callback ABI cases),
+    // which is also why neither compat corpus contains a `&dyn Fn(..) -> Result`
+    // parameter to regress.
+    let source = source_for(
+        r"
+export function mapAll<T>(xs: T[], make: (item: T) => Promise<T>): T[] {
+  make(xs[0]);
+  return xs;
+}
+",
+    );
+
+    assert!(
+        source.contains("F0: Fn(T) -> SmeltFuture<T> + ?Sized"),
+        "the bound's return goes through the canonical renderer:\n{source}"
+    );
+    assert!(source.contains("make: &F0"));
+    assert!(!source.contains("Result<SmeltFuture<T>"));
+}
+
+#[test]
+fn a_borrowed_callback_forwards_into_another_generic_helper() {
+    // The forwarding shape (`unionWith` -> `uniqWith` in es-toolkit). The caller
+    // hands its own `&F0` to a second generic helper as `&*cb`; the callee's
+    // `F0` unifies with the caller's. This is the case `?Sized` on the CALLEE is
+    // load-bearing for: without it the callee requires `Sized`, which the
+    // caller's own `?Sized` `F0` cannot prove (E0277).
+    let source = source_for(
+        r"
+export function inner<T>(xs: T[], cb: (item: T) => boolean): T[] {
+  return xs.filter(cb);
+}
+
+export function outer<T>(xs: T[], cb: (item: T) => boolean): T[] {
+  return inner(xs, cb);
+}
+",
+    );
+
+    assert!(source.contains("fn inner<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T) -> bool + ?Sized>(xs: SmeltList<T>, cb: &F0)"));
+    assert!(source.contains("fn outer<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T) -> bool + ?Sized>(xs: SmeltList<T>, cb: &F0)"));
+    assert!(source.contains("inner(xs.clone(), &*cb)"));
 }
 
 #[test]
@@ -632,7 +731,7 @@ export function run(xs: unknown[], cb: unknown): unknown[] {
     );
 
     assert!(source.contains(
-        "fn each<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>, cb: &dyn Fn(T) -> ())"
+        "fn each<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T) -> () + ?Sized>(xs: SmeltList<T>, cb: &F0)"
     ));
 }
 
@@ -658,7 +757,7 @@ export function uniqWith<T>(xs: T[], same: (a: T, b: T) => boolean): T[] {
 ",
     );
 
-    assert!(source.contains("fn uniq_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>"));
+    assert!(source.contains("fn uniq_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T, T) -> bool + ?Sized>"));
     assert!(!source.contains("move |arg0: SmeltUnknown"));
 }
 

@@ -610,14 +610,15 @@ fn callback_occurrences_are_liftable(
             continue;
         }
         // There IS a callback occurrence here, so this parameter must be the one
-        // eligible shape.
-        let Some(Type::Function(callback)) = mir.types.get(local.ty) else {
-            // Wrapped in `Option<..>`, a list, a dict, a class argument, ...
-            return false;
-        };
-        if function.rest == Some(index) || owned.contains(&(function.id, *param)) {
+        // eligible shape. The shape half of the rule lives in
+        // `callback_param_shape_is_liftable` so the Increment-2 renderer asks
+        // exactly this question and the two cannot grow two notions of it.
+        if !callback_param_shape_is_liftable(mir, function, owned, index, *param) {
             return false;
         }
+        let Some(Type::Function(callback)) = mir.types.get(local.ty) else {
+            return false;
+        };
         // Direct callback parameter — but the occurrence must be at its own
         // top level, not inside a further nested function type.
         if callback
@@ -632,24 +633,149 @@ fn callback_occurrences_are_liftable(
     true
 }
 
-/// Render the bounded generic-parameter suffix for a generic free function.
+/// The *shape* half of §4.4: is parameter `index` a **direct, required,
+/// borrowed, non-rest** `Type::Function` parameter?
 ///
-/// A generic free function such as `function identity<T>(x: T): T` is emitted
-/// as `fn identity<T: ..>(x: T) -> T`. The bounds mirror generic class impl
-/// blocks (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static`)
-/// so a `T`-typed value can be cloned, defaulted, and cross the erased boundary
-/// when it must. The returned text is empty for non-generic functions (and for
-/// functions with bounded parameters, which stay erased) so callers can splice
-/// it directly after the function name without branching.
-pub(crate) fn function_impl_generics_text(
+/// Name-independent on purpose. [`callback_occurrences_are_liftable`] asks it
+/// about the parameters that mention a given type parameter, and Increment 2's
+/// `&F{n}` renderer ([`callback_generic_params`]) asks it about every parameter;
+/// sharing one predicate is what keeps the gate and the representation from
+/// growing two different notions of "liftable callback shape".
+///
+/// * **direct / required** — the local's type must be *exactly* `Type::Function`.
+///   `MirFunction` has no separate optionality flag, so an optional parameter is
+///   spelled `Type::Optional(Function)` and fails this test, which is precisely
+///   the "required" half of the rule.
+/// * **non-rest** — `function.rest == Some(index)` is the enclosing function's
+///   packed rest parameter, which is emitted as an erased sequence of callables.
+///   (Note this is the *enclosing* function's rest, not the callback's own: an
+///   erased-unknown-rest callback type is still a perfectly liftable parameter.)
+/// * **borrowed** — `owned` is the emitter's `compute_owned_callback_params`
+///   fixpoint; an owned parameter lowers to `Rc<dyn Fn(..)>`, not to a borrow.
+pub(crate) fn callback_param_shape_is_liftable(
+    mir: &Mir,
+    function: &MirFunction,
+    owned: &HashSet<(FuncId, LocalId)>,
+    index: usize,
+    param: LocalId,
+) -> bool {
+    let Ok(local_index) = id_index(param.0, "local index does not fit usize") else {
+        return false;
+    };
+    let Some(local) = function.locals.get(local_index) else {
+        return false;
+    };
+    if !matches!(mir.types.get(local.ty), Some(Type::Function(_))) {
+        return false;
+    }
+    if function.rest == Some(index) {
+        return false;
+    }
+    // The swap exists to carry a type parameter into the `Fn` bound. A callback
+    // whose type is already fully concrete (`cb: (v: number) => boolean` inside
+    // a generic function) has nothing to carry: it un-erases nothing, it buys a
+    // monomorphized copy per call site, and — the reason this is a correctness
+    // rule rather than a taste one — `&F0` with `F0: ?Sized` cannot unsize-coerce
+    // to a `&dyn Fn(..)` parameter of some other callee, so forwarding it fails
+    // with E0277. Such a parameter keeps `&dyn Fn(..)`, exactly as before.
+    if !function
+        .type_params
+        .iter()
+        .any(|type_param| generic_bindings::type_param_occurs(mir, local.ty, type_param.name))
+    {
+        return false;
+    }
+    !owned.contains(&(function.id, param))
+}
+
+/// The generated `F{n}` type-parameter name for each callback parameter of a
+/// generic free function, in declaration order.
+///
+/// Increment 2 of `blocker-logs/estk-callback-generics-plan.md` renders a
+/// direct required borrowed callback parameter as `&F{n}` with an
+/// `F{n}: Fn(..) + ?Sized` bound (Option B) instead of `&dyn Fn(..)`, so a
+/// hand-written Rust team's monomorphized dispatch replaces dynamic dispatch.
+///
+/// Scoping: only a function that *already* declares its own `<..>` list gets
+/// `F{n}` parameters. This is a structural rule, not a per-function or
+/// per-library exception, and it has two reasons. There is nowhere to declare
+/// the name otherwise — [`function_impl_generics_list`] is empty for a
+/// non-generic function and class members emit no generics suffix at all — and
+/// converting an already-concrete `&dyn Fn()` parameter un-erases nothing while
+/// buying a monomorphized copy per call site (plan §7, kill criterion 7).
+///
+/// Naming is deterministic by declaration index and skips any name that
+/// collides with a sanitized source type-parameter identifier, so a source
+/// `<F0>` pushes the first generated name to `F1`. Generated names appear after
+/// the source generics in the emitted list.
+pub(crate) fn callback_generic_params(
+    mir: &Mir,
+    function: &MirFunction,
+    owned: &HashSet<(FuncId, LocalId)>,
+) -> Result<Vec<(LocalId, String)>, EmitError> {
+    if !function_emits_rust_generics(mir, function, owned) {
+        return Ok(Vec::new());
+    }
+    let mut taken: HashSet<String> = HashSet::new();
+    for type_param in &function.type_params {
+        let name = mir
+            .symbols
+            .get(type_param.name)
+            .ok_or_else(|| EmitError::new("function type parameter has unknown symbol"))?;
+        taken.insert(RustIdent::new(name).into_string());
+    }
+    // Emitted crate types share the generated names' namespace. A source
+    // `class F0` lowers to a Rust struct `F0`, and a generated type parameter
+    // of the same name shadows it inside the signature, so a `new F0()` in the
+    // body resolves against the type parameter instead of the struct. Reserving
+    // every emitted class and interface name is the general rule; reserving only
+    // source *type-parameter* names was too narrow.
+    for class in &mir.classes {
+        taken.insert(class_name_text(mir, class)?);
+    }
+    for interface in &mir.interfaces {
+        let name = mir
+            .symbols
+            .get(interface.name)
+            .ok_or_else(|| EmitError::new("interface has unknown symbol"))?;
+        taken.insert(RustIdent::new(name).into_string());
+    }
+    let mut next = 0usize;
+    let mut named = Vec::new();
+    for (index, param) in function.params.iter().enumerate() {
+        if !callback_param_shape_is_liftable(mir, function, owned, index, *param) {
+            continue;
+        }
+        let name = loop {
+            let candidate = format!("F{next}");
+            next += 1;
+            if !taken.contains(&candidate) {
+                break candidate;
+            }
+        };
+        named.push((*param, name));
+    }
+    Ok(named)
+}
+
+/// The bounded *source* type parameters of a generic free function, one entry
+/// per declared parameter (`T: Clone + Default + IntoSmeltUnknown + ..`).
+///
+/// Split out of the former `function_impl_generics_text` so the free-function
+/// signature
+/// emitter can append Increment 2's generated `F{n}: Fn(..) + ?Sized` bounds —
+/// which need the emitter's substitution-aware type lowering and therefore
+/// cannot be rendered here — while keeping source generics first, in
+/// declaration order. Empty for a function that stays erased.
+pub(crate) fn function_impl_generics_list(
     mir: &Mir,
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
-) -> Result<String, EmitError> {
+) -> Result<Vec<String>, EmitError> {
     if !function_emits_rust_generics(mir, function, owned_callback_params) {
-        return Ok(String::new());
+        return Ok(Vec::new());
     }
-    let params = function
+    function
         .type_params
         .iter()
         .map(|param| {
@@ -663,9 +789,7 @@ pub(crate) fn function_impl_generics_text(
                 })
                 .ok_or_else(|| EmitError::new("function type parameter has unknown symbol"))
         })
-        .collect::<Result<Vec<_>, _>>()?
-        .join(", ");
-    Ok(format!("<{params}>"))
+        .collect()
 }
 
 /// Render the Rust trait name for a class inheritance surface.

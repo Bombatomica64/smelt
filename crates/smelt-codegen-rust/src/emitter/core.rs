@@ -4,6 +4,25 @@ use super::*;
 use crate::emitter::literals::operand_local;
 use smelt_hir::FunctionType;
 
+/// How the emitted Rust value for a callee is invoked.
+///
+/// The three-valued generalisation of the `callee_uses_erased_call_method` /
+/// `callee_is_borrowed_function_handle` pair (Increment 2 of
+/// `blocker-logs/estk-callback-generics-plan.md`, §3).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CallbackHandleKind {
+    /// A `SmeltErasedFunction` value: invoked as `value.call(vec![..])`.
+    ErasedCall,
+    /// A borrowed `&dyn Fn(..)` handle: bare direct call syntax.
+    BorrowedDyn,
+    /// A borrowed `&F{n}` monomorphized generic handle: bare direct call
+    /// syntax, exactly as `BorrowedDyn`. Distinguished for honesty about the
+    /// emitted representation, not for dispatch — no caller branches on the
+    /// difference, because `impl<A, F: ?Sized + Fn<A>> Fn<A> for &F` makes the
+    /// two spellings callable identically.
+    MonomorphizedGeneric,
+}
+
 impl<'mir> FunctionEmitter<'mir> {
     /// Creates a new function emitter for the given MIR and function.
     pub(crate) fn new(
@@ -182,14 +201,22 @@ impl<'mir> FunctionEmitter<'mir> {
         // erasure (`suppress_type_params`). In that case the parameters and body
         // are already rendered as `SmeltUnknown`, so declaring `<T>` would leave
         // an unconstrained, uninferable type parameter on the signature.
+        // Source type parameters first, then Increment 2's generated
+        // `F{n}: Fn(..) + ?Sized` callback bounds, in declaration order.
         let generics = if *self.suppress_type_params.borrow() {
             String::new()
         } else {
-            crate::classes::function_impl_generics_text(
+            let mut parts = crate::classes::function_impl_generics_list(
                 self.mir,
                 self.function,
                 &self.context.owned_callback_params,
-            )?
+            )?;
+            parts.extend(self.callback_generic_bounds_text()?);
+            if parts.is_empty() {
+                String::new()
+            } else {
+                format!("<{}>", parts.join(", "))
+            }
         };
         out.push_str(&format!(
             "{}fn {}{generics}({fn_params}) -> {} {{\n",
@@ -2030,13 +2057,74 @@ impl<'mir> FunctionEmitter<'mir> {
         &self,
         callee: &Operand,
     ) -> Result<bool, EmitError> {
-        let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?) else {
-            return Ok(false);
+        Ok(matches!(
+            self.callback_handle_kind(callee)?,
+            Some(CallbackHandleKind::ErasedCall)
+        ))
+    }
+
+    /// Classify how the emitted Rust value for `callee` must be invoked.
+    ///
+    /// The one authority behind [`Self::callee_uses_erased_call_method`] and
+    /// [`Self::callee_is_borrowed_function_handle`], which are thin `matches!`
+    /// wrappers over it so the three call-shape ladders keep their exact
+    /// current text.
+    ///
+    /// `None` means the callee is an ordinary callable *value* with no special
+    /// handle shape; the ladders render it parenthesized (`({callee})({args})`).
+    ///
+    /// Precedence is load-bearing and unchanged: borrowed handles win over the
+    /// erased-rest shape. A callback parameter whose MIR type is the
+    /// erased-unknown-rest shape (`Fn(SmeltList<SmeltUnknown>) -> _`) is still
+    /// emitted as a borrowed handle — and is still `F{n}`-eligible, because
+    /// §4.4's rest test reads the *enclosing* function's packed rest parameter,
+    /// not the callback's own — so calling `.call(..)` on it would resolve to
+    /// the unstable `Fn::call` trait method (E0658 `fn_traits` plus E0308).
+    pub(super) fn callback_handle_kind(
+        &self,
+        callee: &Operand,
+    ) -> Result<Option<CallbackHandleKind>, EmitError> {
+        // `operand_ty` is resolved first so this helper keeps the exact error
+        // behaviour of the `callee_uses_erased_call_method` it replaces.
+        let erased_shape = match self.mir.types.get(self.operand_ty(callee)?) {
+            Some(Type::Function(function)) => {
+                self.is_erased_unknown_rest_function(function) && !function.may_throw
+            }
+            _ => false,
         };
-        if !self.is_erased_unknown_rest_function(function) || function.may_throw {
-            return Ok(false);
+        if let Operand::Copy(place) | Operand::Move(place) = callee
+            && self.is_function_parameter_place(place)?
+        {
+            return Ok(Some(self.borrowed_handle_kind(place)?));
         }
-        Ok(!self.callee_is_borrowed_function_handle(callee)?)
+        let callee_text = self.operand_text(callee)?;
+        if self.is_function_parameter_name(&callee_text)?
+            || self.is_borrowed_callback_capture_name(&callee_text)
+        {
+            let kind = match callee {
+                Operand::Copy(place) | Operand::Move(place) => self.borrowed_handle_kind(place)?,
+                Operand::Const(_) => CallbackHandleKind::BorrowedDyn,
+            };
+            return Ok(Some(kind));
+        }
+        if erased_shape {
+            return Ok(Some(CallbackHandleKind::ErasedCall));
+        }
+        Ok(None)
+    }
+
+    /// Which borrowed representation a known-borrowed callback place carries.
+    ///
+    /// Purely descriptive: both variants are invoked with the same bare direct
+    /// call syntax, because `impl<A, F: ?Sized + Fn<A>> Fn<A> for &F` makes a
+    /// `&F{n}` callable exactly like a `&dyn Fn(..)`.
+    fn borrowed_handle_kind(&self, place: &Place) -> Result<CallbackHandleKind, EmitError> {
+        if let Place::Local(local) = place
+            && self.callback_generic_name(*local)?.is_some()
+        {
+            return Ok(CallbackHandleKind::MonomorphizedGeneric);
+        }
+        Ok(CallbackHandleKind::BorrowedDyn)
     }
 
     /// Render the argument vector for a call through the erased
@@ -2086,14 +2174,10 @@ impl<'mir> FunctionEmitter<'mir> {
         &self,
         callee: &Operand,
     ) -> Result<bool, EmitError> {
-        if let Operand::Copy(place) | Operand::Move(place) = callee
-            && self.is_function_parameter_place(place)?
-        {
-            return Ok(true);
-        }
-        let callee_text = self.operand_text(callee)?;
-        Ok(self.is_function_parameter_name(&callee_text)?
-            || self.is_borrowed_callback_capture_name(&callee_text))
+        Ok(matches!(
+            self.callback_handle_kind(callee)?,
+            Some(CallbackHandleKind::BorrowedDyn | CallbackHandleKind::MonomorphizedGeneric)
+        ))
     }
 
     /// Adapt a concrete callable to an erased JS rest callable while preserving
