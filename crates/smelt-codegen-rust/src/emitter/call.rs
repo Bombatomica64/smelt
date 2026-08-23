@@ -1207,6 +1207,34 @@ impl FunctionEmitter<'_> {
     /// argument has a different or erased shape (`SmeltUnknown` against
     /// `SmeltList<T>`), this returns `false` and the caller falls back to the
     /// ordinary coercion so the value is erased as before.
+    ///
+    /// # Relationship to [`crate::generic_bindings`]
+    ///
+    /// This is *not* dead duplication of the shared matcher, and it is
+    /// deliberately not refactored onto it yet. The two answer different
+    /// questions and diverge in both directions:
+    ///
+    /// - **answer shape** — this is a whole-tree conjunction over one
+    ///   (source, target) pair, so a mismatch anywhere is fatal;
+    ///   `generic_bindings` records evidence per *type parameter* and drops a
+    ///   mismatch that lands in a type-parameter-free subtree (a `Dict` key, a
+    ///   tuple slot);
+    /// - **unions** — this zips equal-length unions positionally and so accepts
+    ///   an identical nested union; the shared matcher refuses to bind through
+    ///   unions at all, because unions erase in emitted Rust and member order is
+    ///   not a sound correspondence;
+    /// - **`Class` / `JsMap` / `Function` / generators** — this has no arm for
+    ///   them and falls through to identity; the shared matcher descends into
+    ///   all of them. Descending here would divert a callback argument off the
+    ///   borrowed-callback path and change emitted bytes;
+    /// - **erased sources** — a bare `TypeParam` target returns `true` here for
+    ///   any source, including `SmeltUnknown`; the shared matcher records that
+    ///   as `Erased`, which its only public query reports as not concrete.
+    ///
+    /// The resolution is to delete this predicate's *consumers* rather than
+    /// port it: once the shared bindings can drive recursive return
+    /// substitution, the decision becomes "render the argument at the type the
+    /// bindings say the parameter is" and the boolean disappears.
     fn generic_param_instantiated_by(
         &self,
         source: TypeId,
@@ -1406,17 +1434,10 @@ impl FunctionEmitter<'_> {
         // `callee_generics` is the set of type parameters the callee actually emits
         // as real Rust generics; it is empty for an erased monomorphization, so
         // the same set both renders the callee's parameter types and decides
-        // whether an argument monomorphizes them.
-        let callee_emits_generics = self.context.is_generic_function(func);
-        let callee_generics: HashSet<Symbol> = if callee_emits_generics {
-            function
-                .type_params
-                .iter()
-                .map(|type_param| type_param.name)
-                .collect()
-        } else {
-            HashSet::new()
-        };
+        // whether an argument monomorphizes them. It is an *emission scope*, not
+        // a call-site binding: `crate::generic_bindings` cannot express it, and
+        // the post-AST increment must not conflate the two.
+        let callee_generics = self.callee_free_function_type_params(function);
         let caller_scope = self.current_function_type_params();
         let mut needs_adapter = false;
         for (index, arg) in args.iter().enumerate() {

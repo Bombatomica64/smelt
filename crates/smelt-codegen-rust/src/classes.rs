@@ -7,7 +7,7 @@
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::{Mir, MirClass, MirField, MirFunction, MirInterface};
 
-use crate::{EmitError, emitter::FunctionEmitter, id_index, rust::RustIdent};
+use crate::{EmitError, emitter::FunctionEmitter, generic_bindings, id_index, rust::RustIdent};
 
 /// Return the sanitized Rust storage type name for a MIR class.
 ///
@@ -134,7 +134,8 @@ fn class_type_param_used_as_map_key(mir: &Mir, class: &MirClass, name: Symbol) -
 fn type_param_in_dict_key(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     match mir.types.get(ty) {
         Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_param_occurs(mir, *key, name) || type_param_in_dict_key(mir, *value, name)
+            generic_bindings::type_param_occurs(mir, *key, name)
+                || type_param_in_dict_key(mir, *value, name)
         }
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
             type_param_in_dict_key(mir, *item, name)
@@ -347,36 +348,38 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
 /// Return whether an operand's static type is erased for codegen purposes
 /// (`SmeltUnknown`, `Never`, a union — all emitted as `SmeltUnknown` — or a type
 /// parameter that is not resolvable to a concrete type at the call site).
+///
+/// The place arm and the erasure test are shared with
+/// [`crate::generic_bindings`] so this scan and the call-site binding matcher
+/// cannot grow different notions of "erased argument". The three-valued binding
+/// result collapses onto this boolean as follows:
+///
+/// | shared result | here | why |
+/// | --- | --- | --- |
+/// | resolved type | [`generic_bindings::actual_type_is_erased`] | the shared classifier |
+/// | `Err(ProjectedOperand)` | erased | a field/index projection carries no type of its own |
+/// | `Err(ShapeMismatch)` | erased | the caller local is missing, so nothing pins the parameter |
+/// | `Err(MissingLiteralType)` | unreachable | constants short-circuit below |
+///
+/// The `Operand::Const` arm is deliberately *not* delegated. This scan treats
+/// every literal as pinning, while `generic_bindings` resolves a real `TypeId`
+/// and therefore classifies a JS symbol literal (`Type::Unknown`) as erased.
+/// Widening this arm would demote functions that are generic today, so it stays
+/// frozen until the increment that rewrites this predicate's caller.
 fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &smelt_mir::Operand) -> bool {
-    let ty = match operand {
-        smelt_mir::Operand::Copy(place) | smelt_mir::Operand::Move(place) => {
-            match place_local(place) {
-                Some(local) => match caller
-                    .locals
-                    .get(usize::try_from(local.0).unwrap_or(usize::MAX))
-                {
-                    Some(decl) => decl.ty,
-                    None => return true,
-                },
-                // A field/index projection is conservatively treated as erased.
-                None => return true,
-            }
-        }
-        // Literal constants (numbers, strings, booleans) are concrete and pin
-        // the type parameter, so they never force erasure.
-        smelt_mir::Operand::Const(_) => return false,
-    };
-    matches!(
-        mir.types.get(ty),
-        Some(Type::Unknown | Type::Never | Type::Union(_) | Type::TypeParam { .. })
-    )
-}
-
-/// Return the base local of a simple `Place::Local`, or `None` for projections.
-fn place_local(place: &smelt_mir::Place) -> Option<smelt_mir::LocalId> {
-    match place {
-        smelt_mir::Place::Local(local) => Some(*local),
-        _ => None,
+    // Literal constants (numbers, strings, booleans) are concrete and pin
+    // the type parameter, so they never force erasure.
+    if matches!(operand, smelt_mir::Operand::Const(_)) {
+        return false;
+    }
+    match generic_bindings::operand_type(mir, caller, operand) {
+        Ok(ty) => generic_bindings::actual_type_is_erased(mir, ty),
+        // A missing local or a field/index projection is conservatively erased.
+        Err(
+            generic_bindings::BindingUnsupportedReason::ProjectedOperand
+            | generic_bindings::BindingUnsupportedReason::ShapeMismatch,
+        ) => true,
+        Err(_) => false,
     }
 }
 
@@ -393,6 +396,12 @@ fn place_local(place: &smelt_mir::Place) -> Option<smelt_mir::LocalId> {
 ///   `T` inside `T | string` disappears from the emitted signature and cannot be
 ///   inferred (`E0283`);
 /// - **`Function`** — a callback boundary, handled by [`type_param_in_callback`].
+///
+/// This is deliberately *narrower* than
+/// [`generic_bindings::match_types`](crate::generic_bindings), which does bind
+/// through `Type::Function`. That difference is the callback gate itself, so
+/// this predicate is not routed through the shared walk: doing so would promote
+/// every function whose only occurrence of the parameter is inside a callback.
 fn type_param_directly_inferable(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     match mir.types.get(ty) {
         Some(Type::TypeParam { name: param_name }) => *param_name == name,
@@ -451,15 +460,16 @@ fn type_param_directly_inferable(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
 /// default callback as `move |arg: SmeltUnknown| ...`, which cannot unify with a
 /// generic `Fn(T) -> _` signature. The walk descends through value wrappers to
 /// find a nested `Type::Function`, then checks whether `name` occurs anywhere
-/// within that function type.
+/// within that function type using the shared
+/// [`generic_bindings::type_param_occurs`] walk.
 fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     match mir.types.get(ty) {
         Some(Type::Function(function)) => {
             function
                 .params
                 .iter()
-                .any(|param| type_param_occurs(mir, *param, name))
-                || type_param_occurs(mir, function.return_ty, name)
+                .any(|param| generic_bindings::type_param_occurs(mir, *param, name))
+                || generic_bindings::type_param_occurs(mir, function.return_ty, name)
         }
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
             type_param_in_callback(mir, *item, name)
@@ -494,61 +504,6 @@ fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
         Some(
             Type::TypeParam { .. }
             | Type::Bool
-            | Type::Int
-            | Type::Float
-            | Type::String
-            | Type::Unknown
-            | Type::Never
-            | Type::None,
-        )
-        | None => false,
-    }
-}
-
-/// Return whether `name` occurs anywhere within `ty`, descending through every
-/// shape including function types. Used to detect a type parameter's presence
-/// inside a callback signature.
-fn type_param_occurs(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
-    match mir.types.get(ty) {
-        Some(Type::TypeParam { name: param_name }) => *param_name == name,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            type_param_occurs(mir, *item, name)
-        }
-        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_param_occurs(mir, *key, name) || type_param_occurs(mir, *value, name)
-        }
-        Some(Type::Tuple(items) | Type::Union(items)) => {
-            items.iter().any(|item| type_param_occurs(mir, *item, name))
-        }
-        Some(Type::Function(function)) => {
-            function
-                .params
-                .iter()
-                .any(|param| type_param_occurs(mir, *param, name))
-                || type_param_occurs(mir, function.return_ty, name)
-        }
-        Some(Type::Class { args, .. }) => {
-            args.iter().any(|arg| type_param_occurs(mir, *arg, name))
-        }
-        Some(Type::Generator {
-            yield_ty,
-            return_ty,
-            next_ty,
-            ..
-        }) => {
-            type_param_occurs(mir, *yield_ty, name)
-                || type_param_occurs(mir, *return_ty, name)
-                || type_param_occurs(mir, *next_ty, name)
-        }
-        Some(Type::GeneratorResult {
-            yield_ty,
-            return_ty,
-        }) => {
-            type_param_occurs(mir, *yield_ty, name)
-                || type_param_occurs(mir, *return_ty, name)
-        }
-        Some(
-            Type::Bool
             | Type::Int
             | Type::Float
             | Type::String

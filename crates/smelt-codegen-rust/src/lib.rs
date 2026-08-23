@@ -84,12 +84,18 @@ mod byte_buffer_prelude;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod deps;
-#[expect(
-    dead_code,
-    unreachable_pub,
-    reason = "the pre-AST binding engine is deliberately dormant and private until its rendering consumer lands"
+// Call-site binding collection stays dormant until its rendering consumer
+// lands; only the shared operand, erasure and occurrence walks are adopted so
+// far. The module's own unit tests exercise the dormant entry points, so the
+// expectation applies to non-test builds only.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the pre-AST binding engine is deliberately dormant until its rendering consumer lands"
+    )
 )]
-mod generic_bindings;
+pub(crate) mod generic_bindings;
 mod reflection_prelude;
 pub(crate) mod runtime_prelude;
 pub mod rust;
