@@ -366,3 +366,215 @@ export function zipLike<T, R>(
     );
     assert!(dispatch.contains("match smelt_function_value { SmeltUnknown::Function"));
 }
+
+#[test]
+fn monomorphizes_generic_free_function_list_return() {
+    // Plan 197 Increment 0b: a generic free function whose return is a
+    // *composite* built from its own type parameter (`T[]`, not a bare `T`) is
+    // monomorphized at a call site that pins `T` concretely. Before this the
+    // call-site decision accepted only a bare `TypeParam` return, so the whole
+    // `T[] -> T[]` family (es-toolkit's `difference`/`without`/`uniq`) erased
+    // its argument element-by-element into `SmeltList<SmeltUnknown>` and
+    // un-erased every returned element again.
+    let source = source_for(
+        r"
+export function pair<T>(xs: T[]): T[] {
+  return xs;
+}
+export function usePair(): number[] {
+  const data = [1, 2, 3];
+  return pair(data);
+}
+",
+    );
+
+    // The definition is unchanged: it was already emitted with real generics.
+    assert!(source.contains(
+        "fn pair<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>) -> SmeltList<T>"
+    ));
+    // The call site passes the concrete list straight through and takes the
+    // result at the substituted return type: no erasure on either side.
+    assert!(source.contains("let _smelt_tmp_2: SmeltList<f64> = pair(data);"));
+}
+
+#[test]
+fn monomorphizes_generic_free_function_nested_return() {
+    // The return substitution is recursive, not one level deep: `T[][]` with
+    // `T = f64` resolves to `SmeltList<SmeltList<f64>>`.
+    let source = source_for(
+        r"
+export function wrap<T>(xs: T[]): T[][] {
+  return [xs];
+}
+export function useWrap(): number[][] {
+  const data = [1, 2];
+  return wrap(data);
+}
+",
+    );
+
+    assert!(source.contains("let _smelt_tmp_2: SmeltList<SmeltList<f64>> = wrap(data);"));
+}
+
+#[test]
+fn generic_free_function_demotes_on_erased_argument() {
+    // Fail-closed guard for E0283. An `unknown[]` argument binds `T` to the
+    // erased carrier, which is evidence the matcher reports as `Erased`, not
+    // `Concrete`. The call site must keep today's coercion path rather than
+    // claim a monomorphization rustc cannot reproduce.
+    let source = source_for(
+        r"
+export function pair<T>(xs: T[]): T[] {
+  return xs;
+}
+export function usePair(us: unknown[]): unknown[] {
+  return pair(us);
+}
+",
+    );
+
+    // The definition stays generic (the crate-wide gate only demotes on a bare
+    // type-parameter position), but this *call site* demotes: the argument is
+    // still rebuilt element-wise and the result is still converted back.
+    assert!(source.contains("fn pair<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>)"));
+    assert!(!source.contains("= pair(us"));
+    assert!(source.contains("into_smelt_unknown()"));
+}
+
+#[test]
+fn generic_free_function_demotes_on_conflicting_bindings() {
+    // Two arguments pinning the same type parameter to different concrete types
+    // is `Conflict`, which `all_concrete` rejects: passing either through would
+    // give rustc `?T = f64` and `?T = String` at once (E0308).
+    let source = source_for(
+        r#"
+export function both<T>(a: T[], b: T[]): T[] {
+  return a;
+}
+export function useBoth(): number[] {
+  const xs = [1];
+  const ys = ["a"];
+  return both(xs, ys);
+}
+"#,
+    );
+
+    // Neither argument passes through: both are erased, as before.
+    assert!(!source.contains("both(xs, ys)"));
+    assert!(source.contains("SmeltUnknown::Number(value as f64)"));
+    assert!(source.contains("SmeltUnknown::String(value)"));
+}
+
+#[test]
+fn generic_free_function_demotes_on_union_return() {
+    // Unions erase to the tagged carrier in emitted Rust and their member order
+    // is not a sound correspondence, so the substitution refuses to walk one at
+    // any depth. Here the union return also demotes the whole callee upstream,
+    // which is the stronger statement: nothing about this shape monomorphizes.
+    let source = source_for(
+        r"
+export function maybe<T>(xs: T[]): T[] | string {
+  return xs;
+}
+export function useMaybe(): number[] | string {
+  const xs = [1];
+  return maybe(xs);
+}
+",
+    );
+
+    assert!(source.contains("fn maybe(xs: SmeltList<SmeltUnknown>) -> SmeltUnknown"));
+    assert!(!source.contains("maybe(xs)"));
+}
+
+#[test]
+fn generic_free_function_demotes_when_argument_omitted() {
+    // An omitted argument in a position that mentions a type parameter is
+    // rendered by the trailing default loop, which emits the *erased* default
+    // (`None::<SmeltUnknown>`) and would pin `T = SmeltUnknown` while the return
+    // claimed `SmeltList<f64>`. The site must demote wholesale instead.
+    let source = source_for(
+        r"
+export function padded<T>(xs: T[], fill?: T): T[] {
+  return xs;
+}
+export function usePadded(): number[] {
+  const xs = [1];
+  return padded(xs);
+}
+",
+    );
+
+    assert!(source.contains("None::<SmeltUnknown>"));
+    assert!(!source.contains("padded(xs,"));
+}
+
+#[test]
+fn generic_method_list_return_stays_concrete() {
+    // The class-method half of the same widening: `all(): T[]` on a `Box<f64>`
+    // receiver really evaluates to `SmeltList<f64>`, because the receiver pins
+    // the class type argument. Emitting an extraction against that
+    // already-concrete value is what the bare-`TypeParam`-only predicate forced.
+    let source = source_for(
+        r"
+class Box<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  all(): T[] { return [this.value]; }
+}
+function useBox(): number[] {
+  const b = new Box<number>(1);
+  return b.all();
+}
+",
+    );
+
+    assert!(source.contains("fn all(&self) -> SmeltList<T>"));
+    assert!(source.contains("let _smelt_tmp_2: SmeltList<f64> = b.all();"));
+}
+
+#[test]
+fn callback_generic_function_still_demotes() {
+    // INVARIANT for Increment 0b: the callback gate (`type_param_in_callback`,
+    // `classes.rs`) is untouched, so a type parameter appearing inside a
+    // callback parameter still forces the whole function to erase. This test is
+    // expected to FLIP in Increment 1; its flip is the marker that the gate
+    // came down, and it must not flip before then.
+    let source = source_for(
+        r"
+export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
+  return xs.filter(keep);
+}
+",
+    );
+
+    assert!(!source.contains("fn take_while<T"));
+    assert!(source.contains("fn take_while(xs: SmeltList<SmeltUnknown>"));
+}
+
+#[test]
+fn concrete_return_generic_callee_passes_arguments_through() {
+    // A deliberate widening of the general rule: what licenses passing an
+    // argument through is that the call site pins every type parameter, not what
+    // the callee returns. A generic callee with a *concrete* return
+    // (`isSubset<T>(a: T[], b: T[]): boolean`) therefore stops erasing its
+    // arguments too — nothing about a `bool` return makes an argument need
+    // erasing. If this ever has to be narrowed, the rule gains a "the return
+    // must mention a bound type parameter" condition; it never gains a carve-out
+    // for a function.
+    let source = source_for(
+        r"
+export function isSubset<T>(a: T[], b: T[]): boolean {
+  return a.length < b.length;
+}
+export function useSubset(): boolean {
+  const xs = [1];
+  const ys = [2];
+  return isSubset(xs, ys);
+}
+",
+    );
+
+    assert!(source.contains("let _smelt_tmp_4: bool = is_subset(xs, ys);"));
+}
+

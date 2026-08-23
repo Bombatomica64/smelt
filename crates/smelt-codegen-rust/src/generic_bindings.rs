@@ -139,24 +139,23 @@ impl CalleeTypeParamBindings {
 
 /// Collect call-site bindings by matching actual argument types against the
 /// callee's declared parameter patterns.
+///
+/// Resolves each argument's static type with the emitter-free
+/// [`operand_type`], which fails closed on field and index projections. The
+/// emitter has a richer resolver and passes its answers to
+/// [`collect_bindings_from_types`] directly; see that function's docstring for
+/// why the two are allowed to differ, and in which direction.
 pub(crate) fn collect_bindings(
     mir: &Mir,
     target_function: &MirFunction,
     source_function: &MirFunction,
     args: &[Operand],
 ) -> CalleeTypeParamBindings {
-    let mut bindings = CalleeTypeParamBindings {
-        bindings: target_function
-            .type_params
-            .iter()
-            .map(|param| (param.name, TypeParamBinding::Unbound))
-            .collect(),
-    };
-    let own_params = target_function
+    let type_params = target_function
         .type_params
         .iter()
         .map(|param| param.name)
-        .collect::<HashSet<_>>();
+        .collect::<Vec<_>>();
 
     // Positional alignment cannot represent a packed rest parameter: the
     // emitter collects the trailing arguments into one list before the call, so
@@ -164,6 +163,7 @@ pub(crate) fn collect_bindings(
     // closed for the whole call site rather than matching a list pattern against
     // a single element type.
     if target_function.rest.is_some() {
+        let mut bindings = unbound_bindings(&type_params);
         for (_, binding) in &mut bindings.bindings {
             *binding = binding.merge(TypeParamBinding::Unsupported(
                 BindingUnsupportedReason::FunctionShape,
@@ -172,28 +172,353 @@ pub(crate) fn collect_bindings(
         return bindings;
     }
 
+    let mut declared = Vec::new();
+    let mut actual = Vec::new();
+    // Declared positions whose argument type could not be resolved at all. They
+    // carry no positional evidence, so they are recorded as weak evidence on
+    // every type parameter they mention after the positional pass.
+    let mut unresolved = Vec::new();
     for (index, param) in target_function.params.iter().enumerate() {
-        let Some(declared) = target_function
+        let Some(declared_ty) = target_function
             .locals
             .get(usize::try_from(param.0).unwrap_or(usize::MAX))
             .map(|local| local.ty)
         else {
             continue;
         };
-        let Some(argument) = args.get(index) else {
-            continue;
+        let actual_ty = match args.get(index) {
+            None => None,
+            Some(argument) => match operand_type(mir, source_function, argument) {
+                Ok(resolved) => Some(resolved),
+                Err(reason) => {
+                    unresolved.push((declared_ty, reason));
+                    None
+                }
+            },
         };
-        let actual = match operand_type(mir, source_function, argument) {
-            Ok(actual) => actual,
-            Err(reason) => {
-                bindings.observe_occurrences(mir, declared, TypeParamBinding::Unsupported(reason));
-                continue;
-            }
-        };
-        match_types(mir, declared, actual, &own_params, &mut bindings);
+        declared.push(declared_ty);
+        actual.push(actual_ty);
     }
 
+    let mut bindings = collect_bindings_from_types(mir, &type_params, &declared, &actual);
+    for (declared_ty, reason) in unresolved {
+        bindings.observe_occurrences(mir, declared_ty, TypeParamBinding::Unsupported(reason));
+    }
     bindings
+}
+
+/// Collect call-site bindings from already-resolved declared and actual types.
+///
+/// This is the positional core of [`collect_bindings`], exposed so the emitter
+/// can supply the two things it knows better than the emitter-free path can:
+///
+/// * the *emitted* parameter types, which are what the generated Rust call has
+///   to satisfy. They can differ from the callee's MIR locals (a cross-module
+///   overload, an erased signature), and binding against one while rendering
+///   against the other would let the two disagree;
+/// * argument types resolved through the emitter's own place typing, which
+///   handles `Place::Field` and `Place::Index` projections that
+///   [`operand_type`] deliberately refuses.
+///
+/// The two resolvers are allowed to differ only in that direction. The
+/// crate-wide generic-safety scan in [`crate::classes`] keeps the stricter one
+/// because it decides whether a callee is emitted generically *at all*: failing
+/// closed there demotes one function, which is always sound. Failing closed at a
+/// single call site would instead force an erased argument into a call the
+/// definition already emits generically, so the emitter needs the resolver that
+/// answers for more shapes.
+///
+/// `actual[i] == None` means "no evidence at this position" (an omitted
+/// argument, or one whose type the caller declined to resolve) and leaves the
+/// mentioned parameters `Unbound`.
+pub(crate) fn collect_bindings_from_types(
+    mir: &Mir,
+    type_params: &[Symbol],
+    declared: &[TypeId],
+    actual: &[Option<TypeId>],
+) -> CalleeTypeParamBindings {
+    let mut bindings = unbound_bindings(type_params);
+    let own_params = type_params.iter().copied().collect::<HashSet<_>>();
+    for (index, declared_ty) in declared.iter().enumerate() {
+        let Some(Some(actual_ty)) = actual.get(index).copied() else {
+            continue;
+        };
+        match_types(mir, *declared_ty, actual_ty, &own_params, &mut bindings);
+    }
+    bindings
+}
+
+/// Bind a generic class's type parameters from a concrete receiver type.
+///
+/// A method of `class Box<T>` is emitted inside `impl<T> Box<T>`, so a call on a
+/// `Box<f64>` receiver instantiates `T = f64`. The receiver type is the whole
+/// evidence: no argument matching is involved, and no interning is required,
+/// because every class argument is already a `TypeId` in the receiver's type.
+///
+/// A receiver that is not a `Class` with the expected argument count (an erased
+/// receiver, a union, a structurally different class) pins nothing:
+/// every parameter is reported `Unsupported`, which
+/// [`CalleeTypeParamBindings::all_concrete`] rejects.
+pub(crate) fn bind_class_type_params(
+    mir: &Mir,
+    class_type_params: &[Symbol],
+    receiver_ty: TypeId,
+) -> CalleeTypeParamBindings {
+    let mut bindings = unbound_bindings(class_type_params);
+    let Some(Type::Class { args, .. }) = mir.types.get(receiver_ty) else {
+        return unsupported_bindings(class_type_params, BindingUnsupportedReason::ShapeMismatch);
+    };
+    if args.len() != class_type_params.len() {
+        return unsupported_bindings(class_type_params, BindingUnsupportedReason::ShapeMismatch);
+    }
+    for (name, arg) in class_type_params.iter().zip(args) {
+        let observation = if actual_type_is_erased(mir, *arg) {
+            TypeParamBinding::Erased
+        } else {
+            TypeParamBinding::Concrete(*arg)
+        };
+        bindings.observe(*name, observation);
+    }
+    bindings
+}
+
+/// Build a binding map declaring `type_params`, every entry `Unbound`.
+fn unbound_bindings(type_params: &[Symbol]) -> CalleeTypeParamBindings {
+    CalleeTypeParamBindings {
+        bindings: type_params
+            .iter()
+            .map(|name| (*name, TypeParamBinding::Unbound))
+            .collect(),
+    }
+}
+
+/// Build a binding map declaring `type_params`, every entry `Unsupported`.
+fn unsupported_bindings(
+    type_params: &[Symbol],
+    reason: BindingUnsupportedReason,
+) -> CalleeTypeParamBindings {
+    CalleeTypeParamBindings {
+        bindings: type_params
+            .iter()
+            .map(|name| (*name, TypeParamBinding::Unsupported(reason)))
+            .collect(),
+    }
+}
+
+/// Apply `bindings` to a declared callee type and return the interned MIR type
+/// the substitution produces.
+///
+/// This is the recursive return substitution the composite-generic-return work
+/// is built on: `List<T>` with `{T -> Float}` resolves to the interned
+/// `List<Float>`, which is the type the emitted Rust call really produces at a
+/// monomorphized call site.
+///
+/// The MIR type table is frozen by the time codegen runs, so a substituted type
+/// can only be *found*, never minted. That is not a limitation in practice: the
+/// substituted type is by construction a type the caller already mentions (it is
+/// the type of the value flowing out of the call), and every sub-component of an
+/// interned composite is itself interned. When the lookup nevertheless fails,
+/// `None` is the honest answer and the call site demotes to erasure.
+///
+/// Fails closed — `None` — on:
+///
+/// * a type parameter whose binding is anything but `Concrete`, and on one the
+///   callee does not declare at all (an unrelated scope's `T`, which has no
+///   instantiation here);
+/// * a `Union` anywhere in the pattern: unions erase to `SmeltUnknown` in
+///   emitted Rust, so a substituted union is not a type the generated call can
+///   be claimed to produce;
+/// * a substituted type that is absent from the frozen interner.
+///
+/// A declared type mentioning no type parameter at all substitutes to itself,
+/// which is the honest answer.
+pub(crate) fn substituted_type_id(
+    mir: &Mir,
+    declared: TypeId,
+    bindings: &CalleeTypeParamBindings,
+) -> Option<TypeId> {
+    let declared_ty = mir.types.get(declared)?;
+    match declared_ty {
+        Type::TypeParam { name } => match bindings.get(*name) {
+            Some(TypeParamBinding::Concrete(bound)) => Some(bound),
+            _ => None,
+        },
+        // Unions erase; see the docstring.
+        Type::Union(_) => None,
+        Type::Bool
+        | Type::Int
+        | Type::Float
+        | Type::String
+        | Type::Unknown
+        | Type::Never
+        | Type::None => Some(declared),
+        Type::List(item) => substituted_wrapper(mir, declared, *item, bindings, Type::List),
+        Type::Set(item) => substituted_wrapper(mir, declared, *item, bindings, Type::Set),
+        Type::Optional(item) => substituted_wrapper(mir, declared, *item, bindings, Type::Optional),
+        Type::Future(item) => substituted_wrapper(mir, declared, *item, bindings, Type::Future),
+        Type::Dict(key, value) => {
+            let (substituted_key, substituted_value) =
+                substituted_pair(mir, *key, *value, bindings)?;
+            if substituted_key == *key && substituted_value == *value {
+                return Some(declared);
+            }
+            find_type_id(mir, &Type::Dict(substituted_key, substituted_value))
+        }
+        Type::JsMap(key, value) => {
+            let (substituted_key, substituted_value) =
+                substituted_pair(mir, *key, *value, bindings)?;
+            if substituted_key == *key && substituted_value == *value {
+                return Some(declared);
+            }
+            find_type_id(mir, &Type::JsMap(substituted_key, substituted_value))
+        }
+        Type::Tuple(items) => {
+            let substituted = substituted_slice(mir, items, bindings)?;
+            if substituted == *items {
+                return Some(declared);
+            }
+            find_type_id(mir, &Type::Tuple(substituted))
+        }
+        Type::Class { name, args } => {
+            let substituted = substituted_slice(mir, args, bindings)?;
+            if substituted == *args {
+                return Some(declared);
+            }
+            find_type_id(
+                mir,
+                &Type::Class {
+                    name: *name,
+                    args: substituted,
+                },
+            )
+        }
+        Type::Function(function) => {
+            let params = substituted_slice(mir, &function.params, bindings)?;
+            let return_ty = substituted_type_id(mir, function.return_ty, bindings)?;
+            if params == function.params && return_ty == function.return_ty {
+                return Some(declared);
+            }
+            find_type_id(
+                mir,
+                &Type::Function(FunctionType {
+                    params,
+                    return_ty,
+                    ..function.clone()
+                }),
+            )
+        }
+        Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        } => {
+            let substituted_yield = substituted_type_id(mir, *yield_ty, bindings)?;
+            let substituted_return = substituted_type_id(mir, *return_ty, bindings)?;
+            let substituted_next = substituted_type_id(mir, *next_ty, bindings)?;
+            if substituted_yield == *yield_ty
+                && substituted_return == *return_ty
+                && substituted_next == *next_ty
+            {
+                return Some(declared);
+            }
+            find_type_id(
+                mir,
+                &Type::Generator {
+                    is_async: *is_async,
+                    yield_ty: substituted_yield,
+                    return_ty: substituted_return,
+                    next_ty: substituted_next,
+                },
+            )
+        }
+        Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        } => {
+            let (substituted_yield, substituted_return) =
+                substituted_pair(mir, *yield_ty, *return_ty, bindings)?;
+            if substituted_yield == *yield_ty && substituted_return == *return_ty {
+                return Some(declared);
+            }
+            find_type_id(
+                mir,
+                &Type::GeneratorResult {
+                    yield_ty: substituted_yield,
+                    return_ty: substituted_return,
+                },
+            )
+        }
+    }
+}
+
+/// Substitute a single-item constructor, reusing `declared` when nothing moved.
+fn substituted_wrapper(
+    mir: &Mir,
+    declared: TypeId,
+    item: TypeId,
+    bindings: &CalleeTypeParamBindings,
+    construct: fn(TypeId) -> Type,
+) -> Option<TypeId> {
+    let substituted = substituted_type_id(mir, item, bindings)?;
+    if substituted == item {
+        return Some(declared);
+    }
+    find_type_id(mir, &construct(substituted))
+}
+
+/// Substitute two component types, failing closed if either does.
+fn substituted_pair(
+    mir: &Mir,
+    left: TypeId,
+    right: TypeId,
+    bindings: &CalleeTypeParamBindings,
+) -> Option<(TypeId, TypeId)> {
+    Some((
+        substituted_type_id(mir, left, bindings)?,
+        substituted_type_id(mir, right, bindings)?,
+    ))
+}
+
+/// Substitute every element of a type slice, failing closed if any does.
+fn substituted_slice(
+    mir: &Mir,
+    items: &[TypeId],
+    bindings: &CalleeTypeParamBindings,
+) -> Option<Vec<TypeId>> {
+    items
+        .iter()
+        .map(|item| substituted_type_id(mir, *item, bindings))
+        .collect()
+}
+
+/// Look up an already-interned type by structure.
+///
+/// The interner is frozen during codegen, so this is a lookup, never an insert.
+fn find_type_id(mir: &Mir, needle: &Type) -> Option<TypeId> {
+    mir.types
+        .all()
+        .iter()
+        .position(|candidate| candidate == needle)
+        .and_then(|index| u32::try_from(index).ok())
+        .map(TypeId)
+}
+
+/// Return whether `actual` is exactly `declared` with `bindings` applied.
+///
+/// The unforgiving, total counterpart of the evidence-collecting
+/// [`match_types`]: that walk deliberately tolerates a mismatch landing in a
+/// type-parameter-free subtree, because a `Dict` key that disagrees says nothing
+/// about `V`. Here the same tolerance would accept a `Dict<String, T>` parameter
+/// receiving a `Dict<Int, Float>` argument and emit E0308, so every component
+/// must agree.
+pub(crate) fn substitution_matches(
+    mir: &Mir,
+    declared: TypeId,
+    actual: TypeId,
+    bindings: &CalleeTypeParamBindings,
+) -> bool {
+    substituted_type_id(mir, declared, bindings) == Some(actual)
 }
 
 /// Resolve the static type of an operand without emitter state.
@@ -1065,4 +1390,323 @@ mod tests {
             ))
         );
     }
+    /// Bind one type parameter to a concrete type for substitution tests.
+    fn concrete_binding(name: Symbol, ty: TypeId) -> CalleeTypeParamBindings {
+        CalleeTypeParamBindings {
+            bindings: IndexMap::from([(name, TypeParamBinding::Concrete(ty))]),
+        }
+    }
+
+    #[test]
+    /// Every supported constructor substitutes recursively, at any depth.
+    fn substitution_walks_every_supported_constructor() {
+        let mut types = TypeInterner::default();
+        let float = types.intern(Type::Float);
+        let string = types.intern(Type::String);
+        let param = types.intern(Type::TypeParam { name: Symbol(0) });
+        // Declared patterns and their expected substitutions, interned in pairs.
+        let list_param = types.intern(Type::List(param));
+        let list_float = types.intern(Type::List(float));
+        let nested_param = types.intern(Type::List(list_param));
+        let nested_float = types.intern(Type::List(list_float));
+        let set_param = types.intern(Type::Set(param));
+        let set_float = types.intern(Type::Set(float));
+        let optional_param = types.intern(Type::Optional(param));
+        let optional_float = types.intern(Type::Optional(float));
+        let future_param = types.intern(Type::Future(param));
+        let future_float = types.intern(Type::Future(float));
+        let dict_param = types.intern(Type::Dict(string, param));
+        let dict_float = types.intern(Type::Dict(string, float));
+        let map_param = types.intern(Type::JsMap(string, param));
+        let map_float = types.intern(Type::JsMap(string, float));
+        let tuple_param = types.intern(Type::Tuple(vec![param, string]));
+        let tuple_float = types.intern(Type::Tuple(vec![float, string]));
+        let class_param = types.intern(Type::Class {
+            name: Symbol(9),
+            args: vec![param],
+        });
+        let class_float = types.intern(Type::Class {
+            name: Symbol(9),
+            args: vec![float],
+        });
+        let generator_param = types.intern(Type::Generator {
+            is_async: false,
+            yield_ty: param,
+            return_ty: string,
+            next_ty: string,
+        });
+        let generator_float = types.intern(Type::Generator {
+            is_async: false,
+            yield_ty: float,
+            return_ty: string,
+            next_ty: string,
+        });
+        let result_param = types.intern(Type::GeneratorResult {
+            yield_ty: param,
+            return_ty: string,
+        });
+        let result_float = types.intern(Type::GeneratorResult {
+            yield_ty: float,
+            return_ty: string,
+        });
+        let function_param = types.intern(Type::Function(FunctionType {
+            params: vec![param],
+            rest: None,
+            required_params: Some(1),
+            mutable_params: Vec::new(),
+            return_ty: param,
+            is_async: false,
+            may_throw: false,
+        }));
+        let function_float = types.intern(Type::Function(FunctionType {
+            params: vec![float],
+            rest: None,
+            required_params: Some(1),
+            mutable_params: Vec::new(),
+            return_ty: float,
+            is_async: false,
+            may_throw: false,
+        }));
+        let mir = mir_with_types(types);
+        let bindings = concrete_binding(Symbol(0), float);
+
+        for (declared, expected) in [
+            (param, float),
+            (list_param, list_float),
+            (nested_param, nested_float),
+            (set_param, set_float),
+            (optional_param, optional_float),
+            (future_param, future_float),
+            (dict_param, dict_float),
+            (map_param, map_float),
+            (tuple_param, tuple_float),
+            (class_param, class_float),
+            (generator_param, generator_float),
+            (result_param, result_float),
+            (function_param, function_float),
+            // A pattern mentioning no type parameter substitutes to itself.
+            (string, string),
+        ] {
+            assert_eq!(
+                substituted_type_id(&mir, declared, &bindings),
+                Some(expected)
+            );
+            assert!(substitution_matches(&mir, declared, expected, &bindings));
+        }
+    }
+
+    #[test]
+    /// A mismatched constructor, arity or class name fails closed at any depth.
+    fn substitution_rejects_mismatched_shapes() {
+        let mut types = TypeInterner::default();
+        let float = types.intern(Type::Float);
+        let string = types.intern(Type::String);
+        let param = types.intern(Type::TypeParam { name: Symbol(0) });
+        let list_param = types.intern(Type::List(param));
+        let set_float = types.intern(Type::Set(float));
+        let list_string = types.intern(Type::List(string));
+        let class_param = types.intern(Type::Class {
+            name: Symbol(9),
+            args: vec![param],
+        });
+        let other_class_float = types.intern(Type::Class {
+            name: Symbol(10),
+            args: vec![float],
+        });
+        let tuple_param = types.intern(Type::Tuple(vec![param]));
+        let tuple_pair = types.intern(Type::Tuple(vec![float, float]));
+        let mir = mir_with_types(types);
+        let bindings = concrete_binding(Symbol(0), float);
+
+        // Different constructor, different element, different class, different
+        // arity: none of these is `List<T>` with `T = f64`.
+        assert!(!substitution_matches(&mir, list_param, set_float, &bindings));
+        assert!(!substitution_matches(
+            &mir,
+            list_param,
+            list_string,
+            &bindings
+        ));
+        assert!(!substitution_matches(
+            &mir,
+            class_param,
+            other_class_float,
+            &bindings
+        ));
+        assert!(!substitution_matches(
+            &mir,
+            tuple_param,
+            tuple_pair,
+            &bindings
+        ));
+    }
+
+    #[test]
+    /// Substitution is stricter than the evidence matcher in a type-parameter-free
+    /// subtree, which is the whole reason it is a separate walk.
+    ///
+    /// `match_types` deliberately tolerates a mismatch that lands where no type
+    /// parameter occurs (a `Dict` key), because such a mismatch says nothing
+    /// about `V`. Accepting it at a call site would render a `Dict<Int, Float>`
+    /// argument against a `Dict<String, T>` parameter: E0308.
+    fn substitution_is_stricter_than_the_evidence_matcher() {
+        let mut types = TypeInterner::default();
+        let float = types.intern(Type::Float);
+        let int = types.intern(Type::Int);
+        let string = types.intern(Type::String);
+        let param = types.intern(Type::TypeParam { name: Symbol(0) });
+        let declared = types.intern(Type::Dict(string, param));
+        let actual = types.intern(Type::Dict(int, float));
+        let mir = mir_with_types(types);
+
+        let own = HashSet::from([Symbol(0)]);
+        let mut evidence = one_binding(Symbol(0));
+        match_types(&mir, declared, actual, &own, &mut evidence);
+        assert_eq!(
+            evidence.get(Symbol(0)),
+            Some(TypeParamBinding::Concrete(float)),
+            "the evidence matcher still binds V through a disagreeing key"
+        );
+
+        assert!(
+            !substitution_matches(&mir, declared, actual, &evidence),
+            "substitution must reject the disagreeing key"
+        );
+    }
+
+    #[test]
+    /// Unions fail closed on either side, at any depth.
+    fn substitution_refuses_unions() {
+        let mut types = TypeInterner::default();
+        let float = types.intern(Type::Float);
+        let string = types.intern(Type::String);
+        let param = types.intern(Type::TypeParam { name: Symbol(0) });
+        let declared_union = types.intern(Type::Union(vec![param, string]));
+        let actual_union = types.intern(Type::Union(vec![float, string]));
+        let declared_nested = types.intern(Type::List(declared_union));
+        let actual_nested = types.intern(Type::List(actual_union));
+        let mir = mir_with_types(types);
+        let bindings = concrete_binding(Symbol(0), float);
+
+        assert_eq!(substituted_type_id(&mir, declared_union, &bindings), None);
+        assert_eq!(substituted_type_id(&mir, declared_nested, &bindings), None);
+        assert!(!substitution_matches(
+            &mir,
+            declared_nested,
+            actual_nested,
+            &bindings
+        ));
+    }
+
+    #[test]
+    /// Every non-concrete binding state, and an undeclared parameter, fail closed.
+    fn substitution_fails_closed_on_weak_bindings() {
+        let mut types = TypeInterner::default();
+        let float = types.intern(Type::Float);
+        let param = types.intern(Type::TypeParam { name: Symbol(0) });
+        let list_param = types.intern(Type::List(param));
+        let list_float = types.intern(Type::List(float));
+        let mir = mir_with_types(types);
+
+        for state in [
+            TypeParamBinding::Unbound,
+            TypeParamBinding::Erased,
+            TypeParamBinding::Conflict {
+                first: float,
+                second: param,
+            },
+            TypeParamBinding::Unsupported(BindingUnsupportedReason::Union),
+        ] {
+            let bindings = CalleeTypeParamBindings {
+                bindings: IndexMap::from([(Symbol(0), state)]),
+            };
+            assert_eq!(substituted_type_id(&mir, list_param, &bindings), None);
+            assert!(!substitution_matches(
+                &mir,
+                list_param,
+                list_float,
+                &bindings
+            ));
+        }
+
+        // A type parameter belonging to some unrelated scope has no
+        // instantiation here at all.
+        let foreign = concrete_binding(Symbol(1), float);
+        assert_eq!(substituted_type_id(&mir, list_param, &foreign), None);
+    }
+
+    #[test]
+    /// A substituted type absent from the frozen interner fails closed.
+    fn substitution_requires_an_interned_result() {
+        let mut types = TypeInterner::default();
+        let float = types.intern(Type::Float);
+        let param = types.intern(Type::TypeParam { name: Symbol(0) });
+        // `List<T>` is interned; `List<Float>` deliberately is not.
+        let list_param = types.intern(Type::List(param));
+        let mir = mir_with_types(types);
+        let bindings = concrete_binding(Symbol(0), float);
+
+        assert_eq!(substituted_type_id(&mir, list_param, &bindings), None);
+    }
+
+    #[test]
+    /// A concrete receiver pins the class type parameters; anything else does not.
+    fn class_type_params_bind_from_the_receiver() {
+        let mut types = TypeInterner::default();
+        let float = types.intern(Type::Float);
+        let unknown = types.intern(Type::Unknown);
+        let receiver = types.intern(Type::Class {
+            name: Symbol(9),
+            args: vec![float],
+        });
+        let erased_receiver = types.intern(Type::Class {
+            name: Symbol(9),
+            args: vec![unknown],
+        });
+        let wrong_arity = types.intern(Type::Class {
+            name: Symbol(9),
+            args: Vec::new(),
+        });
+        let mir = mir_with_types(types);
+
+        let bound = bind_class_type_params(&mir, &[Symbol(0)], receiver);
+        assert_eq!(bound.get(Symbol(0)), Some(TypeParamBinding::Concrete(float)));
+        assert!(bound.all_concrete());
+
+        assert_eq!(
+            bind_class_type_params(&mir, &[Symbol(0)], erased_receiver).get(Symbol(0)),
+            Some(TypeParamBinding::Erased)
+        );
+        assert!(!bind_class_type_params(&mir, &[Symbol(0)], wrong_arity).all_concrete());
+        assert!(!bind_class_type_params(&mir, &[Symbol(0)], float).all_concrete());
+    }
+
+    #[test]
+    /// The positional core agrees with the operand-resolving wrapper, and an
+    /// absent actual type contributes no evidence.
+    fn positional_binding_core_matches_the_operand_wrapper() {
+        let mut types = TypeInterner::default();
+        let float = types.intern(Type::Float);
+        let param = types.intern(Type::TypeParam { name: Symbol(0) });
+        let list_param = types.intern(Type::List(param));
+        let list_float = types.intern(Type::List(float));
+        let mir = mir_with_types(types);
+
+        let callee = function_with_params(0, &[Symbol(0)], &[list_param], list_param);
+        let caller = function_with_params(1, &[], &[list_float], list_float);
+        let through_operands = collect_bindings(&mir, &callee, &caller, &[local_arg(0)]);
+        let through_types =
+            collect_bindings_from_types(&mir, &[Symbol(0)], &[list_param], &[Some(list_float)]);
+        assert_eq!(through_operands, through_types);
+        assert_eq!(
+            through_types.get(Symbol(0)),
+            Some(TypeParamBinding::Concrete(float))
+        );
+
+        // No supplied argument at that position: no evidence, so `Unbound`.
+        let omitted = collect_bindings_from_types(&mir, &[Symbol(0)], &[list_param], &[None]);
+        assert_eq!(omitted.get(Symbol(0)), Some(TypeParamBinding::Unbound));
+        assert!(!omitted.all_concrete());
+    }
+
 }

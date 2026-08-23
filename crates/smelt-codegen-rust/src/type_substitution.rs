@@ -22,11 +22,24 @@
 //!
 //! [`TypeSubstitution`] additionally carries the slot for the concrete callee
 //! bindings collected at a call site (`crate::generic_bindings`). That slot is
-//! deliberately unwired: it is `None` at every production call site today, so
-//! this module is behaviour-preserving by construction. Attaching bindings is
-//! the next increment of the callback-generics plan
-//! (`blocker-logs/estk-callback-generics-plan.md`, §4.2), and it becomes a
-//! change to *what substitution is passed in*, not to *who renders what*.
+//! still unwired: it is `None` at every production call site, so this module
+//! remains behaviour-preserving by construction.
+//!
+//! Increment 0b of the callback-generics plan
+//! (`blocker-logs/estk-callback-generics-plan.md`, §5) landed composite generic
+//! returns *without* attaching bindings here, and that was a deliberate choice
+//! rather than an oversight. Increment 0b answers a **type** question — "is the
+//! destination exactly the callee's return with this call site's bindings
+//! applied?" — which `crate::generic_bindings::substituted_type_id` settles in
+//! MIR, exactly and without rendering. Answering it here instead would decide a
+//! type question by comparing two rendered *strings*, which costs two renders
+//! per call site and can call two distinct MIR types equal because they happen
+//! to spell the same.
+//!
+//! What genuinely needs type *text* under bindings is Increment 1's callback
+//! adapter renderers (§4.2): there the emitted Rust must literally spell the
+//! callee's parameter type at the bound type, and there is no MIR question to
+//! ask. That is where this slot becomes live.
 
 #![expect(
     clippy::redundant_pub_crate,
@@ -70,8 +83,10 @@ pub(crate) enum Resolved {
     Spelled(Symbol),
     /// Replace it with the concrete type the call site bound it to.
     ///
-    /// Unreachable until call-site bindings are attached; see the module
-    /// docstring.
+    /// Still unreachable in production: nothing attaches bindings yet.
+    /// Increment 0b resolves its substitutions in MIR rather than in rendered
+    /// text; the callback adapter renderers of Increment 1 are what make this
+    /// arm live. See the module docstring.
     Substituted(TypeId),
     /// Deliberately erased: render the runtime unknown carrier.
     Erased,
@@ -143,9 +158,10 @@ impl<'a> TypeSubstitution<'a> {
     /// Attach the concrete bindings collected at a call site.
     ///
     /// Intentionally has no production caller: the `expect` below is what proves
-    /// this module lands inert. Wiring it up is a deliberate, separately
-    /// validated increment, and removing the attribute rather than the reason
-    /// for it would erase that proof.
+    /// this module stays inert. Increment 0b did not wire it — it settles its
+    /// substitutions in MIR (see the module docstring) — so the proof still
+    /// holds. Wiring it up is Increment 1, and removing the attribute rather
+    /// than the reason for it would erase that proof.
     #[cfg_attr(
         not(test),
         expect(
@@ -204,6 +220,13 @@ impl<'a> TypeSubstitution<'a> {
     /// matcher and the renderer disagree about the callee's signature — and
     /// returns `Err` rather than silently erasing. That arm cannot fire while
     /// `bindings` is `None`, which is why it is safe to write it now.
+    ///
+    /// Note the deliberate difference from
+    /// `crate::generic_bindings::substituted_type_id`, which fails *closed*
+    /// (`None`) on the same input. There the answer feeds a decision about
+    /// whether to monomorphize at all, so declining is always sound; here the
+    /// renderer has already been told to spell this callee under these bindings,
+    /// so a missing entry is a bug in the caller, not a shape to erase.
     pub(crate) fn resolve(&self, name: Symbol) -> Result<Resolved, EmitError> {
         if self.spells(name) {
             return Ok(Resolved::Spelled(name));
