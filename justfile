@@ -41,6 +41,26 @@ test-all:
 test-compile-corpus:
 	cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored
 
+# Run just the rescued callback-generics fixture corpus (see
+# crates/smelt-codegen-rust/tests/fixtures/callback_generics/README.md)
+test-callback-generics-fixtures:
+	cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored callback_generics_fixtures_compile
+
+# Run the fast tier of the generated callback-generics shape grid: a pairwise
+# covering subset of the enumerated shape space (see
+# crates/smelt-codegen-rust/tests/shape_grid.rs). ~95s; this is the per-PR tier.
+test-shape-grid:
+	cargo test -p smelt-codegen-rust --test shape_grid -- --ignored shape_grid_fast
+
+# Run the WHOLE generated shape grid (every legal shape, ~10 min). Nightly tier.
+test-shape-grid-full:
+	cargo test -p smelt-codegen-rust --test shape_grid -- --ignored shape_grid_full
+
+# Write every generated shape-grid program to a directory without compiling any
+# of them, for review or for `tsc --strict --noEmit`.
+dump-shape-grid dir:
+	SMELT_GRID_DUMP={{dir}} cargo test -p smelt-codegen-rust --test shape_grid grid_is_enumerable
+
 # Run the focused module-linking and stub-generation tests
 test-modules:
 	cargo test -p smelt-transpiler --test hir_cli check_emits_typescript_declaration_stubs_for_linked_modules

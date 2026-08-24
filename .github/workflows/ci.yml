@@ -138,9 +138,28 @@ jobs:
         with:
           shared-key: build
 
-      - name: Compile emitted-Rust corpus (slow tier)
+      # One step, both tiers: the harness runs the two `#[ignore]`d tests in
+      # parallel and they share the emitted-crate dependency build, so a single
+      # invocation is ~158s where two sequential steps are ~213s (inline corpus
+      # 63s + rescued callback-generics fixtures 150s, each paying for its own
+      # scratch target dir). Failures are attributed by test name in the output.
+      - name: Compile emitted-Rust corpus + rescued fixtures (slow tier)
         run: |
           cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored
+
+      # The *generated* callback-generics shape grid, fast tier only: a greedy
+      # pairwise covering subset (75 of the 467 legal shapes) in which every
+      # pair of axis values that occurs anywhere in the grid occurs at least
+      # once. ~95s. The whole grid is ~10 min and runs nightly instead, in
+      # .github/workflows/shape-grid.yml — a slow tier on every PR is a tier
+      # that gets disabled.
+      #
+      # Separate step because it is a separate test binary; it reuses this
+      # job's warm workspace build, and only the emitted crates' shared
+      # dependency build is paid again.
+      - name: Callback-generics shape grid (fast pairwise tier)
+        run: |
+          cargo test -p smelt-codegen-rust --test shape_grid -- --ignored shape_grid_fast
 
   # Sandbox gate: proves the fail-closed specialization boundary actually
   # executes, rather than skipping itself into a green result.

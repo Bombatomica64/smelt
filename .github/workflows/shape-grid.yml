@@ -1,0 +1,68 @@
+name: Shape grid (nightly)
+
+# The *full* generated callback-generics shape grid: every legal point of the
+# eight-axis space enumerated by
+# `crates/smelt-codegen-rust/tests/shape_grid.rs`, emitted as a TypeScript
+# program, transpiled, and `cargo check`ed. Zero rustc errors is the assertion.
+#
+# Why nightly and not per PR: the full grid is 467 `cargo check` invocations,
+# about ten minutes of test time, against ~95s for the pairwise subset the
+# `corpus` job in ci.yml already runs on every PR. A ten-minute tier bolted
+# onto every PR is a tier that someone eventually disables; a nightly one that
+# opens an issue when it goes red is a tier that survives. The pairwise subset
+# covers every 2-way axis interaction the grid contains, which is the strength
+# at which every defect the callback-generics campaign shipped would have been
+# caught, so the nightly is a widening of an already-meaningful gate rather
+# than the only gate.
+
+on:
+  schedule:
+    # 03:40 UTC daily, offset off the hour so it does not queue behind the
+    # flood of on-the-hour scheduled jobs.
+    - cron: "40 3 * * *"
+  workflow_dispatch:
+
+# One grid run at a time; never cancel one in progress, since a cancelled run
+# reports nothing rather than reporting less.
+concurrency:
+  group: shape-grid
+  cancel-in-progress: false
+
+jobs:
+  shape-grid:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+          # Nightly runs must never write the lane the PR jobs read: a cache
+          # written from a cron run is not attributable to any PR.
+          save-if: false
+
+      # Guards the grid's own definition (sizes, unique names, and that the
+      # fast tier really is a pairwise cover). Compiles nothing, so it fails in
+      # seconds if the space was silently truncated.
+      - name: Grid definition is intact
+        run: |
+          cargo test -p smelt-codegen-rust --test shape_grid grid_is_enumerable
+
+      - name: Full shape grid
+        run: |
+          cargo test -p smelt-codegen-rust --test shape_grid -- --ignored shape_grid_full
+
+      # Every generated program must be well-typed TypeScript, or a "defect"
+      # the grid reports is a defect in the generator. `tsc --strict` over the
+      # dumped corpus is what makes a grid failure evidence about the emitter.
+      - name: Generated programs are valid TypeScript
+        run: |
+          SMELT_GRID_DUMP="${RUNNER_TEMP}/shape-grid-src" \
+            cargo test -p smelt-codegen-rust --test shape_grid grid_is_enumerable
+          npx --yes typescript@5 tsc --strict --noEmit --target es2020 \
+            "${RUNNER_TEMP}"/shape-grid-src/*.ts
