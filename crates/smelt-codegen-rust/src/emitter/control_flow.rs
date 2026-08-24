@@ -1009,6 +1009,13 @@ impl FunctionEmitter<'_> {
             return Ok(());
         };
         let source_ty = self.call_source_ty(callee)?;
+        // Seam 3 (`emitter::seam_assertions`): `__smelt_value` below is the
+        // value the EMITTED call produced, and it is coerced from the DECLARED
+        // return type. The remaining site that still asks the declared question
+        // about a call result; both answers are computable from what is in
+        // scope, so compare them.
+        #[cfg(debug_assertions)]
+        self.debug_assert_declared_return_is_emitted_return(callee, args, local.ty, source_ty);
         out.push_str(&format!(
             "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})) {{\n"
         ));

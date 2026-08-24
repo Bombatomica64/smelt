@@ -1015,7 +1015,14 @@ impl FunctionEmitter<'_> {
                 // parameters live in the caller's world, not the callee's, so
                 // the callee bindings must not keep applying inside it.
                 Resolved::Substituted(bound) => {
-                    self.rust_type(bound, allow_impl_trait, &substitution.without_bindings())
+                    let rendered =
+                        self.rust_type(bound, allow_impl_trait, &substitution.without_bindings())?;
+                    // Seam 5 (`emitter::seam_assertions`): the binding said
+                    // Concrete, so the rendering must spell that type. The text
+                    // is already built here, so the check renders nothing twice.
+                    #[cfg(debug_assertions)]
+                    self.debug_assert_substituted_binding_is_not_erased(*name, bound, &rendered);
+                    Ok(rendered)
                 }
                 Resolved::Erased => Ok(RustType::raw("SmeltUnknown")),
             },
