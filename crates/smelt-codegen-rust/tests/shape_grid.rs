@@ -1338,228 +1338,36 @@ struct GridExpected {
 /// Recorded with error *codes* rather than counts: which diagnostics fire is
 /// stable across toolchains, how rustc groups them is not.
 const GRID_EXPECTED_FAILURES: &[GridExpected] = &[
-    // -- Family: a union return that mentions a type parameter.
+    // -- Fixed: a union return that mentions a type parameter.
     //
-    // Found by this grid at 7e4acb2 (the callback-generics campaign's HEAD);
-    // the three compat corpora and the hand-written fixture corpus are green
-    // through all of it, so nothing else in the tree covers it.
+    // Nineteen `runion` shapes used to be recorded here. The source is
+    // `function run<T>(items: T[], cb: (v: T) => T): T | number`. Because the
+    // return is a union mentioning `T` it has no concrete Rust spelling and
+    // renders `SmeltUnknown`, while the parameters stayed monomorphized, so the
+    // body returned a bare `T` against a `-> SmeltUnknown` signature (E0308).
     //
-    // The source is `function run<T>(items: T[], cb: (v: T) => T): T | number`.
-    // Because the return is a union mentioning `T`, the emitter erases *the
-    // return type only*:
-    //
-    //     fn run<T: .., F0: Fn(T) -> T + ?Sized>(items: SmeltList<T>, cb: &F0)
-    //         -> SmeltUnknown
-    //     {
-    //         let out: T = ..;
-    //         return out;          // E0308: expected `SmeltUnknown`, found `T`
-    //     }
-    //
-    // The parameters stay monomorphized while the return goes to the erased
-    // ABI, and the body is converted in the *unerased* environment — the same
-    // "emitter disagrees with itself about one value" class as the five
-    // defects PRs #202/#203 shipped, this time at the return seam. The call
-    // site compounds it: it erases the arguments (`SmeltList<SmeltUnknown>`,
-    // an `arg0: SmeltUnknown` adapter) as if `run` were fully erased, against
-    // a declaration that is generic.
-    //
-    // The union cells that *pass* are the ones where some other feature had
-    // already pushed the whole callee onto the erased ABI (an escaping generic
-    // callback, for instance, emits `items: SmeltList<SmeltUnknown>` and
-    // `-> SmeltUnknown` together, and then the body agrees). So the trigger is
-    // precisely: monomorphized parameters + an erased union return.
+    // The disagreement was inside the erase verb itself: `coercion::erase` (the
+    // operand-shaped twin of `coercion::erase_value`) passed a
+    // `Type::TypeParam` operand through unchanged, which is right only when the
+    // signature spelled that parameter `SmeltUnknown` too. It now asks
+    // `current_function_has_type_param` — the same scope decision the signature
+    // was rendered from — and converts a monomorphized `T` through the
+    // `IntoSmeltUnknown` bound the signature declares. See the
+    // `erases_a_monomorphized_type_parameter_at_an_erased_union_return`
+    // regression test in `smelt-codegen-rust`.
 
-    // -- Family: a *borrowed* callback packed into a container argument.
+    // Fixed: a borrowed callback packed into a container is now an escape.
     //
-    // Found by this grid when the [`Caller`]/[`ArgKind::CallerParam`] axes were
-    // added (the review that added them asked for the caller-genericity
-    // dimension; this family is what the dimension immediately found). Nothing
-    // else in the tree covers it: every other argument kind builds its callback
-    // inside the call site, where the closure is owned and `'static`.
-    //
-    // The source is `function run<T>(items: T[], cbs: ((v: T) => T)[]): T`
-    // called as `run(items0, [cbp0])` from
-    // `function use0(cbp0: (v: number) => number)`. The caller receives its
-    // callback borrowed — `use0(cbp0: &dyn Fn(f64) -> f64)` — and the container
-    // argument is emitted as an owned `SmeltList` whose element type carries no
-    // lifetime, so the borrow escapes:
-    //
-    //     error[E0521]: borrowed data escapes outside of function
-    //         `cbp0` escapes the function body here
-    //         argument requires that `'1` must outlive `'static`
-    //
-    // Both container spellings fail identically (`cbs: (..)[]` and
-    // `...cbs: (..)[]`), at one site and at two, with and without a mutable
-    // parameter — which is what makes it one family rather than fourteen
-    // defects. The scalar callback spellings (`req`, `opt`, `esc`) are green,
-    // so the trigger is precisely: a borrowed callback + a container-shaped
-    // callback parameter.
-    GridExpected {
-        name: "g1_both_rest_rbare_m0_cparam_s1_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_rest_rbare_m0_cparam_s1_cgen",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_rest_rbare_m0_cparam_s2diff_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_rest_rbare_m0_cparam_s2same_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_rest_rlist_m0_cparam_s1_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_rest_rlist_mcomp_cparam_s1_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_rest_rlist_mval_cparam_s1_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_vec_rbare_m0_cparam_s1_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_vec_rbare_m0_cparam_s1_cgen",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_vec_rbare_m0_cparam_s2diff_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_vec_rbare_m0_cparam_s2same_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_vec_rlist_m0_cparam_s1_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_vec_rlist_mcomp_cparam_s1_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-    GridExpected {
-        name: "g1_both_vec_rlist_mval_cparam_s1_c0",
-        codes: &["E0521"],
-        note: "borrowed caller callback packed into an owned container argument",
-    },
-
-    GridExpected {
-        name: "g1_both_req_runion_m0_inline_s1_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_both_req_runion_m0_inline_s2diff_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_both_req_runion_m0_inline_s2same_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_cbr_req_runion_m0_inline_s1_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_cbr_req_runion_m0_inline_s2diff_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_cbr_req_runion_m0_inline_s2same_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_val_esc_runion_m0_inline_s1_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_val_opt_runion_m0_inline_s1_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_val_req_runion_m0_inline_s1_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_val_req_runion_m0_inline_s2diff_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_val_req_runion_m0_inline_s2same_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_val_rest_runion_m0_inline_s1_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g1_val_vec_runion_m0_inline_s1_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g2_both_req_runion_m0_inline_s1_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g2_both_req_runion_m0_inline_s2diff_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g2_both_req_runion_m0_inline_s2same_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g2_val_req_runion_m0_inline_s1_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g2_val_req_runion_m0_inline_s2diff_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
-    GridExpected {
-        name: "g2_val_req_runion_m0_inline_s2same_c0",
-        codes: &["E0308"],
-        note: "union return erased in the signature, not in the body",
-    },
+    // The ownership fixpoint (`compute_owned_callback_params` ->
+    // `callback_param_escapes_locally`) counted packing a callback parameter
+    // into a container literal only when the container ALSO erased. A
+    // concretely typed `SmeltList<Rc<dyn Fn(..)>>` owns its elements just as
+    // hard and carries no lifetime, so a borrowed `&dyn Fn` parameter placed
+    // into one escaped (E0521). `statement_packs_callback_param_into_container`
+    // makes it an escape independent of erasure and of the callee, so such a
+    // parameter now enters its function as an owned handle. Pinned by
+    // `borrowed_callback_packed_into_container_is_owned` and its rest twin in
+    // `generics_tests`.
 ];
 
 // ---------------------------------------------------------------------------

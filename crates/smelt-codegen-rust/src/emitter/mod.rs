@@ -606,6 +606,22 @@ fn callback_param_escapes_locally(
             .iter()
             .any(|statement| statement_erases_callback_param(mir, function, statement, local))
     });
+    // A callback parameter PACKED INTO A CONTAINER (a list/set/tuple/dict
+    // literal, including the one a call site builds for a container-shaped or
+    // rest callback parameter) escapes. Every emitted container stores a
+    // function-typed element as an owned `::std::rc::Rc<dyn Fn(..)>` handle —
+    // `SmeltList<Rc<dyn Fn(..)>>` — and no container type carries a lifetime
+    // parameter, so a borrowed `&dyn Fn` element has to be wrapped in an
+    // `Rc::new(move |..| (&*borrowed)(..))` adapter whose `'static` bound the
+    // borrow cannot meet (E0521 "borrowed data escapes outside of function").
+    // The rule is about the DESTINATION's representation, not about who is
+    // called with it, so it holds for a local container as much as for the
+    // temporary a call site builds for `cbs: ((v: T) => T)[]` / `...cbs`.
+    let packed_into_container = function.blocks.iter().any(|block| {
+        block.statements.iter().any(|statement| {
+            statement_packs_callback_param_into_container(mir, function, statement, local)
+        })
+    });
     // A callback parameter that is rebound in the body (`callback = …`, e.g. the
     // `mapAsync`/`filterAsync` concurrency wrappers reassign their callback to a
     // `limitAsync`-wrapped handle) receives an owned `Rc<dyn Fn…>` on the right.
@@ -696,6 +712,7 @@ fn callback_param_escapes_locally(
     // function-typed params must therefore enter as owned `Rc<dyn Fn…>` handles.
     let retained_by_async_body = function.is_async;
     Ok(directly_returned
+        || packed_into_container
         || bound_to_erased_handle
         || retained_by_async_body
         || rebound_locally
@@ -815,6 +832,73 @@ fn statement_erases_callback_param(
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
                 && operand_local(operand) == Some(local)
         }
+        _ => false,
+    }
+}
+
+/// Return whether a statement packs a callback parameter into a container value.
+///
+/// A container literal (`Rvalue::List`/`Set`/`Tuple`/`Dict`) whose destination
+/// type stores function values renders those elements as owned
+/// `::std::rc::Rc<dyn Fn(..)>` handles: `SmeltList<Rc<dyn Fn(..)>>`,
+/// `SmeltRecord`, and the tuple/set equivalents all own their elements and none
+/// of them carries a lifetime parameter. A borrowed `&dyn Fn` parameter placed
+/// into one is therefore wrapped in an `Rc::new(move |..| (&*borrowed)(..))`
+/// adapter that outlives the borrow, which borrowck rejects with E0521
+/// ("borrowed data escapes outside of function"; `'1` must outlive `'static`).
+/// Counting this as an escape makes the parameter enter its function as an owned
+/// handle, which the adapter can then move into the container.
+///
+/// This is deliberately independent of `type_erases_values`: the erasure gate in
+/// [`statement_erases_callback_param`] only catches a container that *also*
+/// erases (`SmeltList<SmeltUnknown>`), while a concretely typed
+/// `SmeltList<Rc<dyn Fn(f64) -> f64>>` owns its elements just as hard. It is
+/// also independent of the callee: the container may be a local (`const kept =
+/// [cb]`) or the temporary a call site builds for a container-shaped or rest
+/// callback parameter (`run(items, [cb])`, `run(items, cb)`).
+///
+/// A container whose element type is *not* function-shaped cannot be holding the
+/// callback at all, so the destination type is checked with
+/// [`type_contains_function`] rather than assuming every container is a sink.
+fn statement_packs_callback_param_into_container(
+    mir: &Mir,
+    function: &MirFunction,
+    statement: &Statement,
+    local: LocalId,
+) -> bool {
+    let (dest, value) = match statement {
+        Statement::Assign { dest, value } => (*dest, value),
+        Statement::AssignPlace {
+            place: Place::Local(dest) | Place::Field { base: dest, .. },
+            value,
+        } => (*dest, value),
+        _ => return false,
+    };
+    let Some(dest_ty) = id_index(dest.0, "local index does not fit usize")
+        .ok()
+        .and_then(|index| function.locals.get(index))
+        .map(|decl| decl.ty)
+    else {
+        return false;
+    };
+    if !type_contains_function(mir, dest_ty) {
+        return false;
+    }
+    let closure_defs = closure_definitions(function).ok();
+    let mut refs = |operand: &Operand| {
+        operand_refs_callback_param_or_capturing_closure(
+            mir,
+            function,
+            operand,
+            local,
+            closure_defs.as_ref(),
+        )
+    };
+    match value {
+        Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
+            items.iter().any(&mut refs)
+        }
+        Rvalue::Dict(entries) => entries.iter().any(|(_, entry_value)| refs(entry_value)),
         _ => false,
     }
 }

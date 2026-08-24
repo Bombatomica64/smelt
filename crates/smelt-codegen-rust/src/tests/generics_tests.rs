@@ -1199,3 +1199,137 @@ export function make<T>(x: T): (v: T) => boolean {
         "fn make<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T) -> ::std::rc::Rc<dyn Fn(T) -> bool>"
     ));
 }
+
+#[test]
+fn an_erased_union_return_demotes_the_parameters_with_it() {
+    // INVARIANT: a signature's parameters and its return are decided TOGETHER.
+    // A union return mentioning `T` has no concrete Rust spelling, so it renders
+    // `SmeltUnknown`; the body therefore has to erase its `T` at the return
+    // seam, which is exactly what the body-cleanliness trial
+    // (`body_needs_erased_carrier`) demotes a signature for. Parameters, return
+    // and body all land on the erased ABI, and the call site — which already
+    // demotes when the substituted return is not nameable — agrees with them.
+    //
+    // NON-VACUOUS: before the fix `coercion::erase` passed a `Type::TypeParam`
+    // operand through unchanged, so the trial never saw the erasure. The
+    // parameters monomorphized against the erased return and the body returned a
+    // bare `T` from a `-> SmeltUnknown` function:
+    //
+    //     fn run<T: ..>(items: SmeltList<T>, ..) -> SmeltUnknown {
+    //         let out: T = ..;
+    //         return out;          // E0308: expected `SmeltUnknown`, found `T`
+    //
+    // That is the defect the shape grid recorded as its nineteen `runion` cells.
+    let source = source_for(
+        r"
+export function run<T>(items: T[], cb: (v: number) => number): T | number {
+  const touched: number = cb(1);
+  if (touched < 0) {
+    return items[0];
+  }
+  const out: T = items[0];
+  return out;
+}
+export function use0(): number {
+  const items0: number[] = [1, 2, 3];
+  return run(items0, (v: number) => v + 1);
+}
+",
+    );
+
+    assert!(source.contains(
+        "fn run(items: SmeltList<SmeltUnknown>, cb: &dyn Fn(f64) -> f64) -> SmeltUnknown"
+    ));
+    // The two halves of the old disagreement, neither of which may come back:
+    // a monomorphized parameter list (`SmeltList<T>` on its own would also match
+    // the runtime prelude's own generic impls, so pin the declaration) ...
+    assert!(!source.contains("fn run<T"));
+    // ... and a body that returns an unerased `T` from an erased return.
+    assert!(source.contains("    return out;"));
+}
+
+#[test]
+fn a_union_return_without_a_type_parameter_keeps_its_generics() {
+    // The boundary of the rule above, stated positively: the return demotes the
+    // parameters only when it is the `T` ITSELF that cannot survive the return
+    // rendering. A union return that mentions no type parameter erases (or, as
+    // here, lowers to its own tagged enum) without ever erasing a `T`, the trial
+    // body stays clean, and the parameters keep their monomorphized spelling.
+    let source = source_for(
+        r"
+export function count<T>(items: T[]): number | string {
+  return items.length;
+}
+export function use0(): number {
+  const items0: number[] = [1, 2, 3];
+  const c: number | string = count(items0);
+  return 1;
+}
+",
+    );
+
+    assert!(source.contains(
+        "fn count<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>)"
+    ));
+}
+#[test]
+fn borrowed_callback_packed_into_container_is_owned() {
+    // INVARIANT: a callback parameter the caller merely PASSES THROUGH into a
+    // container-shaped callee parameter must enter its own function as an owned
+    // `Rc<dyn Fn…>` handle, not as a borrowed `&dyn Fn`.
+    //
+    // The call site builds a `SmeltList<Rc<dyn Fn(..)>>` for `cbs`: containers
+    // own their function elements and carry no lifetime parameter, so a borrowed
+    // parameter would be packed as `Rc::new(move |..| (&*cbp0)(..))` — an
+    // adapter with a `'static` bound the borrow cannot meet. That is the shape
+    // grid's `g1_both_vec_rbare_m0_cparam_s1_c0` family (14 cells), which failed
+    // with E0521 "borrowed data escapes outside of function" until the emitter's
+    // ownership fixpoint gained
+    // `emitter::statement_packs_callback_param_into_container` as an escape
+    // reason.
+    //
+    // NON-VACUOUS: without that escape reason this emits
+    // `fn use0(cbp0: &dyn Fn(f64) -> f64)` and the emitted crate does not
+    // compile. No erasure is traded for the fix: `run` is erased either way,
+    // because a container-nested callback is not a liftable callback occurrence
+    // (see `callback_nested_in_a_container_demotes`).
+    let source = source_for(
+        r"
+export function run<T>(items: T[], cbs: ((v: T) => T)[]): T {
+  const out: T = cbs[0](items[0]);
+  return out;
+}
+export function use0(cbp0: (v: number) => number): number {
+  const items0: number[] = [1, 2, 3];
+  return run(items0, [cbp0]);
+}
+",
+    );
+
+    assert!(source.contains("fn use0(cbp0: ::std::rc::Rc<dyn Fn(f64) -> f64>)"));
+    assert!(!source.contains("fn use0(cbp0: &dyn Fn(f64) -> f64)"));
+}
+
+#[test]
+fn borrowed_callback_packed_into_a_rest_argument_is_owned() {
+    // The same invariant through the OTHER container spelling: a rest parameter
+    // (`...cbs`) is packed into the same `SmeltList<Rc<dyn Fn(..)>>` temporary at
+    // the call site, so the escape reason has to be about the destination's
+    // representation rather than about how the callee spelled its parameter.
+    //
+    // NON-VACUOUS: without the fix this emits `fn use0(cbp0: &dyn Fn(f64) -> f64)`.
+    let source = source_for(
+        r"
+export function run<T>(items: T[], ...cbs: ((v: T) => T)[]): T {
+  const out: T = cbs[0](items[0]);
+  return out;
+}
+export function use0(cbp0: (v: number) => number): number {
+  const items0: number[] = [1, 2, 3];
+  return run(items0, cbp0);
+}
+",
+    );
+
+    assert!(source.contains("fn use0(cbp0: ::std::rc::Rc<dyn Fn(f64) -> f64>)"));
+}

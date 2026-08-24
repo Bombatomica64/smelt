@@ -1023,13 +1023,57 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
+    ///
+    /// The operand-shaped twin of [`Self::erase_value`]; the two must agree
+    /// about every `Type`, because the same MIR value reaches one or the other
+    /// depending only on whether the caller already had it rendered.
     pub(super) fn erase(&self, operand: &Operand) -> Result<String, EmitError> {
         if matches!(operand, Operand::Const(Constant::Undefined)) {
             return Ok("SmeltUnknown::Undefined".to_owned());
         }
         let text = self.operand_text(operand)?;
         match self.mir.types.get(self.operand_ty(operand)?) {
-            Some(Type::Unknown | Type::TypeParam { .. }) => Ok(text),
+            Some(Type::Unknown) => Ok(text),
+            // Whether a `Type::TypeParam` is a REAL Rust type parameter or is
+            // itself spelled `SmeltUnknown` is one decision, taken for the whole
+            // signature by `current_function_type_params`. Every seam that
+            // renders such a value must ask the same question, or the emitter
+            // disagrees with itself about one value: an erased `T` is already a
+            // `SmeltUnknown` and erases to itself, but a MONOMORPHIZED `T` is a
+            // distinct Rust type that reaches `SmeltUnknown` only through the
+            // `IntoSmeltUnknown` bound its own signature declares.
+            //
+            // Passing the text through unconditionally is what made a callee
+            // whose parameters monomorphized but whose return erased (a union
+            // return mentioning `T` has no concrete Rust spelling, so
+            // `rust_type` renders `SmeltUnknown`) emit `return out;` for an
+            // `out: T` against a `-> SmeltUnknown` signature (E0308). The
+            // rendered-value twin below has always converted here; this is the
+            // same conversion, gated on the same scope the signature used.
+            //
+            // Telling the truth here is also what makes the PARAMETERS and the
+            // RETURN one decision again rather than two. The crate-wide gate
+            // already demotes any generic free function whose trial-rendered
+            // body needs the erased carrier (`body_needs_erased_carrier`, whose
+            // token list includes `into_smelt_unknown`); a body that erases a
+            // `T` is precisely the case that rule exists for, and it never saw
+            // this one because the conversion was silently dropped. With the
+            // conversion emitted, such a signature demotes whole — parameters,
+            // return and body land on the erased ABI together, which is also
+            // what the call site independently concluded (a substituted union
+            // return is not an interned MIR type, so
+            // `static_call_monomorphization` demotes the site).
+            //
+            // This is an explicit `IntoSmeltUnknown` boundary adapter at a
+            // genuine dynamic boundary — a union with a type-parameter member
+            // has no concrete Rust spelling (`emitter::union`) — not a way to
+            // make generated Rust type-check: it erases nothing that was not
+            // already erased by the return type it is converting into, and the
+            // three compat corpora emit byte-identical Rust across the change.
+            Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name) => {
+                Ok(format!("({text}).into_smelt_unknown()"))
+            }
+            Some(Type::TypeParam { .. }) => Ok(text),
             Some(Type::None) => Ok("SmeltUnknown::Null".to_owned()),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
             Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
@@ -1414,6 +1458,12 @@ impl FunctionEmitter<'_> {
             Some(Type::TypeParam { .. }) if value_text == "Default::default()" => {
                 Ok("SmeltUnknown::Null".to_owned())
             }
+            // Unconditional, and correct for both spellings of a type
+            // parameter: a monomorphized `T` converts through the
+            // `IntoSmeltUnknown` bound its signature declares, and an erased one
+            // is a `SmeltUnknown` whose `IntoSmeltUnknown` impl is the identity.
+            // The operand twin (`erase`) has to gate the same conversion on
+            // scope because it must not perturb the erased spelling's bytes.
             Some(Type::TypeParam { .. }) => Ok(format!("({value_text}).into_smelt_unknown()")),
             Some(Type::None | Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({value_text})")),
