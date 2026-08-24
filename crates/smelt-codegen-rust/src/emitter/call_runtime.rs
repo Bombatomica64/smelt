@@ -181,7 +181,7 @@ impl FunctionEmitter<'_> {
                     self.emit_block_until_goto(
                         self.block(cleanup.block)?,
                         cleanup.after,
-                        None,
+                        control_flow::RegionExit::Join,
                         &mut cleanup_text,
                     )?;
                     self.restore_declared_locals(declared);

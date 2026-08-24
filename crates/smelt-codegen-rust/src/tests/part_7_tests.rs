@@ -10654,3 +10654,119 @@ export function fireAndForget(cb: () => Promise<string>): void {
         "an async throw is a rejected future, not an outer Result:\n{source}"
     );
 }
+
+/// A call through a function *value* pads the parameters the source omitted.
+///
+/// A callee's optional trailing parameters are part of the Rust `dyn Fn` type
+/// the value lowered to, so JavaScript's "omitted arguments are `undefined`"
+/// has to be materialized at the call site. `indirect_call_args_text` rendered
+/// only the arguments the source supplied, so a `try`-wrapped `work()` against
+/// an `Rc<dyn Fn(Option<String>) -> f64>` emitted `(work)()` and rustc rejected
+/// it with E0057 ("this function takes 1 argument but 0 arguments were
+/// supplied") — the radash `async.test.ts` blocker, where a captured
+/// `const fakeWork = (name?: string) => …` was invoked as `fakeWork()` inside a
+/// `try`.
+///
+/// The `try` matters: it routes the call through the throwing-call terminator,
+/// which renders its callee with `call_text` instead of the statement path that
+/// receives an already-padded argument list from MIR. The load-bearing
+/// assertion is the emitted `None::<String>` inside `catch_unwind`: the
+/// static-call ladder has always padded missing trailing parameters, and this
+/// proves the value-callable form now agrees with it instead of dropping the
+/// arity.
+#[test]
+fn a_value_call_pads_the_optional_parameters_the_source_omitted() {
+    let source = source_for(
+        r"
+export function outer(): number {
+  const work = (name?: string): number => 7;
+  const runA = (): number => {
+    try {
+      return work();
+    } catch (e) {
+      return 0;
+    }
+  };
+  const runB = (): number => {
+    try {
+      return work();
+    } catch (e) {
+      return 1;
+    }
+  };
+  return runA() + runB();
+}
+",
+    );
+
+    assert!(
+        source.contains("|closure_arg_0: Option<String>|"),
+        "the callback's optional parameter must survive into its Rust type:\n{source}"
+    );
+    assert!(
+        source.contains("(work)(None::<String>)"),
+        "the omitted optional argument must be padded with its default, not \
+         dropped (E0057):\n{source}"
+    );
+    assert!(
+        !source.contains("(work)()"),
+        "a zero-argument call against a one-parameter `Fn` does not compile:\n{source}"
+    );
+}
+
+/// A `try`/`catch` inside an `if` arm ends the arm; it does not `continue`.
+///
+/// `emit_block_until_goto` serves two structurally different regions: the body
+/// of a generated `loop`, where the stop block is the loop header and an edge to
+/// it is the back edge, and a forward `if`/`else` arm, where the stop block is
+/// the join the caller emits once after the region. Its throwing-call and
+/// throwing-`await` forks hardcoded `Continuation::InLoop { continue_target:
+/// stop, .. }` for both, so a `try`/`catch` in an `if` arm rendered the edge to
+/// the join as `continue;` with no enclosing loop — rustc E0268 (`continue`
+/// outside of a loop), the radash `async.ts` `guard` blocker. `RegionExit` now
+/// tells the two shapes apart at every call site.
+///
+/// The load-bearing assertions are the absence of `continue`/`break` together
+/// with the presence of the `catch_unwind` fork: dropping the fork would also
+/// remove the `continue`, and would silently delete the `catch` clause.
+#[test]
+fn a_try_catch_inside_an_if_arm_does_not_emit_continue_outside_a_loop() {
+    let source = source_for(
+        r"
+export function guarded(func: () => any, recover: (err: any) => any): any {
+  const isPromise = (result: any): result is Promise<any> =>
+    result instanceof Promise;
+  try {
+    const result = func();
+    return isPromise(result) ? result.catch(recover) : result;
+  } catch (err) {
+    return recover(err);
+  }
+}
+",
+    );
+
+    let start = source.find("fn guarded").expect("guarded present");
+    let after = &source[start..];
+    let end = after.find("\n}\n").expect("guarded closing brace");
+    let body = &after[..end];
+
+    assert!(
+        !body.contains("loop {") && !body.contains("while "),
+        "the source has no loop, so the emitted body must have none either:\n{body}"
+    );
+    assert!(
+        !body.contains("continue;"),
+        "an edge to a forward join is not a back edge; `continue` here is \
+         E0268 (`continue` outside of a loop):\n{body}"
+    );
+    assert!(
+        !body.contains("break;"),
+        "there is no loop to break out of either:\n{body}"
+    );
+    assert!(
+        body.contains("catch_unwind"),
+        "the `try`/`catch` fork must still be emitted, not dropped along with \
+         the bogus back edge:\n{body}"
+    );
+}
