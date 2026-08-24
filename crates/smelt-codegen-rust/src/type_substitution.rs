@@ -187,6 +187,19 @@ impl<'a> TypeSubstitution<'a> {
         }
     }
 
+    /// Return the call-site bindings attached here, if any.
+    ///
+    /// Debug-only, and deliberately so: lowering resolves through
+    /// [`Self::resolve`] and never needs to look at the map itself. The seam
+    /// assertions in `crate::emitter::seam_assertions` use it to re-derive, from
+    /// a rendering environment, the `TypeId` that environment would produce for
+    /// a callee's declared type — which is how a declaration's environment is
+    /// compared against a body's substitution without rendering either twice.
+    #[cfg(debug_assertions)]
+    pub(crate) const fn bindings(&self) -> Option<&'a CalleeTypeParamBindings> {
+        self.bindings
+    }
+
     /// Return where this environment's in-scope set came from.
     #[cfg_attr(
         not(test),

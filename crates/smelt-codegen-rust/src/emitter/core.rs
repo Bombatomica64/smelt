@@ -3218,6 +3218,16 @@ impl<'mir> FunctionEmitter<'mir> {
         // Measured: this is inert on all three compat corpora — every adapter
         // in es-toolkit, remeda and radash is byte-identical.
         let return_annotation = self.callback_return_annotation(target_function, callee_bindings)?;
+        // Seam 1b (`emitter::seam_assertions`): the return conversion below uses
+        // `target_return_ty`, computed before the declarations above existed.
+        // Both are in scope here, so compare them rather than trusting that the
+        // two were written from the same bindings.
+        #[cfg(debug_assertions)]
+        self.debug_assert_adapter_return_agrees(
+            target_function.return_ty,
+            target_return_ty,
+            &substitution,
+        );
         let forwarded = source
             .params
             .iter()
@@ -3273,6 +3283,16 @@ impl<'mir> FunctionEmitter<'mir> {
                     // => v, .. }` against an `f64` (E0308). One substitution has
                     // to drive the declaration and the body alike.
                     let declared = self.substituted_param_ty(*target_param, callee_bindings);
+                    // Seam 1 (`emitter::seam_assertions`): `declared` is where
+                    // this conversion starts; the declaration it must match was
+                    // rendered above under `substitution`.
+                    #[cfg(debug_assertions)]
+                    self.debug_assert_adapter_param_agrees(
+                        index,
+                        *target_param,
+                        declared,
+                        &substitution,
+                    );
                     self.value_at_type_text(&format!("arg{index}"), declared, *source_param)
                 } else {
                     self.default_value(*source_param)
