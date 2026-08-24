@@ -288,22 +288,136 @@ pub(crate) fn function_emits_rust_generics(
 
     let signature_safe = function.type_params.iter().all(|type_param| {
         let name = type_param.name;
-        // The parameter must be inferable from at least one direct value
-        // parameter position. Increment 3 of the callback-generics plan is what
-        // relaxes this to inference *through* a callback; until then a type
-        // parameter reachable only through a callback still demotes the
-        // function, because a `dyn Fn` argument position is an unsize coercion
-        // rather than an inference source.
-        param_types
+        // The parameter must have an inference source in the emitted signature.
+        // Either a direct value parameter position ...
+        let directly = param_types
             .iter()
-            .any(|&param_ty| type_param_directly_inferable(mir, param_ty, name))
+            .any(|&param_ty| type_param_preserved_in_emitted_type(mir, param_ty, name));
+        // ... or (Increment 3) a position of a callback that Increment 2 emits
+        // as `&F{n}` with an `F{n}: Fn(..) + ?Sized` bound, which rustc infers
+        // through from the closure's own type. The disjunct deliberately calls
+        // the renderer's own eligibility predicate rather than a second copy of
+        // it, so a parameter can only be declared inferable through a callback
+        // that really will carry an `Fn` bound.
+        (directly
+            || type_param_inferable_through_callback(mir, function, owned_callback_params, name)
+                .is_some())
             // ... and every callback position it *also* occupies must be one the
-            // renderer can express under Increment 1's `&dyn Fn(T, ..)`
-            // representation (§4.4).
+            // renderer can express (§4.4). This stays ANDed onto BOTH branches:
+            // it is the renderability rule and applies to every occurrence,
+            // however the parameter got inferred.
             && callback_occurrences_are_liftable(mir, function, owned_callback_params, name)
     });
 
-    signature_safe && !called_with_erased_type_param_argument(mir, function)
+    signature_safe
+        && !called_with_erased_type_param_argument(mir, function)
+        && callback_only_params_are_pinned_at_every_call_site(mir, function, owned_callback_params)
+}
+
+/// Return whether every type parameter that is reachable *only* through a
+/// callback is pinned at every static call site of `function`.
+///
+/// Increment 3's safety valve, and deliberately **not** §4.3's widened
+/// `called_with_erased_type_param_argument`. §7 records that the literal
+/// widening — demote whenever any argument leaves any callee parameter unbound
+/// or bound to an erased type — was implemented during Increment 1 and cut the
+/// es-toolkit lift from 15 definitions to 2, because spec files hoist their
+/// arguments into `_smelt_tmp_N` locals typed `List<Unknown>` and one such call
+/// site demoted a definition crate-wide.
+///
+/// This valve avoids that collapse three independent ways:
+///
+/// * **Scope.** It returns `true` immediately when the function has no
+///   callback-only type parameter, which is the case for every definition
+///   Increments 1 and 2 lift (each pins its `T` from a value parameter). It
+///   therefore cannot move a byte of their output.
+/// * **Predicate.** It does *not* require `Concrete`. `Erased` and
+///   `Unsupported(..)` are accepted: an erased callback argument still renders
+///   a definite adapter whose return spells `SmeltUnknown`, which pins the
+///   parameter perfectly well. Demanding `Concrete` is exactly what collapsed
+///   the §4.3 version.
+/// * **Breadth.** It examines one argument position per callback-only
+///   parameter, not an existential over every argument of every call site.
+///
+/// What is left are the structural holes where *nothing* can pin the parameter,
+/// which §1.3 describes and which no textual annotation can repair:
+///
+/// a. the callback argument is **omitted**, so the trailing-default loop
+///    renders `borrowed_default_function_text` and no closure carries the type;
+/// b. the argument's static type is **invisible** to the shared analysis
+///    (`operand_type` returns `Err`), so which renderer runs cannot be
+///    predicted;
+/// c. two arguments demand **incompatible** instantiations of a parameter that
+///    has no other pinning source (`Conflict`).
+fn callback_only_params_are_pinned_at_every_call_site(
+    mir: &Mir,
+    function: &MirFunction,
+    owned: &HashSet<(FuncId, LocalId)>,
+) -> bool {
+    let param_types: Vec<TypeId> = function
+        .params
+        .iter()
+        .filter_map(|param| {
+            function
+                .locals
+                .get(id_index(param.0, "local index does not fit usize").ok()?)
+                .map(|local| local.ty)
+        })
+        .collect();
+    // Only parameters with no direct value position at all are at risk; the
+    // rest are pinned by an ordinary argument and need no inference power from
+    // the callback position (§1.3).
+    let callback_only: Vec<(Symbol, usize)> = function
+        .type_params
+        .iter()
+        .filter(|type_param| {
+            !param_types
+                .iter()
+                .any(|&param_ty| type_param_preserved_in_emitted_type(mir, param_ty, type_param.name))
+        })
+        .filter_map(|type_param| {
+            type_param_inferable_through_callback(mir, function, owned, type_param.name)
+                .map(|index| (type_param.name, index))
+        })
+        .collect();
+    if callback_only.is_empty() {
+        return true;
+    }
+
+    for caller in &mir.functions {
+        for block in &caller.blocks {
+            let Some(smelt_mir::Terminator::Call {
+                callee: smelt_mir::Callee::Static(target),
+                args,
+                ..
+            }) = &block.terminator
+            else {
+                continue;
+            };
+            if *target != function.id {
+                continue;
+            }
+            let bindings = generic_bindings::collect_bindings(mir, function, caller, args);
+            for &(name, index) in &callback_only {
+                // (a) the callback argument is omitted entirely.
+                let Some(arg) = args.get(index) else {
+                    return false;
+                };
+                // (b) the argument's static type is not resolvable.
+                if generic_bindings::operand_type(mir, caller, arg).is_err() {
+                    return false;
+                }
+                // (c) irreconcilable evidence for a parameter with no fallback.
+                if matches!(
+                    bindings.get(name),
+                    Some(generic_bindings::TypeParamBinding::Conflict { .. })
+                ) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 /// Return whether any call site in the crate passes an *erased* argument into a
@@ -407,57 +521,79 @@ fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &smelt_mir::
     }
 }
 
-/// Return whether `name` appears in a *direct* (non-callback) position of `ty`.
+/// Return whether `name` survives into the *emitted Rust* rendering of `ty`,
+/// in a position Rust can infer a type argument from.
 ///
-/// Direct positions are the value shapes Rust can infer a type argument from:
-/// the bare parameter (`T`), collections and wrappers over it (`T[]`,
-/// `Set<T>`, `Option<T>`, `T[]` inside a tuple, a union member, dict key/value).
-/// This walk must mirror what codegen actually EMITS for a parameter type
+/// The question — "does the emitted Rust type still mention this parameter?" —
+/// is identical inside and outside a callback, so this one walk is applied at
+/// two sites: to a value parameter's own type (the *direct* half of the gate,
+/// `T`, `T[]`, `Set<T>`, `Option<T>`, a tuple element, a dict key/value), and
+/// by [`type_param_inferable_through_callback`] to each parameter and the
+/// return of a callback that will be emitted as an `F{n}: Fn(..) + ?Sized`
+/// bound. Writing a second enumeration for the callback half would let the two
+/// drift; §4.3 of `blocker-logs/estk-callback-generics-plan.md` is really
+/// guarding against that drift, so the callback half reuses this walk verbatim
+/// and inherits its exclusions for free.
+///
+/// The walk must mirror what codegen actually EMITS for a type
 /// (see `FunctionEmitter::rust_type`): it only descends through shapes
 /// that preserve the type parameter in the emitted Rust. It intentionally does
 /// NOT descend into:
-/// - **`Union`** — a union parameter erases to `SmeltUnknown` in emission, so a
-///   `T` inside `T | string` disappears from the emitted signature and cannot be
-///   inferred (`E0283`);
-/// - **`Function`** — a callback boundary, handled by [`type_param_in_callback`].
+/// - **`Union`** — a union erases to `SmeltUnknown` in emission, so a `T`
+///   inside `T | string` disappears from the emitted signature and cannot be
+///   inferred (`E0283`). It is doubly true inside a callback: a *concrete*
+///   union renders through `union_type_text`, which spells the generated
+///   enum's own declared parameter names and consults no substitution at all,
+///   so the caller's parameter never reaches the emitted `Fn` bound either;
+/// - **`Function`** — a callback boundary. Reached by
+///   [`type_param_in_callback`] as an *occurrence* walk, and as an inference
+///   source only through [`type_param_inferable_through_callback`], which
+///   descends exactly one level. A function type nested *inside* a callback is
+///   no inference source: `callback_occurrences_are_liftable` already refuses
+///   the shape, and a nested `&dyn Fn` / `Rc<dyn Fn>` argument position is
+///   invariant.
+///
+/// Known over-approximation, shared by both callers and deliberately left
+/// alone: a `Type::Class` whose name does not resolve renders `SmeltUnknown`
+/// and drops its arguments, yet this walk descends into them. Tightening it
+/// would move bytes that belong to Increment 1, so it belongs in its own
+/// change.
 ///
 /// This is deliberately *narrower* than
 /// [`generic_bindings::match_types`](crate::generic_bindings), which does bind
-/// through `Type::Function`. That difference is the callback gate itself, so
-/// this predicate is not routed through the shared walk: doing so would promote
-/// every function whose only occurrence of the parameter is inside a callback.
-fn type_param_directly_inferable(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
+/// through `Type::Function` at any depth.
+fn type_param_preserved_in_emitted_type(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     match mir.types.get(ty) {
         Some(Type::TypeParam { name: param_name }) => *param_name == name,
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            type_param_directly_inferable(mir, *item, name)
+            type_param_preserved_in_emitted_type(mir, *item, name)
         }
         Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_param_directly_inferable(mir, *key, name)
-                || type_param_directly_inferable(mir, *value, name)
+            type_param_preserved_in_emitted_type(mir, *key, name)
+                || type_param_preserved_in_emitted_type(mir, *value, name)
         }
         Some(Type::Tuple(items)) => items
             .iter()
-            .any(|item| type_param_directly_inferable(mir, *item, name)),
+            .any(|item| type_param_preserved_in_emitted_type(mir, *item, name)),
         Some(Type::Class { args, .. }) => args
             .iter()
-            .any(|arg| type_param_directly_inferable(mir, *arg, name)),
+            .any(|arg| type_param_preserved_in_emitted_type(mir, *arg, name)),
         Some(Type::Generator {
             yield_ty,
             return_ty,
             next_ty,
             ..
         }) => {
-            type_param_directly_inferable(mir, *yield_ty, name)
-                || type_param_directly_inferable(mir, *return_ty, name)
-                || type_param_directly_inferable(mir, *next_ty, name)
+            type_param_preserved_in_emitted_type(mir, *yield_ty, name)
+                || type_param_preserved_in_emitted_type(mir, *return_ty, name)
+                || type_param_preserved_in_emitted_type(mir, *next_ty, name)
         }
         Some(Type::GeneratorResult {
             yield_ty,
             return_ty,
         }) => {
-            type_param_directly_inferable(mir, *yield_ty, name)
-                || type_param_directly_inferable(mir, *return_ty, name)
+            type_param_preserved_in_emitted_type(mir, *yield_ty, name)
+                || type_param_preserved_in_emitted_type(mir, *return_ty, name)
         }
         // Unions erase to `SmeltUnknown` and functions are a callback boundary,
         // so neither preserves the type parameter in a directly-inferable value
@@ -553,6 +689,86 @@ pub(crate) fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> boo
     }
 }
 
+/// Return the parameter index of the callback that lets Rust infer `name`, if
+/// any.
+///
+/// Increment 3 of `blocker-logs/estk-callback-generics-plan.md`. A type
+/// parameter that reaches no direct value parameter can still be inferred when
+/// it occupies a position of a callback that Increment 2 emits as
+/// `&F{n}` with an `F{n}: Fn(..) + ?Sized` bound: rustc infers the parameter
+/// *through* that bound from the closure's own type. This is precisely why the
+/// increment waited for Option B. A `&dyn Fn(..)` argument position is an
+/// unsize coercion, which is far weaker — rustc must know the target type
+/// before it can unsize, and `dyn Fn` is invariant in its argument types — so a
+/// callback-only parameter cannot be inferred through the old representation
+/// at all.
+///
+/// The two rules are therefore coupled, and the coupling is mechanical rather
+/// than restated: step 1 below is the *same call*
+/// [`callback_generic_params`] makes when it decides which parameters receive
+/// an `F{n}` name. So "inferable through a callback" and "emitted as an `F{n}`
+/// with an `Fn` bound" are the same set by construction. If they were allowed
+/// to disagree, the gate would declare a `T` whose only home in the signature
+/// was a `&dyn Fn(T)` argument position — E0283 at every call site.
+///
+/// The index rather than a bool is returned so
+/// [`callback_only_params_are_pinned_at_every_call_site`] can scan exactly the
+/// one argument position that carries the parameter. One decision flows through
+/// the gate, the valve and the representation; there is no place for a second
+/// opinion to form.
+fn type_param_inferable_through_callback(
+    mir: &Mir,
+    function: &MirFunction,
+    owned: &HashSet<(FuncId, LocalId)>,
+    name: Symbol,
+) -> Option<usize> {
+    for (index, param) in function.params.iter().enumerate() {
+        // The shape half of §4.4, asked through the renderer's own predicate.
+        if !callback_param_shape_is_liftable(mir, function, owned, index, *param) {
+            continue;
+        }
+        let local_index = id_index(param.0, "local index does not fit usize").ok()?;
+        let local = function.locals.get(local_index)?;
+        let Some(Type::Function(callback)) = mir.types.get(local.ty) else {
+            continue;
+        };
+        // An erased-unknown-rest callback (`(...args: T[]) => unknown`) is the
+        // shape `rust_type` renders as the concrete struct
+        // `SmeltErasedFunction`. The *parameter* declaration of a borrowed one
+        // still goes through `param_type_text`, so the callee would advertise
+        // a real `Fn` bound — but every call site hands it a
+        // `SmeltErasedFunction` VALUE (`function_shape_adapter_text` bails out
+        // early when both sides are that shape), and that struct implements no
+        // `Fn` trait, so there is nothing to infer through and the argument
+        // would not even satisfy the bound. This exclusion lives
+        // in the *inference* predicate rather than in the shared shape
+        // predicate because it is an inference question, not a representation
+        // one: moving it into `callback_param_shape_is_liftable` would
+        // retroactively change Increment 2's `F{n}` set.
+        if crate::emitter::is_erased_unknown_rest_function_in(&mir.types, callback) {
+            continue;
+        }
+        // A callback *parameter* position, excluding the callback's own packed
+        // rest parameter (reshaped by the rest-vector adapter rather than
+        // passed positionally, so its declaration does not correspond to the
+        // bound's argument slot), or the callback's return position.
+        let inferable = callback
+            .params
+            .iter()
+            .enumerate()
+            .any(|(nested_index, nested)| {
+                callback.rest != Some(nested_index)
+                    && type_param_preserved_in_emitted_type(mir, *nested, name)
+            })
+            || type_param_preserved_in_emitted_type(mir, callback.return_ty, name);
+        if inferable {
+            return Some(index);
+        }
+    }
+    None
+}
+
+
 /// Return whether every callback occurrence of `name` in `function`'s parameter
 /// list sits in a position the current callback representation can express.
 ///
@@ -606,7 +822,7 @@ fn callback_occurrences_are_liftable(
         if !type_param_in_callback(mir, local.ty, name) {
             // No callback occurrence in this parameter at all; a direct value
             // position such as `T` or `T[]` is handled by
-            // `type_param_directly_inferable`.
+            // `type_param_preserved_in_emitted_type`.
             continue;
         }
         // There IS a callback occurrence here, so this parameter must be the one

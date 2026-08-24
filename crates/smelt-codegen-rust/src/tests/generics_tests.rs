@@ -675,13 +675,14 @@ export function outer<T>(xs: T[], cb: (item: T) => boolean): T[] {
 }
 
 #[test]
-fn callback_only_type_param_still_demotes() {
-    // INVARIANT: Increment 1 keeps `type_param_directly_inferable` required, so
-    // a type parameter reachable ONLY through a callback still erases the whole
-    // function. Lifting it is Increment 3's job, and it needs an `Fn` bound
-    // rather than an unsize coercion to a `dyn Fn` to infer through. If this
-    // flips without that work, a call site passing an erased callable (a
-    // `vi.fn()` spy) leaves `T` unconstrained: `E0283`.
+fn callback_only_type_param_now_lifts() {
+    // MARKER for Increment 3 of `blocker-logs/estk-callback-generics-plan.md`.
+    // This test previously asserted the opposite (`callback_only_type_param_still_demotes`):
+    // a type parameter reachable ONLY through a callback erased the whole
+    // function, because a `&dyn Fn(..)` argument position is an unsize coercion
+    // and cannot infer. Increment 2's `F0: Fn() -> T + ?Sized` bound is a real
+    // inference source, so the parameter lifts. Its inversion is what proves
+    // the increment landed, exactly as Increments 1 and 2 flipped theirs.
     let source = source_for(
         r"
 export function attempt<T>(make: () => T): T[] {
@@ -690,8 +691,280 @@ export function attempt<T>(make: () => T): T[] {
 ",
     );
 
-    assert!(!source.contains("fn attempt<T"));
-    assert!(source.contains("fn attempt(make: &dyn Fn() -> SmeltUnknown)"));
+    assert!(source.contains(
+        "fn attempt<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn() -> T + ?Sized>(make: &F0) -> SmeltList<T>"
+    ));
+    assert!(!source.contains("&dyn Fn() -> SmeltUnknown"));
+}
+
+#[test]
+fn callback_only_type_param_lifts_in_the_union_by_shape() {
+    // The real corpus shape (es-toolkit `array/unionBy.ts`): `T` is pinned
+    // directly from the arrays, `U` only through the mapper's RETURN position.
+    // Both must reach the emitted signature, and the mapper must be the `&F0`
+    // Increment 2 renders — a `&dyn Fn(T) -> U` parameter would declare a `U`
+    // with no inference source at all.
+    let source = source_for(
+        r"
+export function unionBy<T, U>(arr1: T[], arr2: T[], mapper: (item: T) => U): T[] {
+  return arr1.concat(arr2);
+}
+",
+    );
+
+    assert!(source.contains("F0: Fn(T) -> U + ?Sized"));
+    assert!(source.contains("mapper: &F0"));
+}
+
+#[test]
+fn callback_only_type_param_in_a_callback_parameter_position_lifts() {
+    // The other inferable half of §4.3: a callback PARAMETER position is as good
+    // an inference source as a callback return, because both appear in the
+    // emitted `Fn(..) -> ..` bound.
+    let source = source_for(
+        r"
+export function feed<T>(cb: (item: T) => boolean): boolean {
+  return true;
+}
+",
+    );
+
+    assert!(source.contains("F0: Fn(T) -> bool + ?Sized"));
+    assert!(source.contains("cb: &F0"));
+}
+
+#[test]
+fn callback_only_type_param_inside_a_union_still_demotes() {
+    // §4.3's headline exclusion. A union erases to `SmeltUnknown`, so `T` never
+    // reaches the emitted `Fn` bound and there is nothing to infer from. The
+    // wide `type_param_in_callback` occurrence walk descends unions on purpose;
+    // `type_param_preserved_in_emitted_type` must not.
+    let source = source_for(
+        r"
+export function pick<T>(cb: (value: T | string) => boolean): boolean {
+  return true;
+}
+",
+    );
+
+    assert!(!source.contains("fn pick<"));
+}
+
+#[test]
+fn callback_only_type_param_in_a_nested_callback_still_demotes() {
+    // The occurrence is not at the callback's own top level, so
+    // `callback_occurrences_are_liftable` refuses it — and a nested
+    // `&dyn Fn` / `Rc<dyn Fn>` argument position is invariant anyway.
+    let source = source_for(
+        r"
+export function higher<T>(cb: (inner: (value: T) => void) => void): boolean {
+  return true;
+}
+",
+    );
+
+    assert!(!source.contains("fn higher<"));
+}
+
+#[test]
+fn callback_only_type_param_in_an_optional_callback_still_demotes() {
+    // THE COUPLING TEST. An optional callback is `Option<Rc<dyn Fn(..)>>`, not
+    // an `F{n}` with an `Fn` bound, so `callback_param_shape_is_liftable`
+    // refuses it and the inference disjunct cannot fire. If this ever lifts, the
+    // gate and `callback_generic_params` have grown two different notions of
+    // eligibility and the emitted signature declares a `T` nothing can infer.
+    let source = source_for(
+        r"
+export function maybe<T>(cb?: (value: T) => boolean): boolean {
+  return true;
+}
+",
+    );
+
+    assert!(!source.contains("fn maybe<"));
+}
+
+#[test]
+fn callback_only_type_param_in_an_owned_callback_still_demotes() {
+    // The other half of the coupling test: an escaping callback is owned, so it
+    // lowers to `Rc<dyn Fn(..)>` rather than `&F{n}`.
+    let source = source_for(
+        r"
+export function keep<T>(cb: (value: T) => boolean): (value: T) => boolean {
+  return cb;
+}
+",
+    );
+
+    assert!(!source.contains("fn keep<"));
+}
+
+#[test]
+fn callback_only_type_param_in_an_erased_rest_callback_still_demotes() {
+    // `(...args: unknown[]) => T` is the erased-unknown-rest shape with the type
+    // parameter in its RETURN, so the position walk alone would accept it. It
+    // must still demote: `rust_type` renders that whole shape as the concrete
+    // struct `SmeltErasedFunction`, every call site hands one over by value
+    // (`function_shape_adapter_text` bails out early when both sides are that
+    // shape), and the struct implements no `Fn` trait — so there is neither a
+    // bound to infer through nor an argument that satisfies one.
+    //
+    // The exclusion deliberately lives in the INFERENCE predicate and not in
+    // `callback_param_shape_is_liftable`: it is an inference question, and
+    // moving it into the shared shape predicate would retroactively change
+    // Increment 2's `F{n}` set.
+    let source = source_for(
+        r"
+export function spread<T>(cb: (...args: unknown[]) => T): boolean {
+  return true;
+}
+",
+    );
+
+    assert!(!source.contains("fn spread<"));
+}
+
+#[test]
+fn callback_only_type_param_survives_an_erased_callable_argument() {
+    // THE VALVE NON-REGRESSION TEST, and the row where §4.5's matrix and §7's
+    // measured note disagree. §4.5 says an erased callable leaves the parameter
+    // "unbound/erased; demote". §7 measured that demanding `Concrete` cut the
+    // Increment-1 lift from 15 definitions to 2. This records which one won:
+    // `TypeParamBinding::Erased`/`Unsupported` are ACCEPTED, because an erased
+    // callback argument still renders a definite adapter that pins the
+    // parameter to `SmeltUnknown` at that site while the definition stays
+    // generic for every other one. The direct analogue of
+    // `erased_callable_argument_keeps_the_definition_generic` for the
+    // callback-only case.
+    let source = source_for(
+        r"
+export function attempt<T>(make: () => T): T[] {
+  return [make()];
+}
+export function run(spy: unknown): unknown[] {
+  return attempt(spy as () => unknown);
+}
+",
+    );
+
+    assert!(source.contains(
+        "fn attempt<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn() -> T + ?Sized>(make: &F0)"
+    ));
+}
+
+#[test]
+fn callback_only_type_param_demotes_on_conflicting_call_site_evidence() {
+    // Valve rule (c): two callbacks demanding incompatible instantiations of a
+    // parameter that has NO other pinning source. With a direct value parameter
+    // the conflict is harmless (the value pins it and the callbacks coerce);
+    // callback-only, there is nothing to arbitrate, so the definition demotes
+    // rather than emitting a signature no call site can satisfy.
+    //
+    // Rules (a) — the callback argument omitted entirely — and (b) — an argument
+    // whose static type the shared analysis cannot resolve — are the other two
+    // holes the valve closes. Neither is reachable from type-checked TypeScript
+    // (tsc rejects a call that omits a required callback, and the operand
+    // resolver only fails on shapes the frontend does not produce here), so they
+    // are defensive; rule (c) is the one a source program can express.
+    let source = source_for(
+        r"
+export function attemptTwo<T>(make: () => T, other: () => T): T[] {
+  return [make(), other()];
+}
+export function run(): unknown[] {
+  return attemptTwo(() => 1, () => 'a') as unknown[];
+}
+",
+    );
+
+    assert!(!source.contains("fn attempt_two<T"));
+}
+
+#[test]
+fn call_site_adapter_annotates_its_return_at_a_pinned_callback_generic() {
+    // Increment 3's adapter return annotation. The callee's callback parameter
+    // renders `&F0` with an `F0: Fn(T) -> U` bound, so the closure's return type
+    // is a genuine inference variable; the annotation is what makes it definite.
+    // It is emitted exactly when it carries something the erased rendering would
+    // not — which is why the erased call below gets none, and why no adapter in
+    // any of the three compat corpora moved a byte.
+    let source = source_for(
+        r"
+export function unionBy<T, U>(arr1: T[], arr2: T[], mapper: (item: T) => U): T[] {
+  return arr1.concat(arr2);
+}
+export function pinned(xs: number[], ys: number[]): number[] {
+  return unionBy(xs, ys, (item: number) => item.toString());
+}
+",
+    );
+
+    assert!(source.contains("move |arg0: f64| -> String {"));
+}
+
+#[test]
+fn call_site_adapter_omits_its_return_annotation_at_an_unmonomorphized_callee() {
+    // The other half of the annotation rule, and the reason
+    // `callback_return_annotation` derives its substitution from the call
+    // site's bindings instead of taking one.
+    //
+    // `sink` demotes (its body assigns the callback result into an `unknown`),
+    // so `sink`'s emitted `cb` is `&dyn Fn(f64) -> SmeltUnknown` and nothing in
+    // its signature is unsolved. `outer` still lifts, and the omitted callback
+    // argument makes the call render `borrowed_default_function_text`'s
+    // `Default::default()` body — inference-polymorphic, and therefore exactly
+    // the body an annotation would pin.
+    //
+    // `Symbol` is name-interned, so annotating it under the CALLER's lexical
+    // scope would spell `outer`'s unrelated `T` against a callee that declares
+    // `SmeltUnknown` (E0271). The closure must stay unannotated and coerce.
+    let source = source_for(
+        r"
+export function sink<T>(x: number, cb: (v: number) => T): number {
+  const box: unknown = cb(1);
+  return 1;
+}
+export function outer<T>(items: T[]): number {
+  return sink(1) + items.length;
+}
+",
+    );
+
+    assert!(source.contains("&|arg0: f64| Default::default()"));
+    assert!(!source.contains("-> T { Default::default() }"));
+}
+
+#[test]
+fn lifted_caller_of_a_demoted_callee_demotes_too() {
+    // The caller/callee asymmetry Increment 3 is the first increment able to
+    // produce, and the reason `populate_generic_functions` is now a fixed point.
+    // `inner` passes the signature gate but its body needs the erased carrier
+    // (a `Map` keyed by `T`), so it demotes; `outer`'s body is clean. MIR type
+    // identity is not Rust type identity — `Symbol` is name-interned, so
+    // `outer`'s `SmeltList<T>` local and `inner`'s declared `T[]` parameter are
+    // the SAME `TypeId` — and the argument pass-through would hand a
+    // `SmeltList<T>` to a `SmeltList<SmeltUnknown>` parameter (E0308).
+    //
+    // Both must therefore end up erased. This is es-toolkit's real
+    // `unionBy` -> `uniqBy` pair, which is exactly how the miscompile was found.
+    let source = source_for(
+        r"
+export function inner<T>(xs: T[]): T[] {
+  const seen = new Map<T, T>();
+  for (const item of xs) {
+    seen.set(item, item);
+  }
+  return xs;
+}
+
+export function outer<T>(xs: T[]): T[] {
+  return inner(xs);
+}
+",
+    );
+
+    assert!(!source.contains("fn inner<T"));
+    assert!(!source.contains("fn outer<T"));
 }
 
 #[test]

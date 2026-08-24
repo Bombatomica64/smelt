@@ -130,6 +130,7 @@ use literals::{assigned_locals, constant_text, method_mutates_this};
 use rendered_value::{Precedence, RenderedValue};
 use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
+pub(crate) use core::is_erased_unknown_rest_function_in;
 
 /// Precomputed crate-level codegen facts shared by all function emitters.
 pub(crate) struct EmitContext {
@@ -297,25 +298,67 @@ impl EmitContext {
     /// carrier (see `FunctionEmitter::renders_real_generics`). The result is
     /// shared by the definition and all call sites through
     /// [`EmitContext::is_generic_function`].
+    ///
+    /// The decision is a **fixed point**, not a single pass, because a trial
+    /// body is not independent of the answer: a call site renders its arguments
+    /// differently depending on whether the callee emits generics
+    /// (`call::callee_free_function_type_params`), and since Increment 3 a
+    /// lifted caller statically calling a demoted callee renders a demotion
+    /// signal that dirties the caller's own trial body. A single pass answers
+    /// that question with "no callee is generic yet", which makes every such
+    /// caller demote for a reason the final emission does not reproduce.
+    ///
+    /// The iteration starts from the empty set — so the FIRST round reproduces
+    /// the historical single-pass answer exactly — and recomputes the whole set
+    /// each round until it stops changing. Recomputing rather than only removing
+    /// is load-bearing: a caller demoted in one round because its callee looked
+    /// generic must be reconsidered once that callee demotes, and vice versa.
+    /// The result is self-consistent: every trial that produced it saw the same
+    /// answer the emission will use.
+    ///
+    /// Convergence is not guaranteed in theory (the trial is a textual
+    /// predicate, not a monotone one), so the loop is capped and falls back to
+    /// the first round's answer — the historical one — if it oscillates. In
+    /// practice both compat corpora settle in two rounds.
     pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<(), EmitError> {
-        let mut generic = HashSet::new();
-        for function in &mir.functions {
-            if !matches!(function.origin, HirOrigin::Body(_)) {
-                continue;
+        /// Rounds attempted before declaring the iteration non-convergent.
+        const MAX_ROUNDS: usize = 16;
+
+        let signature_safe: Vec<&MirFunction> = mir
+            .functions
+            .iter()
+            .filter(|function| matches!(function.origin, HirOrigin::Body(_)))
+            .filter(|function| {
+                crate::classes::function_emits_rust_generics(
+                    mir,
+                    function,
+                    &self.owned_callback_params,
+                )
+            })
+            .collect();
+
+        let mut first_round: Option<HashSet<FuncId>> = None;
+        for _ in 0..MAX_ROUNDS {
+            let mut next = HashSet::new();
+            for function in &signature_safe {
+                let emitter = FunctionEmitter::new(mir, self, function)?;
+                if emitter.renders_real_generics()? {
+                    next.insert(function.id);
+                }
             }
-            if !crate::classes::function_emits_rust_generics(
-                mir,
-                function,
-                &self.owned_callback_params,
-            ) {
-                continue;
+            if first_round.is_none() {
+                first_round = Some(next.clone());
             }
-            let emitter = FunctionEmitter::new(mir, self, function)?;
-            if emitter.renders_real_generics()? {
-                generic.insert(function.id);
+            if *self.generic_functions.borrow() == next {
+                return Ok(());
             }
+            *self.generic_functions.borrow_mut() = next;
         }
-        *self.generic_functions.borrow_mut() = generic;
+        // Non-convergent: keep the historical single-pass answer rather than an
+        // arbitrary round of an oscillation.
+        if let Some(historical) = first_round {
+            *self.generic_functions.borrow_mut() = historical;
+        }
         Ok(())
     }
 

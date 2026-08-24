@@ -85,17 +85,9 @@ mod byte_buffer_prelude;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod deps;
-// Call-site binding collection stays dormant until its rendering consumer
-// lands; only the shared operand, erasure and occurrence walks are adopted so
-// far. The module's own unit tests exercise the dormant entry points, so the
-// expectation applies to non-test builds only.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pre-AST binding engine is deliberately dormant until its rendering consumer lands"
-    )
-)]
+// Increment 3 of the callback-generics plan made the last dormant entry point
+// live: the safety valve consults `collect_bindings` and `TypeParamBinding`
+// directly, so the module no longer needs a `dead_code` expectation.
 pub(crate) mod generic_bindings;
 mod reflection_prelude;
 pub(crate) mod runtime_prelude;
