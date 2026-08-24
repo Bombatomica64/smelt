@@ -122,6 +122,7 @@ mod rendered_value;
 /// release build, so neither do its assertions or their call sites.
 #[cfg(debug_assertions)]
 mod seam_assertions;
+mod static_call_args;
 mod set;
 mod strings;
 mod strings_io;
