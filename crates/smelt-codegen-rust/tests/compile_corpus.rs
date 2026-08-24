@@ -27,6 +27,20 @@
 //! their common dependencies and the shared runtime prelude compile once and
 //! are reused across the corpus.
 //!
+//! ## Two corpora
+//!
+//! There are two tiers in this file, one `#[ignore]`d test each (a third,
+//! `tests/shape_grid.rs`, *generates* its corpus instead of storing it, and
+//! shares this file's harness through `tests/corpus_support/`):
+//!
+//! * [`corpus_emitted_rust_compiles`] — the inline [`Case`] corpus below, whose
+//!   sources are `&'static str` literals.
+//! * [`callback_generics_fixtures_compile`] — the rescued callback-generics
+//!   fixtures, read from `tests/fixtures/callback_generics/*.ts` at run time.
+//!   See that directory's `README.md`. Unlike the inline corpus, that tier
+//!   records its known failures with error counts and causes and fails in both
+//!   directions (a recorded failure that starts compiling is a failure too).
+//!
 //! ## Known failures
 //!
 //! When `cargo check` exposes a real bug in emitted code, the offending case is
@@ -42,14 +56,18 @@
 )]
 
 use std::{
+    fmt::Write as _,
     path::{Path, PathBuf},
-    process::Command,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
+#[cfg(feature = "ty")]
 use smelt_codegen_rust::{CrateKind, EmitOptions, emit_crate};
-use smelt_frontend_ts::{HirCtx, to_hir};
+#[cfg(feature = "ty")]
 use smelt_hir::FileId;
+
+mod corpus_support;
+
+use corpus_support::{cargo_check, emit_typescript_crate, rustc_error_count, scratch_root};
 
 // The Python corpus is only built with the `ty` feature, where annotation-free
 // Python resolves its types via `ty` (issue #93).
@@ -1374,15 +1392,7 @@ export function ascending(start: number, end: string | number): boolean {
 /// Returns a human-readable error string on any frontend/MIR/emit failure so
 /// the caller can record it as a corpus failure rather than panicking.
 fn emit_case_crate(case: &Case, crate_dir: &Path) -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    to_hir(case.source, FileId(0), &mut ctx)
-        .map_err(|err| format!("HIR lowering failed: {err:?}"))?;
-    let mut mir =
-        smelt_mir::lower_hir(&ctx.krate).map_err(|err| format!("MIR lowering failed: {err:?}"))?;
-    smelt_mir::opt::optimize(&mut mir);
-    let options = EmitOptions::new(format!("smelt_corpus_{}", case.name))
-        .with_crate_kind(CrateKind::Program);
-    emit_crate(&mir, crate_dir, &options).map_err(|err| format!("crate emission failed: {err}"))
+    emit_typescript_crate(case.name, case.source, crate_dir)
 }
 
 /// Python corpus: annotation-free source that only lowers because `ty`
@@ -1506,41 +1516,6 @@ fn emit_python_case_crate(case: &Case, crate_dir: &Path) -> Result<(), String> {
     emit_crate(&mir, crate_dir, &options).map_err(|err| format!("crate emission failed: {err}"))
 }
 
-/// Runs `cargo check` on the emitted crate at `crate_dir`, sharing the given
-/// `target_dir` so corpus crates reuse compiled dependencies.
-///
-/// Returns `Ok(())` when `cargo check` succeeds, otherwise the captured
-/// stdout/stderr so the failure can be reported.
-fn cargo_check(crate_dir: &Path, target_dir: &Path) -> Result<(), String> {
-    let output = Command::new(env!("CARGO"))
-        .arg("check")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(crate_dir.join("Cargo.toml"))
-        .env("CARGO_TARGET_DIR", target_dir)
-        // Generated crates carry their own lint posture; warnings must not fail
-        // the tier, only genuine compile errors should.
-        .env("RUSTFLAGS", "-Awarnings")
-        .output()
-        .map_err(|err| format!("failed to spawn cargo check: {err}"))?;
-    if output.status.success() {
-        return Ok(());
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Err(format!("cargo check failed:\n{stdout}\n{stderr}"))
-}
-
-/// Returns a unique scratch directory root for this test run.
-///
-/// Uses the process id and a monotonically increasing counter so repeated runs
-/// and parallel cargo invocations do not collide.
-fn scratch_root() -> PathBuf {
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("smelt-compile-corpus-{}-{seq}", std::process::id()))
-}
-
 /// Compiles every corpus case and asserts the emitted Rust type-checks.
 ///
 /// This is the green tier: it must pass when invoked explicitly, modulo the
@@ -1550,7 +1525,7 @@ fn scratch_root() -> PathBuf {
 #[test]
 #[ignore = "slow: emits crates and runs cargo check; run in CI via --ignored"]
 fn corpus_emitted_rust_compiles() {
-    let root = scratch_root();
+    let root = scratch_root("smelt-compile-corpus");
     let crates_dir = root.join("crates");
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crates_dir).expect("create scratch crates dir");
@@ -1613,4 +1588,345 @@ fn corpus_emitted_rust_compiles() {
             .collect::<Vec<_>>()
             .join("\n\n")
     );
+}
+
+// ---------------------------------------------------------------------------
+// Rescued callback-generics fixture corpus
+// ---------------------------------------------------------------------------
+//
+// The callback-generics campaign (PRs #202/#203) shipped six defects that the
+// three compat corpora (es-toolkit, remeda, radash) were green through. Every
+// one of them was found by *constructing a source shape the corpora do not
+// contain* and compiling the generated Rust. Those hand-built repro projects
+// lived in a session-scoped scratch directory; this corpus is their curated,
+// in-repository home.
+//
+// Each fixture is a standalone TypeScript program in
+// `tests/fixtures/callback_generics/<name>.ts` whose header comment records the
+// defect class it guards. Fixtures are named for the shape they exercise, so a
+// failure names a shape rather than an agent's scratch label.
+
+/// Directory (relative to the crate root) holding the rescued fixtures.
+const FIXTURE_DIR: &str = "tests/fixtures/callback_generics";
+
+/// A rescued fixture: one TypeScript program read from [`FIXTURE_DIR`].
+///
+/// Unlike [`Case`], whose sources are `&'static str` literals compiled into the
+/// test binary, fixtures are read from disk at run time so they can be edited,
+/// diffed and reviewed as ordinary TypeScript files.
+struct Fixture {
+    /// File stem; also the emitted crate directory name.
+    name: String,
+    /// Group from the fixture's `// Area:` header, used to group failures.
+    area: String,
+    /// The `// Guards:` header line, quoted back when the fixture regresses.
+    guard: String,
+    /// Full TypeScript source, header comments included.
+    source: String,
+}
+
+/// A fixture that does not compile at HEAD, recorded rather than deleted.
+///
+/// These are **pre-existing** defects: each one also reproduces at the
+/// pre-campaign commit, so none of them is a callback-generics regression.
+/// Recording them keeps the shape in the corpus and makes the day someone fixes
+/// it visible — [`callback_generics_fixtures_compile`] fails in *both*
+/// directions, when an expected failure starts passing and when a passing
+/// fixture starts failing.
+struct ExpectedFailure {
+    /// Fixture file stem.
+    name: &'static str,
+    /// `cargo check` error count observed when the record was taken. Drift in
+    /// this number is reported but does not fail the tier: rustc wording and
+    /// error grouping change between toolchains, whereas pass/fail does not.
+    errors: usize,
+    /// Why it fails, in one line.
+    cause: &'static str,
+}
+
+/// Fixtures known not to compile at HEAD, with their error counts and causes.
+///
+/// A record whose fixture no longer exists also fails the tier, so this table
+/// cannot rot silently.
+const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
+    // -- Confirmed pre-existing: each of these was re-run at the pre-campaign
+    // commit during the callback-generics campaign and fails there too, so none
+    // is a regression from PRs #202/#203.
+    ExpectedFailure {
+        name: "generic_class_method_callback",
+        errors: 208,
+        cause: "generic class construction with a composite `T[]` constructor parameter: the \
+                emitted struct is used unparameterized, so nearly every use is E0277",
+    },
+    ExpectedFailure {
+        name: "generic_class_two_methods_callback",
+        errors: 4,
+        cause: "a generic class whose two methods pin `T` differently; the method receivers \
+                disagree with the constructed type (E0308)",
+    },
+    ExpectedFailure {
+        name: "static_generic_method_callback",
+        errors: 1,
+        cause: "a static generic method's callback parameter is emitted at the declared, not \
+                the substituted, type (E0308)",
+    },
+    ExpectedFailure {
+        name: "string_length_in_callback_only",
+        errors: 20,
+        cause: "`.length` read off a string inside a non-generic `.map` callback (E0308)",
+    },
+    ExpectedFailure {
+        name: "two_call_sites_pin_differently",
+        errors: 10,
+        cause: "two call sites pinning one callee differently; the second site reuses the \
+                first site's substitution (E0308)",
+    },
+    ExpectedFailure {
+        name: "source_class_named_box_with_callback_sink",
+        errors: 27,
+        cause: "a source class named `Box` collides with the generated/prelude `Box`, so its \
+                uses take the wrong arity (E0107)",
+    },
+    ExpectedFailure {
+        name: "concrete_callback_sunk_into_method",
+        errors: 1,
+        cause: "a non-generic callback sunk into a method call from a generic caller is \
+                passed at the caller's borrowed type (E0308)",
+    },
+    ExpectedFailure {
+        name: "concrete_and_generic_callbacks_two_sinks",
+        errors: 10,
+        cause: "one generic and one concrete callback in one signature: the concrete one is \
+                still monomorphized with the generic one (E0308)",
+    },
+    // -- Also failing at HEAD. These come from the same rescued suite but were
+    // not part of the campaign's re-verified ten, so they are recorded as
+    // observed rather than asserted to be pre-existing. Anyone fixing one
+    // should confirm which it is and update this note.
+    ExpectedFailure {
+        name: "generic_class_method_and_free_maker",
+        errors: 208,
+        cause: "same generic-class family as generic_class_method_callback: the class's own \
+                `T` never reaches the emitted struct (E0277)",
+    },
+    ExpectedFailure {
+        name: "map_valued_callback",
+        errors: 0,
+        cause: "rejected before emission: the frontend gates `Map.forEach` with \"array \
+                forEach statement receiver must be an array\"",
+    },
+    ExpectedFailure {
+        name: "optional_callback_parameter",
+        errors: 0,
+        cause: "rejected during emission: \"indirect call has too many arguments\" for a \
+                `cb?:` parameter called at both arities",
+    },
+    ExpectedFailure {
+        name: "second_type_param_pinned_by_key_callback",
+        errors: 0,
+        cause: "rejected during emission: \"type table does not contain literal operand type \
+                Int\" when `K` is pinned only through the callback return",
+    },
+    ExpectedFailure {
+        name: "variadic_type_param_callback",
+        errors: 0,
+        cause: "rejected during emission: \"type table does not contain literal operand type \
+                Unknown\" for a variadic callback over `T`",
+    },
+    ExpectedFailure {
+        name: "source_function_named_gen_is_rust_keyword",
+        errors: 2,
+        cause: "a source function named `gen` is emitted verbatim; `gen` is a Rust 2024 \
+                reserved keyword, so the crate does not parse",
+    },
+    ExpectedFailure {
+        name: "callback_sunk_into_erased_parameter",
+        errors: 1,
+        cause: "a borrowed callback also passed to an `unknown` parameter loses its lifetime \
+                relation (\"lifetime may not live long enough\")",
+    },
+    ExpectedFailure {
+        name: "fewer_param_callback_forwarded_to_wider_sink",
+        errors: 1,
+        cause: "a 1-parameter callback forwarded where 2 parameters are declared: the adapter \
+                re-pins instead of widening (E0308)",
+    },
+    ExpectedFailure {
+        name: "generic_maker_forwarded_into_sink",
+        errors: 2,
+        cause: "a caller-generic maker forwarded into a generic sink: the sink's bound is \
+                stated over the caller's `T` (E0271/E0277)",
+    },
+    ExpectedFailure {
+        name: "omitted_optional_callback_via_overload",
+        errors: 1,
+        cause: "an overload that omits the callback entirely: the passthrough branch renders \
+                the remaining argument at the borrowed branch's type (E0308)",
+    },
+    ExpectedFailure {
+        name: "variadic_spy_as_nullary_maker",
+        errors: 2,
+        cause: "a variadic erased function supplied where `() => T` is declared emits an \
+                unstable feature use plus a mismatched adapter (E0658/E0308)",
+    },
+];
+
+/// Reads the fixture corpus from [`FIXTURE_DIR`], sorted by name.
+///
+/// The `// Area:` and `// Guards:` header lines are parsed out for reporting;
+/// the whole file (headers included, since they are comments) is what gets
+/// lowered.
+fn fixture_corpus() -> Vec<Fixture> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE_DIR);
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("read fixture directory")
+        .map(|entry| entry.expect("read fixture dir entry").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "ts"))
+        .collect();
+    entries.sort();
+    entries
+        .into_iter()
+        .map(|path| {
+            let source = std::fs::read_to_string(&path).expect("read fixture source");
+            let name = path
+                .file_stem()
+                .expect("fixture file stem")
+                .to_string_lossy()
+                .into_owned();
+            let header = |prefix: &str| {
+                source
+                    .lines()
+                    .find_map(|line| line.strip_prefix(prefix))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned()
+            };
+            Fixture {
+                area: header("// Area:"),
+                guard: header("// Guards:"),
+                name,
+                source,
+            }
+        })
+        .collect()
+}
+
+/// Compiles every rescued callback-generics fixture and asserts that each one
+/// still lands on the side of the ledger it is recorded on.
+///
+/// Fails when a fixture that is expected to compile stops compiling (a
+/// regression) **and** when a fixture recorded in [`EXPECTED_FIXTURE_FAILURES`]
+/// starts compiling (a fix that must be recorded) or has gone missing (a rotted
+/// record). Like [`corpus_emitted_rust_compiles`] it is `#[ignore]`d and shares
+/// one `CARGO_TARGET_DIR` across the corpus.
+#[test]
+#[ignore = "slow: emits one crate per fixture and runs cargo check; run in CI via --ignored"]
+fn callback_generics_fixtures_compile() {
+    let root = scratch_root("smelt-compile-corpus");
+    let crates_dir = root.join("crates");
+    let target_dir = root.join("target");
+    std::fs::create_dir_all(&crates_dir).expect("create scratch crates dir");
+    std::fs::create_dir_all(&target_dir).expect("create scratch target dir");
+
+    // Same single-fixture filter as the inline corpus, for local iteration.
+    let only = std::env::var("SMELT_CORPUS_ONLY").ok();
+
+    let fixtures = fixture_corpus();
+    assert!(!fixtures.is_empty(), "fixture corpus is empty: {FIXTURE_DIR}");
+
+    let mut regressions: Vec<String> = Vec::new();
+    let mut unexpected_passes: Vec<String> = Vec::new();
+    let mut drift: Vec<String> = Vec::new();
+
+    for fixture in &fixtures {
+        if let Some(only_name) = &only
+            && &fixture.name != only_name
+        {
+            continue;
+        }
+        let expected = EXPECTED_FIXTURE_FAILURES
+            .iter()
+            .find(|entry| entry.name == fixture.name);
+
+        let crate_dir = crates_dir.join(&fixture.name);
+        let outcome = emit_typescript_crate(&fixture.name, &fixture.source, &crate_dir)
+            .and_then(|()| cargo_check(&crate_dir, &target_dir));
+
+        match (outcome, expected) {
+            (Ok(()), None) => {}
+            (Ok(()), Some(entry)) => unexpected_passes.push(format!(
+                "[{}] {}: recorded as expected-failing ({} error(s): {}) but now COMPILES. \
+                 Remove it from EXPECTED_FIXTURE_FAILURES.",
+                fixture.area, fixture.name, entry.errors, entry.cause
+            )),
+            (Err(err), None) => regressions.push(format!(
+                "[{}] {} (guards: {}):\n{err}",
+                fixture.area, fixture.name, fixture.guard
+            )),
+            (Err(err), Some(entry)) => {
+                let observed = rustc_error_count(&err);
+                if observed != entry.errors {
+                    drift.push(format!(
+                        "[{}] {}: recorded {} error(s), observed {observed}",
+                        fixture.area, fixture.name, entry.errors
+                    ));
+                }
+            }
+        }
+    }
+
+    // A record for a fixture that no longer exists is itself a failure: the
+    // table must describe the corpus as it stands.
+    let stale: Vec<String> = EXPECTED_FIXTURE_FAILURES
+        .iter()
+        .filter(|entry| !fixtures.iter().any(|fixture| fixture.name == entry.name))
+        .map(|entry| format!("{}: no such fixture in {FIXTURE_DIR}", entry.name))
+        .collect();
+
+    // Best-effort cleanup; ignore errors so a leftover temp dir never fails CI.
+    drop(std::fs::remove_dir_all(&root));
+
+    if !drift.is_empty() {
+        // Surfaced, not asserted: see [`ExpectedFailure::errors`].
+        #[expect(
+            clippy::print_stdout,
+            reason = "the drift note is only useful in the tier's own output"
+        )]
+        {
+            println!(
+                "callback-generics fixtures: expected-failure error counts drifted:\n{}",
+                drift.join("\n")
+            );
+        }
+    }
+
+    let mut report = String::new();
+    if !regressions.is_empty() {
+        write!(
+            report,
+            "{} fixture(s) that must compile no longer do:\n{}\n",
+            regressions.len(),
+            regressions.join("\n\n")
+        )
+        .expect("write to String");
+    }
+    if !unexpected_passes.is_empty() {
+        write!(
+            report,
+            "{} recorded failure(s) now compile:\n{}\n",
+            unexpected_passes.len(),
+            unexpected_passes.join("\n")
+        )
+        .expect("write to String");
+    }
+    if !stale.is_empty() {
+        write!(
+            report,
+            "{} stale expected-failure record(s):\n{}\n",
+            stale.len(),
+            stale.join("\n")
+        )
+        .expect("write to String");
+    }
+    assert!(report.is_empty(), "{report}");
 }
