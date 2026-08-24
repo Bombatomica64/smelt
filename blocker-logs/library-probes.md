@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-08-23 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-08-24 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -42,7 +42,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `gvergnaud/ts-pattern` @ `c92ca435c7e1`
 - Transpile: **no** — `smelt build` aborts at `src/internals/helpers.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 68 · with blockers: 17
+- Files scanned: 68 · with blockers: 18
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
