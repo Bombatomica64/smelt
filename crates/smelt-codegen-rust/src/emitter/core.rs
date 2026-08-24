@@ -4,6 +4,25 @@ use super::*;
 use crate::emitter::literals::operand_local;
 use smelt_hir::FunctionType;
 
+/// How the emitted Rust value for a callee is invoked.
+///
+/// The three-valued generalisation of the `callee_uses_erased_call_method` /
+/// `callee_is_borrowed_function_handle` pair (Increment 2 of
+/// `blocker-logs/estk-callback-generics-plan.md`, §3).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CallbackHandleKind {
+    /// A `SmeltErasedFunction` value: invoked as `value.call(vec![..])`.
+    ErasedCall,
+    /// A borrowed `&dyn Fn(..)` handle: bare direct call syntax.
+    BorrowedDyn,
+    /// A borrowed `&F{n}` monomorphized generic handle: bare direct call
+    /// syntax, exactly as `BorrowedDyn`. Distinguished for honesty about the
+    /// emitted representation, not for dispatch — no caller branches on the
+    /// difference, because `impl<A, F: ?Sized + Fn<A>> Fn<A> for &F` makes the
+    /// two spellings callable identically.
+    MonomorphizedGeneric,
+}
+
 impl<'mir> FunctionEmitter<'mir> {
     /// Creates a new function emitter for the given MIR and function.
     pub(crate) fn new(
@@ -182,14 +201,22 @@ impl<'mir> FunctionEmitter<'mir> {
         // erasure (`suppress_type_params`). In that case the parameters and body
         // are already rendered as `SmeltUnknown`, so declaring `<T>` would leave
         // an unconstrained, uninferable type parameter on the signature.
+        // Source type parameters first, then Increment 2's generated
+        // `F{n}: Fn(..) + ?Sized` callback bounds, in declaration order.
         let generics = if *self.suppress_type_params.borrow() {
             String::new()
         } else {
-            crate::classes::function_impl_generics_text(
+            let mut parts = crate::classes::function_impl_generics_list(
                 self.mir,
                 self.function,
                 &self.context.owned_callback_params,
-            )?
+            )?;
+            parts.extend(self.callback_generic_bounds_text()?);
+            if parts.is_empty() {
+                String::new()
+            } else {
+                format!("<{}>", parts.join(", "))
+            }
         };
         out.push_str(&format!(
             "{}fn {}{generics}({fn_params}) -> {} {{\n",
@@ -2030,13 +2057,74 @@ impl<'mir> FunctionEmitter<'mir> {
         &self,
         callee: &Operand,
     ) -> Result<bool, EmitError> {
-        let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?) else {
-            return Ok(false);
+        Ok(matches!(
+            self.callback_handle_kind(callee)?,
+            Some(CallbackHandleKind::ErasedCall)
+        ))
+    }
+
+    /// Classify how the emitted Rust value for `callee` must be invoked.
+    ///
+    /// The one authority behind [`Self::callee_uses_erased_call_method`] and
+    /// [`Self::callee_is_borrowed_function_handle`], which are thin `matches!`
+    /// wrappers over it so the three call-shape ladders keep their exact
+    /// current text.
+    ///
+    /// `None` means the callee is an ordinary callable *value* with no special
+    /// handle shape; the ladders render it parenthesized (`({callee})({args})`).
+    ///
+    /// Precedence is load-bearing and unchanged: borrowed handles win over the
+    /// erased-rest shape. A callback parameter whose MIR type is the
+    /// erased-unknown-rest shape (`Fn(SmeltList<SmeltUnknown>) -> _`) is still
+    /// emitted as a borrowed handle — and is still `F{n}`-eligible, because
+    /// §4.4's rest test reads the *enclosing* function's packed rest parameter,
+    /// not the callback's own — so calling `.call(..)` on it would resolve to
+    /// the unstable `Fn::call` trait method (E0658 `fn_traits` plus E0308).
+    pub(super) fn callback_handle_kind(
+        &self,
+        callee: &Operand,
+    ) -> Result<Option<CallbackHandleKind>, EmitError> {
+        // `operand_ty` is resolved first so this helper keeps the exact error
+        // behaviour of the `callee_uses_erased_call_method` it replaces.
+        let erased_shape = match self.mir.types.get(self.operand_ty(callee)?) {
+            Some(Type::Function(function)) => {
+                self.is_erased_unknown_rest_function(function) && !function.may_throw
+            }
+            _ => false,
         };
-        if !self.is_erased_unknown_rest_function(function) || function.may_throw {
-            return Ok(false);
+        if let Operand::Copy(place) | Operand::Move(place) = callee
+            && self.is_function_parameter_place(place)?
+        {
+            return Ok(Some(self.borrowed_handle_kind(place)?));
         }
-        Ok(!self.callee_is_borrowed_function_handle(callee)?)
+        let callee_text = self.operand_text(callee)?;
+        if self.is_function_parameter_name(&callee_text)?
+            || self.is_borrowed_callback_capture_name(&callee_text)
+        {
+            let kind = match callee {
+                Operand::Copy(place) | Operand::Move(place) => self.borrowed_handle_kind(place)?,
+                Operand::Const(_) => CallbackHandleKind::BorrowedDyn,
+            };
+            return Ok(Some(kind));
+        }
+        if erased_shape {
+            return Ok(Some(CallbackHandleKind::ErasedCall));
+        }
+        Ok(None)
+    }
+
+    /// Which borrowed representation a known-borrowed callback place carries.
+    ///
+    /// Purely descriptive: both variants are invoked with the same bare direct
+    /// call syntax, because `impl<A, F: ?Sized + Fn<A>> Fn<A> for &F` makes a
+    /// `&F{n}` callable exactly like a `&dyn Fn(..)`.
+    fn borrowed_handle_kind(&self, place: &Place) -> Result<CallbackHandleKind, EmitError> {
+        if let Place::Local(local) = place
+            && self.callback_generic_name(*local)?.is_some()
+        {
+            return Ok(CallbackHandleKind::MonomorphizedGeneric);
+        }
+        Ok(CallbackHandleKind::BorrowedDyn)
     }
 
     /// Render the argument vector for a call through the erased
@@ -2086,14 +2174,10 @@ impl<'mir> FunctionEmitter<'mir> {
         &self,
         callee: &Operand,
     ) -> Result<bool, EmitError> {
-        if let Operand::Copy(place) | Operand::Move(place) = callee
-            && self.is_function_parameter_place(place)?
-        {
-            return Ok(true);
-        }
-        let callee_text = self.operand_text(callee)?;
-        Ok(self.is_function_parameter_name(&callee_text)?
-            || self.is_borrowed_callback_capture_name(&callee_text))
+        Ok(matches!(
+            self.callback_handle_kind(callee)?,
+            Some(CallbackHandleKind::BorrowedDyn | CallbackHandleKind::MonomorphizedGeneric)
+        ))
     }
 
     /// Adapt a concrete callable to an erased JS rest callable while preserving
@@ -2433,6 +2517,16 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             return_value
         };
+        // Increment 3: this is the renderer that produces the literal
+        // `&|| Default::default()` of §1.3. With no closure argument to carry
+        // the type, a callee type parameter appearing only in this callback's
+        // return has no inference source at all, so the annotation is what makes
+        // it definite. `callback_only_params_are_pinned_at_every_call_site`
+        // demotes the callee crate-wide for the same shape; the redundancy is
+        // deliberate, since the valve is crate-wide and this is local.
+        if let Some(annotation) = self.callback_return_annotation(function, callee_bindings)? {
+            return Ok(format!("&|{params}| -> {annotation} {{ {return_text} }}"));
+        }
         Ok(format!("&|{params}| {return_text}"))
     }
 
@@ -2889,6 +2983,15 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             "Vec<SmeltUnknown>"
         };
+        // Increment 3 deliberately emits NO return annotation here. This
+        // renderer threads no call-site bindings, so it can never be at a
+        // monomorphizing site -- the precondition
+        // `callback_return_annotation` requires -- and the only type
+        // environment available to it is the CALLER's lexical scope, under
+        // which rendering the callee's declared return captures the caller's
+        // unrelated same-named type parameter rather than pinning anything.
+        // With no bindings there is also nothing unsolved: the callee's
+        // declared rest-callback return is a known expected type.
         let closure = format!("move |smelt_args: {smelt_args_ty}| {return_text}");
         // When the source callback is NOT itself a function parameter, the
         // adapter body references it through a `smelt_callback` binding (see
@@ -2989,6 +3092,56 @@ impl<'mir> FunctionEmitter<'mir> {
             .unwrap_or(declared)
     }
 
+    /// The explicit `-> R` return annotation a call-site adapter closure needs,
+    /// or `None` when its return type is already determined.
+    ///
+    /// Increment 3 of `blocker-logs/estk-callback-generics-plan.md`. Callback
+    /// PARAMETER positions were never at risk — `callback_arg_decls` has always
+    /// annotated them — but a closure's RETURN type is inferred from its body,
+    /// and at a callee that infers a type parameter ONLY through this callback
+    /// there is nothing else to solve it from (`E0282`/`E0283`, §1.3).
+    ///
+    /// An inference variable exists only where the call site MONOMORPHIZED the
+    /// callee, so `callee_bindings` is the whole precondition: `Some` means the
+    /// callee is generic and this site pinned its type parameters, which is the
+    /// only situation in which the closure's return is genuinely unsolved. When
+    /// it is `None` the callee's signature carries no free variable at all — it
+    /// either is not generic or was not instantiated here — and its declared
+    /// callback return is a known expected type rustc coerces the closure to.
+    ///
+    /// That precondition also makes a whole class of miscompile structurally
+    /// unreachable. `Symbol` is name-interned, so rendering a callee's declared
+    /// type under the CALLER's lexical scope does not merely lose the binding,
+    /// it silently captures the caller's unrelated `T` (see the
+    /// `type_substitution` module docstring). Deriving the substitution here
+    /// from the bindings alone — the `Some` arm of [`callee_substitution`]
+    /// verbatim — means no caller scope can ever reach this rendering, so the
+    /// annotation cannot spell a name that is not the callee's own.
+    ///
+    /// The remaining `substituted != erased` test is what keeps it from being
+    /// churn: a binding that renders the same text the erasure would carries
+    /// nothing, so nothing is emitted.
+    ///
+    /// Rendered by [`Self::function_value_return_type_text`], the same helper
+    /// [`Self::callback_fn_trait_text`] uses to build the `F{n}: Fn(..) -> R`
+    /// bound, so the annotation and the bound cannot drift; it also composes
+    /// `may_throw` into `Result<T, Box<dyn Error>>` and a `Future` return into
+    /// `SmeltFuture<T>`.
+    fn callback_return_annotation(
+        &self,
+        target_function: &FunctionType,
+        callee_bindings: Option<&CalleeTypeParamBindings>,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(bindings) = callee_bindings else {
+            return Ok(None);
+        };
+        let substitution = TypeSubstitution::erased().with_bindings(bindings);
+        let substituted = self.function_value_return_type_text(target_function, &substitution)?;
+        let erased =
+            self.function_value_return_type_text(target_function, &TypeSubstitution::erased())?;
+        Ok((substituted != erased).then_some(substituted))
+    }
+
     pub(super) fn function_shape_adapter_text(
         &self,
         operand: &Operand,
@@ -3054,6 +3207,17 @@ impl<'mir> FunctionEmitter<'mir> {
         let substitution = callee_substitution(&caller_scope, callee_bindings);
         let arg_decls =
             self.callback_arg_decls(target_function, &substitution, MutablePrefix::Ignore)?;
+        // Increment 3 of the callback-generics plan: see
+        // `callback_return_annotation` for when this is `Some` and why. It is
+        // handed the same `callee_bindings` the `substitution` above is built
+        // from, so the annotation cannot disagree with the argument
+        // declarations it sits beside; when this site did not monomorphize it
+        // reads `None` and the caller's lexical scope never reaches a rendered
+        // return type.
+        //
+        // Measured: this is inert on all three compat corpora — every adapter
+        // in es-toolkit, remeda and radash is byte-identical.
+        let return_annotation = self.callback_return_annotation(target_function, callee_bindings)?;
         let forwarded = source
             .params
             .iter()
@@ -3306,13 +3470,18 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             default_adjusted_return_text
         };
+        // Rust requires a block body once a closure annotates its return type.
+        let closure_tail = match &return_annotation {
+            Some(annotation) => format!("-> {annotation} {{ {return_text} }}"),
+            None => return_text,
+        };
         let closure = if let Some(prelude) = callback_prelude {
             format!(
-                "{{ {prelude} move |{}| {return_text} }}",
+                "{{ {prelude} move |{}| {closure_tail} }}",
                 arg_decls.join(", ")
             )
         } else {
-            format!("move |{}| {return_text}", arg_decls.join(", "))
+            format!("move |{}| {closure_tail}", arg_decls.join(", "))
         };
         Ok(Some(if borrowed {
             format!("&mut {closure}")
@@ -4212,7 +4381,7 @@ fn unique_local_name(base_name: String, used: &mut HashSet<String>) -> String {
 /// pre-emission ownership analysis in `emitter::mod` (which runs before any
 /// `Emitter` exists) asks the exact same question the type renderer does. The
 /// method delegates here; the predicate has one definition.
-pub(super) fn is_erased_unknown_rest_function_in(
+pub(crate) fn is_erased_unknown_rest_function_in(
     types: &smelt_hir::TypeInterner,
     function: &FunctionType,
 ) -> bool {

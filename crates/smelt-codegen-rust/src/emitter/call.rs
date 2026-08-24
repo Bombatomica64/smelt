@@ -1022,10 +1022,36 @@ impl FunctionEmitter<'_> {
                             continue;
                         }
                     }
-                    if matches!(
-                        self.mir.types.get(self.operand_ty(arg)?),
-                        Some(Type::Function(_))
-                    ) && !self.type_accepts_erased_function(target_ty)
+                    // `value_at_type` passes an argument straight through when
+                    // the source and target `TypeId`s are equal, and MIR type
+                    // identity is not Rust type identity: `Symbol` is
+                    // name-interned, so a *lifted* caller's `SmeltList<T>` local
+                    // and a *demoted* callee's declared `T[]` parameter are one
+                    // `TypeId` rendering as `SmeltList<T>` and
+                    // `SmeltList<SmeltUnknown>` (E0308). Increments 1 and 2
+                    // never met this because their caller/callee pairs both
+                    // lift; Increment 3 is the first that can lift a caller
+                    // whose static callee stays erased.
+                    //
+                    // Same general rule, same mechanism as the `&mut` path:
+                    // compare the RENDERED types and, when they disagree, emit
+                    // the demotion signal so the caller's body-cleanliness trial
+                    // rejects its generic signature and the re-render finds both
+                    // sides erased.
+                    let source_ty = self.operand_ty(arg)?;
+                    if source_ty == target_ty
+                        && let Operand::Copy(place) | Operand::Move(place) = arg
+                        && !self.argument_renders_alike_across_call(
+                            source_ty,
+                            target_ty,
+                            Some(&free_function_type_params),
+                        )?
+                    {
+                        rendered_args.push(self.demoting_erased_argument_text(place, source_ty)?);
+                        continue;
+                    }
+                    if matches!(self.mir.types.get(source_ty), Some(Type::Function(_)))
+                        && !self.type_accepts_erased_function(target_ty)
                     {
                         rendered_args.push(self.default_value(target_ty)?);
                     } else {

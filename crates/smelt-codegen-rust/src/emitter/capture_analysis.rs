@@ -267,7 +267,7 @@ impl FunctionEmitter<'_> {
     /// TypeId equality alone is `E0308`.
     ///
     /// When the two renderings disagree the argument is rendered through
-    /// [`FunctionEmitter::demoting_mutable_reference_text`], which is a
+    /// [`FunctionEmitter::demoting_erased_argument_text`], which is a
     /// *demotion signal* rather than a rendering the emitted crate keeps: it
     /// carries an `into_smelt_unknown` token, so the body-cleanliness trial
     /// (`crate::emitter::core::body_needs_erased_carrier`) rejects the caller's
@@ -295,14 +295,14 @@ impl FunctionEmitter<'_> {
                 }
                 let place_ty = self.place_ty(place)?;
                 if place_ty == target {
-                    if self.mutable_reference_renders_alike(
+                    if self.argument_renders_alike_across_call(
                         place_ty,
                         target,
                         callee_emission_scope,
                     )? {
                         self.place_text(place)?
                     } else {
-                        self.demoting_mutable_reference_text(place, place_ty)?
+                        self.demoting_erased_argument_text(place, place_ty)?
                     }
                 } else {
                     self.value_at_type(operand, target)?
@@ -314,11 +314,22 @@ impl FunctionEmitter<'_> {
     }
 
     /// Return whether the caller's rendering of `arg_ty` equals the callee's
-    /// rendering of `target`, so a `&mut` borrow of the place is type-correct.
+    /// rendering of `target`, so passing the place straight through is
+    /// type-correct.
     ///
-    /// Always `true` when there is no callee emission scope to compare against;
-    /// see [`FunctionEmitter::mutable_reference_argument_text`].
-    fn mutable_reference_renders_alike(
+    /// MIR type identity is not Rust type identity: [`smelt_hir::Symbol`] is
+    /// name-interned, so a generic caller's `SmeltList<T>` local and an erased
+    /// callee's declared `T[]` parameter are the SAME `TypeId` while rendering
+    /// as `SmeltList<T>` and `SmeltList<SmeltUnknown>`. Every pass-through that
+    /// keys on `TypeId` equality has to consult this first — the `&mut` path
+    /// ([`FunctionEmitter::mutable_reference_argument_text`], where the failure
+    /// is invariance) and the by-value static-call path
+    /// (`call::static_call_argument_demotion_text`, where the failure is a
+    /// lifted caller statically calling a demoted callee whose type parameters
+    /// share names).
+    ///
+    /// Always `true` when there is no callee emission scope to compare against.
+    pub(super) fn argument_renders_alike_across_call(
         &self,
         arg_ty: TypeId,
         target: TypeId,
@@ -349,13 +360,17 @@ impl FunctionEmitter<'_> {
         Ok(caller_text == target_text)
     }
 
-    /// Render a `&mut` argument whose caller and callee renderings disagree.
+    /// Render an argument whose caller and callee renderings disagree.
     ///
-    /// This exists to be *rejected*. `&mut` is invariant, so there is no inline
+    /// This exists to be *rejected*. On the `&mut` path there is no inline
     /// expression that bridges a caller's `SmeltList<T>` to a callee's
-    /// `SmeltList<SmeltUnknown>` while preserving the callee's write-back; the
-    /// convert-in-place adapter (`call::static_call_mut_list_adapter_text`) is
-    /// the mechanism that does, and it declines on the throwing-call path.
+    /// `SmeltList<SmeltUnknown>` while preserving the callee's write-back
+    /// (`&mut` is invariant, and the convert-in-place adapter
+    /// `call::static_call_mut_list_adapter_text` declines on the throwing-call
+    /// path). On the by-value path the erasure below *would* be the correct
+    /// value, but emitting it would silently throw away the caller's generics
+    /// one argument at a time; demoting the caller as a whole is the honest
+    /// answer, and the same token produces it.
     ///
     /// So instead of emitting an unsound borrow, this emits the element-wise
     /// erasure of the place — a type-correct expression that *does* carry an
@@ -363,9 +378,9 @@ impl FunctionEmitter<'_> {
     /// the caller's trial body, the caller demotes to full erasure, and the
     /// re-render finds both sides erased and passes the place through as before.
     /// The text below therefore never reaches the emitted crate; the guards in
-    /// [`FunctionEmitter::mutable_reference_renders_alike`] are what make that
+    /// [`FunctionEmitter::argument_renders_alike_across_call`] are what make that
     /// true, and they must not be relaxed without replacing this mechanism.
-    fn demoting_mutable_reference_text(
+    pub(super) fn demoting_erased_argument_text(
         &self,
         place: &Place,
         place_ty: TypeId,

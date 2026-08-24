@@ -15,7 +15,8 @@ feature stacks directly on it.
 | Increment 1 — corrections to this document | §5's corpus list is over-counted: `pickBy`/`omitBy` are `<T extends Record<string, any>>` (constrained, so §1.4 already excluded them), `unzipWith`'s `R` is callback-return-only *and* a rest callback, `pullAllWith`'s callback is optional, and `xorWith`/`isSubsetWith`/`remove` keep `into_smelt_unknown`/`SmeltUnknown` in their trial bodies. §6.4's "1,500–2,500 tokens" is an order of magnitude too high: it counted 4,089 call-site tokens without running them through `classify_line`, and almost all of those lines are already `legitimate-boundary` because of the `unknown → f64` un-erasure ladder. The realistic Increment-1 ceiling is the ~160 tokens inside the lifted definitions. §4.3's widened valve is **not** implemented, and must not be implemented as written — see §7 note below. |
 | Increment 1 — §4.4 eligibility narrowing | **landed.** `function_emits_rust_generics` no longer lifts *any* callback-borne type parameter: a callback occurrence is liftable only in a **direct, required, borrowed, non-rest** `Type::Function` parameter, with the occurrence at that callback's own top level. `callback_occurrences_are_liftable` (`classes.rs`) implements it; the "borrowed" half consults the emitter's own ownership fixpoint (`emitter::compute_owned_callback_params`), threaded into the gate as a parameter rather than re-derived, so the gate and the renderer cannot grow two notions of "owned". Without it an *optional* callback (`cb: (v: T) => boolean = () => true`) emitted `Option<Rc<dyn Fn(T) -> bool>>` against a call site passing `None::<Rc<dyn Fn(SmeltUnknown) -> bool>>` — 21 × E0308 + 1 × E0631. Byte-inert on both compat crates (es-toolkit 745 files, remeda 391 files, zero files differ), so it costs no lift: es-toolkit's fifteen lifted definitions all have direct required borrowed callbacks. Six new `generics_tests.rs` cases pin each excluded shape as demoted plus the return-position boundary as still lifted; scratch repros under `scratchpad/inc1{def,fix,nested,rest,owned,higher,ret}`. |
 | Increment 2 — `F: Fn(..) + ?Sized` | not started |
-| Increment 3 — callback-only `T` | not started |
+| Increment 2 — `F: Fn(..) + ?Sized` | **landed.** 15 es-toolkit definitions carry an `F{n}` bound; erasure exactly unchanged (35258 → 35258), which is the increment's own bar. Two rules the plan had not stated: a callback mentioning no type parameter is not lifted (a `&F0` with `F0: ?Sized` cannot unsize to a `&dyn Fn` parameter of another callee), and generated names avoid every emitted crate type, not just source type parameters. |
+| Increment 3 — callback-only `T` | **landed, and it is a null result on the blocking corpus.** es-toolkit lifts ZERO new definitions and avoidable erasure moves by 0; remeda lifts exactly one (`times_implementation`). The machinery is correct and inert — the es-toolkit crate regenerates byte-identical — but §5's corpus list was substantially wrong. See "What Increment 3 actually found" below. |
 | Increments 4, 5 | deferred / out of scope, as written below |
 
 Both landed steps were verified byte-inert on both compat crates: es-toolkit
@@ -581,6 +582,45 @@ unrelated reason. Its return type is the union `[null, T] | [E, null]`, so the
 body builds `SmeltUnknown::Array(vec![SmeltUnknown::Null, T])` and the
 body-cleanliness trial (`core.rs:4384`) rejects it. `attempt` is the motivating
 example in the brief but is *not* a winner here; the array/`*By` families are.
+
+### What Increment 3 actually found
+
+Increment 3 works: a type parameter reachable only through a callback is now inferred through
+Increment 2's `F{n}: Fn(..) + ?Sized` bound. It lifts almost nothing, and the reason is not the
+inference — it is that §5's corpus list does not survive contact with the generated crate.
+
+Measured, per function on that list:
+
+* **`uniqBy`** — the archetype §5 leads with. Its body declares
+  `let mut map: SmeltJsMap<SmeltUnknown, SmeltUnknown>` from `new Map<U, T>()`, and `SmeltJsMap` is
+  an unconditional erased-carrier token, so the body trial rejects it. Nothing to do with
+  callbacks; it was never reachable by this increment.
+* **`unionBy`** — the only es-toolkit definition the relaxed gate does lift, and it miscompiles
+  (2 × E0308 + 1 × E0631) because its one body statement calls `uniqBy`, which demotes on
+  `SmeltJsMap`. It demotes through the general rendered-type-disagreement rule, not a carve-out.
+* **`differenceBy`, `intersectionBy`** — not Increment 3 cases at all. Both bind `T` and `U`
+  directly from their array parameters; §5 lists them in error.
+* **`countBy`-shaped unconstrained mappers** — no referent. `array/countBy` and
+  `compat/array/countBy` are `<T, K extends PropertyKey>`, excluded by §1.4's constrained-parameter
+  rule. The only unconstrained variant is `set/countBy`, and `src/set/` and `src/map/` are not
+  transpiled at all.
+* **`attempt`, `attemptAsync`** — demote at the gate, earlier and more cleanly than §5's stated
+  reason. `E` occurs in no parameter at all (only in the `[E, null]` return union), so both
+  disjuncts fail before the body trial runs. §5's body-cleanliness explanation is true but never
+  reached. Do not write a test asserting "`attempt` still erases": it passes for the wrong reason.
+* **`xorBy`, `flatMapDeep`** — bodies already carry `into_smelt_unknown` between genuinely
+  different MIR types, which survives substitution.
+
+**The structural cap.** es-toolkit's callback-only-`T` functions are overwhelmingly `compat/`
+wrappers whose callback lowers to an erased union (`Option<SmeltUnknown>`, `SmeltErasedFunction`)
+rather than `Type::Function`, or async functions whose callback the ownership fixpoint marks owned
+(`Rc<dyn Fn>`). Neither is `F{n}`-eligible, and neither becomes eligible by improving inference.
+
+**So the remaining erasure in this corpus is not gated on callback generics.** The three real
+blockers, in rough order of value, are: the `SmeltJsMap` erased carrier that stops `uniqBy` and
+everything built on it; the `compat/` wrappers' erased-union callback lowering; and the frontend
+contextual-typing gap already named at the end of §5. Increment 4 (owned callbacks) would address
+the async slice of the second.
 
 ### Increment 4 — owned callback parameters (optional, Option A territory)
 

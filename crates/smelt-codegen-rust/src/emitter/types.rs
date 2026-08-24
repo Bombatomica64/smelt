@@ -747,24 +747,120 @@ impl FunctionEmitter<'_> {
             // adapters are rendered elsewhere, under the call site's bindings.
             let scope = self.current_function_type_params();
             let substitution = TypeSubstitution::lexical(&scope);
-            let params = function
-                .params
-                .iter()
-                .enumerate()
-                .map(|(index, param)| {
-                    self.function_type_param_text(function, index, *param, &substitution)
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ");
-            // Render the return through the same canonical helper the
-            // `Type::Function` arm uses: a borrowed callback parameter must
-            // carry the SAME Rust type as the function value bound to it, or a
-            // throwing callback's `Result` is dropped at the parameter boundary
-            // and its error is forced into a `panic!` by the argument adapter.
-            let return_ty = self.function_value_return_type_text(function, &substitution)?;
-            return Ok(format!("&dyn Fn({params}) -> {return_ty}"));
+            // Both halves go through the canonical `callback_fn_trait_text`,
+            // which is also what renders an `F{n}` bound: a borrowed callback
+            // parameter must carry the SAME Rust type as the function value
+            // bound to it, or a throwing callback's `Result` is dropped at the
+            // parameter boundary and its error is forced into a `panic!` by the
+            // argument adapter.
+            return Ok(format!(
+                "&dyn {}",
+                self.callback_fn_trait_text(function, &substitution)?
+            ));
         }
         self.type_text(ty)
+    }
+
+    /// Render the `Fn({params}) -> {return}` trait text for one callback shape.
+    ///
+    /// The single producer of that inner text, shared by the borrowed
+    /// `&dyn Fn(..)` parameter rendering in [`Self::param_type_text`] and by the
+    /// `F{n}: Fn(..) + ?Sized` bound Increment 2 declares for a monomorphized
+    /// callback parameter. Sharing it is what guarantees the parameter spelling
+    /// and the bound spelling cannot drift — a signature whose `&F0` and whose
+    /// `F0: Fn(..)` disagreed would either fail to compile or silently re-erase.
+    ///
+    /// Both halves go through the canonical helpers:
+    /// [`Self::function_type_param_text`] (so `FunctionType::mutable_params`
+    /// still contributes its `&mut ` prefix) and
+    /// [`Self::function_value_return_type_text`] (so `may_throw` composes into
+    /// `Result<T, Box<dyn std::error::Error>>` and a `Future` return into
+    /// `SmeltFuture<T>`, with a generic return type substituted the same way in
+    /// both positions).
+    pub(super) fn callback_fn_trait_text(
+        &self,
+        function: &FunctionType,
+        substitution: &TypeSubstitution<'_>,
+    ) -> Result<String, EmitError> {
+        let params = function
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                self.function_type_param_text(function, index, *param, substitution)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        let return_ty = self.function_value_return_type_text(function, substitution)?;
+        Ok(format!("Fn({params}) -> {return_ty}"))
+    }
+
+    /// The generated `F{n}` type-parameter names this signature declares, paired
+    /// with the callback parameter each one types.
+    ///
+    /// The one place both Increment-2 consumers ask — the `&F{n}` parameter
+    /// rendering in [`Self::parameter_decl_type_text`] and the bound rendering
+    /// in [`Self::callback_generic_bounds_text`]. Building both from one list is
+    /// what keeps a declared bound and a used name in lockstep.
+    ///
+    /// Returns nothing in exactly the situations where
+    /// [`Self::current_function_type_params`] returns an empty set for a free
+    /// function: text destined for a hoisted module-level item may not spell a
+    /// type parameter, and a body-cleanliness trial that set
+    /// `suppress_type_params` has already forced the whole signature back to the
+    /// erased shape.
+    pub(super) fn callback_generic_params(&self) -> Result<Vec<(LocalId, String)>, EmitError> {
+        if self.hoisted_module_item.get() || *self.suppress_type_params.borrow() {
+            return Ok(Vec::new());
+        }
+        if !matches!(self.function.origin, HirOrigin::Body(_)) {
+            return Ok(Vec::new());
+        }
+        crate::classes::callback_generic_params(
+            self.mir,
+            self.function,
+            &self.context.owned_callback_params,
+        )
+    }
+
+    /// The generated `F{n}` name for one parameter, if it is rendered `&F{n}`.
+    pub(super) fn callback_generic_name(&self, local: LocalId) -> Result<Option<String>, EmitError> {
+        Ok(self
+            .callback_generic_params()?
+            .into_iter()
+            .find(|(param, _)| *param == local)
+            .map(|(_, name)| name))
+    }
+
+    /// Render the `F{n}: Fn(..) -> R + ?Sized` bounds this signature declares.
+    ///
+    /// `?Sized` is load-bearing twice over, and neither use is optional:
+    /// it lets `F{n}` unify with `dyn Fn(..)` so an existing `&*rc_handle`
+    /// argument still binds, and it lets a caller forward its own `&F{n}`
+    /// parameter into another generic helper (`helper(&*cb)`), which would
+    /// otherwise be an immediate `E0277` because the caller's `F{n}` is itself
+    /// not known to be `Sized`.
+    ///
+    /// The bound carries `Fn(..)` and `?Sized` and nothing else — no marker
+    /// traits and no `'static`. `'static` would break the `&*rc_handle`
+    /// argument, whose `dyn Fn(..) + 'a` is not `'static`.
+    pub(super) fn callback_generic_bounds_text(&self) -> Result<Vec<String>, EmitError> {
+        let scope = self.current_function_type_params();
+        let substitution = TypeSubstitution::lexical(&scope);
+        let mut bounds = Vec::new();
+        for (local, name) in self.callback_generic_params()? {
+            let ty = self.local_decl(local)?.ty;
+            let Some(Type::Function(function)) = self.mir.types.get(ty) else {
+                return Err(EmitError::new(
+                    "callback generic parameter is not a function type",
+                ));
+            };
+            bounds.push(format!(
+                "{name}: {} + ?Sized",
+                self.callback_fn_trait_text(function, &substitution)?
+            ));
+        }
+        Ok(bounds)
     }
 
     /// Convert a concrete function parameter declaration to Rust.
@@ -778,6 +874,14 @@ impl FunctionEmitter<'_> {
         }
         if matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
             if !self.function_parameter_requires_owned(local)? {
+                // Increment 2 (Option B): a direct required borrowed callback
+                // parameter of a generic free function is monomorphized as
+                // `&F{n}` rather than dispatched dynamically through
+                // `&dyn Fn(..)`. `callback_generic_bounds_text` declares the
+                // matching bound from the same list.
+                if let Some(name) = self.callback_generic_name(local)? {
+                    return Ok(format!("&{name}"));
+                }
                 return self.param_type_text(ty);
             }
             return self.type_text_with_impl_trait(ty, false);
