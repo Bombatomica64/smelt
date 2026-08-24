@@ -118,6 +118,10 @@ mod optional_access;
 mod place;
 mod rendered_text_rewrite;
 mod rendered_value;
+/// Debug-only emitter self-consistency checks; the module does not exist in a
+/// release build, so neither do its assertions or their call sites.
+#[cfg(debug_assertions)]
+mod seam_assertions;
 mod set;
 mod strings;
 mod strings_io;
@@ -676,7 +680,7 @@ fn callback_param_escapes_locally(
                 mir.types.get(dest_ty),
                 Some(Type::Function(dest_function))
                     if !dest_function.may_throw
-                        && crate::emitter::core::is_erased_unknown_rest_function_in(
+                        && is_erased_unknown_rest_function_in(
                             &mir.types,
                             dest_function,
                         )

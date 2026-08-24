@@ -16,7 +16,11 @@ use smelt_hir::FunctionType;
 /// keeps the two sides from disagreeing — a monomorphized argument with an
 /// erased return claim (or the reverse) is exactly the E0308 this analysis
 /// exists to prevent.
-struct CallMonomorphization {
+// `Debug`/`Eq` exist only for the debug-only seam assertion that compares the
+// argument half of a call site against its return half; a release build derives
+// nothing, exactly as before the assertions landed.
+#[cfg_attr(debug_assertions, derive(Debug, Eq, PartialEq))]
+pub(super) struct CallMonomorphization {
     /// Every declared type parameter of the callee, pinned to a concrete type.
     bindings: CalleeTypeParamBindings,
     /// The callee's declared return type with `bindings` applied.
@@ -965,6 +969,15 @@ impl FunctionEmitter<'_> {
                         )?);
                         continue;
                     }
+                    // Seam 4 (`emitter::seam_assertions`): reaching here means the
+                    // borrowed-callback branch declined this argument, so one of
+                    // the value-shaped branches below will claim it. A parameter
+                    // the callee declares behind an `F{n}` bound cannot survive
+                    // that.
+                    #[cfg(debug_assertions)]
+                    self.debug_assert_callback_generic_arg_is_borrowed(
+                        function, index, param, target_ty,
+                    );
                     // A `&mut` value parameter is rendered by the mutable-reference path,
                     // which passes a reference rather than a value.
                     //
@@ -1437,7 +1450,7 @@ impl FunctionEmitter<'_> {
     ///    position by position;
     /// 6. the substituted return type is an interned MIR type, so the call's own
     ///    Rust type can be named rather than guessed.
-    fn static_call_monomorphization(
+    pub(super) fn static_call_monomorphization(
         &self,
         function: &MirFunction,
         args: &[Operand],
@@ -2083,12 +2096,25 @@ impl FunctionEmitter<'_> {
         {
             return Ok(adapter);
         }
+        // Seam 2 (`emitter::seam_assertions`): the argument half of this call
+        // site is rendered inside `call_text` and the return half inside
+        // `call_emitted_source_ty`, each recomputing the monomorphization
+        // decision for itself. Sample it on both sides of the argument
+        // rendering and compare.
+        #[cfg(debug_assertions)]
+        let monomorphization_before_arguments = self.sampled_call_monomorphization(callee, args);
         let mut call_text = self.call_text(callee, args)?;
         if args.is_empty() && call_text.ends_with("(Vec::new())") {
             call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));
         } else if call_text == "(fn_)(Vec::new())" {
             "(fn_)()".clone_into(&mut call_text);
         }
+        #[cfg(debug_assertions)]
+        self.debug_assert_call_monomorphization_stable(
+            &self.sampled_callee_name(callee),
+            monomorphization_before_arguments.as_ref(),
+            self.sampled_call_monomorphization(callee, args).as_ref(),
+        );
         if let Callee::Static(func) = callee {
             let function = self
                 .mir
@@ -2333,6 +2359,40 @@ impl FunctionEmitter<'_> {
         // argument is what rustc reports as mismatched (E0308).
         let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty)
+    }
+
+    /// The monomorphization decision for a static callee, for seam checking.
+    ///
+    /// Debug-only. Returns `None` for a non-static callee and for any failure:
+    /// a check may not change emission, including by failing differently from
+    /// the emission path it observes.
+    #[cfg(debug_assertions)]
+    fn sampled_call_monomorphization(
+        &self,
+        callee: &Callee,
+        args: &[Operand],
+    ) -> Option<CallMonomorphization> {
+        let Callee::Static(func) = callee else {
+            return None;
+        };
+        let function = self
+            .mir
+            .functions
+            .get(id_index(func.0, "function index does not fit usize").ok()?)?;
+        self.static_call_monomorphization(function, args).ok()?
+    }
+
+    /// A callee's Rust name for a seam-assertion message.
+    #[cfg(debug_assertions)]
+    fn sampled_callee_name(&self, callee: &Callee) -> String {
+        let Callee::Static(func) = callee else {
+            return "<indirect callee>".to_owned();
+        };
+        id_index(func.0, "function index does not fit usize")
+            .ok()
+            .and_then(|index| self.mir.functions.get(index))
+            .and_then(|function| self.function_rust_name(function).ok())
+            .unwrap_or_else(|| "<unnameable callee>".to_owned())
     }
 
     /// Returns the static return type of a call expression.
