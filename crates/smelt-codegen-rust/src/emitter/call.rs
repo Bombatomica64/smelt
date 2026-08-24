@@ -1100,12 +1100,25 @@ impl FunctionEmitter<'_> {
 
     /// Renders arguments for a first-class function call using the callee's
     /// parameter types, including mutable callback arguments.
+    ///
+    /// A source call may supply fewer arguments than the callee's function type
+    /// declares whenever the trailing parameters are optional or defaulted
+    /// (`const f = (name?: string) => ..` invoked as `f()`). JavaScript fills the
+    /// gap with `undefined`, but the Rust value the callee lowered to is a
+    /// `dyn Fn(..)` of fixed arity, so every declared parameter must receive an
+    /// expression or rustc reports E0057 ("this function takes N arguments but M
+    /// arguments were supplied"). Missing trailing parameters are therefore
+    /// padded with their parameter type's default value — the same rule the
+    /// static-call argument ladder already applies to direct calls of a known
+    /// function, applied here to the value-callable form so both call shapes
+    /// agree on arity.
     pub(super) fn indirect_call_args_text(
         &self,
         function: &FunctionType,
         args: &[Operand],
     ) -> Result<String, EmitError> {
-        args.iter()
+        let mut rendered_args = args
+            .iter()
             .enumerate()
             .map(|(index, arg)| {
                 let target_ty = function
@@ -1119,8 +1132,24 @@ impl FunctionEmitter<'_> {
                     self.value_at_type(arg, target_ty)
                 }
             })
-            .collect::<Result<Vec<_>, _>>()
-            .map(|rendered_args| rendered_args.join(", "))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (index, target_ty) in function
+            .params
+            .iter()
+            .copied()
+            .enumerate()
+            .skip(args.len())
+        {
+            // A by-reference (`mutable_params`) parameter lowers to `&mut T`,
+            // which has no value-shaped default expression to pad with; such a
+            // parameter is only reachable through an explicit argument, so stop
+            // padding rather than inventing a temporary place for it.
+            if function.mutable_params.contains(&index) {
+                break;
+            }
+            rendered_args.push(self.default_value(target_ty)?);
+        }
+        Ok(rendered_args.join(", "))
     }
 
     /// Return the generic type parameters declared by the class that owns
