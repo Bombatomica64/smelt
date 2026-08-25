@@ -2016,3 +2016,64 @@ export function values(items: string[]): number[] {
         "a `Record<string, number>` read must stay concrete:\n{body}"
     );
 }
+
+/// A runtime type test must survive to runtime whenever the operand's static
+/// type does not settle it.
+///
+/// `Array.isArray(value?: any)` — the signature of es-toolkit's `isArray`, and
+/// so of the array branch of `toCamelCaseKeys`/`toSnakeCaseKeys` — has an
+/// `Optional(Unknown)` operand. The frontend fold only exempted bare
+/// `Unknown`/`TypeParam`/`Union` operands, so an optional fell through to the
+/// concrete case and the whole helper emitted as `return false;`, leaving the
+/// array branch dead. `Option<SmeltUnknown>` can hold `SmeltUnknown::Array`, so
+/// the answer is a runtime one and the emitter already knows how to ask it.
+#[test]
+fn array_is_array_on_an_optional_erased_parameter_probes_at_runtime() {
+    let source = source_for(
+        r"
+export function isArrayValue(value?: any): boolean {
+  return Array.isArray(value);
+}
+",
+    );
+
+    assert!(
+        source.contains("is_some_and(|smelt_value| matches!(smelt_value, SmeltUnknown::Array(_)))"),
+        "an optional erased operand keeps the runtime array probe:\n{source}"
+    );
+    assert!(
+        !source.contains("fn is_array_value(value: Option<SmeltUnknown>) -> bool {\n    return false;"),
+        "the helper must not fold to a constant `false`:\n{source}"
+    );
+}
+
+/// `typeof value === 'string'` inside an arrow used as a callback must lower to
+/// a runtime variant test over the union, not to a constant.
+///
+/// The callback lowering path folded every non-`unknown` operand through
+/// `type_matches_typeof`, which answers "could ANY runtime variant match?" — so
+/// over `number | string` it answered `true` and the predicate body became the
+/// literal `true`. That is what made `omitBy`/`pickBy` keep (or drop) every
+/// property. The named-function spelling of the same expression was always
+/// correct, because the statement path asks `static_typeof_match`, which
+/// reports "unsettled" when the arms disagree.
+#[test]
+fn arrow_predicate_typeof_over_a_union_emits_a_variant_test() {
+    let source = source_for(
+        r"
+export function countMatching(values: Array<number | string>, pred: (value: number | string) => boolean): number {
+  return values.filter(item => pred(item)).length;
+}
+
+export function run(values: Array<number | string>): number {
+  const isString = (value: number | string) => typeof value === 'string';
+  return countMatching(values, isString);
+}
+",
+    );
+
+    assert!(
+        source.contains("matches!(closure_arg_0.clone(), SmeltUnion"),
+        "the arrow predicate must test the union variant at runtime:\n{source}"
+    );
+}
