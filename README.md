@@ -143,7 +143,6 @@ Fork the repo and submit a pr :)
 | `smelt-frontend-ts` | 84.04% | 76.82% | 65.86% |
 | `smelt-hir` | 69.29% | 38.53% | 59.44% |
 | `smelt-mir` | 77.58% | 76.57% | 69.46% |
-| `smelt-py-ty-spike` | 0.00% | 0.00% | 0.00% |
 | `smelt-py-types` | 84.21% | 91.95% | 70.37% |
 | `smelt-runtime` | 98.48% | 99.71% | 90.00% |
 | `smelt-specialize` | 64.99% | 75.24% | 57.76% |

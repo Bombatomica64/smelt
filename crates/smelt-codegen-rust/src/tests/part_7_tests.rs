@@ -10770,3 +10770,108 @@ export function guarded(func: () => any, recover: (err: any) => any): any {
          the bogus back edge:\n{body}"
     );
 }
+
+/// A subclass's `impl` block carries the methods it inherits.
+///
+/// Smelt flattens inheritance — a subclass struct stores its base's fields
+/// inline — but Rust has no method inheritance, so a base method is only
+/// callable on a subclass receiver if it is emitted into the subclass's own
+/// `impl`. Without that, a body calling an inherited method lowered fine in the
+/// frontend and then failed to compile with `no method named 'fetch' found for
+/// reference '&B'`.
+#[test]
+fn subclass_impl_block_carries_inherited_methods() {
+    let source = source_for_py(
+        r"
+class A:
+    def __init__(self, x: int) -> None:
+        self.x = x
+    def fetch(self) -> int:
+        return self.x
+
+class B(A):
+    def __init__(self, x: int, y: int) -> None:
+        self.x = x
+        self.y = y
+    def total(self) -> int:
+        return self.fetch() + self.y
+",
+    );
+
+    let impl_b = source
+        .split("impl B {")
+        .nth(1)
+        .unwrap_or_else(|| panic!("expected an `impl B` block:\n{source}"));
+    assert!(
+        impl_b.contains("fn fetch(&self)"),
+        "`B` must carry the inherited `fetch`, or `self.fetch()` cannot \
+         compile:\n{source}"
+    );
+}
+
+/// An override replaces the inherited slot instead of emitting a second method
+/// of the same name, which would not compile.
+#[test]
+fn subclass_override_replaces_the_inherited_method() {
+    let source = source_for_py(
+        r"
+class A:
+    def __init__(self, x: int) -> None:
+        self.x = x
+    def fetch(self) -> int:
+        return self.x
+
+class B(A):
+    def fetch(self) -> int:
+        return 99
+",
+    );
+
+    let impl_b = source
+        .split("impl B {")
+        .nth(1)
+        .unwrap_or_else(|| panic!("expected an `impl B` block:\n{source}"));
+    assert_eq!(
+        impl_b.matches("fn fetch(&self)").count(),
+        1,
+        "the override must replace the inherited slot, not duplicate it:\n{source}"
+    );
+    assert!(
+        impl_b.contains("return 99"),
+        "the surviving `fetch` must be the override:\n{source}"
+    );
+}
+
+/// A Python `super().__init__(..)` runs the base constructor and copies the
+/// flattened base slots onto the derived instance, composing across levels.
+#[test]
+fn python_super_init_composes_across_inheritance_levels() {
+    let source = source_for_py(
+        r"
+class A:
+    def __init__(self, x: int) -> None:
+        self.x = x
+
+class B(A):
+    def __init__(self, x: int, y: int) -> None:
+        super().__init__(x)
+        self.y = y
+
+class C(B):
+    def __init__(self) -> None:
+        super().__init__(1, 2)
+        self.z = 3
+",
+    );
+
+    assert!(
+        source.contains("let __smelt_super: B = "),
+        "`C` must construct its immediate base `B`:\n{source}"
+    );
+    // `C::new` copies BOTH inherited slots out of the constructed `B`, so the
+    // base-most field reaches the leaf instance.
+    assert!(
+        source.contains("self_.x = __smelt_super.x") && source.contains("self_.y = __smelt_super.y"),
+        "both inherited slots must reach the leaf instance:\n{source}"
+    );
+}

@@ -5,8 +5,14 @@
 lives in `crates/smelt-py-types` and is consumed by `smelt-frontend-py` behind
 its optional `ty` feature. See "Productionization (issue #93)" at the end.
 
-The original spike crate `crates/smelt-py-ty-spike` is retained as the minimal
-feasibility harness.
+The original spike crate `crates/smelt-py-ty-spike` **has been removed**; this
+document is kept as the design record. It was the last consumer of `ty_project`,
+the one piece of the stack Astral does not publish to crates.io, so it stayed
+pinned to an upstream git revision while the productionized path moved to the
+released crates. Once those diverged far enough (Ruff/ty 0.0.10), the two trees
+resolved incompatible `compact_str` versions and any `--workspace` build — the
+coverage job among them — failed to compile `ruff_python_ast`. The described
+behaviour is reproducible through `smelt-py-types` instead.
 
 ## Motivation
 
@@ -26,7 +32,7 @@ the way the TS side could (in principle) lean on a checker.
 
 ## What the spike does
 
-`crates/smelt-py-ty-spike/src/main.rs`:
+The spike crate (`crates/smelt-py-ty-spike/src/main.rs`, since removed):
 
 1. Materializes a one-file Python project in a temp dir.
 2. Builds a `ty` project database (`ProjectDatabase::use_defaults`) over an
@@ -63,9 +69,10 @@ lowering walk with `inferred_type` lookups keyed on the nodes it already visits.
 - They do **not** pull the one git-only transitive dep (`lsp-types`, used by
   `ty_server`/`ruff_server`), so the closure stays inside the single
   `astral-sh/ruff` git source already pinned.
-- The spike crate is deliberately **excluded from `default-members`** so this
-  heavy tree does not affect the normal `cargo build`; only an explicit
-  `-p smelt-py-ty-spike` builds it.
+- The heavy tree is kept out of a normal `cargo build` by excluding its owner
+  from `default-members` — a property `smelt-py-types` inherited from the spike.
+  Note that `--workspace` builds (e.g. `cargo llvm-cov --workspace`) ignore
+  `default-members`, so a *member* crate on a divergent pin still gets compiled.
 - Sandbox/local builds still need the egress workaround (vendor the ruff repo at
   the pinned rev + a local-only `[patch."https://github.com/astral-sh/ruff"]`).
   CI, which can fetch GitHub, builds the git deps directly — same as the existing
@@ -97,11 +104,12 @@ lowering walk with `inferred_type` lookups keyed on the nodes it already visits.
 
 ## How to run
 
-```bash
-cargo run -p smelt-py-ty-spike
-```
+The spike binary no longer exists. The equivalent inference queries run through
+the productionized crate:
 
-(See the egress note above for local sandbox builds.)
+```bash
+cargo test -p smelt-py-types
+```
 
 ## Spike result
 
@@ -142,7 +150,7 @@ see `.github/compat/libraries.json`. So this isn't hypothetical: there's a real
 Python corpus a ty-backed frontend would run against.
 
 Pointing the spike at `rustedpy/result`'s `src/result/result.py` (the pinned
-probe ref) — `smelt-py-ty-spike <project-root> src/result/result.py` — gives:
+probe ref) — the spike's `<project-root> src/result/result.py` mode — gave:
 
 ```
 == ty diagnostics ==
@@ -173,7 +181,7 @@ What's missing is the integration + mapping layer, not the checker.
 ### Against full applications — and a mypy reality check
 
 Libraries are the easy case (small, dependency-free, heavily typed). The spike
-also has a **directory mode** (`smelt-py-ty-spike <project-root>`) that scans
+also had a **directory mode** (`<project-root>` with no file) that scanned
 every `.py` file and buckets diagnostics by ty rule id, splitting
 `unresolved-*` (environment noise) from real findings. Run against two real apps
 whose third-party dependencies are **not installed**:

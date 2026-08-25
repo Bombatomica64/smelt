@@ -93,7 +93,7 @@ impl ModuleBuilder<'_> {
         &self,
         call: &ruff_python_ast::ExprCall,
     ) -> Option<SmeltError> {
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         match call.func.as_ref() {
             Expr::Name(name) if name.id.as_str() == "open" => Some(SmeltError::unsupported(
                 span,
@@ -148,7 +148,7 @@ impl ModuleBuilder<'_> {
         if !matches!(constructor, "list" | "set" | "dict" | "tuple") {
             return Ok(None);
         }
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
                 span,

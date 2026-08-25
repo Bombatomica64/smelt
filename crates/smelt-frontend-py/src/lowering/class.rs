@@ -271,6 +271,17 @@ impl ModuleBuilder<'_> {
         let mut enum_members = HashMap::new();
         let mut abstract_methods = Vec::new();
 
+        // Instance fields Python declares by assignment in `__init__` rather
+        // than by a class-level annotation. Seeded before the body walk so that
+        // every method lowered below sees them (issue #94).
+        for field in self.implicit_constructor_fields(class)? {
+            self.class_fields
+                .entry(class_name_str.to_owned())
+                .or_default()
+                .push(field.clone());
+            fields.push(field);
+        }
+
         for body_stmt in &class.body {
             match body_stmt {
                 Stmt::AnnAssign(ann) => {
@@ -586,6 +597,217 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
+    /// Collect the instance fields a class declares by assigning them in
+    /// `__init__`, rather than by a class-level annotation.
+    ///
+    /// Python has no requirement that an instance field be annotated in the
+    /// class body; the idiomatic declaration is the constructor assignment
+    /// itself:
+    ///
+    /// ```python
+    /// class B:
+    ///     def __init__(self, inner: A) -> None:
+    ///         self.inner = inner      # <- this *is* the declaration
+    /// ```
+    ///
+    /// Without this pass such a class lowers with an empty field list, and
+    /// [`Self::field_type`]'s fieldless-class fallback then types *every*
+    /// `self.<name>` as the receiver's own class. That is silently wrong: it
+    /// makes `self.inner` a `B`, so `self.inner.a()` finds no method on `B` and
+    /// falls through to the unsupported-call diagnostic, and passing
+    /// `self.inner` to a parameter typed `A` fails to type-check.
+    ///
+    /// The rule is general, not a per-shape special case: a constructor
+    /// parameter (or an explicitly annotated constructor assignment) bound to
+    /// `self.<name>` declares `<name>` with that type. Two kinds of assignment
+    /// carry a type precise enough to declare a field:
+    ///
+    /// * `self.<name>: T = <value>` — the annotation states the field type;
+    /// * `self.<name> = <param>` — the field takes the parameter's type, which
+    ///   is the source annotation when present and otherwise `ty`'s resolved
+    ///   type for that parameter (issue #93).
+    ///
+    /// Anything else (a computed value, a literal, a call result) is left
+    /// alone: inferring it would need the constructor body lowered, which has
+    /// not happened yet at this point, and guessing would be worse than the
+    /// status quo. Names already declared by a class-level annotation are
+    /// skipped so the explicit declaration always wins, and only the *first*
+    /// assignment to a name is taken so a later re-assignment cannot silently
+    /// redeclare the field with a different type.
+    ///
+    /// Only the top-level statements of `__init__` are scanned. A field
+    /// assigned inside a branch has no single obvious type and stays out.
+    fn implicit_constructor_fields(
+        &mut self,
+        class: &StmtClassDef,
+    ) -> Result<Vec<Field>, SmeltError> {
+        let Some(init) = class.body.iter().find_map(|statement| match statement {
+            Stmt::FunctionDef(function) if function.name.as_str() == "__init__" => Some(function),
+            _ => None,
+        }) else {
+            return Ok(Vec::new());
+        };
+
+        // Names the class body already declares with an annotation. This pass
+        // runs before the body walk that lowers them (methods below need the
+        // fields in place), so the names are read straight off the AST rather
+        // than from the not-yet-populated field list.
+        let annotated: HashSet<&str> = class
+            .body
+            .iter()
+            .filter_map(|statement| match statement {
+                Stmt::AnnAssign(assign) => match assign.target.as_ref() {
+                    Expr::Name(target) => Some(target.id.as_str()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+
+        // Parameter name -> declared type, skipping the implicit `self`.
+        let mut param_types: HashMap<&str, TypeId> = HashMap::new();
+        for param_with_default in init.parameters.iter_non_variadic_params().skip(1) {
+            let param = &param_with_default.parameter;
+            let param_ty = match param.annotation.as_deref() {
+                Some(annotation) => Some(self.annotation_to_hir(annotation)?),
+                None => self.resolved_param_ty(param),
+            };
+            if let Some(param_ty) = param_ty {
+                param_types.insert(param.name.as_str(), param_ty);
+            }
+        }
+
+        let mut collected: Vec<Field> = Vec::new();
+        for statement in &init.body {
+            let Some((field_name, field_ty)) =
+                self.constructor_field_declaration(statement, &param_types)?
+            else {
+                continue;
+            };
+            // An explicit class-level annotation, or an earlier assignment to
+            // the same name, already declared this field.
+            if annotated.contains(field_name.as_str()) {
+                continue;
+            }
+            let field_sym = self.intern_name(&field_name);
+            if collected.iter().any(|field| field.name == field_sym) {
+                continue;
+            }
+            // Mirrors the class-level branch: an `Optional[T]` field is what
+            // Rust codegen turns into `Option<T>`.
+            let optional = matches!(
+                self.ctx.krate.types.get(field_ty),
+                Some(Type::Optional(_))
+            );
+            collected.push(Field {
+                name: field_sym,
+                ty: field_ty,
+                visibility: Visibility::Public,
+                optional,
+                span: self.span(statement.range()),
+            });
+        }
+        Ok(collected)
+    }
+
+    /// Read one `__init__` statement as an instance-field declaration.
+    ///
+    /// Returns the field name and its type for the two typed assignment shapes
+    /// described on [`Self::implicit_constructor_fields`], and `None` for any
+    /// statement that does not declare a field with a knowable type.
+    fn constructor_field_declaration(
+        &mut self,
+        statement: &Stmt,
+        param_types: &HashMap<&str, TypeId>,
+    ) -> Result<Option<(String, TypeId)>, SmeltError> {
+        /// `self.<name>` as an assignment target, or `None` for anything else.
+        fn self_field_target(target: &Expr) -> Option<&str> {
+            let Expr::Attribute(attribute) = target else {
+                return None;
+            };
+            match attribute.value.as_ref() {
+                Expr::Name(receiver) if receiver.id.as_str() == "self" => {
+                    Some(attribute.attr.as_str())
+                }
+                _ => None,
+            }
+        }
+
+        match statement {
+            // `self.<name>: T = <value>` — the annotation is the declaration.
+            Stmt::AnnAssign(assign) => {
+                let Some(field_name) = self_field_target(&assign.target) else {
+                    return Ok(None);
+                };
+                let field_ty = self.annotation_to_hir(&assign.annotation)?;
+                Ok(Some((field_name.to_owned(), field_ty)))
+            }
+            // `self.<name> = <value>` for a value whose type is knowable
+            // without lowering the constructor body.
+            Stmt::Assign(assign) => {
+                let [target] = assign.targets.as_slice() else {
+                    return Ok(None);
+                };
+                let Some(field_name) = self_field_target(target) else {
+                    return Ok(None);
+                };
+                Ok(self
+                    .constructor_value_type(assign.value.as_ref(), param_types)
+                    .map(|field_ty| (field_name.to_owned(), field_ty)))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// The HIR type of a constructor-assigned value, when it is knowable
+    /// without lowering the constructor body.
+    ///
+    /// This pass runs before any method body is lowered, so it cannot ask the
+    /// expression lowerer for a type. Three value shapes carry one anyway:
+    ///
+    /// * a reference to an `__init__` parameter — the parameter's type;
+    /// * a scalar literal (`0`, `1.5`, `"s"`, `True`, `None`);
+    /// * a constructor call for a class already registered in this module —
+    ///   `self.inner = Inner()` — which yields that class's type.
+    ///
+    /// Anything else (a call result, an operator expression, an empty container
+    /// with no element type) returns `None` and simply does not declare a
+    /// field; guessing would be worse than leaving it undeclared.
+    fn constructor_value_type(
+        &mut self,
+        value: &Expr,
+        param_types: &HashMap<&str, TypeId>,
+    ) -> Option<TypeId> {
+        match value {
+            Expr::Name(name) => param_types.get(name.id.as_str()).copied(),
+            Expr::NumberLiteral(number) => match &number.value {
+                ruff_python_ast::Number::Int(_) => Some(self.intern_type(Type::Int)),
+                ruff_python_ast::Number::Float(_) => Some(self.intern_type(Type::Float)),
+                ruff_python_ast::Number::Complex { .. } => None,
+            },
+            Expr::StringLiteral(_) => Some(self.intern_type(Type::String)),
+            Expr::BooleanLiteral(_) => Some(self.intern_type(Type::Bool)),
+            Expr::NoneLiteral(_) => Some(self.intern_type(Type::None)),
+            // `self.<name> = Klass(..)` — a constructor call for a class this
+            // module already registered.
+            Expr::Call(call) => {
+                let Expr::Name(callee) = call.func.as_ref() else {
+                    return None;
+                };
+                let item_id = *self.items.get(callee.id.as_str())?;
+                let Item::Class(class) = self.item_ref(item_id) else {
+                    return None;
+                };
+                let class_sym = class.name;
+                Some(self.intern_type(Type::Class {
+                    name: class_sym,
+                    args: vec![],
+                }))
+            }
+            _ => None,
+        }
+    }
+
     /// Returns whether `__init__` directly assigns the named instance field.
     fn constructor_assigns_instance_field(
         class: &StmtClassDef,
@@ -732,7 +954,7 @@ impl ModuleBuilder<'_> {
             Expr::Call(call) if Self::is_class_dunder_new_call(class_name, call) => {
                 let Some(value_expr) = call.arguments.args.first() else {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "IntEnum __new__ member calls require a value argument",
                     ));
                 };

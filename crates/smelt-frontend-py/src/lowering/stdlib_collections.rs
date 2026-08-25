@@ -13,7 +13,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.count() requires exactly one item argument",
             ));
         }
@@ -34,7 +34,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListCount { list, item },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -52,7 +52,7 @@ impl ModuleBuilder<'_> {
         }
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.copy() requires no arguments",
             ));
         }
@@ -64,7 +64,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListCopy { list },
             ty: list_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -82,7 +82,7 @@ impl ModuleBuilder<'_> {
         }
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "dict.copy() requires no arguments",
             ));
         }
@@ -94,7 +94,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::DictCopy { dict },
             ty: dict_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -112,7 +112,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "dict.update() requires exactly one dict argument",
             ));
         }
@@ -132,7 +132,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::DictUpdate { dict, other },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -150,7 +150,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.is_empty() || call.arguments.args.len() > 2 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "dict.pop() requires a key and optional default",
             ));
         }
@@ -185,7 +185,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::DictPop { dict, key, default },
             ty: value_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -203,7 +203,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.is_empty() || call.arguments.args.len() > 2 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "dict.get() requires a key and optional default",
             ));
         }
@@ -241,7 +241,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::DictGet { dict, key, default },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -259,7 +259,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 2 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "dict.setdefault() currently requires key and default arguments",
             ));
         }
@@ -287,7 +287,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::DictSetDefault { dict, key, default },
             ty: value_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -305,7 +305,7 @@ impl ModuleBuilder<'_> {
         }
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "collection clear requires no arguments",
             ));
         }
@@ -321,7 +321,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind,
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -360,14 +360,14 @@ impl ModuleBuilder<'_> {
         if method == "copy" {
             if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
                 return Err(SmeltError::unsupported(
-                    self.span(call.range),
+                    self.span(call.range()),
                     "set.copy() requires no arguments",
                 ));
             }
             return Ok(Some(body.push_expr(HirExpr {
                 kind: ExprKind::SetCopy { set },
                 ty: set_ty,
-                span: self.span(call.range),
+                span: self.span(call.range()),
             })));
         }
         if matches!(
@@ -376,7 +376,7 @@ impl ModuleBuilder<'_> {
         ) {
             if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
                 return Err(SmeltError::unsupported(
-                    self.span(call.range),
+                    self.span(call.range()),
                     "set union/intersection/difference/symmetric_difference require exactly one set argument",
                 ));
             }
@@ -401,13 +401,13 @@ impl ModuleBuilder<'_> {
                     right,
                 },
                 ty: set_ty,
-                span: self.span(call.range),
+                span: self.span(call.range()),
             })));
         }
         if method == "isdisjoint" {
             if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
                 return Err(SmeltError::unsupported(
-                    self.span(call.range),
+                    self.span(call.range()),
                     "set.isdisjoint() requires exactly one set argument",
                 ));
             }
@@ -422,13 +422,13 @@ impl ModuleBuilder<'_> {
             return Ok(Some(body.push_expr(HirExpr {
                 kind: ExprKind::SetDisjoint { left: set, right },
                 ty,
-                span: self.span(call.range),
+                span: self.span(call.range()),
             })));
         }
         if matches!(method, "issubset" | "issuperset") {
             if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
                 return Err(SmeltError::unsupported(
-                    self.span(call.range),
+                    self.span(call.range()),
                     "set.issubset()/issuperset() require exactly one set argument",
                 ));
             }
@@ -452,12 +452,12 @@ impl ModuleBuilder<'_> {
                     right,
                 },
                 ty,
-                span: self.span(call.range),
+                span: self.span(call.range()),
             })));
         }
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "set add/discard/remove require exactly one item argument",
             ));
         }
@@ -486,7 +486,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind,
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 }

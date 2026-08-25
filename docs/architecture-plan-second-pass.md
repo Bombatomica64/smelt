@@ -338,4 +338,5 @@ feature phase to stabilise.
   touches them, not as a separate project.
 - **A MIR redesign.** `Rvalue` at 176 variants is large, but the operand algebra
   landed and validation walks it generically.
-- **`smelt-gui`, `smelt-py-ty-spike`, `smelt-asyncio`.** Out of scope.
+- **`smelt-gui`, `smelt-asyncio`.** Out of scope. (`smelt-py-ty-spike` was
+  removed once `smelt-py-types` superseded it.)

@@ -14,8 +14,8 @@ use ruff_db::diagnostic::Diagnostic;
 use ruff_db::files::{File, Files};
 use ruff_db::system::{OsSystem, System, SystemPathBuf};
 use ruff_db::vendored::VendoredFileSystem;
-use ruff_python_ast::PythonVersion;
-use ty_module_resolver::{Db as ModuleResolverDb, SearchPathSettings, SearchPaths};
+use ty_module_resolver::{Db as ModuleResolverDb, SearchPathSettings};
+use ty_python_core::ProgramFile;
 use ty_python_core::platform::PythonPlatform;
 use ty_python_core::program::{FallibleStrategy, Program, ProgramSettings};
 use ty_python_semantic::lint::{LintRegistry, RuleSelection};
@@ -42,34 +42,49 @@ pub(crate) struct SmeltTyDb {
     rule_selection: Arc<RuleSelection>,
     /// Default inference and diagnostic analysis settings.
     analysis_settings: Arc<AnalysisSettings>,
+    /// Program-wide settings (Python version/platform and resolved search
+    /// paths) this database's [`Program`] is derived from.
+    ///
+    /// Since ty 0.0.10 the `Program` is no longer a database-global singleton
+    /// retrieved with `Program::get`; it is interned on demand from these
+    /// settings (see [`Self::program`]).
+    program_settings: ProgramSettings,
 }
 
 impl SmeltTyDb {
     /// Build a database rooted at the temporary directory containing the
     /// source module and initialize ty's program-wide search paths.
     pub(crate) fn new(system: OsSystem, source_root: SystemPathBuf) -> Result<Self> {
-        let db = Self {
+        let vendored = ty_vendored::file_system().clone();
+        let search_paths = SearchPathSettings::new(vec![source_root])
+            .to_search_paths(&system, &vendored, &FallibleStrategy)
+            .context("initialize ty search paths")?;
+
+        Ok(Self {
             storage: salsa::Storage::new(None),
             files: Files::default(),
             system,
-            vendored: ty_vendored::file_system().clone(),
+            vendored,
             rule_selection: RuleSelection::from_registry(default_lint_registry()).into(),
             analysis_settings: AnalysisSettings::default().into(),
-        };
-
-        let search_paths = SearchPathSettings::new(vec![source_root])
-            .to_search_paths(db.system(), db.vendored(), &FallibleStrategy)
-            .context("initialize ty search paths")?;
-        Program::from_settings(
-            &db,
-            ProgramSettings {
+            program_settings: ProgramSettings {
                 python_version: PythonVersionWithSource::default(),
                 python_platform: PythonPlatform::default(),
                 search_paths,
             },
-        );
+        })
+    }
 
-        Ok(db)
+    /// Intern this database's [`Program`] from its stored settings.
+    ///
+    /// ty's own project/test databases memoize this behind a salsa-tracked
+    /// query because interning a program hashes every search path. Smelt runs
+    /// one small module per database with exactly two search roots (the
+    /// temporary source directory and the vendored typeshed), so interning
+    /// directly is cheap and avoids depending on ty's `testing`-gated
+    /// `TestProgramDb` helper.
+    pub(crate) fn program(&self) -> Program<'_> {
+        Program::from_settings(self, &self.program_settings)
     }
 }
 
@@ -86,10 +101,6 @@ impl RuffDb for SmeltTyDb {
     fn files(&self) -> &Files {
         &self.files
     }
-
-    fn python_version(&self) -> PythonVersion {
-        Program::get(self).python_version(self)
-    }
 }
 
 #[salsa::db]
@@ -99,12 +110,11 @@ impl ty_python_core::Db for SmeltTyDb {
     }
 }
 
+// A marker trait since ty 0.0.10: module resolution is driven by the per-file
+// `ResolverEnvironment` carried on `ProgramFile` rather than by a database-wide
+// `search_paths()` accessor.
 #[salsa::db]
-impl ModuleResolverDb for SmeltTyDb {
-    fn search_paths(&self) -> &SearchPaths {
-        Program::get(self).search_paths(self)
-    }
-}
+impl ModuleResolverDb for SmeltTyDb {}
 
 #[salsa::db]
 impl SemanticDb for SmeltTyDb {
@@ -112,6 +122,14 @@ impl SemanticDb for SmeltTyDb {
         // Smelt queries inferred node types and never drives ty diagnostics.
         // Keeping this adapter empty avoids doing a redundant whole-file check.
         Vec::new()
+    }
+
+    fn program_file(&self, file: File) -> ProgramFile<'_> {
+        self.program().program_file(self, file)
+    }
+
+    fn python_version_with_source(&self, _file: File) -> &PythonVersionWithSource {
+        &self.program_settings.python_version
     }
 
     fn rule_selection(&self, _file: File) -> &RuleSelection {
@@ -127,6 +145,12 @@ impl SemanticDb for SmeltTyDb {
     }
 
     fn verbose(&self) -> bool {
+        false
+    }
+
+    /// Smelt is a batch compiler with no editor session, so no file is ever
+    /// "open"; ty only uses this to collect string-literal completions.
+    fn is_open_file(&self, _file: File) -> bool {
         false
     }
 

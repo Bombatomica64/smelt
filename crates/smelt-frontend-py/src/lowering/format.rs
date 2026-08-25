@@ -14,7 +14,7 @@ impl ModuleBuilder<'_> {
             "rstrip" => StringTrimSide::End,
             _ => return Ok(None),
         };
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
                 span,
@@ -51,7 +51,7 @@ impl ModuleBuilder<'_> {
             "endswith" => StringAffixOp::EndsWith,
             _ => return Ok(None),
         };
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
                 span,
@@ -94,7 +94,7 @@ impl ModuleBuilder<'_> {
             "rfind" => StringSearchOp::RFind,
             _ => return Ok(None),
         };
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
                 span,
@@ -136,7 +136,7 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "replace" {
             return Ok(None);
         }
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         let [pattern_expr, replacement_expr] = call.arguments.args.as_ref() else {
             return Err(SmeltError::unsupported(
                 span,
@@ -182,7 +182,7 @@ impl ModuleBuilder<'_> {
             "removesuffix" => StringAffixOp::EndsWith,
             _ => return Ok(None),
         };
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         let [affix_expr] = call.arguments.args.as_ref() else {
             return Err(SmeltError::unsupported(
                 span,
@@ -226,7 +226,7 @@ impl ModuleBuilder<'_> {
             "isalnum" => StringPredicateOp::IsAlnum,
             _ => return Ok(None),
         };
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
                 span,
@@ -260,7 +260,7 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "split" {
             return Ok(None);
         }
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
                 span,
@@ -310,7 +310,7 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "join" {
             return Ok(None);
         }
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         let [items_expr] = call.arguments.args.as_ref() else {
             return Err(SmeltError::unsupported(
                 span,

@@ -14,8 +14,9 @@
 //! consumes the types it resolves. `ty` already understands call-result types,
 //! unions/narrowing, generics, and — crucially — types that live in the
 //! **vendored typeshed stubs** rather than user source. The feasibility of
-//! embedding it was proven by `crates/smelt-py-ty-spike`; this crate
-//! productionizes that spike into a small, stable query surface.
+//! embedding it was proven by a since-removed spike crate (the design record
+//! lives in `specs/python-type-checking-with-ty.md`); this crate productionizes
+//! that spike into a small, stable query surface.
 //!
 //! # The stable query surface
 //!
@@ -76,7 +77,7 @@ use ruff_db::system::{OsSystem, SystemPathBuf};
 use ruff_python_ast::{Stmt, StmtFunctionDef};
 use ruff_text_size::Ranged;
 use ty_python_semantic::types::Type;
-use ty_python_semantic::{HasType, SemanticModel};
+use ty_python_semantic::{HasType, ProgramEnvironment, SemanticModel};
 
 use crate::db::SmeltTyDb;
 
@@ -177,11 +178,20 @@ pub fn resolve_module_types(source: &str, module_stem: &str) -> Result<ResolvedM
         .map_err(|original| anyhow!("non-UTF-8 source path: {}", original.display()))?;
     let file = system_path_to_file(&db, &file_system_path).context("resolve file in ty db")?;
 
-    let model = SemanticModel::new(&db, file);
-    let parsed = parsed_module(&db, file).load(&db);
+    // Since ty 0.0.10 the semantic model and the parser are keyed on the
+    // program-scoped views of a file rather than the bare `File`: a
+    // `ProgramFile` (file + program) for the model, and the `PythonFile`
+    // (file + Python version) it carries for the parse.
+    let program_file = db.program().program_file(&db, file);
+    let model = SemanticModel::new(&db, program_file);
+    let parsed = parsed_module(&db, program_file.python_file(&db)).load(&db);
+
+    // Rendering a `Type` now needs the program it was resolved in.
+    let environment = ProgramEnvironment::from_program(db.program());
 
     let mut collector = TypeCollector {
         db: &db,
+        environment: &environment,
         model: &model,
         resolved: ResolvedModuleTypes::default(),
     };
@@ -223,6 +233,8 @@ fn unique_temp_dir() -> std::path::PathBuf {
 struct TypeCollector<'a, 'db> {
     /// `ty` project database used to display resolved types.
     db: &'db SmeltTyDb,
+    /// Program context a resolved `Type` is rendered against (ty 0.0.10+).
+    environment: &'a ProgramEnvironment<'db>,
     /// `ty` semantic model used to query inferred node types.
     model: &'a SemanticModel<'db>,
     /// Accumulated resolved return/parameter type spellings.
@@ -269,7 +281,7 @@ impl TypeCollector<'_, '_> {
         for param in &func.parameters {
             let parameter = param.as_parameter();
             if let Some(ty) = parameter.inferred_type(self.model)
-                && let Some(spelling) = displayable_type(self.db, ty)
+                && let Some(spelling) = displayable_type(self.db, self.environment, ty)
             {
                 self.resolved
                     .param_types
@@ -281,6 +293,7 @@ impl TypeCollector<'_, '_> {
         // value-returning `return` statements. No such statement => `None`.
         let mut returns = FunctionReturnVisitor {
             db: self.db,
+            environment: self.environment,
             model: self.model,
             spellings: Vec::new(),
         };
@@ -304,6 +317,8 @@ impl TypeCollector<'_, '_> {
 struct FunctionReturnVisitor<'a, 'db> {
     /// `ty` project database used to display resolved types.
     db: &'db SmeltTyDb,
+    /// Program context a resolved `Type` is rendered against (ty 0.0.10+).
+    environment: &'a ProgramEnvironment<'db>,
     /// `ty` semantic model used to query inferred expression types.
     model: &'a SemanticModel<'db>,
     /// Canonical spellings gathered from each `return <expr>` site, in order.
@@ -320,7 +335,7 @@ impl<'db> FunctionReturnVisitor<'_, 'db> {
             Stmt::Return(ret) => {
                 if let Some(value) = ret.value.as_deref() {
                     if let Some(ty) = value.inferred_type(self.model)
-                        && let Some(spelling) = displayable_type(self.db, ty)
+                        && let Some(spelling) = displayable_type(self.db, self.environment, ty)
                     {
                         self.spellings.push(spelling);
                     } else {
@@ -427,12 +442,16 @@ fn child_stmts(stmt: &Stmt) -> Vec<&Stmt> {
 /// an explicit boundary rather than be routed through a catch-all. Everything
 /// else is displayed and lightly normalized into the annotation subset the
 /// frontend understands.
-fn displayable_type(db: &SmeltTyDb, ty: Type<'_>) -> Option<String> {
+fn displayable_type<'db>(
+    db: &'db SmeltTyDb,
+    environment: &ProgramEnvironment<'db>,
+    ty: Type<'db>,
+) -> Option<String> {
     // Drop dynamic / bottom types outright: these are genuine boundaries.
     if matches!(ty, Type::Dynamic(_) | Type::Never | Type::Divergent(_)) {
         return None;
     }
-    let spelling = ty.display(db).to_string();
+    let spelling = ty.display(db, environment).to_string();
     normalize_spelling(&spelling)
 }
 
