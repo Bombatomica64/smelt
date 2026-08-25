@@ -455,6 +455,26 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a nested Python function definition as a local closure value.
+    ///
+    /// # Return type
+    ///
+    /// The closure's return type is *not* required to be annotated. A nested
+    /// closure body is a single `return <expr>`, so the accurate return type is
+    /// the HIR type the frontend already computes for that expression while
+    /// lowering it into a [`CallbackExpr`]. The body is therefore lowered first
+    /// and its type used directly when the source omits `-> T` (issue #93:
+    /// idiomatic Python omits annotations, and the actual returned type is the
+    /// one lowering must follow). A declared `-> T` still wins when present and
+    /// is checked against the lowered body, so an explicit source contract is
+    /// never silently widened.
+    ///
+    /// # Parameter types
+    ///
+    /// Parameter types must be known *before* the body is lowered (they seed the
+    /// callback parameter environment), so they come from the annotation when
+    /// present and otherwise from `ty`'s resolved type for that parameter node.
+    /// A parameter `ty` cannot resolve stays an explicit error rather than being
+    /// routed through an erased ABI.
     fn nested_function_closure(
         &mut self,
         func: &StmtFunctionDef,
@@ -466,31 +486,26 @@ impl ModuleBuilder<'_> {
                 "async nested closures need async closure-body lowering",
             ));
         }
-        let return_ty = func
+        let declared_return_ty = func
             .returns
             .as_deref()
-            .ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(func.range),
-                    "nested closure return type must be explicit",
-                )
-            })
-            .and_then(|annotation| self.annotation_to_hir(annotation))?;
+            .map(|annotation| self.annotation_to_hir(annotation))
+            .transpose()?;
         let mut params = Vec::new();
         let mut callback_params = HashMap::new();
         let mut defaults = Vec::new();
         for (index, param_with_default) in func.parameters.iter_non_variadic_params().enumerate() {
             let param = &param_with_default.parameter;
-            let param_ty = param
-                .annotation
-                .as_deref()
-                .ok_or_else(|| {
+            let param_ty = match param.annotation.as_deref() {
+                Some(annotation) => self.annotation_to_hir(annotation)?,
+                // No annotation: consult `ty` (issue #93) before erroring.
+                None => self.resolved_param_ty(param).ok_or_else(|| {
                     SmeltError::type_constraint(
                         self.span(param.range),
                         "nested closure parameters must have explicit type annotations",
                     )
-                })
-                .and_then(|annotation| self.annotation_to_hir(annotation))?;
+                })?,
+            };
             params.push(param_ty);
             callback_params.insert(
                 param.name.as_str(),
@@ -573,12 +588,21 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let callback = self.python_callback_expr(return_expr, &callback_params, body)?;
-        if callback.ty != return_ty {
-            return Err(SmeltError::unsupported(
-                self.span(return_stmt.range),
-                "nested closure return type does not match its annotation",
-            ));
-        }
+        // With no declared `-> T`, the lowered body's own type *is* the closure's
+        // return type; with one, the declaration is the contract and the body
+        // must satisfy it exactly.
+        let return_ty = match declared_return_ty {
+            None => callback.ty,
+            Some(declared) => {
+                if callback.ty != declared {
+                    return Err(SmeltError::unsupported(
+                        self.span(return_stmt.range),
+                        "nested closure return type does not match its annotation",
+                    ));
+                }
+                declared
+            }
+        };
         let name_text = func.name.as_str();
         let name = self.intern_name(name_text);
         let ty = self.intern_type(Type::Function(FunctionType {
@@ -786,7 +810,7 @@ impl ModuleBuilder<'_> {
         };
         if raises_call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(raises_call.range),
+                self.span(raises_call.range()),
                 "pytest.raises requires an expected exception type",
             ));
         }

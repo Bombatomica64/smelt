@@ -17,10 +17,17 @@ workspace = true
 [dependencies]
 anyhow = "1.0.103"
 
-# `ty` and the ruff parser crates are not published to crates.io, so they are
-# pulled from the upstream git repo pinned to the SAME revision already used by
-# `smelt-frontend-py` (`ruff_python_parser`/`ruff_python_ast`/`ruff_text_size`),
-# which keeps the workspace on one ruff checkout.
+# This spike stays on a pinned upstream git revision because `ty_project` — the
+# whole point of the spike, ty's project-discovery database — is still the one
+# piece of the stack Astral does not publish to crates.io. Everything else here
+# is now published: the productionized path (`smelt-py-types`) dropped
+# `ty_project` for a local `SmeltTyDb` and tracks the released Ruff/ty crates
+# (0.0.10 at time of writing).
+#
+# Consequence: this crate resolves a SECOND, older copy of the ruff/ty tree in
+# `Cargo.lock`. It is excluded from `default-members` and built by neither CI
+# nor any script, so nothing pays for it at build time — but the spike has been
+# superseded by `smelt-py-types` and is a removal candidate.
 ruff_db = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938", features = ["os"] }
 ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938" }
 ty_project = { git = "https://github.com/astral-sh/ruff", rev = "f82a36b6baf8c0547a17bbde6c0d927ccd45d938" }

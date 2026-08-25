@@ -18,7 +18,7 @@ impl ModuleBuilder<'_> {
         };
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.pop() index arguments are not supported yet",
             ));
         }
@@ -26,7 +26,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListPop { list },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -44,7 +44,7 @@ impl ModuleBuilder<'_> {
         }
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.reverse() requires no arguments",
             ));
         }
@@ -57,7 +57,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListReverse { list },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -75,7 +75,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.append() requires exactly one item argument",
             ));
         }
@@ -88,7 +88,7 @@ impl ModuleBuilder<'_> {
         let item = self.expression(&call.arguments.args[0], body)?;
         if Self::expr_ty(body, item) != element_ty {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.append() argument must match the list element type",
             ));
         }
@@ -96,7 +96,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListPush { list, item },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 

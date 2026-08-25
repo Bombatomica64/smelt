@@ -6,7 +6,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let span = self.span(call.range);
+        let span = self.span(call.range());
 
         if let Some(expr) = self.stdlib_module_call_expression(call, body)? {
             return Ok(expr);
@@ -448,7 +448,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ClosureCall { callee, args },
             ty: function.return_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -481,7 +481,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ClosureCall { callee, args },
             ty: function.return_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -492,7 +492,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         signature: &CallableCallSignature<'_>,
     ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         let supplied_arg_count = call.arguments.args.len();
         if signature.kwarg.is_none() && !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
@@ -745,7 +745,7 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         // `cls(args)` — construct the owning class. `cls` is the class-method
         // receiver local bound to `Type::Class`; keying on the `cls` binding
         // name distinguishes the class object from an instance value (both carry

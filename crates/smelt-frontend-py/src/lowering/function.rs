@@ -66,7 +66,7 @@ impl ModuleBuilder<'_> {
                     };
                     let Some(condition) = call.arguments.args.first() else {
                         return Err(SmeltError::unsupported(
-                            self.span(call.range),
+                            self.span(call.range()),
                             "pytest.mark.skipif requires a boolean condition",
                         ));
                     };
@@ -126,7 +126,7 @@ impl ModuleBuilder<'_> {
         };
         let [names_expr, rows_expr] = call.arguments.args.as_ref() else {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "pytest.mark.parametrize requires names and rows",
             ));
         };
@@ -304,7 +304,7 @@ return_ty,
             {
                 if call.arguments.args.len() < width {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "pytest.param row width does not match parameter names",
                     ));
                 }
@@ -353,7 +353,7 @@ return_ty,
             Expr::Call(call) if Self::is_pytest_param_call(call) => {
                 let Some(value) = call.arguments.args.first() else {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "pytest.param requires at least one value",
                     ));
                 };

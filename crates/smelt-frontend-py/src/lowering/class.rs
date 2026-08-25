@@ -732,7 +732,7 @@ impl ModuleBuilder<'_> {
             Expr::Call(call) if Self::is_class_dunder_new_call(class_name, call) => {
                 let Some(value_expr) = call.arguments.args.first() else {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "IntEnum __new__ member calls require a value argument",
                     ));
                 };

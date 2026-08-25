@@ -267,3 +267,86 @@ class Doc:
     )?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Nested closure return-type inference (issue #93 / #94 blocker family
+// `nested closure return type must be explicit`).
+// ---------------------------------------------------------------------------
+
+/// A nested `def` without a `-> T` annotation lowers, taking its return type
+/// from the type its single `return` expression actually lowers to.
+///
+/// This is the shape idiomatic Python writes (`funcy`, `toolz`, and
+/// `more-itertools` between them hit the old hard error 72 times), and the
+/// closure's return type is knowable without any annotation: the body *is* one
+/// expression, so its lowered HIR type is the accurate answer.
+#[test]
+fn nested_closure_without_return_annotation_lowers() -> TestResult {
+    let source = py!(r#"
+def make_adder(n: int) -> int:
+    def add(x: int):
+        return x + n
+    return add(1)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = named_function_body(&ctx, module, "make_adder")?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })),
+        "expected the unannotated nested closure to lower and be callable",
+    )?;
+    Ok(())
+}
+
+/// The inferred return type is the *concrete* lowered type, not an erased one:
+/// a closure whose body builds a `str` gets `Type::String`, so the enclosing
+/// function's `-> str` contract type-checks against it.
+#[test]
+fn nested_closure_infers_concrete_return_type() -> TestResult {
+    let source = py!(r#"
+def describe(n: int) -> str:
+    def label(x: str):
+        return "v" + x
+    return label("1")
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = named_function_body(&ctx, module, "describe")?;
+    let call_ty = body
+        .exprs
+        .iter()
+        .find(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+        .map(|expr| expr.ty)
+        .ok_or("expected a nested closure call")?;
+    ensure(
+        matches!(ctx.krate.types.get(call_ty), Some(Type::String)),
+        "expected the inferred closure return type to be the concrete `str`",
+    )?;
+    Ok(())
+}
+
+/// A declared `-> T` on a nested closure remains a contract: it is checked
+/// against the lowered body and a divergent body is still rejected. Inference
+/// only fills in the *missing* annotation; it never overrides a present one.
+#[test]
+fn nested_closure_return_annotation_is_still_enforced() -> TestResult {
+    let source = py!(r#"
+def broken(n: int) -> int:
+    def add(x: int) -> str:
+        return x + n
+    return add(1)
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    ensure(
+        first_error(&errors)?
+            .message
+            .contains("nested closure return type does not match its annotation"),
+        "expected a mismatched nested closure annotation to still be rejected",
+    )?;
+    Ok(())
+}

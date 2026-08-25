@@ -19,7 +19,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "json.dumps() currently supports exactly one value argument",
             ));
         }
@@ -34,7 +34,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::JsonStringify { value },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -59,19 +59,19 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "json.loads() currently supports exactly one text argument",
             ));
         }
         let Some(ty) = type_hint else {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "json.loads() requires an annotated destination type",
             ));
         };
         if !self.is_json_serializable_type(ty) {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "json.loads() destination type must be JSON-compatible",
             ));
         }
@@ -85,7 +85,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::JsonParse { text },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -115,7 +115,7 @@ impl ModuleBuilder<'_> {
         };
         if call.arguments.args.len() != 2 || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "re.search/match/fullmatch currently require pattern and text arguments only",
             ));
         }
@@ -125,7 +125,7 @@ impl ModuleBuilder<'_> {
             || self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
         {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "re.search/match/fullmatch require string pattern and text arguments",
             ));
         }
@@ -137,7 +137,7 @@ impl ModuleBuilder<'_> {
                 haystack,
             },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -160,14 +160,14 @@ impl ModuleBuilder<'_> {
             "sub" => {
                 if call.arguments.args.len() != 3 || !call.arguments.keywords.is_empty() {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "re.sub() currently supports pattern, replacement, and text arguments only",
                     ));
                 }
                 let pattern = self.expression(&call.arguments.args[0], body)?;
                 let replacement = self.expression(&call.arguments.args[1], body)?;
                 let haystack = self.expression(&call.arguments.args[2], body)?;
-                self.require_string_exprs(&[pattern, replacement, haystack], body, call.range)?;
+                self.require_string_exprs(&[pattern, replacement, haystack], body, call.range())?;
                 let ty = self.intern_type(Type::String);
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::RegexReplace {
@@ -177,25 +177,25 @@ impl ModuleBuilder<'_> {
                         replacement,
                     },
                     ty,
-                    span: self.span(call.range),
+                    span: self.span(call.range()),
                 })))
             }
             "split" => {
                 if call.arguments.args.len() != 2 || !call.arguments.keywords.is_empty() {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "re.split() currently supports pattern and text arguments only",
                     ));
                 }
                 let pattern = self.expression(&call.arguments.args[0], body)?;
                 let haystack = self.expression(&call.arguments.args[1], body)?;
-                self.require_string_exprs(&[pattern, haystack], body, call.range)?;
+                self.require_string_exprs(&[pattern, haystack], body, call.range())?;
                 let str_ty = self.intern_type(Type::String);
                 let ty = self.intern_type(Type::List(str_ty));
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::RegexSplit { pattern, haystack },
                     ty,
-                    span: self.span(call.range),
+                    span: self.span(call.range()),
                 })))
             }
             _ => Ok(None),
@@ -225,7 +225,7 @@ impl ModuleBuilder<'_> {
             "read" => {
                 if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "open(...).read() currently supports no read size argument",
                     ));
                 }
@@ -233,23 +233,23 @@ impl ModuleBuilder<'_> {
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::FileReadText { path },
                     ty,
-                    span: self.span(call.range),
+                    span: self.span(call.range()),
                 })))
             }
             "write" => {
                 if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "open(...).write(text) requires exactly one text argument",
                     ));
                 }
                 let text = self.expression(&call.arguments.args[0], body)?;
-                self.require_string_exprs(&[text], body, call.range)?;
+                self.require_string_exprs(&[text], body, call.range())?;
                 let ty = self.intern_type(Type::Int);
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::FileWriteText { path, text },
                     ty,
-                    span: self.span(call.range),
+                    span: self.span(call.range()),
                 })))
             }
             _ => Ok(None),
@@ -266,7 +266,7 @@ impl ModuleBuilder<'_> {
             Some(RuleId::PyDateTimeNow) => {
                 if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "datetime.datetime.now()/utcnow() currently support no arguments",
                     ));
                 }
@@ -274,18 +274,18 @@ impl ModuleBuilder<'_> {
                 let now = body.push_expr(HirExpr {
                     kind: ExprKind::DateNow,
                     ty: self.intern_type(Type::Int),
-                    span: self.span(call.range),
+                    span: self.span(call.range()),
                 });
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::DateToIsoString { timestamp_ms: now },
                     ty,
-                    span: self.span(call.range),
+                    span: self.span(call.range()),
                 })))
             }
             Some(RuleId::PyDateTimeFromTimestamp) => {
                 if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "datetime.datetime.fromtimestamp() requires one timestamp argument",
                     ));
                 }
@@ -295,14 +295,14 @@ impl ModuleBuilder<'_> {
                     Some(Type::Int | Type::Float)
                 ) {
                     return Err(SmeltError::unsupported(
-                        self.span(call.range),
+                        self.span(call.range()),
                         "datetime.datetime.fromtimestamp() requires a numeric timestamp",
                     ));
                 }
                 let thousand = body.push_expr(HirExpr {
                     kind: ExprKind::Literal(smelt_hir::Literal::Int(1000)),
                     ty: self.intern_type(Type::Int),
-                    span: self.span(call.range),
+                    span: self.span(call.range()),
                 });
                 let timestamp_ms = body.push_expr(HirExpr {
                     kind: ExprKind::BinOp {
@@ -311,13 +311,13 @@ impl ModuleBuilder<'_> {
                         rhs: thousand,
                     },
                     ty: Self::expr_ty(body, seconds),
-                    span: self.span(call.range),
+                    span: self.span(call.range()),
                 });
                 let ty = self.intern_type(Type::String);
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::DateToIsoString { timestamp_ms },
                     ty,
-                    span: self.span(call.range),
+                    span: self.span(call.range()),
                 })))
             }
             Some(_) | None => Ok(None),
@@ -347,7 +347,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::UrlField { field, url },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -386,7 +386,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if open_call.arguments.args.is_empty() || open_call.arguments.args.len() > 2 {
             return Err(SmeltError::unsupported(
-                self.span(open_call.range),
+                self.span(open_call.range()),
                 "open() currently supports path and optional text mode only",
             ));
         }
@@ -399,7 +399,7 @@ impl ModuleBuilder<'_> {
             ));
         }
         let path = self.expression(&open_call.arguments.args[0], body)?;
-        self.require_string_exprs(&[path], body, open_call.range)?;
+        self.require_string_exprs(&[path], body, open_call.range())?;
         Ok(path)
     }
 
@@ -417,12 +417,12 @@ impl ModuleBuilder<'_> {
         }
         if parse_call.arguments.args.len() != 1 || !parse_call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(parse_call.range),
+                self.span(parse_call.range()),
                 "urllib.parse.urlparse() currently requires exactly one URL argument",
             ));
         }
         let url = self.expression(&parse_call.arguments.args[0], body)?;
-        self.require_string_exprs(&[url], body, parse_call.range)?;
+        self.require_string_exprs(&[url], body, parse_call.range())?;
         Ok(Some(url))
     }
 
